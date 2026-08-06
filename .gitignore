@@ -1,0 +1,63 @@
+# ---- Local tooling / editor state (never tracked) ----
+.vscode/
+.idea/
+*.code-workspace
+.DS_Store
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+.python-version
+
+# Tooling caches
+.pytest_cache/
+.hypothesis/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+.nox/
+
+# ---- Node / web ----
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+.npm/
+.pnpm-store/
+
+# ---- Environment & secrets ----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+
+# ---- Benchmark & analysis artifacts ----
+# Raw simulation output is large and reproducible from a seed + grid config.
+# Committed summary tables and figures live under benchmarks/results/ and
+# benchmarks/figures/, which are explicitly re-included below.
+benchmarks/cache/
+benchmarks/runs/
+*.parquet
+!benchmarks/results/**/*.parquet
+data/scratch/
+mlruns/
+
+# ---- OS / misc ----
+Thumbs.db
+*.log
