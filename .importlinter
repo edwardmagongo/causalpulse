@@ -1,0 +1,13 @@
+[importlinter]
+root_packages =
+    cp_core
+
+[importlinter:contract:core-is-standalone]
+name = cp_core depends on no other CausalPulse package
+type = forbidden
+source_modules =
+    cp_core
+forbidden_modules =
+    cp_statistics
+    cp_simulation
+    cp_causal
