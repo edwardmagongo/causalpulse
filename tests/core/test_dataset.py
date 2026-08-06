@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -108,3 +109,24 @@ def test_panel_dataset_is_panel():
     assert dataset.schema.is_panel is True
     assert dataset.n_units == 2
     assert dataset.n_treated_units == 1
+
+
+def test_dataset_rejects_treatment_with_missing_values():
+    frame = pd.DataFrame(
+        {
+            "unit": [1, 1, 2, 2],
+            "period": [0, 1, 0, 1],
+            "treated": [np.nan, np.nan, 0, 1],
+            "y": [1.0, 2.0, 3.0, 4.0],
+        }
+    )
+    schema = CausalSchema(
+        unit="unit",
+        time="period",
+        treatment="treated",
+        outcome="y",
+        covariates=(),
+        outcome_type="continuous",
+    )
+    with pytest.raises(ValueError, match="missing"):
+        CausalDataset(frame=frame, schema=schema)

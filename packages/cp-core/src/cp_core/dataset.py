@@ -50,6 +50,7 @@ class CausalDataset:
 
     def __post_init__(self) -> None:
         self._validate_columns_present()
+        self._validate_treatment_missing_values()
         self._validate_treatment_is_binary()
         self._validate_outcome_type()
         self._validate_no_duplicate_observations()
@@ -58,6 +59,12 @@ class CausalDataset:
         missing = [c for c in self.schema.required_columns if c not in self.frame.columns]
         if missing:
             raise ValueError(f"frame is missing required columns: {sorted(missing)}")
+
+    def _validate_treatment_missing_values(self) -> None:
+        if self.frame[self.schema.treatment].isna().any():
+            raise ValueError(
+                f"treatment column {self.schema.treatment!r} contains missing values"
+            )
 
     def _validate_treatment_is_binary(self) -> None:
         values = pd.unique(self.frame[self.schema.treatment].dropna())
