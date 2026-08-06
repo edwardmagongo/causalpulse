@@ -78,12 +78,18 @@ def bootstrap_interval(
         raise ValueError(f"reps must be positive, got {reps}")
 
     data = np.asarray(data, dtype=float)
+    n = data.shape[0]
     if clusters is not None:
         clusters = np.asarray(clusters)
         if clusters.shape[0] != data.shape[0]:
             raise ValueError(
                 f"clusters has length {clusters.shape[0]} but data has {data.shape[0]}"
             )
+    if kind == "block" and block_size is not None:
+        if block_size < 1:
+            raise ValueError(f"block_size must be positive, got {block_size}")
+        if block_size > n:
+            raise ValueError(f"block_size ({block_size}) cannot exceed data length ({n})")
 
     replicates = np.empty(reps, dtype=float)
     for i in range(reps):

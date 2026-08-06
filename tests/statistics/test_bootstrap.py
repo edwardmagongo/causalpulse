@@ -102,3 +102,42 @@ def test_basic_method_differs_from_percentile_on_a_skewed_statistic():
     )
 
     assert percentile.interval.lower != pytest.approx(basic.interval.lower, abs=1e-9)
+
+
+def test_block_bootstrap_rejects_zero_block_size():
+    data = np.arange(10.0)
+    with pytest.raises(ValueError, match="block_size"):
+        bootstrap_interval(
+            np.mean,
+            data,
+            reps=10,
+            rng=np.random.default_rng(0),
+            kind="block",
+            block_size=0,
+        )
+
+
+def test_block_bootstrap_rejects_negative_block_size():
+    data = np.arange(10.0)
+    with pytest.raises(ValueError, match="block_size"):
+        bootstrap_interval(
+            np.mean,
+            data,
+            reps=10,
+            rng=np.random.default_rng(0),
+            kind="block",
+            block_size=-5,
+        )
+
+
+def test_block_bootstrap_rejects_block_size_exceeding_data_length():
+    data = np.arange(10.0)
+    with pytest.raises(ValueError, match="block_size"):
+        bootstrap_interval(
+            np.mean,
+            data,
+            reps=10,
+            rng=np.random.default_rng(0),
+            kind="block",
+            block_size=20,
+        )
