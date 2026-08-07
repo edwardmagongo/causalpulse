@@ -1,10 +1,15 @@
 import pandas as pd
 from cp_causal.base import Requirements
+from cp_causal.registry import register
 from cp_causal.router import eligible_estimators, route
 from cp_core.dataset import CausalDataset, CausalSchema
 
 
-def dataset(n_treated: int = 20, n_control: int = 20) -> CausalDataset:
+def dataset(
+    n_treated: int = 20,
+    n_control: int = 20,
+    covariates: tuple[str, ...] = ("x1",),
+) -> CausalDataset:
     n = n_treated + n_control
     frame = pd.DataFrame(
         {
@@ -20,7 +25,7 @@ def dataset(n_treated: int = 20, n_control: int = 20) -> CausalDataset:
             unit="unit_id",
             treatment="treated",
             outcome="outcome",
-            covariates=("x1",),
+            covariates=covariates,
             outcome_type="binary",
         ),
     )
@@ -89,6 +94,44 @@ def test_multiple_unmet_requirements_are_all_reported():
     assert len(decisions["needs_many_units"].reasons) == 1
 
 
+class _FailsEveryRequirement:
+    # Each of these four conditions produces its own distinct reason string in
+    # `Requirements.unmet`: needs_panel (checked against schema.is_panel),
+    # needs_covariates (checked against schema.covariates), min_treated_units,
+    # and min_control_units. `supports_outcome_types` is left at its default
+    # so the outcome_type check does not add a fifth reason, and it is not the
+    # thing under test here.
+    name = "fails_every_requirement"
+    requirements = Requirements(
+        needs_panel=True,
+        needs_covariates=True,
+        min_treated_units=1000,
+        min_control_units=1000,
+    )
+
+    def fit(self, dataset, config):  # pragma: no cover - not called here
+        raise NotImplementedError
+
+
+def test_all_unmet_requirements_are_reported_not_just_the_first():
+    # Unlike test_multiple_unmet_requirements_are_all_reported above (whose
+    # estimator only ever fails one requirement on the dataset it's run
+    # against), this drives an estimator that fails four requirements at once
+    # on a single dataset, to actually verify the router reports all of them
+    # rather than stopping at the first unmet one.
+    cross_sectional_no_covariates = dataset(n_treated=2, n_control=2, covariates=())
+    candidates = {"fails_every_requirement": _FailsEveryRequirement}
+
+    decisions = {
+        d.estimator_name: d
+        for d in route(cross_sectional_no_covariates, candidates=candidates)
+    }
+    reasons = decisions["fails_every_requirement"].reasons
+
+    assert len(reasons) == 4
+    assert len({r.lower() for r in reasons}) == 4
+
+
 def test_eligible_estimators_returns_sorted_names():
     assert eligible_estimators(dataset(), candidates=CANDIDATES) == (
         "cross_sectional_only",
@@ -99,3 +142,37 @@ def test_decisions_are_ordered_by_name_for_stable_output():
     decisions = route(dataset(), candidates=CANDIDATES)
 
     assert [d.estimator_name for d in decisions] == sorted(CANDIDATES)
+
+
+def test_route_with_no_candidates_arg_uses_the_live_registry():
+    # Every other test in this file passes an explicit `candidates` stub, so
+    # the default `candidates=None` path -- the one real callers use, which
+    # reads `all_estimators()` from the live registry -- otherwise has zero
+    # coverage. `_isolate_registry` (conftest.py, autouse) snapshots and
+    # restores `cp_causal.registry._REGISTRY` around every test, so
+    # registering here is safe and will not leak into other tests.
+    @register
+    class _RegisteredForRoutingTest:
+        name = "registered_for_routing_test"
+        requirements = Requirements()
+
+        def fit(self, dataset, config):  # pragma: no cover - not called here
+            raise NotImplementedError
+
+    decisions = route(dataset())
+
+    assert "registered_for_routing_test" in {d.estimator_name for d in decisions}
+
+
+def test_route_with_no_candidates_arg_does_not_raise_on_empty_registry():
+    # Pins that the default (`candidates=None`) path tolerates an empty or
+    # minimal live registry rather than raising, even when nothing has been
+    # registered beyond whatever production code registers at import time.
+    decisions = route(dataset())
+
+    assert isinstance(decisions, tuple)
+
+
+def test_route_with_empty_candidates_dict_returns_empty_tuple():
+    assert route(dataset(), candidates={}) == ()
+    assert eligible_estimators(dataset(), candidates={}) == ()
