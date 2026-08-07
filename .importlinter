@@ -1,13 +1,24 @@
 [importlinter]
 root_packages =
     cp_core
-
-[importlinter:contract:core-is-standalone]
-name = cp_core depends on no other CausalPulse package
-type = forbidden
-source_modules =
-    cp_core
-forbidden_modules =
     cp_statistics
     cp_simulation
     cp_causal
+
+[importlinter:contract:layers]
+name = Package layering
+type = layers
+layers =
+    cp_causal
+    cp_statistics
+    cp_core
+
+[importlinter:contract:estimators-cannot-see-truth]
+name = No CausalPulse package may reach ground truth
+type = forbidden
+source_modules =
+    cp_core
+    cp_statistics
+    cp_causal
+forbidden_modules =
+    cp_simulation
