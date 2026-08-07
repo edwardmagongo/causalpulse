@@ -114,3 +114,46 @@ def test_all_estimators_returns_a_copy():
     snapshot["injected"] = object()  # type: ignore[assignment]
 
     assert "injected" not in all_estimators()
+
+
+def test_registry_rejects_a_class_with_no_requirements():
+    with pytest.raises(ValueError, match="requirements"):
+
+        @register
+        class _NoRequirements:
+            name = "broken_no_requirements"
+
+            def fit(self, dataset, config):  # pragma: no cover - not called here
+                raise NotImplementedError
+
+
+def test_registry_rejects_a_class_with_wrong_requirements_type():
+    with pytest.raises(ValueError, match="requirements"):
+
+        @register
+        class _WrongRequirementsType:
+            name = "broken_wrong_requirements_type"
+            requirements = {}
+
+            def fit(self, dataset, config):  # pragma: no cover - not called here
+                raise NotImplementedError
+
+
+def test_registry_isolation_register_is_visible_after_registration():
+    @register
+    class _IsolationTest1:
+        name = "isolation_test_1"
+        requirements = Requirements()
+
+        def fit(self, dataset, config):  # pragma: no cover - not called here
+            raise NotImplementedError
+
+    assert "isolation_test_1" in all_estimators()
+
+
+def test_registry_isolation_register_is_absent_after_fixture_cleanup():
+    # This test pins Fix 2: the autouse fixture restores the registry between
+    # tests. The name "isolation_test_1" was registered in the prior test but
+    # should not be present here, which only passes because the fixture cleaned
+    # it up.
+    assert "isolation_test_1" not in all_estimators()

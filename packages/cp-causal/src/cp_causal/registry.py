@@ -7,6 +7,8 @@ estimators without being edited.
 
 from __future__ import annotations
 
+from cp_causal.base import Requirements
+
 _REGISTRY: dict[str, type] = {}
 
 
@@ -21,6 +23,11 @@ def register[T: type](cls: T) -> T:
         raise ValueError(
             f"estimator name {name!r} is already registered to "
             f"{_REGISTRY[name].__name__}"
+        )
+    if not isinstance(getattr(cls, "requirements", None), Requirements):
+        raise ValueError(
+            f"{cls.__name__} must declare a `requirements` of type Requirements "
+            f"to be registered"
         )
     _REGISTRY[name] = cls
     return cls
