@@ -63,7 +63,17 @@ class AssumptionCheck:
 
 @dataclass(frozen=True, eq=False)
 class FitMetadata:
-    """Everything needed to reproduce one fit."""
+    """What a fit was produced by, and what it would take to reproduce it.
+
+    `config_hash`, `random_seed`, `package_versions` and `git_commit` are the
+    reproduction inputs; `timestamp`, `platform` and `runtime_seconds` are
+    provenance, and vary between two runs of the same fit.
+
+    `eq=False` is load-bearing, not decoration: `frozen=True` with the default
+    `eq=True` generates a `__hash__` over every field, and `package_versions` is
+    a mapping, so `hash(instance)` would raise `TypeError: unhashable type`.
+    Do not drop it without making every field hashable first.
+    """
 
     estimator: str
     package_versions: Mapping[str, str]
