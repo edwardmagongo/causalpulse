@@ -19,6 +19,9 @@ def test_cp_causal_cannot_import_cp_simulation():
         text=True,
     )
 
+    # grep: 0 = matches found, 1 = no matches, 2+ = error (e.g. an unresolvable
+    # path). Without this the empty-stdout assertion passes having scanned nothing.
+    assert offenders.returncode in (0, 1), offenders.stderr
     assert offenders.stdout == "", (
         "cp_causal must never reference cp_simulation:\n" + offenders.stdout
     )
@@ -40,6 +43,9 @@ def test_contract_layer_cannot_import_cp_simulation(module_name):
         text=True,
     )
 
+    # grep: 0 = matches found, 1 = no matches, 2+ = error (e.g. an unresolvable
+    # path). Without this the empty-stdout assertion passes having scanned nothing.
+    assert offenders.returncode in (0, 1), offenders.stderr
     assert offenders.stdout == "", (
         f"{module_name} must never reference cp_simulation:\n" + offenders.stdout
     )
