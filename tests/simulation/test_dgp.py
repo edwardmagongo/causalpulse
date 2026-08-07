@@ -86,6 +86,33 @@ def test_confounded_assignment_records_its_confounders():
     assert simulated.truth.true_propensity.shape == (1000,)
 
 
+def test_random_assignment_records_no_confounders():
+    dgp = build_dgp(RandomAssignment(share=0.5))
+    simulated = dgp.generate(n_units=500, rng=np.random.default_rng(20))
+
+    assert simulated.truth.true_confounders == ()
+
+
+def test_zero_coefficient_covariate_is_not_named_a_confounder():
+    # x1 does not enter the propensity index at all, so calling it a confounder
+    # would misreport the identification problem the scenario actually poses.
+    dgp = build_dgp(PropensityAssignment(coefficients=(0.0, 0.7), strength=1.0))
+    simulated = dgp.generate(n_units=500, rng=np.random.default_rng(21))
+
+    assert simulated.truth.true_confounders == ("x2",)
+
+
+def test_zero_strength_propensity_records_no_confounders():
+    # strength=0 collapses the propensity to a constant: assignment stops
+    # depending on covariates, so the scenario is unconfounded despite being
+    # built from a PropensityAssignment.
+    dgp = build_dgp(PropensityAssignment(coefficients=(0.9, 0.7), strength=0.0))
+    simulated = dgp.generate(n_units=500, rng=np.random.default_rng(22))
+
+    assert simulated.truth.true_confounders == ()
+    np.testing.assert_allclose(simulated.truth.true_propensity, 0.5)
+
+
 def test_generate_raises_on_zero_units():
     dgp = build_dgp(RandomAssignment())
     with pytest.raises(ValueError, match="n_units"):
