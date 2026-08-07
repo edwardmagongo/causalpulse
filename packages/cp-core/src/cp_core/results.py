@@ -1,0 +1,192 @@
+"""The universal result contract every estimator produces.
+
+One result type across all estimators is what makes cross-method comparison,
+the benchmark harness, and later API serialisation nearly free. The fields that
+look like bookkeeping — `scale`, `ci_basis`, `estimand` — are load-bearing:
+silently mixing percentage-point with log-ratio effects, or a credible interval
+with a confidence interval, is a realistic way to reach a wrong conclusion.
+"""
+
+from __future__ import annotations
+
+import platform as platform_module
+import subprocess
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from importlib.metadata import PackageNotFoundError, version
+from typing import Literal
+
+from cp_core.values import Diagnostic, Interval
+
+AssumptionStatus = Literal["PASS", "WARN", "FAIL", "NOT_TESTABLE"]
+Estimand = Literal["ATE", "ATT", "CATE"]
+CIBasis = Literal["analytic", "bootstrap", "permutation", "posterior"]
+EffectScale = Literal["absolute", "percentage_point", "log_ratio"]
+
+_VALID_STATUSES: tuple[str, ...] = ("PASS", "WARN", "FAIL", "NOT_TESTABLE")
+_VALID_ESTIMANDS: tuple[str, ...] = ("ATE", "ATT", "CATE")
+_VALID_BASES: tuple[str, ...] = ("analytic", "bootstrap", "permutation", "posterior")
+_VALID_SCALES: tuple[str, ...] = ("absolute", "percentage_point", "log_ratio")
+
+# Severity order for rolling up assumption checks. NOT_TESTABLE is deliberately
+# absent: it records that a question cannot be answered from data, which is an
+# honesty marker rather than a severity level. Ranking it would either hide a
+# real FAIL or make every observational analysis look broken.
+_SEVERITY: dict[str, int] = {"PASS": 0, "WARN": 1, "FAIL": 2}
+
+_TRACKED_PACKAGES = ("numpy", "scipy", "pandas", "scikit-learn")
+
+
+@dataclass(frozen=True)
+class AssumptionCheck:
+    """A judgement about identification, as opposed to a measurement.
+
+    `NOT_TESTABLE` carries real weight. Unconfoundedness cannot be tested from
+    observational data, and the system says exactly that instead of implying a
+    balance table proved it.
+    """
+
+    name: str
+    status: AssumptionStatus
+    statistic: float | None
+    threshold: float | None
+    interpretation: str
+    remedy: str | None
+
+    def __post_init__(self) -> None:
+        if self.status not in _VALID_STATUSES:
+            raise ValueError(
+                f"status must be one of {list(_VALID_STATUSES)}, got {self.status!r}"
+            )
+
+
+@dataclass(frozen=True)
+class FitMetadata:
+    """Everything needed to reproduce one fit."""
+
+    estimator: str
+    package_versions: dict[str, str]
+    git_commit: str | None
+    config_hash: str
+    platform: str
+    runtime_seconds: float
+    timestamp: datetime
+    random_seed: int | None
+
+    @classmethod
+    def capture(
+        cls,
+        estimator: str,
+        config_hash: str,
+        runtime_seconds: float,
+        random_seed: int | None,
+    ) -> FitMetadata:
+        return cls(
+            estimator=estimator,
+            package_versions=_package_versions(),
+            git_commit=_git_commit(),
+            config_hash=config_hash,
+            platform=platform_module.platform(),
+            runtime_seconds=runtime_seconds,
+            timestamp=datetime.now(UTC),
+            random_seed=random_seed,
+        )
+
+
+def _package_versions() -> dict[str, str]:
+    versions: dict[str, str] = {}
+    for name in _TRACKED_PACKAGES:
+        try:
+            versions[name] = version(name)
+        except PackageNotFoundError:  # pragma: no cover - environment dependent
+            continue
+    return versions
+
+
+def _git_commit() -> str | None:
+    """Best-effort commit capture; absence is recorded rather than raising."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):  # pragma: no cover
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+@dataclass(frozen=True)
+class CounterfactualPoint:
+    """A scalar counterfactual mean, for cross-sectional methods.
+
+    Deliberately a different type from a time-series counterfactual path, so a
+    scalar can never be rendered as a trajectory.
+    """
+
+    observed_mean: float
+    predicted_absent_treatment: float
+    lower: float
+    upper: float
+
+
+@dataclass(frozen=True, eq=False)
+class EffectEstimate:
+    """The single result type returned by every estimator."""
+
+    estimand: Estimand
+    method: str
+    point: float
+    se: float | None
+    ci: Interval
+    ci_basis: CIBasis
+    bootstrap_ci: Interval | None
+    p_value: float | None
+    n_treated: int
+    n_control: int
+    scale: EffectScale
+    diagnostics: dict[str, Diagnostic]
+    assumptions: tuple[AssumptionCheck, ...]
+    counterfactual: CounterfactualPoint | None
+    fit_metadata: FitMetadata
+
+    def __post_init__(self) -> None:
+        if self.estimand not in _VALID_ESTIMANDS:
+            raise ValueError(
+                f"estimand must be one of {list(_VALID_ESTIMANDS)}, got {self.estimand!r}"
+            )
+        if self.ci_basis not in _VALID_BASES:
+            raise ValueError(
+                f"ci_basis must be one of {list(_VALID_BASES)}, got {self.ci_basis!r}"
+            )
+        if self.scale not in _VALID_SCALES:
+            raise ValueError(
+                f"scale must be one of {list(_VALID_SCALES)}, got {self.scale!r}"
+            )
+        if self.se is not None and self.se < 0:
+            raise ValueError(f"se must be non-negative, got {self.se}")
+        if self.n_treated < 1:
+            raise ValueError(f"n_treated must be positive, got {self.n_treated}")
+        if self.n_control < 1:
+            raise ValueError(f"n_control must be positive, got {self.n_control}")
+
+    @property
+    def is_significant(self) -> bool:
+        """Whether the reported interval excludes zero.
+
+        Read off the interval rather than the p-value, so that the answer stays
+        consistent for estimators whose inference is permutation- or
+        posterior-based and carry no p-value at all.
+        """
+        return not self.ci.contains(0.0)
+
+    @property
+    def worst_assumption_status(self) -> AssumptionStatus:
+        rankable = [a for a in self.assumptions if a.status in _SEVERITY]
+        if not rankable:
+            return "NOT_TESTABLE" if self.assumptions else "PASS"
+        return max(rankable, key=lambda a: _SEVERITY[a.status]).status
