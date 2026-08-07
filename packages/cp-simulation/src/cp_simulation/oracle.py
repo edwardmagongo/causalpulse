@@ -26,6 +26,19 @@ def oracle_ate(simulated: SimulatedDataset) -> float:
     return ate
 
 
+def oracle_att(simulated: SimulatedDataset) -> float:
+    """The average treatment effect on the treated, read straight off ground truth.
+
+    ``true_att`` is nan when a generated sample happened to draw no treated
+    units, since there is then nothing to average. That case is refused here
+    rather than silently propagated.
+    """
+    att = simulated.truth.true_att
+    if math.isnan(att):
+        raise ValueError("true_att is undefined; sample contained no treated units")
+    return att
+
+
 def naive_difference_in_means(dataset: CausalDataset) -> float:
     """Raw treated-minus-control difference, ignoring confounding entirely."""
     frame = dataset.frame
