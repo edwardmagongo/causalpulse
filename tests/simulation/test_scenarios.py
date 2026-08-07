@@ -3,8 +3,8 @@ import pytest
 from cp_simulation.scenarios import SCENARIOS, build_scenario
 
 
-def test_all_four_scenarios_are_registered():
-    assert sorted(SCENARIOS) == ["A", "B", "C", "D"]
+def test_all_scenarios_are_registered():
+    assert sorted(SCENARIOS) == ["A", "B", "C", "D", "F"]
 
 
 @pytest.mark.parametrize(
@@ -18,6 +18,33 @@ def test_measured_ate_matches_the_declared_label(scenario_id: str, declared: flo
     simulated = dgp.generate(n_units=40000, rng=np.random.default_rng(0))
 
     assert simulated.truth.true_ate == pytest.approx(declared, abs=0.002)
+
+
+def test_scenario_f_is_registered_with_a_heterogeneous_effect():
+    simulated = build_scenario("F").generate(n_units=20000, rng=np.random.default_rng(0))
+    frame = simulated.dataset.frame
+    cate = simulated.truth.true_cate
+
+    new_users = frame["x2"].to_numpy() == 1
+    np.testing.assert_allclose(cate[new_users], 0.08, atol=1e-12)
+    np.testing.assert_allclose(cate[~new_users], 0.01, atol=1e-12)
+
+
+def test_scenario_f_declared_effect_is_the_population_average():
+    # The declared label for a heterogeneous scenario is the mean CATE, which
+    # depends on the covariate mix — so it must be measured, not asserted equal
+    # to either subgroup effect.
+    spec = SCENARIOS["F"]
+    simulated = build_scenario("F").generate(n_units=40000, rng=np.random.default_rng(1))
+
+    assert simulated.truth.true_ate == pytest.approx(spec.declared_effect, abs=0.002)
+    assert 0.01 < simulated.truth.true_ate < 0.08
+
+
+def test_scenario_f_has_no_confounders():
+    simulated = build_scenario("F").generate(n_units=1000, rng=np.random.default_rng(2))
+
+    assert simulated.truth.true_confounders == ()
 
 
 def test_scenario_b_produces_exactly_zero_effect():

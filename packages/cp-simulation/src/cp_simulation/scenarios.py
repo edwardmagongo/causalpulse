@@ -12,6 +12,7 @@ from dataclasses import dataclass
 
 from cp_simulation.components import (
     ConstantEffect,
+    HeterogeneousEffect,
     LogisticBaseline,
     PropensityAssignment,
     RandomAssignment,
@@ -60,6 +61,25 @@ def _confounded(scenario_id: str, tau: float) -> Callable[[float], CrossSectionD
     return build
 
 
+def _heterogeneous(scenario_id: str) -> Callable[[float], CrossSectionDGP]:
+    """Randomised assignment with an effect that varies by the binary covariate.
+
+    x2 is the binary covariate from UnitGenerator, read here as a "new user"
+    flag: new users gain 8pp, returning users 1pp.
+    """
+
+    def build(_confounding_strength: float) -> CrossSectionDGP:
+        return CrossSectionDGP(
+            unit_generator=UnitGenerator(covariate_names=_COVARIATES),
+            baseline=_BASELINE,
+            effect=HeterogeneousEffect(base_tau=0.01, covariate_index=1, increment=0.07),
+            assignment=RandomAssignment(share=0.5),
+            scenario_id=scenario_id,
+        )
+
+    return build
+
+
 SCENARIOS: dict[str, ScenarioSpec] = {
     "A": ScenarioSpec(
         scenario_id="A",
@@ -90,6 +110,15 @@ SCENARIOS: dict[str, ScenarioSpec] = {
         description="Covariates drive both assignment and outcome, so naive "
         "comparisons are biased upward.",
         build=_confounded("D", 0.05),
+    ),
+    "F": ScenarioSpec(
+        scenario_id="F",
+        name="Heterogeneous treatment effects",
+        declared_effect=0.038,
+        description="Random assignment; +8pp for new users (x2=1), +1pp for "
+        "returning users (x2=0). The population average depends on the "
+        "covariate mix, so it is measured rather than assumed.",
+        build=_heterogeneous("F"),
     ),
 }
 
