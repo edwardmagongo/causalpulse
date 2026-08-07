@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 from cp_simulation.components import (
     ConstantEffect,
+    HeterogeneousEffect,
     LogisticBaseline,
     PropensityAssignment,
     RandomAssignment,
@@ -38,6 +39,44 @@ def test_true_ate_is_measured_not_declared():
 
     assert simulated.truth.true_ate == pytest.approx(0.05, abs=1e-9)
     assert simulated.truth.true_cate.shape == (20000,)
+
+
+def test_true_ate_falls_below_tau_when_clipping_engages():
+    # Every preset keeps |tau| inside the non-clipping window, so `cate = tau`
+    # would pass them all. Baselines cap at 0.85, so a tau of 0.30 genuinely
+    # drives p0 + tau past 1 for the high-baseline units: the measured effect
+    # must come out strictly below the declared one. A DGP that copied tau into
+    # the truth would report exactly 0.30 and fail here.
+    dgp = build_dgp(RandomAssignment(share=0.5), tau=0.30)
+    simulated = dgp.generate(n_units=20000, rng=np.random.default_rng(11))
+
+    assert simulated.truth.true_ate < 0.30
+    # Only a minority of units sit near the cap, so the shortfall is small;
+    # a loose lower bound keeps this from becoming a brittle exact-value test.
+    assert simulated.truth.true_ate > 0.25
+    # The high-baseline units are the ones whose effect the cap eats into.
+    assert simulated.truth.true_cate.min() < 0.30
+
+
+def test_true_att_differs_from_true_ate_when_assignment_tracks_heterogeneity():
+    # The only configuration that can catch an ATT averaged over the wrong
+    # subset: effects vary with x2, and assignment is driven by x2, so treated
+    # units are enriched in the high-effect group. ATT computed over all units
+    # (or taken from a declared parameter) would coincide with ATE and fail.
+    dgp = CrossSectionDGP(
+        unit_generator=UnitGenerator(covariate_names=("x1", "x2")),
+        baseline=LogisticBaseline(intercept=-1.0, coefficients=(0.8, 0.5)),
+        effect=HeterogeneousEffect(base_tau=0.02, covariate_index=1, increment=0.10),
+        assignment=PropensityAssignment(coefficients=(0.5, 1.5), strength=1.0),
+        scenario_id="HETEROGENEOUS",
+    )
+    simulated = dgp.generate(n_units=20000, rng=np.random.default_rng(12))
+
+    true_ate = simulated.truth.true_ate
+    true_att = simulated.truth.true_att
+    assert true_att != pytest.approx(true_ate, abs=1e-3)
+    # Treatment is more likely where the effect is larger, so ATT exceeds ATE.
+    assert true_att > true_ate
 
 
 def test_ground_truth_is_not_reachable_from_the_dataset_frame():
