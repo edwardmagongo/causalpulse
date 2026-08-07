@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import platform as platform_module
 import subprocess
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError, version
@@ -60,12 +61,12 @@ class AssumptionCheck:
             )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class FitMetadata:
     """Everything needed to reproduce one fit."""
 
     estimator: str
-    package_versions: dict[str, str]
+    package_versions: Mapping[str, str]
     git_commit: str | None
     config_hash: str
     platform: str
@@ -149,7 +150,7 @@ class EffectEstimate:
     n_treated: int
     n_control: int
     scale: EffectScale
-    diagnostics: dict[str, Diagnostic]
+    diagnostics: Mapping[str, Diagnostic]
     assumptions: tuple[AssumptionCheck, ...]
     counterfactual: CounterfactualPoint | None
     fit_metadata: FitMetadata
@@ -173,6 +174,8 @@ class EffectEstimate:
             raise ValueError(f"n_treated must be positive, got {self.n_treated}")
         if self.n_control < 1:
             raise ValueError(f"n_control must be positive, got {self.n_control}")
+        if self.p_value is not None and not (0.0 <= self.p_value <= 1.0):
+            raise ValueError(f"p_value must be in [0, 1], got {self.p_value}")
 
     @property
     def is_significant(self) -> bool:

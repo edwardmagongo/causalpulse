@@ -116,3 +116,39 @@ def test_counterfactual_point_is_frozen() -> None:
     )
     with pytest.raises(AttributeError):
         point.observed_mean = 0.3  # type: ignore[misc]
+
+
+def test_fit_metadata_hash_succeeds() -> None:
+    metadata = FitMetadata.capture(
+        estimator="x",
+        config_hash="a",
+        runtime_seconds=0.1,
+        random_seed=1,
+    )
+    # This should not raise TypeError: unhashable type: 'dict'
+    assert isinstance(hash(metadata), int)
+
+
+def test_estimate_rejects_p_value_above_one() -> None:
+    with pytest.raises(ValueError, match="p_value"):
+        estimate(p_value=1.1)
+
+
+def test_estimate_rejects_p_value_below_zero() -> None:
+    with pytest.raises(ValueError, match="p_value"):
+        estimate(p_value=-0.1)
+
+
+def test_estimate_accepts_p_value_at_boundary_zero() -> None:
+    result = estimate(p_value=0.0)
+    assert result.p_value == 0.0
+
+
+def test_estimate_accepts_p_value_at_boundary_one() -> None:
+    result = estimate(p_value=1.0)
+    assert result.p_value == 1.0
+
+
+def test_estimate_accepts_p_value_none() -> None:
+    result = estimate(p_value=None)
+    assert result.p_value is None
