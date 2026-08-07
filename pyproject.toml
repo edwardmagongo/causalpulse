@@ -31,6 +31,10 @@ testpaths = ["tests"]
 markers = [
     "slow: reference-parity tests against external libraries; run nightly",
 ]
+# Warnings are failures. A numpy overflow in a hand-rolled sigmoid reached the
+# suite silently once and was only caught by running with -W error; the standard
+# the project is verified against belongs in the repository, not in habit.
+filterwarnings = ["error"]
 
 [tool.ruff]
 line-length = 100
