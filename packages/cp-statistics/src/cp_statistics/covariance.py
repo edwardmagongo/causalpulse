@@ -15,7 +15,10 @@ import numpy as np
 _HC_KINDS = frozenset({"HC0", "HC1", "HC2"})
 
 
-@dataclass(frozen=True)
+# eq=False: this holds array-valued fields, so a generated __eq__ would raise
+# on the ambiguous truth value of an array rather than compare. Identity
+# equality is the honest semantics for a container of measurements.
+@dataclass(frozen=True, eq=False)
 class OLSFit:
     """The pieces of a least-squares fit needed by every sandwich estimator."""
 
@@ -97,17 +100,21 @@ def cluster_robust_covariance(
             f"clusters has length {clusters.shape[0]} but the fit has {fit.n} observations"
         )
 
+    labels = np.unique(clusters)
+    # A single cluster leaves the meat matrix rank one: the result is degenerate
+    # whether or not the correction is applied, so the guard belongs outside it.
+    n_clusters = int(labels.size)
+    if n_clusters <= 1:
+        raise ValueError("cluster-robust covariance requires at least two clusters")
+
     meat = np.zeros((fit.k, fit.k))
-    for label in np.unique(clusters):
+    for label in labels:
         mask = clusters == label
         score = fit.X[mask].T @ fit.residuals[mask]
         meat += np.outer(score, score)
 
     covariance = _sandwich(fit, meat)
     if small_sample_correction:
-        n_clusters = int(np.unique(clusters).size)
-        if n_clusters <= 1:
-            raise ValueError("cluster-robust covariance requires at least two clusters")
         correction = (n_clusters / (n_clusters - 1)) * ((fit.n - 1) / (fit.n - fit.k))
         covariance = covariance * correction
     return covariance

@@ -105,3 +105,18 @@ def test_cluster_covariance_rejects_length_mismatch():
     X, y = design(n=50)
     with pytest.raises(ValueError, match="length"):
         cluster_robust_covariance(ols_fit(X, y), np.arange(10))
+
+
+@pytest.mark.parametrize("small_sample_correction", [True, False])
+def test_cluster_covariance_rejects_a_single_cluster(small_sample_correction: bool):
+    # One cluster leaves the meat matrix rank one, so the covariance is
+    # degenerate regardless of the correction. Guarding only inside the
+    # correction branch let the uncorrected call return that silently.
+    X, y = design(n=50)
+    fit = ols_fit(X, y)
+
+    with pytest.raises(ValueError, match="at least two clusters"):
+        cluster_robust_covariance(
+            fit, np.zeros(fit.n, dtype=int),
+            small_sample_correction=small_sample_correction,
+        )
