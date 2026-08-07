@@ -1,8 +1,7 @@
 import pytest
+from cp_statistics.proportions import newcombe_interval, wilson_interval
 from hypothesis import given
 from hypothesis import strategies as st
-
-from cp_statistics.proportions import newcombe_interval, wilson_interval
 
 
 def test_wilson_matches_published_reference():

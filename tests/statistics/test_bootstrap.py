@@ -1,6 +1,5 @@
 import numpy as np
 import pytest
-
 from cp_statistics.bootstrap import bootstrap_interval
 
 

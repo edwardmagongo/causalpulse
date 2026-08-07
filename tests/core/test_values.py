@@ -1,5 +1,4 @@
 import pytest
-
 from cp_core.values import Diagnostic, EstimatorConfig, Interval
 
 

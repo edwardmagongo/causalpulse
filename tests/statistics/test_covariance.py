@@ -1,6 +1,5 @@
 import numpy as np
 import pytest
-
 from cp_statistics.covariance import (
     cluster_robust_covariance,
     ols_fit,

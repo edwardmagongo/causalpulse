@@ -1,6 +1,5 @@
 import numpy as np
 import pytest
-
 from cp_simulation.components import (
     ConstantEffect,
     LogisticBaseline,

@@ -1,6 +1,5 @@
 import numpy as np
 import pytest
-
 from cp_simulation.scenarios import SCENARIOS, build_scenario
 
 

@@ -68,7 +68,7 @@ class CausalDataset:
 
     def _validate_treatment_is_binary(self) -> None:
         values = pd.unique(self.frame[self.schema.treatment].dropna())
-        unexpected = set(values) - {0, 1, True, False}
+        unexpected = set(values) - {0, 1}
         if unexpected:
             raise ValueError(
                 f"treatment column {self.schema.treatment!r} must be binary; "
@@ -79,7 +79,7 @@ class CausalDataset:
         if self.schema.outcome_type != "binary":
             return
         values = pd.unique(self.frame[self.schema.outcome].dropna())
-        unexpected = set(values) - {0, 1, True, False}
+        unexpected = set(values) - {0, 1}
         if unexpected:
             raise ValueError(
                 f"outcome_type='binary' but column {self.schema.outcome!r} contains "

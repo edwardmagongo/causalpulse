@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from typing import Literal
 
 import numpy as np
-
 from cp_core.values import Interval
 
 BootstrapMethod = Literal["percentile", "basic"]
