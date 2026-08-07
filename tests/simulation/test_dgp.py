@@ -85,3 +85,15 @@ def test_confounded_assignment_records_its_confounders():
 
     assert simulated.truth.true_confounders == ("x1", "x2")
     assert simulated.truth.true_propensity.shape == (1000,)
+
+
+def test_generate_raises_on_zero_units():
+    dgp = build_dgp(RandomAssignment())
+    with pytest.raises(ValueError, match="n_units"):
+        dgp.generate(n_units=0, rng=np.random.default_rng(0))
+
+
+def test_generate_raises_on_negative_units():
+    dgp = build_dgp(RandomAssignment())
+    with pytest.raises(ValueError, match="n_units"):
+        dgp.generate(n_units=-3, rng=np.random.default_rng(0))

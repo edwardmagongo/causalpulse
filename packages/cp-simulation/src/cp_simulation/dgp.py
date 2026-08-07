@@ -8,9 +8,8 @@ from dataclasses import asdict, dataclass
 from typing import Protocol
 
 import numpy as np
-import pandas as pd
-
 from cp_core.dataset import CausalDataset, CausalSchema
+
 from cp_simulation.components import (
     LogisticBaseline,
     PropensityAssignment,
@@ -59,6 +58,9 @@ class CrossSectionDGP:
         return hashlib.sha256(encoded).hexdigest()[:16]
 
     def generate(self, n_units: int, rng: np.random.Generator) -> SimulatedDataset:
+        if n_units <= 0:
+            raise ValueError(f"n_units must be positive, got {n_units}")
+
         names = self.unit_generator.covariate_names
         frame = self.unit_generator.generate(n_units, rng)
         covariates = frame[list(names)].to_numpy()
