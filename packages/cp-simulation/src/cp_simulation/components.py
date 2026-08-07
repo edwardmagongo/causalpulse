@@ -99,6 +99,10 @@ class RandomAssignment:
         propensity = np.full(n, self.share)
         return rng.binomial(1, propensity), propensity
 
+    def confounders(self, covariate_names: tuple[str, ...]) -> tuple[str, ...]:
+        """No covariate influences assignment, so nothing confounds."""
+        return ()
+
 
 @dataclass(frozen=True)
 class PropensityAssignment:
@@ -121,3 +125,20 @@ class PropensityAssignment:
             )
         propensity = sigmoid(self.strength * (covariates @ beta))
         return rng.binomial(1, propensity), propensity
+
+    def confounders(self, covariate_names: tuple[str, ...]) -> tuple[str, ...]:
+        """Name the covariates this mechanism actually assigns on.
+
+        Measured rather than declared: at `strength == 0` the propensity
+        collapses to a constant and no covariate influences assignment at all,
+        and a zero coefficient drops its covariate out of the linear index. Both
+        cases must report honestly, because a covariate wrongly named a
+        confounder and a confounder wrongly omitted are equally misleading.
+        """
+        if self.strength == 0.0:
+            return ()
+        return tuple(
+            name
+            for name, coefficient in zip(covariate_names, self.coefficients, strict=True)
+            if coefficient != 0.0
+        )

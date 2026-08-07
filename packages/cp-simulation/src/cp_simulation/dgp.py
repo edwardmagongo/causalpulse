@@ -12,7 +12,6 @@ from cp_core.dataset import CausalDataset, CausalSchema
 
 from cp_simulation.components import (
     LogisticBaseline,
-    PropensityAssignment,
     UnitGenerator,
 )
 from cp_simulation.truth import GroundTruth, SimulatedDataset
@@ -28,6 +27,11 @@ class Assignment(Protocol):
     def assign(
         self, covariates: np.ndarray, rng: np.random.Generator
     ) -> tuple[np.ndarray, np.ndarray]: ...
+
+    # Each mechanism names its own confounders. Inferring them from the
+    # mechanism's type instead would silently report `()` — an unconfoundedness
+    # claim — for any mechanism the caller had not been taught about.
+    def confounders(self, covariate_names: tuple[str, ...]) -> tuple[str, ...]: ...
 
 
 @dataclass(frozen=True)
@@ -93,7 +97,7 @@ class CrossSectionDGP:
             true_att=true_att,
             true_cate=cate,
             true_propensity=propensity,
-            true_confounders=names if isinstance(self.assignment, PropensityAssignment) else (),
+            true_confounders=self.assignment.confounders(names),
             scenario_id=self.scenario_id,
             config_hash=self.config_hash,
         )
