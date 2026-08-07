@@ -55,6 +55,22 @@ def test_heterogeneous_effect_varies_by_covariate():
     np.testing.assert_allclose(effect.tau_values(covariates), [0.08, 0.01, 0.08])
 
 
+def test_heterogeneous_effect_validates_covariate_index():
+    effect = HeterogeneousEffect(base_tau=0.01, covariate_index=5, increment=0.07)
+    covariates = np.array([[1.0, 0.0], [0.0, 1.0]])
+
+    with pytest.raises(ValueError, match=r"covariate_index must lie in \[0, 2\), got 5"):
+        effect.tau_values(covariates)
+
+
+def test_heterogeneous_effect_rejects_negative_covariate_index():
+    effect = HeterogeneousEffect(base_tau=0.01, covariate_index=-1, increment=0.07)
+    covariates = np.array([[1.0, 0.0], [0.0, 1.0]])
+
+    with pytest.raises(ValueError, match=r"covariate_index must lie in \[0, 2\), got -1"):
+        effect.tau_values(covariates)
+
+
 def test_random_assignment_is_independent_of_covariates():
     rng = np.random.default_rng(2)
     covariates = rng.normal(size=(20000, 1))

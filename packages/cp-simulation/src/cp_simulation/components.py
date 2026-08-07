@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
+from scipy.special import expit
 
 # Baselines are held away from 0 and 1 so that clipping p0 + tau at the unit
 # interval cannot distort a scenario's declared effect. See spec section 4.3.
@@ -19,7 +20,7 @@ MAX_BASELINE_PROBABILITY = 0.85
 
 
 def sigmoid(z: np.ndarray) -> np.ndarray:
-    return 1.0 / (1.0 + np.exp(-z))
+    return expit(z)
 
 
 @dataclass(frozen=True)
@@ -76,6 +77,11 @@ class HeterogeneousEffect:
     increment: float
 
     def tau_values(self, covariates: np.ndarray) -> np.ndarray:
+        width = covariates.shape[1]
+        if self.covariate_index < 0 or self.covariate_index >= width:
+            raise ValueError(
+                f"covariate_index must lie in [0, {width}), got {self.covariate_index}"
+            )
         indicator = covariates[:, self.covariate_index]
         return self.base_tau + self.increment * indicator
 
