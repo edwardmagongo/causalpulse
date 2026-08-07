@@ -24,6 +24,9 @@ def register[T: type](cls: T) -> T:
             f"estimator name {name!r} is already registered to "
             f"{_REGISTRY[name].__name__}"
         )
+    # Validated here rather than left to fail inside the router: without this, a
+    # class missing `requirements` registers cleanly and then dies in
+    # `route()` at `pool[name].requirements.unmet(...)`, far from the mistake.
     if not isinstance(getattr(cls, "requirements", None), Requirements):
         raise ValueError(
             f"{cls.__name__} must declare a `requirements` of type Requirements "
