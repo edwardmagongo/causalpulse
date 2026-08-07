@@ -12,7 +12,10 @@ import numpy as np
 from cp_core.dataset import CausalDataset
 
 
-@dataclass(frozen=True)
+# eq=False: this holds array-valued fields, so a generated __eq__ would raise
+# on the ambiguous truth value of an array rather than compare. Identity
+# equality is the honest semantics for a container of measurements.
+@dataclass(frozen=True, eq=False)
 class GroundTruth:
     """The true causal quantities of a simulated population.
 
