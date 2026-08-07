@@ -55,7 +55,7 @@ class LogisticBaseline:
                 f"expected {beta.size} covariates, got {covariates.shape[1]}"
             )
         raw = sigmoid(self.intercept + covariates @ beta)
-        return np.clip(raw, MIN_BASELINE_PROBABILITY, MAX_BASELINE_PROBABILITY)
+        return np.asarray(np.clip(raw, MIN_BASELINE_PROBABILITY, MAX_BASELINE_PROBABILITY))
 
 
 @dataclass(frozen=True)

@@ -22,6 +22,8 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.11",
     "import-linter>=2.0",
+    "pandas-stubs>=3.0.5.260730",
+    "scipy-stubs>=1.18.0.1",
 ]
 
 [tool.pytest.ini_options]
@@ -47,3 +49,10 @@ select = ["E", "F", "I", "N", "UP", "B", "SIM", "NPY"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
+
+[tool.coverage.run]
+source = ["packages"]
+omit = ["*/tests/*"]
+
+[tool.coverage.report]
+exclude_lines = ["pragma: no cover", "raise NotImplementedError", "\\.\\.\\."]

@@ -30,7 +30,7 @@ class BootstrapResult:
 
 def _resample_iid(data: np.ndarray, rng: np.random.Generator) -> np.ndarray:
     indices = rng.integers(0, data.shape[0], size=data.shape[0])
-    return data[indices]
+    return np.asarray(data[indices])
 
 
 def _resample_cluster(

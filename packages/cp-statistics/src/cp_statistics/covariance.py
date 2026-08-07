@@ -56,7 +56,7 @@ def ols_fit(X: np.ndarray, y: np.ndarray) -> OLSFit:
 
 def _sandwich(fit: OLSFit, meat: np.ndarray) -> np.ndarray:
     covariance = fit.xtx_inv @ meat @ fit.xtx_inv
-    return (covariance + covariance.T) / 2.0
+    return np.asarray((covariance + covariance.T) / 2.0)
 
 
 def robust_covariance(fit: OLSFit, kind: str = "HC1") -> np.ndarray:

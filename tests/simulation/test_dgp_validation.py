@@ -96,7 +96,7 @@ def test_oracle_ate_rejects_empty_cate_vector():
         true_att=0.0,
         true_cate=np.array([]),
         true_propensity=np.array([]),
-        true_confounders={},
+        true_confounders=(),
         scenario_id="test",
         config_hash="test_hash",
     )
@@ -121,7 +121,7 @@ def test_oracle_ate_rejects_nan_cate():
         true_att=float("nan"),
         true_cate=np.array([float("nan")]),
         true_propensity=np.array([]),
-        true_confounders={},
+        true_confounders=(),
         scenario_id="test",
         config_hash="test_hash",
     )
@@ -147,7 +147,7 @@ def test_oracle_att_rejects_nan_att():
         true_att=float("nan"),
         true_cate=np.array([0.0]),
         true_propensity=np.array([]),
-        true_confounders={},
+        true_confounders=(),
         scenario_id="test",
         config_hash="test_hash",
     )
