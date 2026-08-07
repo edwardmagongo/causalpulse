@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 OutcomeType = Literal["binary", "continuous"]
+_VALID_OUTCOME_TYPES: tuple[str, ...] = ("binary", "continuous")
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,15 @@ class CausalSchema:
     treatment_start: object | None = None
     cohort: str | None = None
 
+    def __post_init__(self) -> None:
+        # The annotation is erased at runtime, so a schema built from a config
+        # file could carry `"Binary"` and quietly skip the binary-value check.
+        if self.outcome_type not in _VALID_OUTCOME_TYPES:
+            raise ValueError(
+                f"outcome_type must be one of {list(_VALID_OUTCOME_TYPES)}, "
+                f"got {self.outcome_type!r}"
+            )
+
     @property
     def is_panel(self) -> bool:
         return self.time is not None
@@ -38,7 +48,10 @@ class CausalSchema:
         return tuple(columns)
 
 
-@dataclass(frozen=True)
+# eq=False: this holds array-valued fields, so a generated __eq__ would raise
+# on the ambiguous truth value of an array rather than compare. Identity
+# equality is the honest semantics for a container of measurements.
+@dataclass(frozen=True, eq=False)
 class CausalDataset:
     """A long-format dataset paired with its causal schema.
 

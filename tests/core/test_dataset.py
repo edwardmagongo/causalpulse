@@ -30,6 +30,22 @@ def test_cross_section_schema_is_not_panel():
     assert cross_section_schema().is_panel is False
 
 
+@pytest.mark.parametrize("bad_value", ["Binary", "BINARY", "count", ""])
+def test_schema_rejects_an_unknown_outcome_type(bad_value: str):
+    # The Literal annotation is erased at runtime: without this check a schema
+    # reading "Binary" from a config file would skip the binary-value
+    # validation entirely and hand estimators an unvalidated outcome column.
+    with pytest.raises(ValueError, match="outcome_type"):
+        CausalSchema(
+            unit="user_id",
+            time=None,
+            treatment="treated",
+            outcome="converted",
+            covariates=("age",),
+            outcome_type=bad_value,  # type: ignore[arg-type]
+        )
+
+
 def test_dataset_counts_units_by_arm():
     dataset = CausalDataset(frame=cross_section_frame(), schema=cross_section_schema())
 
