@@ -139,21 +139,24 @@ def test_registry_rejects_a_class_with_wrong_requirements_type():
                 raise NotImplementedError
 
 
-def test_registry_isolation_register_is_visible_after_registration():
-    @register
-    class _IsolationTest1:
-        name = "isolation_test_1"
-        requirements = Requirements()
+def test_isolated_registry_restores_contents_on_exit(registry_isolation):
+    # Pins the mechanism the autouse fixture is built from. Deliberately
+    # self-contained: an earlier version of this used two top-level tests, one
+    # registering and the next asserting absence, which passes vacuously when run
+    # alone or reordered because the name was never registered in that process.
+    before = all_estimators()
 
-        def fit(self, dataset, config):  # pragma: no cover - not called here
-            raise NotImplementedError
+    with registry_isolation():
 
-    assert "isolation_test_1" in all_estimators()
+        @register
+        class _Ephemeral:
+            name = "isolation_probe"
+            requirements = Requirements()
 
+            def fit(self, dataset, config):  # pragma: no cover - not called here
+                raise NotImplementedError
 
-def test_registry_isolation_register_is_absent_after_fixture_cleanup():
-    # This test pins Fix 2: the autouse fixture restores the registry between
-    # tests. The name "isolation_test_1" was registered in the prior test but
-    # should not be present here, which only passes because the fixture cleaned
-    # it up.
-    assert "isolation_test_1" not in all_estimators()
+        assert "isolation_probe" in all_estimators()
+
+    assert "isolation_probe" not in all_estimators()
+    assert all_estimators() == before
