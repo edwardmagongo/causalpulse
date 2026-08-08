@@ -4,7 +4,7 @@ from cp_simulation.scenarios import SCENARIOS, build_scenario
 
 
 def test_all_scenarios_are_registered():
-    assert sorted(SCENARIOS) == ["A", "B", "C", "D", "F"]
+    assert sorted(SCENARIOS) == ["A", "B", "C", "D", "F", "G"]
 
 
 @pytest.mark.parametrize(
@@ -87,3 +87,10 @@ def test_confounding_strength_controls_treatment_covariate_dependence():
 def test_unknown_scenario_id_is_rejected():
     with pytest.raises(KeyError, match="Z"):
         build_scenario("Z")
+
+
+def test_scenario_g_is_registered_and_confounded():
+    simulated = build_scenario("G").generate(n_units=20000, rng=np.random.default_rng(0))
+
+    assert simulated.truth.true_ate == pytest.approx(0.05, abs=0.002)
+    assert simulated.truth.true_confounders == ("x1", "x2")

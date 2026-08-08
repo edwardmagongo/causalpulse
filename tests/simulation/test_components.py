@@ -73,7 +73,8 @@ def test_heterogeneous_effect_rejects_negative_covariate_index():
 def test_random_assignment_is_independent_of_covariates():
     rng = np.random.default_rng(2)
     covariates = rng.normal(size=(20000, 1))
-    treatment, propensity = RandomAssignment(share=0.5).assign(covariates, rng)
+    baseline = np.full(covariates.shape[0], 0.5)
+    treatment, propensity = RandomAssignment(share=0.5).assign(covariates, baseline, rng)
 
     assert np.allclose(propensity, 0.5)
     correlation = np.corrcoef(treatment, covariates[:, 0])[0, 1]
@@ -83,9 +84,10 @@ def test_random_assignment_is_independent_of_covariates():
 def test_propensity_assignment_correlates_treatment_with_covariates():
     rng = np.random.default_rng(3)
     covariates = rng.normal(size=(20000, 1))
+    baseline = np.full(covariates.shape[0], 0.5)
     treatment, propensity = PropensityAssignment(
         coefficients=(1.0,), strength=1.0
-    ).assign(covariates, rng)
+    ).assign(covariates, baseline, rng)
 
     assert np.corrcoef(treatment, covariates[:, 0])[0, 1] > 0.2
     assert propensity.min() > 0.0 and propensity.max() < 1.0
@@ -94,8 +96,9 @@ def test_propensity_assignment_correlates_treatment_with_covariates():
 def test_propensity_assignment_with_zero_strength_is_random():
     rng = np.random.default_rng(4)
     covariates = rng.normal(size=(10000, 1))
+    baseline = np.full(covariates.shape[0], 0.5)
     _, propensity = PropensityAssignment(coefficients=(1.0,), strength=0.0).assign(
-        covariates, rng
+        covariates, baseline, rng
     )
 
     np.testing.assert_allclose(propensity, 0.5)

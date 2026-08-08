@@ -11,6 +11,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from cp_simulation.components import (
+    BaselineSelectionAssignment,
     ConstantEffect,
     HeterogeneousEffect,
     LogisticBaseline,
@@ -80,6 +81,19 @@ def _heterogeneous(scenario_id: str) -> Callable[[float], CrossSectionDGP]:
     return build
 
 
+def _selected(scenario_id: str, tau: float) -> Callable[[float], CrossSectionDGP]:
+    def build(confounding_strength: float) -> CrossSectionDGP:
+        return CrossSectionDGP(
+            unit_generator=UnitGenerator(covariate_names=_COVARIATES),
+            baseline=_BASELINE,
+            effect=ConstantEffect(tau=tau),
+            assignment=BaselineSelectionAssignment(strength=8.0 * confounding_strength),
+            scenario_id=scenario_id,
+        )
+
+    return build
+
+
 SCENARIOS: dict[str, ScenarioSpec] = {
     "A": ScenarioSpec(
         scenario_id="A",
@@ -119,6 +133,14 @@ SCENARIOS: dict[str, ScenarioSpec] = {
         "returning users (x2=0). The population average depends on the "
         "covariate mix, so it is measured rather than assumed.",
         build=_heterogeneous("F"),
+    ),
+    "G": ScenarioSpec(
+        scenario_id="G",
+        name="Selection bias",
+        declared_effect=0.05,
+        description="Treatment is taken up by units with higher untreated "
+        "outcome probability, so naive comparison overstates the effect.",
+        build=_selected("G", 0.05),
     ),
 }
 

@@ -25,7 +25,10 @@ class EffectFunction(Protocol):
 
 class Assignment(Protocol):
     def assign(
-        self, covariates: np.ndarray, rng: np.random.Generator
+        self,
+        covariates: np.ndarray,
+        baseline: np.ndarray,
+        rng: np.random.Generator,
     ) -> tuple[np.ndarray, np.ndarray]: ...
 
     # Each mechanism names its own confounders. Inferring them from the
@@ -73,7 +76,7 @@ class CrossSectionDGP:
         tau = self.effect.tau_values(covariates)
         p1 = np.clip(p0 + tau, 0.0, 1.0)
 
-        treatment, propensity = self.assignment.assign(covariates, rng)
+        treatment, propensity = self.assignment.assign(covariates, p0, rng)
         realised_probability = np.where(treatment == 1, p1, p0)
         outcome = rng.binomial(1, realised_probability)
 

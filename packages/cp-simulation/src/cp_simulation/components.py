@@ -93,7 +93,10 @@ class RandomAssignment:
     share: float = 0.5
 
     def assign(
-        self, covariates: np.ndarray, rng: np.random.Generator
+        self,
+        covariates: np.ndarray,
+        baseline: np.ndarray,
+        rng: np.random.Generator,
     ) -> tuple[np.ndarray, np.ndarray]:
         n = covariates.shape[0]
         propensity = np.full(n, self.share)
@@ -116,7 +119,10 @@ class PropensityAssignment:
     strength: float = 1.0
 
     def assign(
-        self, covariates: np.ndarray, rng: np.random.Generator
+        self,
+        covariates: np.ndarray,
+        baseline: np.ndarray,
+        rng: np.random.Generator,
     ) -> tuple[np.ndarray, np.ndarray]:
         beta = np.asarray(self.coefficients, dtype=float)
         if covariates.shape[1] != beta.size:
@@ -142,3 +148,47 @@ class PropensityAssignment:
             for name, coefficient in zip(covariate_names, self.coefficients, strict=True)
             if coefficient != 0.0
         )
+
+
+@dataclass(frozen=True)
+class BaselineSelectionAssignment:
+    """Assignment driven by a unit's own untreated outcome probability.
+
+    Qualitatively different from PropensityAssignment: selection runs through
+    the outcome-generating process rather than through a covariate an analyst
+    would naturally think to adjust for. The effect stays identifiable here
+    because the baseline is a function of the covariates, but a method that
+    ignores them is badly biased.
+    """
+
+    strength: float = 8.0
+    share: float = 0.5
+
+    def __post_init__(self) -> None:
+        if self.strength < 0.0:
+            raise ValueError(f"strength must be non-negative, got {self.strength}")
+        if not 0.0 < self.share < 1.0:
+            raise ValueError(f"share must lie in (0, 1), got {self.share}")
+
+    def assign(
+        self,
+        covariates: np.ndarray,
+        baseline: np.ndarray,
+        rng: np.random.Generator,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        if baseline.shape[0] != covariates.shape[0]:
+            raise ValueError(
+                f"baseline has {baseline.shape[0]} entries but covariates has "
+                f"{covariates.shape[0]} rows"
+            )
+        centred = baseline - float(np.mean(baseline))
+        propensity = expit(self.strength * centred)
+        return rng.binomial(1, propensity), propensity
+
+    def confounders(self, covariate_names: tuple[str, ...]) -> tuple[str, ...]:
+        # Selection runs through the baseline, which every covariate feeds, so
+        # all of them confound. At zero strength assignment is independent of
+        # everything and nothing confounds.
+        if self.strength == 0.0:
+            return ()
+        return covariate_names
