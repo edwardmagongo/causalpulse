@@ -54,6 +54,13 @@ select = ["E", "F", "I", "N", "UP", "B", "SIM", "NPY"]
 python_version = "3.12"
 strict = true
 
+[[tool.mypy.overrides]]
+# scikit-learn ships no py.typed marker as of 1.9; this is a targeted
+# exception rather than a blanket ignore_missing_imports so untyped imports
+# elsewhere still fail loudly.
+module = "sklearn.*"
+ignore_missing_imports = true
+
 [tool.coverage.run]
 source = ["packages"]
 omit = ["*/tests/*"]
