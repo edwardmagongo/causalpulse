@@ -25,7 +25,7 @@ from cp_core.values import Diagnostic, EstimatorConfig, Interval
 from cp_statistics.proportions import newcombe_interval
 from scipy import stats
 
-from cp_causal._support import arrays, bootstrap_effect, config_hash
+from cp_causal._support import arrays, bootstrap_effect, config_hash, degeneracy_diagnostic
 from cp_causal.base import Requirements
 from cp_causal.registry import register
 
@@ -94,16 +94,8 @@ class DifferenceInMeans:
                     unit="proportion",
                     interpretation="Share of units assigned to treatment.",
                 ),
-                "bootstrap_degenerate_replicates": Diagnostic(
-                    name="bootstrap_degenerate_replicates",
-                    value=float(bootstrap_result.n_degenerate),
-                    unit="replicates",
-                    interpretation=(
-                        "Count of bootstrap resamples that happened to contain "
-                        "only one treatment arm and were excluded from the "
-                        "bootstrap interval. A high count means the interval "
-                        "rests on fewer effective replicates than requested."
-                    ),
+                "bootstrap_degenerate_replicates": degeneracy_diagnostic(
+                    bootstrap_result.n_degenerate, min_arm_size=1
                 ),
             },
             assumptions=(

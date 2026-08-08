@@ -140,3 +140,13 @@ def test_recovers_a_heterogeneous_scenario_average_effect():
 
 def test_requires_covariates():
     assert AugmentedIPW().requirements.needs_covariates is True
+
+
+def test_rejects_a_bare_string_for_a_covariates_option():
+    # A bare string is iterable, so `tuple("x1")` silently becomes
+    # `("x", "1")` instead of raising — that must be rejected explicitly
+    # rather than left to surface as a confusing "column not present" error.
+    with pytest.raises(ValueError, match="propensity_covariates"):
+        AugmentedIPW().fit(
+            full(0), config(options={"propensity_covariates": "x1"})
+        )

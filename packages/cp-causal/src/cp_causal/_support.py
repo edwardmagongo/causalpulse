@@ -8,7 +8,7 @@ from collections.abc import Callable
 
 import numpy as np
 from cp_core.dataset import CausalDataset
-from cp_core.values import EstimatorConfig
+from cp_core.values import Diagnostic, EstimatorConfig
 from cp_statistics.bootstrap import BootstrapResult, bootstrap_interval
 
 
@@ -75,4 +75,28 @@ def bootstrap_effect(
         rng=rng,
         level=config.ci_level,
         kind=config.bootstrap_kind,
+    )
+
+
+def degeneracy_diagnostic(n_degenerate: int, min_arm_size: int) -> Diagnostic:
+    """Build the `bootstrap_degenerate_replicates` Diagnostic.
+
+    Every estimator's `point_from` closure discards a bootstrap resample when
+    one treatment arm falls below its own `min_arm_size` threshold — that
+    threshold differs by estimator (a bare non-empty-arm check for
+    `DifferenceInMeans`, up to 25 units for `AugmentedIPW`). Building the
+    interpretation text here from the caller's actual threshold, rather than
+    copy-pasting a fixed sentence into every estimator, is what keeps the text
+    accurate as thresholds change or new estimators are added.
+    """
+    return Diagnostic(
+        name="bootstrap_degenerate_replicates",
+        value=float(n_degenerate),
+        unit="replicates",
+        interpretation=(
+            "Count of bootstrap resamples that ended up with fewer than "
+            f"{min_arm_size} units in one treatment arm and were excluded "
+            "from the bootstrap interval. A high count means the interval "
+            "rests on fewer effective replicates than requested."
+        ),
     )

@@ -18,7 +18,7 @@ from cp_core.values import Diagnostic, EstimatorConfig, Interval
 from scipy import stats
 from sklearn.linear_model import LinearRegression
 
-from cp_causal._support import arrays, bootstrap_effect, config_hash
+from cp_causal._support import arrays, bootstrap_effect, config_hash, degeneracy_diagnostic
 from cp_causal.base import Requirements
 from cp_causal.propensity import (
     PropensityFit,
@@ -53,6 +53,11 @@ def _resolve_nuisance_covariates(
         if raw is None:
             names: tuple[str, ...] = schema.covariates
         else:
+            if isinstance(raw, str):
+                raise ValueError(
+                    f"options[{option_name!r}] is a bare string ({raw!r}); a "
+                    f"tuple of column names is expected, e.g. ({raw!r},)"
+                )
             names = cast("tuple[str, ...]", tuple(raw))  # type: ignore[arg-type]
             for name in names:
                 if name not in dataset.frame.columns:
@@ -230,16 +235,8 @@ class AugmentedIPW:
                     unit=None,
                     interpretation="Spread of the per-unit influence-function scores.",
                 ),
-                "bootstrap_degenerate_replicates": Diagnostic(
-                    name="bootstrap_degenerate_replicates",
-                    value=float(bootstrap_result.n_degenerate),
-                    unit="replicates",
-                    interpretation=(
-                        "Count of bootstrap resamples that happened to contain "
-                        "only one treatment arm and were excluded from the "
-                        "bootstrap interval. A high count means the interval "
-                        "rests on fewer effective replicates than requested."
-                    ),
+                "bootstrap_degenerate_replicates": degeneracy_diagnostic(
+                    bootstrap_result.n_degenerate, min_arm_size=25
                 ),
             },
             assumptions=overlap_checks(fitted.scores, treatment, smd_after),
