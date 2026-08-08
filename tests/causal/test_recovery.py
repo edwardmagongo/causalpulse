@@ -38,22 +38,25 @@ def test_adjusting_estimators_remove_confounding_bias_under_scenario_d():
 def test_adjusting_estimators_remove_confounding_bias_under_scenario_g():
     # Scenario G's true propensity is expit(strength * (p0 - mean(p0))), where
     # p0 is itself a clipped sigmoid of the covariates — markedly nonlinear.
-    # IPW's linear-logit propensity model and Lin's linear outcome model are
-    # each close enough to that surface to stay under the blanket tolerance.
+    # AIPW fits two nuisance models: a linear-logit propensity model and a
+    # plain-OLS outcome regression against a binary/sigmoid outcome surface.
+    # Under scenario G neither nuisance is correctly specified. Double
+    # robustness requires *at least one* of the two to be correct; since
+    # neither is here, the guarantee does not apply, and a residual
+    # finite-sample bias is what theory predicts rather than a defect in the
+    # estimator.
     #
-    # AIPW is different: double robustness requires *at least one* of its two
-    # nuisance models (propensity, outcome) to be correctly specified. Under G,
-    # neither is — the propensity is nonlinear in the covariates and the
-    # outcome nuisance is plain OLS against a binary/sigmoid surface — so the
-    # guarantee simply does not apply, and a residual finite-sample bias is
-    # what theory predicts rather than a defect in the estimator.
-    #
-    # Measured (mean_bias, n=4000, 40 seeds): AIPW +0.01696 (se 0.0033); at
-    # n=20000, 15 seeds: +0.01208 (se 0.0036); at n=60000, 6 seeds: +0.01096
-    # (se 0.0025) — consistent with shrinking-but-nonzero finite-sample bias.
-    # 0.03 gives ~4 SE of headroom over the measured +0.017 at n=4000 without
-    # hiding the effect; IPW and Lin keep the tight tolerance because they
-    # pass it cleanly.
+    # This test runs 40 seeds (not the module default of 10) because at 10
+    # seeds the margin between measured bias and tolerance is too thin —
+    # under 1 SE for AIPW and Lin — for the assertion to be a meaningful
+    # guard against regressions rather than a coin flip against sampling
+    # noise. Measured at n=4000, 40 seeds:
+    #   lin_regression: bias +0.00782 (se 0.00260) -> 2.8 SE of headroom under 0.015
+    #   ipw:            bias -0.00314 (se 0.00327) -> 5.5 SE of headroom under 0.015
+    #   aipw:           bias +0.01696 (se 0.00331) -> 3.9 SE of headroom under 0.03
+    # At n=20000, 15 seeds, AIPW bias is +0.01208 (se 0.0036); at n=60000, 6
+    # seeds, +0.01096 (se 0.0025) — consistent with shrinking-but-nonzero
+    # finite-sample bias rather than a fixed defect.
     tolerances = {
         "lin_regression": 0.015,
         "ipw": 0.015,
@@ -61,7 +64,7 @@ def test_adjusting_estimators_remove_confounding_bias_under_scenario_g():
     }
     for estimator in ADJUSTING:
         tolerance = tolerances[estimator.name]
-        assert abs(mean_bias(estimator, "G")) < tolerance, estimator.name
+        assert abs(mean_bias(estimator, "G", seeds=40)) < tolerance, estimator.name
 
 
 @pytest.mark.parametrize("scenario_id", ["D", "G"])
@@ -114,13 +117,13 @@ def test_router_offers_every_registered_estimator_on_covariate_data():
 
     eligible = set(eligible_estimators(simulated.dataset))
 
-    assert {"difference_in_means", "lin_regression", "ipw", "aipw"} <= eligible
+    assert {"difference_in_means", "lin_regression", "ipw", "aipw"} == eligible
 
 
 def test_importing_cp_causal_registers_every_estimator():
     import cp_causal  # noqa: F401
 
-    assert {"difference_in_means", "lin_regression", "ipw", "aipw"} <= set(
+    assert {"difference_in_means", "lin_regression", "ipw", "aipw"} == set(
         all_estimators()
     )
 
