@@ -1,0 +1,166 @@
+"""Covariate-adjusted estimation for randomised designs."""
+
+from __future__ import annotations
+
+import time
+
+import numpy as np
+from cp_core.dataset import CausalDataset
+from cp_core.results import (
+    AssumptionCheck,
+    CounterfactualPoint,
+    EffectEstimate,
+    FitMetadata,
+)
+from cp_core.values import Diagnostic, EstimatorConfig, Interval
+from cp_statistics.covariance import ols_fit, robust_covariance
+from scipy import stats
+
+from cp_causal._support import arrays, bootstrap_effect, config_hash
+from cp_causal.base import Requirements
+from cp_causal.registry import register
+
+
+def _design(covariates: np.ndarray, treatment: np.ndarray) -> np.ndarray:
+    """Lin's design: intercept, treatment, centred covariates, interactions.
+
+    Centring is what makes the treatment coefficient the ATE. Without it the
+    coefficient is the effect at X = 0, which is both a different quantity and
+    a moving target under any rescaling of the covariates.
+    """
+    centred = covariates - covariates.mean(axis=0)
+    return np.column_stack(
+        [
+            np.ones(treatment.size),
+            treatment,
+            centred,
+            treatment[:, None] * centred,
+        ]
+    )
+
+
+@register
+class LinRegressionAdjustment:
+    """Lin (2013) interaction-adjusted estimator with HC2 standard errors."""
+
+    name = "lin_regression"
+    requirements = Requirements(
+        needs_covariates=True, min_treated_units=5, min_control_units=5
+    )
+
+    def fit(self, dataset: CausalDataset, config: EstimatorConfig) -> EffectEstimate:
+        started = time.perf_counter()
+        covariates, treatment, outcome = arrays(dataset)
+
+        fit = ols_fit(_design(covariates, treatment), outcome)
+        # HC2 rather than HC1: it divides by the leverage complement, which
+        # behaves better when a few observations are influential.
+        covariance = robust_covariance(fit, kind="HC2")
+        point = float(fit.beta[1])
+        se = float(np.sqrt(covariance[1, 1]))
+
+        critical = float(stats.norm.ppf(1 - (1 - config.ci_level) / 2))
+        interval = Interval(
+            lower=point - critical * se,
+            upper=point + critical * se,
+            level=config.ci_level,
+        )
+        p_value = float(2 * (1 - stats.norm.cdf(abs(point / se)))) if se > 0 else 1.0
+
+        def point_from(indices: np.ndarray) -> float:
+            w = treatment[indices]
+            if w.sum() < 2 or (1 - w).sum() < 2:
+                return float("nan")
+            resampled = ols_fit(_design(covariates[indices], w), outcome[indices])
+            return float(resampled.beta[1])
+
+        bootstrap_result = bootstrap_effect(point_from, outcome.size, config)
+
+        control_mean = float(outcome[treatment == 0].mean())
+        return EffectEstimate(
+            estimand="ATE",
+            method=self.name,
+            point=point,
+            se=se,
+            ci=interval,
+            ci_basis="analytic",
+            bootstrap_ci=bootstrap_result.interval,
+            p_value=p_value,
+            n_treated=int((treatment == 1).sum()),
+            n_control=int((treatment == 0).sum()),
+            scale="percentage_point"
+            if dataset.schema.outcome_type == "binary"
+            else "absolute",
+            diagnostics={
+                "r_squared": Diagnostic(
+                    name="r_squared",
+                    value=float(
+                        1.0 - fit.residuals.var(ddof=0) / outcome.var(ddof=0)
+                    ),
+                    unit=None,
+                    interpretation="Share of outcome variance explained by the design.",
+                ),
+                "n_parameters": Diagnostic(
+                    name="n_parameters",
+                    value=float(fit.k),
+                    unit="parameters",
+                    interpretation="Columns in the Lin design matrix.",
+                ),
+                "bootstrap_degenerate_replicates": Diagnostic(
+                    name="bootstrap_degenerate_replicates",
+                    value=float(bootstrap_result.n_degenerate),
+                    unit="replicates",
+                    interpretation=(
+                        "Count of bootstrap resamples that happened to contain "
+                        "only one treatment arm and were excluded from the "
+                        "bootstrap interval. A high count means the interval "
+                        "rests on fewer effective replicates than requested."
+                    ),
+                ),
+            },
+            assumptions=(
+                AssumptionCheck(
+                    name="randomised_assignment",
+                    status="NOT_TESTABLE",
+                    statistic=None,
+                    threshold=None,
+                    interpretation=(
+                        "Lin adjustment removes finite-sample imbalance in the "
+                        "covariates supplied; it does not correct for confounding "
+                        "by anything unobserved. Randomisation is what licenses "
+                        "the causal reading, and it cannot be checked from data."
+                    ),
+                    remedy=(
+                        "Use a propensity or doubly-robust estimator if "
+                        "assignment was not random."
+                    ),
+                ),
+                AssumptionCheck(
+                    name="outcome_model_specification",
+                    status="WARN",
+                    statistic=None,
+                    threshold=None,
+                    interpretation=(
+                        "The adjustment is linear in the supplied covariates. Under "
+                        "randomisation Lin stays consistent even when that linear "
+                        "form is wrong, but its precision advantage shrinks."
+                    ),
+                    remedy=(
+                        "Add interactions or transformed covariates if the "
+                        "relationship is non-linear."
+                    ),
+                ),
+            ),
+            counterfactual=CounterfactualPoint(
+                observed_mean=float(outcome[treatment == 1].mean()),
+                predicted_absent_treatment=control_mean,
+                lower=control_mean - critical * se,
+                upper=control_mean + critical * se,
+            ),
+            fit_metadata=FitMetadata.capture(
+                estimator=self.name,
+                config_hash=config_hash(config),
+                runtime_seconds=time.perf_counter() - started,
+                random_seed=config.random_seed,
+            ),
+        )
