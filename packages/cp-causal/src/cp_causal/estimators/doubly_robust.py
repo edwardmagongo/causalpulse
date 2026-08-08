@@ -1,0 +1,247 @@
+"""Augmented inverse probability weighting (AIPW).
+
+Consistent if either the propensity model or the outcome model is correct, so
+a single modelling mistake does not invalidate the estimate. Cross-fitting is
+mandatory rather than optional: in-sample nuisance predictions reintroduce the
+overfitting bias the augmentation term exists to remove.
+"""
+
+from __future__ import annotations
+
+import time
+
+import numpy as np
+from cp_core.dataset import CausalDataset
+from cp_core.results import CounterfactualPoint, EffectEstimate, FitMetadata
+from cp_core.values import Diagnostic, EstimatorConfig, Interval
+from scipy import stats
+from sklearn.linear_model import LinearRegression
+
+from cp_causal._support import arrays, bootstrap_effect, config_hash
+from cp_causal.base import Requirements
+from cp_causal.propensity import (
+    PropensityFit,
+    fit_propensity,
+    overlap_checks,
+    standardised_mean_differences,
+)
+from cp_causal.registry import register
+
+
+def _outcome_design(dataset: CausalDataset) -> np.ndarray:
+    """Every frame column available to the outcome model.
+
+    Deliberately not limited to `schema.covariates`. The propensity model's
+    input set is what the positivity and balance diagnostics are computed
+    against and what determines the identifying comparison, so it must track
+    exactly what the schema declares — narrowing it is how a caller expresses
+    "the propensity model is misspecified." The outcome regression carries no
+    such identification role: restricting it to that same declared subset
+    would let one narrow covariate declaration cripple both nuisance models
+    at once, defeating the reason AIPW carries two of them. Reading every
+    non-role column instead means a caller can still degrade the propensity
+    model on its own by narrowing `schema.covariates`, while the outcome
+    model keeps whatever predictive signal the frame actually has — which is
+    the scenario double robustness is meant to survive.
+    """
+    schema = dataset.schema
+    exclude = {schema.unit, schema.treatment, schema.outcome}
+    if schema.time is not None:
+        exclude.add(schema.time)
+    if schema.cohort is not None:
+        exclude.add(schema.cohort)
+    columns = [c for c in dataset.frame.columns if c not in exclude]
+    return dataset.frame[columns].to_numpy(dtype=float)
+
+
+def _cross_fitted_outcome_models(
+    covariates: np.ndarray,
+    treatment: np.ndarray,
+    outcome: np.ndarray,
+    folds: int,
+    rng: np.random.Generator,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Out-of-fold predictions of E[Y|X, T=1] and E[Y|X, T=0].
+
+    Each unit's prediction comes from arm-specific linear models trained on
+    the other folds only, so the outcome model never sees the unit it
+    predicts for — the same cross-fitting discipline `fit_propensity` already
+    applies to the propensity model.
+    """
+    n = treatment.size
+    order = rng.permutation(n)
+    mu_treated = np.zeros(n)
+    mu_control = np.zeros(n)
+
+    for fold in range(folds):
+        held_out = order[fold::folds]
+        train = np.setdiff1d(order, held_out)
+        train_treated = train[treatment[train] == 1]
+        train_control = train[treatment[train] == 0]
+        if train_treated.size < 2 or train_control.size < 2:
+            raise ValueError(
+                "cross-fitting produced a fold with too few units in one arm; "
+                "reduce folds or supply more data"
+            )
+        mu_treated[held_out] = (
+            LinearRegression()
+            .fit(covariates[train_treated], outcome[train_treated])
+            .predict(covariates[held_out])
+        )
+        mu_control[held_out] = (
+            LinearRegression()
+            .fit(covariates[train_control], outcome[train_control])
+            .predict(covariates[held_out])
+        )
+    return mu_treated, mu_control
+
+
+@register
+class AugmentedIPW:
+    """Cross-fitted AIPW with influence-function standard errors."""
+
+    name = "aipw"
+    requirements = Requirements(
+        needs_covariates=True, min_treated_units=25, min_control_units=25
+    )
+    cross_fit_folds = 5
+
+    def fit(self, dataset: CausalDataset, config: EstimatorConfig) -> EffectEstimate:
+        started = time.perf_counter()
+        covariates, treatment, outcome = arrays(dataset)
+        outcome_covariates = _outcome_design(dataset)
+        seed = 0 if config.random_seed is None else config.random_seed
+        # One generator derived from the config's seed at the estimator boundary,
+        # then threaded down. Helpers never seed their own generator, so every
+        # random choice in this fit — including the cross-fitting fold split —
+        # traces back to this root SeedSequence.
+        rng = np.random.default_rng(np.random.SeedSequence(seed))
+
+        scores, fitted = self._scores(
+            covariates, outcome_covariates, treatment, outcome, rng
+        )
+        point = float(scores.mean())
+        # The influence function is the per-unit score itself, so its spread is
+        # the standard error directly — no separate variance formula needed.
+        se = float(scores.std(ddof=1) / np.sqrt(scores.size))
+
+        critical = float(stats.norm.ppf(1 - (1 - config.ci_level) / 2))
+        interval = Interval(
+            lower=point - critical * se,
+            upper=point + critical * se,
+            level=config.ci_level,
+        )
+
+        def point_from(indices: np.ndarray) -> float:
+            w = treatment[indices]
+            if w.sum() < 25 or (1 - w).sum() < 25:
+                return float("nan")
+            replicate_scores, _ = self._scores(
+                covariates[indices],
+                outcome_covariates[indices],
+                w,
+                outcome[indices],
+                rng,
+            )
+            return float(replicate_scores.mean())
+
+        bootstrap_result = bootstrap_effect(point_from, outcome.size, config)
+
+        weights = np.where(
+            treatment == 1, 1.0 / fitted.scores, 1.0 / (1.0 - fitted.scores)
+        )
+        smd_after = standardised_mean_differences(covariates, treatment, weights)
+        control_mean = float(outcome[treatment == 1].mean()) - point
+
+        return EffectEstimate(
+            estimand="ATE",
+            method=self.name,
+            point=point,
+            se=se,
+            ci=interval,
+            ci_basis="analytic",
+            bootstrap_ci=bootstrap_result.interval,
+            p_value=float(2 * (1 - stats.norm.cdf(abs(point / se)))) if se > 0 else 1.0,
+            n_treated=int((treatment == 1).sum()),
+            n_control=int((treatment == 0).sum()),
+            scale="percentage_point"
+            if dataset.schema.outcome_type == "binary"
+            else "absolute",
+            diagnostics={
+                "cross_fit_folds": Diagnostic(
+                    name="cross_fit_folds",
+                    value=float(self.cross_fit_folds),
+                    unit="folds",
+                    interpretation=(
+                        "Each unit's nuisance predictions come from a model that "
+                        "never saw it, so overfitting does not leak into the estimate."
+                    ),
+                ),
+                "score_dispersion": Diagnostic(
+                    name="score_dispersion",
+                    value=float(scores.std(ddof=1)),
+                    unit=None,
+                    interpretation="Spread of the per-unit influence-function scores.",
+                ),
+                "bootstrap_degenerate_replicates": Diagnostic(
+                    name="bootstrap_degenerate_replicates",
+                    value=float(bootstrap_result.n_degenerate),
+                    unit="replicates",
+                    interpretation=(
+                        "Count of bootstrap resamples that happened to contain "
+                        "only one treatment arm and were excluded from the "
+                        "bootstrap interval. A high count means the interval "
+                        "rests on fewer effective replicates than requested."
+                    ),
+                ),
+            },
+            assumptions=overlap_checks(fitted.scores, treatment, smd_after),
+            counterfactual=CounterfactualPoint(
+                observed_mean=float(outcome[treatment == 1].mean()),
+                predicted_absent_treatment=control_mean,
+                lower=control_mean - critical * se,
+                upper=control_mean + critical * se,
+            ),
+            fit_metadata=FitMetadata.capture(
+                estimator=self.name,
+                config_hash=config_hash(config),
+                runtime_seconds=time.perf_counter() - started,
+                random_seed=config.random_seed,
+            ),
+        )
+
+    def _scores(
+        self,
+        covariates: np.ndarray,
+        outcome_covariates: np.ndarray,
+        treatment: np.ndarray,
+        outcome: np.ndarray,
+        rng: np.random.Generator,
+    ) -> tuple[np.ndarray, PropensityFit]:
+        """Per-unit AIPW scores; their mean is the estimate.
+
+        `covariates` (schema-declared) drives the propensity model;
+        `outcome_covariates` (every non-role frame column) drives the outcome
+        regression. They coincide unless a caller has deliberately narrowed
+        `schema.covariates`, which is exactly the mechanism double robustness
+        needs to be tested against.
+
+        The propensity fit is cross-fitted through `fit_propensity` itself
+        (reused rather than reimplemented) and returned alongside the scores
+        so the caller can build diagnostics from the same out-of-fold scores
+        the estimate was built on, without a second, in-sample fit.
+        """
+        fitted = fit_propensity(
+            covariates, treatment, cross_fit_folds=self.cross_fit_folds, rng=rng
+        )
+        mu_treated, mu_control = _cross_fitted_outcome_models(
+            outcome_covariates, treatment, outcome, self.cross_fit_folds, rng
+        )
+        e = fitted.scores
+        scores = (
+            mu_treated
+            - mu_control
+            + treatment * (outcome - mu_treated) / e
+            - (1 - treatment) * (outcome - mu_control) / (1 - e)
+        )
+        return np.asarray(scores), fitted
