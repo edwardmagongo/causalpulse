@@ -9,6 +9,7 @@ overfitting bias the augmentation term exists to remove.
 from __future__ import annotations
 
 import time
+from typing import cast
 
 import numpy as np
 from cp_core.dataset import CausalDataset
@@ -28,30 +29,47 @@ from cp_causal.propensity import (
 from cp_causal.registry import register
 
 
-def _outcome_design(dataset: CausalDataset) -> np.ndarray:
-    """Every frame column available to the outcome model.
+def _resolve_nuisance_covariates(
+    dataset: CausalDataset, config: EstimatorConfig
+) -> tuple[np.ndarray, np.ndarray]:
+    """Covariate matrices for the propensity and outcome nuisance models.
 
-    Deliberately not limited to `schema.covariates`. The propensity model's
-    input set is what the positivity and balance diagnostics are computed
-    against and what determines the identifying comparison, so it must track
-    exactly what the schema declares — narrowing it is how a caller expresses
-    "the propensity model is misspecified." The outcome regression carries no
-    such identification role: restricting it to that same declared subset
-    would let one narrow covariate declaration cripple both nuisance models
-    at once, defeating the reason AIPW carries two of them. Reading every
-    non-role column instead means a caller can still degrade the propensity
-    model on its own by narrowing `schema.covariates`, while the outcome
-    model keeps whatever predictive signal the frame actually has — which is
-    the scenario double robustness is meant to survive.
+    Both default to `dataset.schema.covariates` — the analyst's declared
+    adjustment set — so out of the box AIPW reads exactly what
+    `DifferenceInMeans`, `LinRegressionAdjustment` and
+    `InverseProbabilityWeighting` read on the same dataset. `config.options`
+    may override either independently via `"propensity_covariates"` or
+    `"outcome_covariates"` (each a tuple of column names).
     """
     schema = dataset.schema
-    exclude = {schema.unit, schema.treatment, schema.outcome}
+    role_columns = {schema.unit, schema.treatment, schema.outcome}
     if schema.time is not None:
-        exclude.add(schema.time)
+        role_columns.add(schema.time)
     if schema.cohort is not None:
-        exclude.add(schema.cohort)
-    columns = [c for c in dataset.frame.columns if c not in exclude]
-    return dataset.frame[columns].to_numpy(dtype=float)
+        role_columns.add(schema.cohort)
+
+    def resolve(option_name: str) -> np.ndarray:
+        raw = config.options.get(option_name)
+        if raw is None:
+            names: tuple[str, ...] = schema.covariates
+        else:
+            names = cast("tuple[str, ...]", tuple(raw))  # type: ignore[arg-type]
+            for name in names:
+                if name not in dataset.frame.columns:
+                    raise ValueError(
+                        f"options[{option_name!r}] names column {name!r}, which "
+                        "is not present in the frame"
+                    )
+                if name in role_columns:
+                    raise ValueError(
+                        f"options[{option_name!r}] names column {name!r}, which "
+                        "is a role column and cannot be used as a covariate"
+                    )
+        if not names:
+            return np.empty((len(dataset.frame), 0))
+        return dataset.frame[list(names)].to_numpy(dtype=float)
+
+    return resolve("propensity_covariates"), resolve("outcome_covariates")
 
 
 def _cross_fitted_outcome_models(
@@ -98,7 +116,36 @@ def _cross_fitted_outcome_models(
 
 @register
 class AugmentedIPW:
-    """Cross-fitted AIPW with influence-function standard errors."""
+    """Cross-fitted AIPW with influence-function standard errors.
+
+    Both nuisance models — the propensity model and the outcome regression —
+    read `dataset.schema.covariates` by default, exactly like every other
+    estimator in this package. `config.options` accepts two optional keys to
+    override that per model:
+
+    - `"propensity_covariates"`: a tuple of column names for the propensity
+      model only.
+    - `"outcome_covariates"`: a tuple of column names for the outcome
+      regression only.
+
+    Each supplied name must be a column present in the frame and must not be
+    one of the schema's role columns (`unit`, `treatment`, `outcome`, `time`,
+    `cohort`); a `ValueError` names the offending column and the option it
+    came from otherwise.
+
+    These options exist for two reasons. First, using different covariate
+    sets for the two nuisance models is real analytic practice — an analyst
+    may want a richer, more predictive set for the outcome regression than
+    the identifying set used for the propensity model, or vice versa.
+    Second, it is what makes double robustness testable without corrupting
+    the default contract: a caller can degrade one nuisance model in
+    isolation (e.g. `propensity_covariates` naming a strict subset) while
+    leaving the other on the full declared covariate set, and AIPW should
+    still recover the effect. Doing this by narrowing `schema.covariates`
+    itself would cripple both nuisance models at once, since that schema is
+    also what `arrays()` and every other estimator read — these options let
+    the propensity and outcome covariate sets vary independently instead.
+    """
 
     name = "aipw"
     requirements = Requirements(
@@ -108,8 +155,8 @@ class AugmentedIPW:
 
     def fit(self, dataset: CausalDataset, config: EstimatorConfig) -> EffectEstimate:
         started = time.perf_counter()
-        covariates, treatment, outcome = arrays(dataset)
-        outcome_covariates = _outcome_design(dataset)
+        _, treatment, outcome = arrays(dataset)
+        covariates, outcome_covariates = _resolve_nuisance_covariates(dataset, config)
         seed = 0 if config.random_seed is None else config.random_seed
         # One generator derived from the config's seed at the estimator boundary,
         # then threaded down. Helpers never seed their own generator, so every
@@ -220,11 +267,11 @@ class AugmentedIPW:
     ) -> tuple[np.ndarray, PropensityFit]:
         """Per-unit AIPW scores; their mean is the estimate.
 
-        `covariates` (schema-declared) drives the propensity model;
-        `outcome_covariates` (every non-role frame column) drives the outcome
-        regression. They coincide unless a caller has deliberately narrowed
-        `schema.covariates`, which is exactly the mechanism double robustness
-        needs to be tested against.
+        `covariates` drives the propensity model; `outcome_covariates` drives
+        the outcome regression. Both are resolved by
+        `_resolve_nuisance_covariates` before this is called, so they coincide
+        (both equal to `schema.covariates`) unless `config.options` overrode
+        one of them.
 
         The propensity fit is cross-fitted through `fit_propensity` itself
         (reused rather than reimplemented) and returned alongside the scores
