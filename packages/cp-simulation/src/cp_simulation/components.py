@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
-from scipy.special import expit
+from scipy.special import expit, logit
 
 # Baselines are held away from 0 and 1 so that clipping p0 + tau at the unit
 # interval cannot distort a scenario's declared effect. See spec section 4.3.
@@ -181,8 +181,12 @@ class BaselineSelectionAssignment:
                 f"baseline has {baseline.shape[0]} entries but covariates has "
                 f"{covariates.shape[0]} rows"
             )
+        # `share` sets the intercept so it actually controls the treated
+        # fraction: centring the baseline makes the strength term average zero,
+        # so the mean propensity lands near `share`, and at strength 0 it is
+        # exactly `share`. logit(0.5) is 0, so the default is unchanged.
         centred = baseline - float(np.mean(baseline))
-        propensity = expit(self.strength * centred)
+        propensity = expit(float(logit(self.share)) + self.strength * centred)
         return rng.binomial(1, propensity), propensity
 
     def confounders(self, covariate_names: tuple[str, ...]) -> tuple[str, ...]:
