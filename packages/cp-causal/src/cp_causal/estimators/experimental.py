@@ -55,6 +55,11 @@ class DifferenceInMeans:
                 treated, control, config.ci_level
             )
 
+        # Same coverage level as the analytic and bootstrap intervals, so a
+        # caller setting ci_level does not get a counterfactual band silently
+        # computed at a different confidence level than the rest of the result.
+        counterfactual_critical = float(stats.norm.ppf(1 - (1 - config.ci_level) / 2))
+
         def point_from(indices: np.ndarray) -> float:
             w = treatment[indices]
             y = outcome[indices]
@@ -108,8 +113,14 @@ class DifferenceInMeans:
             counterfactual=CounterfactualPoint(
                 observed_mean=float(treated.mean()),
                 predicted_absent_treatment=float(control.mean()),
-                lower=float(control.mean() - 1.96 * control.std(ddof=1) / np.sqrt(control.size)),
-                upper=float(control.mean() + 1.96 * control.std(ddof=1) / np.sqrt(control.size)),
+                lower=float(
+                    control.mean()
+                    - counterfactual_critical * control.std(ddof=1) / np.sqrt(control.size)
+                ),
+                upper=float(
+                    control.mean()
+                    + counterfactual_critical * control.std(ddof=1) / np.sqrt(control.size)
+                ),
             ),
             fit_metadata=FitMetadata.capture(
                 estimator=self.name,

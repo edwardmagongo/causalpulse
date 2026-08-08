@@ -16,6 +16,16 @@ def test_interval_rejects_inverted_bounds():
         Interval(lower=0.5, upper=0.1)
 
 
+def test_interval_rejects_nan_bounds():
+    with pytest.raises(ValueError, match="finite"):
+        Interval(lower=float("nan"), upper=float("nan"))
+
+
+def test_interval_rejects_an_infinite_bound():
+    with pytest.raises(ValueError, match="finite"):
+        Interval(lower=0.0, upper=float("inf"))
+
+
 def test_interval_rejects_out_of_range_level():
     with pytest.raises(ValueError, match="level"):
         Interval(lower=0.0, upper=1.0, level=1.5)

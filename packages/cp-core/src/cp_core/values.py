@@ -21,6 +21,14 @@ class Interval:
     level: float = 0.95
 
     def __post_init__(self) -> None:
+        # Finiteness must be checked before the ordering comparison: `nan > nan`
+        # is False in IEEE-754, so a NaN interval would otherwise sail through
+        # the `lower > upper` check and become a silently-broken result.
+        if not np.isfinite(self.lower) or not np.isfinite(self.upper):
+            raise ValueError(
+                f"Interval bounds must be finite, got lower={self.lower}, "
+                f"upper={self.upper}"
+            )
         if self.lower > self.upper:
             raise ValueError(
                 f"lower bound {self.lower} exceeds upper bound {self.upper}"

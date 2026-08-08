@@ -140,3 +140,42 @@ def test_block_bootstrap_rejects_block_size_exceeding_data_length():
             kind="block",
             block_size=20,
         )
+
+
+def test_bootstrap_interval_drops_degenerate_replicates_and_records_the_count():
+    # A statistic that is honestly undefined on some resamples (mirrors
+    # point_from returning nan for a resample missing a treatment arm) must
+    # not poison the interval: np.quantile propagates a single nan to both
+    # returned quantiles regardless of where it sits in the array.
+    data = np.arange(50.0)
+    calls = {"n": 0}
+
+    def statistic(sample: np.ndarray) -> float:
+        calls["n"] += 1
+        if calls["n"] % 10 == 0:  # exactly 1 in 10 replicates is degenerate
+            return float("nan")
+        return float(sample.mean())
+
+    result = bootstrap_interval(
+        statistic, data, reps=200, rng=np.random.default_rng(11)
+    )
+
+    assert result.n_degenerate == 20
+    assert np.isfinite(result.interval.lower)
+    assert np.isfinite(result.interval.upper)
+    assert np.isfinite(result.standard_error)
+    assert result.replicates.shape == (200,)
+
+
+def test_bootstrap_interval_raises_when_most_replicates_are_degenerate():
+    data = np.arange(50.0)
+    calls = {"n": 0}
+
+    def statistic(sample: np.ndarray) -> float:
+        calls["n"] += 1
+        if calls["n"] % 3 != 0:  # 2 out of every 3 replicates degenerate
+            return float("nan")
+        return float(sample.mean())
+
+    with pytest.raises(ValueError, match="degenerate"):
+        bootstrap_interval(statistic, data, reps=30, rng=np.random.default_rng(0))

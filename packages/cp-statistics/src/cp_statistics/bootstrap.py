@@ -29,6 +29,7 @@ class BootstrapResult:
     replicates: np.ndarray
     standard_error: float
     point_estimate: float
+    n_degenerate: int
 
 
 def _resample_iid(data: np.ndarray, rng: np.random.Generator) -> np.ndarray:
@@ -105,9 +106,29 @@ def bootstrap_interval(
             sample = _resample_block(data, block_size, rng)
         replicates[i] = float(statistic(sample))
 
+    # A resample can land on a degenerate draw (e.g. missing a treatment arm
+    # entirely), which by design makes `statistic` return `nan` rather than a
+    # fabricated number. `np.quantile` propagates a single `nan` to every
+    # requested quantile regardless of its position, so degenerate replicates
+    # must be dropped before quantiles or the standard error are computed —
+    # otherwise the interval silently becomes `Interval(nan, nan)`.
+    finite_mask = np.isfinite(replicates)
+    n_finite = int(finite_mask.sum())
+    n_degenerate = reps - n_finite
+    if n_finite < reps / 2.0:
+        raise ValueError(
+            f"{n_degenerate} of {reps} bootstrap replicates were non-finite "
+            f"(degenerate resamples, e.g. missing a group entirely); only "
+            f"{n_finite} finite replicates remain, which is fewer than half. "
+            "The resample distribution is not trustworthy enough to report."
+        )
+    finite_replicates = replicates[finite_mask]
+
     point = float(statistic(data))
     alpha = 1.0 - level
-    lower_q, upper_q = np.quantile(replicates, [alpha / 2.0, 1.0 - alpha / 2.0])
+    lower_q, upper_q = np.quantile(
+        finite_replicates, [alpha / 2.0, 1.0 - alpha / 2.0]
+    )
 
     if method == "percentile":
         lower, upper = float(lower_q), float(upper_q)
@@ -119,6 +140,7 @@ def bootstrap_interval(
     return BootstrapResult(
         interval=Interval(lower=lower, upper=upper, level=level),
         replicates=replicates,
-        standard_error=float(replicates.std(ddof=1)),
+        standard_error=float(finite_replicates.std(ddof=1)),
         point_estimate=point,
+        n_degenerate=n_degenerate,
     )

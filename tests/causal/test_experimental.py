@@ -116,3 +116,84 @@ def test_fit_is_deterministic_for_a_fixed_seed():
 
 def test_estimator_declares_no_covariate_requirement():
     assert DifferenceInMeans().requirements.needs_covariates is False
+
+
+def test_bootstrap_ci_is_finite_with_only_two_treated_units():
+    # Regression test: with 2 treated units, a resample missing both occurs
+    # with probability ~= e^-2 (~13.5%) per replicate, so across the default
+    # 200 replicates at least one degenerate draw is a near-certainty. Before
+    # the fix this produced Interval(lower=nan, upper=nan) silently.
+    rng = np.random.default_rng(42)
+    n_treated, n_control = 2, 38
+    n = n_treated + n_control
+    w = np.array([1] * n_treated + [0] * n_control)
+    y = rng.normal(size=n)
+    frame = pd.DataFrame({"unit_id": np.arange(n), "treated": w, "outcome": y})
+    dataset = CausalDataset(
+        frame=frame,
+        schema=CausalSchema(
+            unit="unit_id",
+            treatment="treated",
+            outcome="outcome",
+            covariates=(),
+            outcome_type="continuous",
+        ),
+    )
+
+    result = DifferenceInMeans().fit(dataset, config())
+
+    assert result.bootstrap_ci is not None
+    assert np.isfinite(result.bootstrap_ci.lower)
+    assert np.isfinite(result.bootstrap_ci.upper)
+
+
+def test_bootstrap_interval_reflects_a_large_unambiguous_effect():
+    # Guards against a shuffled or mis-cast resample index: with a huge,
+    # unambiguous effect and low noise, a bootstrap that drew the wrong rows
+    # would produce an interval that either misses the true effect or fails
+    # to exclude zero.
+    rng = np.random.default_rng(13)
+    n = 2000
+    w = rng.binomial(1, 0.5, n)
+    y = np.where(w == 1, 10.0, 0.0) + rng.normal(scale=0.5, size=n)
+    frame = pd.DataFrame({"unit_id": np.arange(n), "treated": w, "outcome": y})
+    dataset = CausalDataset(
+        frame=frame,
+        schema=CausalSchema(
+            unit="unit_id",
+            treatment="treated",
+            outcome="outcome",
+            covariates=(),
+            outcome_type="continuous",
+        ),
+    )
+
+    result = DifferenceInMeans().fit(dataset, config())
+
+    assert result.bootstrap_ci is not None
+    assert result.bootstrap_ci.contains(10.0)
+    assert not result.bootstrap_ci.contains(0.0)
+    assert result.bootstrap_ci.width < 1.0
+
+
+def test_different_bootstrap_seeds_produce_different_intervals():
+    # Pins that the seed is genuinely wired through bootstrap_effect rather
+    # than silently ignored.
+    dataset = make_dataset()
+    first = DifferenceInMeans().fit(dataset, config(random_seed=1))
+    second = DifferenceInMeans().fit(dataset, config(random_seed=2))
+
+    assert first.bootstrap_ci != second.bootstrap_ci
+
+
+def test_counterfactual_band_widens_as_ci_level_increases():
+    dataset = make_dataset()
+    result_95 = DifferenceInMeans().fit(dataset, config(ci_level=0.95))
+    result_99 = DifferenceInMeans().fit(dataset, config(ci_level=0.99))
+    assert result_95.counterfactual is not None
+    assert result_99.counterfactual is not None
+
+    width_95 = result_95.counterfactual.upper - result_95.counterfactual.lower
+    width_99 = result_99.counterfactual.upper - result_99.counterfactual.lower
+
+    assert width_99 > width_95
