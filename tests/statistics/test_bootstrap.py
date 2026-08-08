@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
-from cp_statistics.bootstrap import bootstrap_interval
+from cp_core.values import Interval
+from cp_statistics.bootstrap import BootstrapResult, bootstrap_interval
 
 
 def test_iid_bootstrap_se_approximates_the_analytic_se_of_the_mean():
@@ -179,3 +180,62 @@ def test_bootstrap_interval_raises_when_most_replicates_are_degenerate():
 
     with pytest.raises(ValueError, match="degenerate"):
         bootstrap_interval(statistic, data, reps=30, rng=np.random.default_rng(0))
+
+
+def test_bootstrap_interval_does_not_raise_at_exactly_half_finite_replicates():
+    # Pins the boundary of `n_finite < reps / 2.0`: exactly half finite must
+    # pass. reps=40 keeps reps/2 an exact integer (20), so the count is exact
+    # rather than probabilistic.
+    data = np.arange(50.0)
+    reps = 40
+    calls = {"n": 0}
+
+    def statistic(sample: np.ndarray) -> float:
+        calls["n"] += 1
+        if calls["n"] <= 20:  # exactly half of the 40 replicates degenerate
+            return float("nan")
+        return float(sample.mean())
+
+    result = bootstrap_interval(statistic, data, reps=reps, rng=np.random.default_rng(20))
+
+    assert result.n_degenerate == 20
+    assert np.isfinite(result.interval.lower)
+    assert np.isfinite(result.interval.upper)
+
+
+def test_bootstrap_interval_raises_one_replicate_short_of_half_finite():
+    # One fewer finite replicate than the boundary test above must raise.
+    data = np.arange(50.0)
+    reps = 40
+    calls = {"n": 0}
+
+    def statistic(sample: np.ndarray) -> float:
+        calls["n"] += 1
+        if calls["n"] <= 21:  # one more degenerate than the passing boundary
+            return float("nan")
+        return float(sample.mean())
+
+    with pytest.raises(ValueError, match="degenerate"):
+        bootstrap_interval(statistic, data, reps=reps, rng=np.random.default_rng(21))
+
+
+def test_bootstrap_result_rejects_a_non_finite_standard_error():
+    with pytest.raises(ValueError, match="standard_error"):
+        BootstrapResult(
+            interval=Interval(lower=0.0, upper=1.0),
+            replicates=np.array([1.0, 2.0]),
+            standard_error=float("nan"),
+            point_estimate=0.5,
+            n_degenerate=0,
+        )
+
+
+def test_bootstrap_result_rejects_a_non_finite_point_estimate():
+    with pytest.raises(ValueError, match="point_estimate"):
+        BootstrapResult(
+            interval=Interval(lower=0.0, upper=1.0),
+            replicates=np.array([1.0, 2.0]),
+            standard_error=0.1,
+            point_estimate=float("nan"),
+            n_degenerate=0,
+        )

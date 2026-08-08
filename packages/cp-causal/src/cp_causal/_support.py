@@ -8,8 +8,8 @@ from collections.abc import Callable
 
 import numpy as np
 from cp_core.dataset import CausalDataset
-from cp_core.values import EstimatorConfig, Interval
-from cp_statistics.bootstrap import bootstrap_interval
+from cp_core.values import EstimatorConfig
+from cp_statistics.bootstrap import BootstrapResult, bootstrap_interval
 
 
 def arrays(dataset: CausalDataset) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -46,12 +46,18 @@ def bootstrap_effect(
     point_fn: Callable[[np.ndarray], float],
     n: int,
     config: EstimatorConfig,
-) -> Interval:
+) -> BootstrapResult:
     """Bootstrap an estimator by resampling row indices.
 
     `bootstrap_interval` resamples a 1-D array and casts it to float, so the
     indices arrive back as floats and `point_fn` must cast them to int. Doing
     that conversion here keeps every estimator's own code free of the detail.
+
+    Returns the full `BootstrapResult`, not just its `interval`, so that
+    `n_degenerate` (how many resamples happened to contain only one treatment
+    arm and were dropped) reaches the caller. Every estimator that bootstraps
+    through this helper must surface that count as a diagnostic rather than
+    silently discard it.
     """
     seed = 0 if config.random_seed is None else config.random_seed
     # Derived through a SeedSequence rather than seeding a generator directly, so
@@ -62,7 +68,7 @@ def bootstrap_effect(
     def statistic(sample: np.ndarray) -> float:
         return point_fn(sample.astype(np.int64))
 
-    result = bootstrap_interval(
+    return bootstrap_interval(
         statistic,
         np.arange(n, dtype=float),
         reps=config.bootstrap_reps,
@@ -70,4 +76,3 @@ def bootstrap_effect(
         level=config.ci_level,
         kind=config.bootstrap_kind,
     )
-    return result.interval

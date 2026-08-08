@@ -26,10 +26,27 @@ _VALID_METHODS = frozenset({"percentile", "basic"})
 @dataclass(frozen=True, eq=False)
 class BootstrapResult:
     interval: Interval
+    # Raw and unfiltered: this is every replicate produced, including any
+    # non-finite ("degenerate") entries from resamples that happened to
+    # contain only one treatment arm. `interval` and `standard_error` are
+    # computed from the finite subset only — `n_degenerate` reports how many
+    # entries here are non-finite. A consumer calling `np.mean`/`np.std`
+    # directly on this array must filter with `np.isfinite` first, or a
+    # single NaN silently propagates through the aggregate.
     replicates: np.ndarray
     standard_error: float
     point_estimate: float
     n_degenerate: int
+
+    def __post_init__(self) -> None:
+        # Mirrors the finiteness guard on `Interval`: a NaN here (e.g. from
+        # `std(ddof=1)` on a single finite replicate) is the same failure
+        # class one field over, and should fail loudly rather than ride
+        # along as a silently-broken summary statistic.
+        if not np.isfinite(self.standard_error):
+            raise ValueError(f"standard_error must be finite, got {self.standard_error}")
+        if not np.isfinite(self.point_estimate):
+            raise ValueError(f"point_estimate must be finite, got {self.point_estimate}")
 
 
 def _resample_iid(data: np.ndarray, rng: np.random.Generator) -> np.ndarray:

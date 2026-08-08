@@ -186,6 +186,41 @@ def test_different_bootstrap_seeds_produce_different_intervals():
     assert first.bootstrap_ci != second.bootstrap_ci
 
 
+def test_bootstrap_degenerate_replicates_diagnostic_is_present_and_non_negative():
+    result = DifferenceInMeans().fit(make_dataset(), config())
+
+    diagnostic = result.diagnostics["bootstrap_degenerate_replicates"]
+    assert diagnostic.value >= 0.0
+
+
+def test_bootstrap_degenerate_replicates_is_nonzero_with_only_two_treated_units():
+    # Mirrors test_bootstrap_ci_is_finite_with_only_two_treated_units: with 2
+    # treated units, each replicate degenerates (misses one arm entirely)
+    # with probability ~= e^-2 (~13.5%), so across 200 replicates a nonzero
+    # count is effectively certain.
+    rng = np.random.default_rng(42)
+    n_treated, n_control = 2, 38
+    n = n_treated + n_control
+    w = np.array([1] * n_treated + [0] * n_control)
+    y = rng.normal(size=n)
+    frame = pd.DataFrame({"unit_id": np.arange(n), "treated": w, "outcome": y})
+    dataset = CausalDataset(
+        frame=frame,
+        schema=CausalSchema(
+            unit="unit_id",
+            treatment="treated",
+            outcome="outcome",
+            covariates=(),
+            outcome_type="continuous",
+        ),
+    )
+
+    result = DifferenceInMeans().fit(dataset, config())
+
+    diagnostic = result.diagnostics["bootstrap_degenerate_replicates"]
+    assert diagnostic.value > 0.0
+
+
 def test_counterfactual_band_widens_as_ci_level_increases():
     dataset = make_dataset()
     result_95 = DifferenceInMeans().fit(dataset, config(ci_level=0.95))

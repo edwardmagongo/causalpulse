@@ -67,6 +67,8 @@ class DifferenceInMeans:
                 return float("nan")
             return float(y[w == 1].mean() - y[w == 0].mean())
 
+        bootstrap_result = bootstrap_effect(point_from, outcome.size, config)
+
         return EffectEstimate(
             estimand="ATE",
             method=self.name,
@@ -74,7 +76,7 @@ class DifferenceInMeans:
             se=se,
             ci=interval,
             ci_basis="analytic",
-            bootstrap_ci=bootstrap_effect(point_from, outcome.size, config),
+            bootstrap_ci=bootstrap_result.interval,
             p_value=p_value,
             n_treated=int(treated.size),
             n_control=int(control.size),
@@ -91,6 +93,17 @@ class DifferenceInMeans:
                     value=float(treated.size / outcome.size),
                     unit="proportion",
                     interpretation="Share of units assigned to treatment.",
+                ),
+                "bootstrap_degenerate_replicates": Diagnostic(
+                    name="bootstrap_degenerate_replicates",
+                    value=float(bootstrap_result.n_degenerate),
+                    unit="replicates",
+                    interpretation=(
+                        "Count of bootstrap resamples that happened to contain "
+                        "only one treatment arm and were excluded from the "
+                        "bootstrap interval. A high count means the interval "
+                        "rests on fewer effective replicates than requested."
+                    ),
                 ),
             },
             assumptions=(
