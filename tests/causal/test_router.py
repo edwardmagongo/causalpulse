@@ -31,6 +31,31 @@ def dataset(
     )
 
 
+def panel_dataset(start: int = 3, n_units: int = 4, n_periods: int = 4) -> CausalDataset:
+    rows = []
+    for unit in range(n_units):
+        cohort = 0 if unit < 2 else start
+        for period in range(1, n_periods + 1):
+            rows.append(
+                {
+                    "unit_id": unit,
+                    "period": period,
+                    "treated": int(cohort > 0 and period >= cohort),
+                    "outcome": float(unit + period),
+                }
+            )
+    frame = pd.DataFrame(rows)
+    schema = CausalSchema(
+        unit="unit_id",
+        time="period",
+        treatment="treated",
+        outcome="outcome",
+        covariates=(),
+        outcome_type="continuous",
+    )
+    return CausalDataset(frame=frame, schema=schema)
+
+
 class _CrossSectional:
     name = "cross_sectional_only"
     requirements = Requirements()
@@ -176,3 +201,12 @@ def test_route_with_no_candidates_arg_does_not_raise_on_empty_registry():
 def test_route_with_empty_candidates_dict_returns_empty_tuple():
     assert route(dataset(), candidates={}) == ()
     assert eligible_estimators(dataset(), candidates={}) == ()
+
+
+def test_declared_pre_period_minimums_are_enforced_not_decorative():
+    dataset_ = panel_dataset(start=2)
+
+    unmet = Requirements(needs_panel=True, min_pre_periods=3).unmet(dataset_)
+
+    assert any("pre-treatment period" in reason for reason in unmet)
+    assert Requirements(needs_panel=True, min_pre_periods=1).unmet(dataset_) == ()

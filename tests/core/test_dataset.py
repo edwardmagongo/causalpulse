@@ -242,14 +242,3 @@ def test_panel_helpers_refuse_a_cross_section():
 
     with pytest.raises(ValueError, match="not a panel"):
         _ = dataset.periods
-
-
-def test_declared_pre_period_minimums_are_enforced_not_decorative():
-    from cp_causal.base import Requirements
-
-    dataset = CausalDataset(frame=panel_frame(start=2), schema=PANEL_SCHEMA)
-
-    unmet = Requirements(needs_panel=True, min_pre_periods=3).unmet(dataset)
-
-    assert any("pre-treatment period" in reason for reason in unmet)
-    assert Requirements(needs_panel=True, min_pre_periods=1).unmet(dataset) == ()
