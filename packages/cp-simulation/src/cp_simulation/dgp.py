@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import asdict, dataclass
 from typing import Protocol
 
 import numpy as np
 from cp_core.dataset import CausalDataset, CausalSchema
 
+from cp_simulation._hashing import component_hash, describe_components
 from cp_simulation.components import (
     LogisticBaseline,
     UnitGenerator,
@@ -54,15 +53,14 @@ class CrossSectionDGP:
 
     @property
     def config_hash(self) -> str:
-        payload = {
-            "scenario_id": self.scenario_id,
-            "covariates": list(self.unit_generator.covariate_names),
-            "baseline": asdict(self.baseline),
-            "effect": {type(self.effect).__name__: asdict(self.effect)},  # type: ignore[call-overload]
-            "assignment": {type(self.assignment).__name__: asdict(self.assignment)},  # type: ignore[call-overload]
-        }
-        encoded = json.dumps(payload, sort_keys=True).encode()
-        return hashlib.sha256(encoded).hexdigest()[:16]
+        return component_hash(
+            {
+                "scenario_id": self.scenario_id,
+                "covariates": list(self.unit_generator.covariate_names),
+                "baseline": asdict(self.baseline),
+                **describe_components(effect=self.effect, assignment=self.assignment),
+            }
+        )
 
     def generate(self, n_units: int, rng: np.random.Generator) -> SimulatedDataset:
         if n_units <= 0:
