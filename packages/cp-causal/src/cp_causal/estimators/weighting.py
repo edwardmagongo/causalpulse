@@ -7,10 +7,17 @@ import time
 import numpy as np
 from cp_core.dataset import CausalDataset
 from cp_core.results import CounterfactualPoint, EffectEstimate, FitMetadata
-from cp_core.values import Diagnostic, EstimatorConfig, Interval
-from scipy import stats
+from cp_core.values import Diagnostic, EstimatorConfig
 
-from cp_causal._support import arrays, bootstrap_effect, config_hash, degeneracy_diagnostic
+from cp_causal._support import (
+    arrays,
+    bootstrap_effect,
+    config_hash,
+    critical_value,
+    degeneracy_diagnostic,
+    normal_p_value,
+    wald_interval,
+)
 from cp_causal.base import Requirements
 from cp_causal.propensity import (
     effective_sample_size,
@@ -84,12 +91,8 @@ class InverseProbabilityWeighting:
             / control_weight_mean
         )
         se = float(np.std(contributions, ddof=1) / np.sqrt(outcome.size))
-        critical = float(stats.norm.ppf(1 - (1 - config.ci_level) / 2))
-        interval = Interval(
-            lower=point - critical * se,
-            upper=point + critical * se,
-            level=config.ci_level,
-        )
+        critical = critical_value(config.ci_level)
+        interval = wald_interval(point, se, config.ci_level)
 
         def point_from(indices: np.ndarray) -> float:
             w = treatment[indices]
@@ -113,7 +116,7 @@ class InverseProbabilityWeighting:
             ci=interval,
             ci_basis="analytic",
             bootstrap_ci=bootstrap_result.interval,
-            p_value=float(2 * (1 - stats.norm.cdf(abs(point / se)))) if se > 0 else 1.0,
+            p_value=normal_p_value(point, se),
             n_treated=int(treated.sum()),
             n_control=int(control.sum()),
             scale="percentage_point"

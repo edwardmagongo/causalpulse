@@ -8,8 +8,9 @@ from collections.abc import Callable
 
 import numpy as np
 from cp_core.dataset import CausalDataset
-from cp_core.values import Diagnostic, EstimatorConfig
+from cp_core.values import Diagnostic, EstimatorConfig, Interval
 from cp_statistics.bootstrap import BootstrapResult, bootstrap_interval
+from scipy import stats
 
 
 def arrays(dataset: CausalDataset) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -100,3 +101,52 @@ def degeneracy_diagnostic(n_degenerate: int, min_arm_size: int) -> Diagnostic:
             "rests on fewer effective replicates than requested."
         ),
     )
+
+
+def critical_value(ci_level: float) -> float:
+    """Two-sided normal critical value for a confidence level."""
+    return float(stats.norm.ppf(1 - (1 - ci_level) / 2))
+
+
+def wald_interval(point: float, se: float, ci_level: float) -> Interval:
+    """Symmetric normal-approximation interval.
+
+    Extracted from four estimators that each built it inline. A zero standard
+    error yields a degenerate interval rather than raising: a perfectly
+    separated arm can produce one, and a point interval is the honest report.
+    """
+    critical = critical_value(ci_level)
+    return Interval(
+        lower=point - critical * se, upper=point + critical * se, level=ci_level
+    )
+
+
+def normal_p_value(point: float, se: float) -> float:
+    """Two-sided p-value against a null of zero, or 1.0 when se is zero."""
+    if se <= 0:
+        return 1.0
+    return float(2 * (1 - stats.norm.cdf(abs(point / se))))
+
+
+def coefficient_se(covariance: np.ndarray, index: int) -> float:
+    """Standard error of one coefficient, read from its own diagonal entry.
+
+    Deliberately not `np.sqrt(np.diag(covariance))`. On a two-way fixed-effects
+    design the unit- and period-dummy coefficients have near-zero true
+    variances, and the sandwich returns them as small negative numbers —
+    measured at around -1.7e-27, on roughly one seed in thirty-six, on the
+    cluster-robust path. A blanket square root turns that floating-point noise
+    into `RuntimeWarning: invalid value encountered in sqrt`, which
+    `filterwarnings = ["error"]` promotes to an intermittent failure with no
+    obvious cause.
+
+    A negative variance on the coefficient actually being reported is a
+    different matter — that is a real defect, not noise — so it raises.
+    """
+    variance = float(covariance[index, index])
+    if variance < 0:
+        raise ValueError(
+            f"negative variance {variance!r} for coefficient {index}; the "
+            "covariance estimate is not usable for this coefficient"
+        )
+    return float(np.sqrt(variance))

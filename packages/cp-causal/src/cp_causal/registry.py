@@ -7,9 +7,9 @@ estimators without being edited.
 
 from __future__ import annotations
 
-from cp_causal.base import Requirements
+from cp_causal.base import Estimator, Requirements
 
-_REGISTRY: dict[str, type] = {}
+_REGISTRY: dict[str, type[Estimator]] = {}
 
 
 def register[T: type](cls: T) -> T:
@@ -36,12 +36,12 @@ def register[T: type](cls: T) -> T:
     return cls
 
 
-def get_estimator(name: str) -> type:
+def get_estimator(name: str) -> type[Estimator]:
     if name not in _REGISTRY:
         raise KeyError(f"unknown estimator {name!r}; available: {sorted(_REGISTRY)}")
     return _REGISTRY[name]
 
 
-def all_estimators() -> dict[str, type]:
+def all_estimators() -> dict[str, type[Estimator]]:
     """A copy of the registry, so callers cannot corrupt it process-wide."""
     return dict(_REGISTRY)

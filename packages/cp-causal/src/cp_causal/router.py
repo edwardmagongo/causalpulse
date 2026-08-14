@@ -34,7 +34,7 @@ def route(
     pool = all_estimators() if candidates is None else candidates
     decisions = []
     for name in sorted(pool):
-        unmet = pool[name].requirements.unmet(dataset)  # type: ignore[attr-defined]
+        unmet = pool[name].requirements.unmet(dataset)
         decisions.append(
             RoutingDecision(estimator_name=name, eligible=not unmet, reasons=unmet)
         )

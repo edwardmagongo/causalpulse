@@ -25,7 +25,14 @@ from cp_core.values import Diagnostic, EstimatorConfig, Interval
 from cp_statistics.proportions import newcombe_interval
 from scipy import stats
 
-from cp_causal._support import arrays, bootstrap_effect, config_hash, degeneracy_diagnostic
+from cp_causal._support import (
+    arrays,
+    bootstrap_effect,
+    config_hash,
+    critical_value,
+    degeneracy_diagnostic,
+    normal_p_value,
+)
 from cp_causal.base import Requirements
 from cp_causal.registry import register
 
@@ -58,7 +65,7 @@ class DifferenceInMeans:
         # Same coverage level as the analytic and bootstrap intervals, so a
         # caller setting ci_level does not get a counterfactual band silently
         # computed at a different confidence level than the rest of the result.
-        counterfactual_critical = float(stats.norm.ppf(1 - (1 - config.ci_level) / 2))
+        counterfactual_critical = critical_value(config.ci_level)
 
         def point_from(indices: np.ndarray) -> float:
             w = treatment[indices]
@@ -151,9 +158,7 @@ class DifferenceInMeans:
         se = float(
             np.sqrt(p_a * (1 - p_a) / treated.size + p_b * (1 - p_b) / control.size)
         )
-        p_value = (
-            float(2 * (1 - stats.norm.cdf(abs(p_a - p_b) / se))) if se > 0 else 1.0
-        )
+        p_value = normal_p_value(p_a - p_b, se)
         note = "Newcombe hybrid-score interval for a difference of proportions."
         return interval, se, p_value, note
 

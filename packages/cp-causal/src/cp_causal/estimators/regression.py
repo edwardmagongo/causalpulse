@@ -12,11 +12,18 @@ from cp_core.results import (
     EffectEstimate,
     FitMetadata,
 )
-from cp_core.values import Diagnostic, EstimatorConfig, Interval
+from cp_core.values import Diagnostic, EstimatorConfig
 from cp_statistics.covariance import ols_fit, robust_covariance
-from scipy import stats
 
-from cp_causal._support import arrays, bootstrap_effect, config_hash, degeneracy_diagnostic
+from cp_causal._support import (
+    arrays,
+    bootstrap_effect,
+    config_hash,
+    critical_value,
+    degeneracy_diagnostic,
+    normal_p_value,
+    wald_interval,
+)
 from cp_causal.base import Requirements
 from cp_causal.registry import register
 
@@ -59,13 +66,9 @@ class LinRegressionAdjustment:
         point = float(fit.beta[1])
         se = float(np.sqrt(covariance[1, 1]))
 
-        critical = float(stats.norm.ppf(1 - (1 - config.ci_level) / 2))
-        interval = Interval(
-            lower=point - critical * se,
-            upper=point + critical * se,
-            level=config.ci_level,
-        )
-        p_value = float(2 * (1 - stats.norm.cdf(abs(point / se)))) if se > 0 else 1.0
+        critical = critical_value(config.ci_level)
+        interval = wald_interval(point, se, config.ci_level)
+        p_value = normal_p_value(point, se)
 
         def point_from(indices: np.ndarray) -> float:
             w = treatment[indices]
