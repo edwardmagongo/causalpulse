@@ -1,7 +1,15 @@
 import numpy as np
 import pandas as pd
 import pytest
-from cp_causal._panel import panel_arrays
+from cp_causal import _panel
+from cp_causal._panel import (
+    MIN_UNITS_PER_ARM,
+    bootstrap_panel_effect,
+    cluster_count_diagnostic,
+    clustered_vs_iid_diagnostic,
+    outcome_scale,
+    panel_arrays,
+)
 from cp_causal.panel_checks import (
     absorbing_treatment_check,
     no_anticipation_check,
@@ -10,6 +18,7 @@ from cp_causal.panel_checks import (
     sufficient_pre_periods_check,
 )
 from cp_core.dataset import CausalDataset, CausalSchema
+from cp_core.values import EstimatorConfig
 
 SCHEMA = CausalSchema(
     unit="unit_id",
@@ -156,3 +165,92 @@ def test_no_concurrent_intervention_is_hardcoded_not_testable():
     assert first.statistic is None
     assert first.threshold is None
     assert first == second
+
+
+def test_bootstrap_panel_effect_clusters_even_when_config_says_iid(monkeypatch):
+    # This is the adversarial case the whole function exists to guard
+    # against: a config that explicitly asks for "iid" (or, via the
+    # default, asks for nothing at all) must still be forced onto the
+    # cluster path. Reading `_panel.py`'s source shows `kind="cluster"` is
+    # hardcoded, but a static read is not a regression guard — nothing
+    # would fail if a future refactor made `kind` derive from
+    # `config.bootstrap_kind`. Spying on `bootstrap_interval` as imported
+    # into `_panel` makes the guarantee an executable assertion instead.
+    panel = panel_arrays(dataset())
+    captured: dict[str, object] = {}
+    real_bootstrap_interval = _panel.bootstrap_interval
+
+    def spy(statistic, data, **kwargs):
+        captured["kind"] = kwargs.get("kind")
+        captured["clusters"] = kwargs.get("clusters")
+        return real_bootstrap_interval(statistic, data, **kwargs)
+
+    monkeypatch.setattr(_panel, "bootstrap_interval", spy)
+
+    config = EstimatorConfig(bootstrap_kind="iid", bootstrap_reps=50, random_seed=1)
+
+    def point_fn(indices: np.ndarray) -> float:
+        return float(panel.outcome[indices].mean())
+
+    result = bootstrap_panel_effect(point_fn, panel, config)
+
+    assert captured["kind"] == "cluster"
+    assert captured["clusters"] is not None
+    np.testing.assert_array_equal(captured["clusters"], panel.unit_index)
+    assert np.isfinite(result.standard_error)
+
+
+def test_bootstrap_panel_effect_still_clusters_under_the_default_config():
+    # `EstimatorConfig.bootstrap_kind` defaults to "iid", so a caller that
+    # never touches the option at all is the most common way this
+    # guarantee could be silently lost.
+    panel = panel_arrays(dataset())
+    config = EstimatorConfig(bootstrap_reps=50, random_seed=1)
+
+    def point_fn(indices: np.ndarray) -> float:
+        return float(panel.outcome[indices].mean())
+
+    result = bootstrap_panel_effect(point_fn, panel, config)
+
+    assert np.isfinite(result.point_estimate)
+
+
+def test_outcome_scale_is_percentage_point_for_binary_and_absolute_otherwise():
+    binary_schema = CausalSchema(
+        unit="unit_id",
+        treatment="treated",
+        outcome="outcome",
+        covariates=(),
+        outcome_type="binary",
+        time="period",
+    )
+    binary_frame = dataset().frame.copy()
+    binary_frame["outcome"] = (binary_frame["outcome"] % 2).astype(float)
+
+    assert outcome_scale(dataset()) == "absolute"
+    assert (
+        outcome_scale(CausalDataset(frame=binary_frame, schema=binary_schema))
+        == "percentage_point"
+    )
+
+
+def test_clustered_vs_iid_diagnostic_reports_the_widening_ratio():
+    diagnostic = clustered_vs_iid_diagnostic(clustered_se=0.4, iid_se=0.2)
+
+    assert diagnostic.name == "clustered_se_ratio"
+    assert diagnostic.value == pytest.approx(2.0)
+    assert "2.00x" in diagnostic.interpretation
+
+
+def test_cluster_count_diagnostic_reports_the_unit_count():
+    diagnostic = cluster_count_diagnostic(n_units=6)
+
+    assert diagnostic.name == "cluster_count"
+    assert diagnostic.value == 6.0
+    assert "6 units" in diagnostic.interpretation
+
+
+def test_min_units_per_arm_is_the_shared_threshold():
+    # One constant rather than four copies is the point of this module;
+    # pinning the value catches an accidental edit as much as a missing one.
+    assert MIN_UNITS_PER_ARM == 10
