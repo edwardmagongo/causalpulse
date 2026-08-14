@@ -9,6 +9,7 @@ comparison layer see a complete set without callers importing each module.
 """
 
 from cp_causal.estimators import (  # noqa: F401
+    callaway_santanna,
     did,
     doubly_robust,
     event_study,
