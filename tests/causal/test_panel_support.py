@@ -143,6 +143,27 @@ def test_no_anticipation_is_separate_from_the_joint_trend_test():
     assert check.status == "FAIL"
 
 
+def test_no_anticipation_defaults_to_the_immediately_prior_lead_phrasing():
+    # The default label assumes the caller passed exactly the lead
+    # immediately before adoption, matching the historical text.
+    check = no_anticipation_check(coefficient=0.1, standard_error=0.5)
+
+    assert "lead immediately before adoption" in check.interpretation
+
+
+def test_no_anticipation_reports_whatever_horizon_the_caller_names():
+    # A caller substituting a different lead (e.g. `EventStudy`, whose
+    # true immediately-prior period is the omitted reference category and
+    # cannot be estimated) must be able to make the generated text say so,
+    # rather than unconditionally claiming to describe the prior period.
+    check = no_anticipation_check(
+        coefficient=0.1, standard_error=0.5, horizon_label="lead two periods before adoption (t-2)"
+    )
+
+    assert "lead two periods before adoption (t-2)" in check.interpretation
+    assert "lead immediately before adoption" not in check.interpretation
+
+
 def test_absorbing_treatment_fails_when_a_unit_switches_off():
     assert absorbing_treatment_check(dataset()).status == "PASS"
     assert absorbing_treatment_check(dataset(absorbing=False)).status == "FAIL"

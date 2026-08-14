@@ -6,7 +6,7 @@ import time
 
 import numpy as np
 from cp_core.dataset import CausalDataset
-from cp_core.results import CounterfactualPath, EffectEstimate, FitMetadata
+from cp_core.results import AssumptionCheck, CounterfactualPath, EffectEstimate, FitMetadata
 from cp_core.values import Diagnostic, EstimatorConfig
 from cp_statistics.covariance import cluster_robust_covariance, ols_fit, robust_covariance
 
@@ -207,13 +207,46 @@ class EventStudy:
         # omitted category, pinned to exactly 0.0 by construction (see
         # `test_the_reference_period_is_omitted_and_pinned_at_zero`), so
         # reading it would make the check pass unconditionally with no signal
-        # at all. The nearest *estimated* lead (t - 2, when present) is what
-        # panel_checks.py's own docstring means by "immediately-pre-adoption":
-        # anticipation showing up there is fixed by moving the reference
-        # period back further, which is the remedy the check text describes.
+        # at all. The nearest *estimated* lead (t - 2, when present) is the
+        # closest available proxy: anticipation showing up there is fixed by
+        # moving the reference period back further, which is the remedy the
+        # check text describes. `horizon_label` below is what keeps the
+        # generated interpretation honest about which lead that actually is,
+        # rather than unconditionally claiming to describe t - 1.
         pre_horizons = horizons[pre]
-        anticipation_horizon = int(pre_horizons.max()) if pre_horizons.size else REFERENCE_HORIZON
-        anticipation_index = int(np.flatnonzero(horizons == anticipation_horizon)[0])
+        if pre_horizons.size:
+            anticipation_horizon = int(pre_horizons.max())
+            anticipation_index = int(
+                np.flatnonzero(horizons == anticipation_horizon)[0]
+            )
+            no_anticipation = no_anticipation_check(
+                coefficient=float(coefficients[anticipation_index]),
+                standard_error=float(standard_errors[anticipation_index]),
+                horizon_label=(
+                    "nearest estimated pre-treatment lead "
+                    f"(t{anticipation_horizon}, since t{REFERENCE_HORIZON} "
+                    "is the omitted reference period and cannot be estimated)"
+                ),
+            )
+        else:
+            no_anticipation = AssumptionCheck(
+                name="no_anticipation",
+                status="NOT_TESTABLE",
+                statistic=None,
+                threshold=None,
+                interpretation=(
+                    f"There is no estimated lead before t{REFERENCE_HORIZON}, "
+                    "the omitted reference period, to test: with only a single "
+                    "pre-treatment period observed, every pre-treatment row is "
+                    "absorbed into the reference category and pinned to zero "
+                    "by construction. This is not evidence that there was no "
+                    "anticipation."
+                ),
+                remedy=(
+                    "Extend the panel backwards so at least two pre-treatment "
+                    "periods are observed."
+                ),
+            )
 
         treated_units = panel.cohort > 0
         return EffectEstimate(
@@ -300,10 +333,7 @@ class EventStudy:
             },
             assumptions=(
                 parallel_trends_check(lead_coefficients, lead_covariance),
-                no_anticipation_check(
-                    coefficient=float(coefficients[anticipation_index]),
-                    standard_error=float(standard_errors[anticipation_index]),
-                ),
+                no_anticipation,
                 absorbing_treatment_check(dataset),
                 sufficient_pre_periods_check(panel, minimum=2),
                 no_concurrent_intervention_check(),

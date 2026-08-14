@@ -83,13 +83,24 @@ def parallel_trends_check(
 
 
 def no_anticipation_check(
-    coefficient: float, standard_error: float, alpha: float = _ALPHA
+    coefficient: float,
+    standard_error: float,
+    alpha: float = _ALPHA,
+    horizon_label: str = "lead immediately before adoption",
 ) -> AssumptionCheck:
-    """The single lead immediately before adoption.
+    """A single pre-treatment lead, chosen and described by the caller.
 
     Kept separate from the joint test because anticipation and differential
     trends are different violations with different remedies: anticipation is
     fixed by moving the reference period back, a differential trend is not.
+
+    `horizon_label` names which lead `coefficient` actually came from, so the
+    generated text never claims to describe a period the caller did not
+    measure. The default ("lead immediately before adoption") assumes the
+    caller is passing exactly that lead; a caller substituting a different
+    lead -- e.g. because the true immediately-prior period is the omitted
+    reference category and structurally unmeasurable, as in `EventStudy` --
+    must override it with an accurate description of what was tested.
     """
     if standard_error <= 0:
         z = 0.0
@@ -105,13 +116,13 @@ def no_anticipation_check(
         statistic=coefficient,
         threshold=None,
         interpretation=(
-            f"The lead immediately before adoption is {coefficient:+.4f} "
+            f"The {horizon_label} is {coefficient:+.4f} "
             f"(z = {z:.2f}, p = {p_value:.4f}). "
             + (
-                "Outcomes were already moving in the period before treatment, "
+                f"Outcomes were already moving at the {horizon_label}, "
                 "which is what anticipation looks like."
                 if rejected
-                else "No detectable movement in the period before treatment."
+                else f"No detectable movement at the {horizon_label}."
             )
         ),
         remedy=(

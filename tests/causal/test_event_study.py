@@ -1,6 +1,8 @@
 import numpy as np
+import pandas as pd
 import pytest
 from cp_causal.estimators.event_study import EventStudy, breakdown_value
+from cp_core.dataset import CausalDataset, CausalSchema
 from cp_core.results import CounterfactualPath
 from cp_core.values import EstimatorConfig
 from cp_simulation.panel_scenarios import build_panel_scenario
@@ -126,3 +128,80 @@ def test_pre_trend_slope_is_reported_with_an_interval():
     result = EventStudy().fit(generate("P5").dataset, CONFIG)
 
     assert result.diagnostics["pre_trend_slope"].value > 0.1
+
+
+def test_no_anticipation_describes_the_lead_it_actually_tested():
+    # t - 1 (REFERENCE_HORIZON) is the omitted category: it is pinned to
+    # exactly 0.0 by construction (see
+    # `test_the_reference_period_is_omitted_and_pinned_at_zero`) and cannot
+    # be estimated. `no_anticipation_check` is therefore fed the nearest
+    # *estimated* lead, t - 2, not the unmeasurable t - 1 -- and the
+    # generated text must say so, not claim to describe "the lead
+    # immediately before adoption" (which would overstate what was tested).
+    result = EventStudy().fit(generate("P1").dataset, CONFIG)
+
+    check = next(a for a in result.assumptions if a.name == "no_anticipation")
+    assert "t-2" in check.interpretation
+    # The generic, inaccurate phrasing this check used to always emit --
+    # it must not survive once the caller passes an explicit horizon_label.
+    assert "lead immediately before adoption" not in check.interpretation
+    assert check.statistic == pytest.approx(-0.0570, abs=1e-3)
+
+
+def test_no_anticipation_passes_on_a_clean_panel_and_fails_when_trends_diverge():
+    # The empirical check the reviewer ran by hand: PASS with a small,
+    # data-dependent t - 2 coefficient on a clean panel; FAIL with a large
+    # one once parallel trends is violated. Pinned here so the diagnostic
+    # cannot silently regress back to the vacuous 0/0 always-PASS bug the
+    # horizon fix was meant to eliminate.
+    clean = EventStudy().fit(generate("P1").dataset, CONFIG)
+    diverging = EventStudy().fit(generate("P5").dataset, CONFIG)
+
+    clean_check = next(a for a in clean.assumptions if a.name == "no_anticipation")
+    diverging_check = next(
+        a for a in diverging.assumptions if a.name == "no_anticipation"
+    )
+
+    assert clean_check.status == "PASS"
+    assert clean_check.statistic == pytest.approx(-0.0570, abs=1e-3)
+    assert diverging_check.status == "FAIL"
+    assert diverging_check.statistic == pytest.approx(-0.4616, abs=1e-3)
+
+
+def test_no_anticipation_is_not_testable_with_a_single_pre_treatment_period():
+    # With only one pre-treatment period, that period is entirely absorbed
+    # into the omitted reference category (t - 1): there is no estimated
+    # lead left to feed the check at all. Reporting PASS here (by falling
+    # back to the reference horizon, which is pinned at exactly 0.0) would
+    # reproduce the original vacuous 0/0 always-PASS bug this diagnostic
+    # exists to avoid.
+    rows = []
+    for unit in range(40):
+        cohort = 2 if unit < 20 else 0
+        for period in range(1, 5):
+            treated = int(cohort > 0 and period >= cohort)
+            rows.append(
+                {
+                    "unit_id": unit,
+                    "period": period,
+                    "treated": treated,
+                    "outcome": float(unit) + 0.1 * period + (1.0 if treated else 0.0),
+                }
+            )
+    dataset = CausalDataset(
+        frame=pd.DataFrame(rows),
+        schema=CausalSchema(
+            unit="unit_id",
+            treatment="treated",
+            outcome="outcome",
+            covariates=(),
+            outcome_type="continuous",
+            time="period",
+        ),
+    )
+
+    result = EventStudy().fit(dataset, CONFIG)
+
+    check = next(a for a in result.assumptions if a.name == "no_anticipation")
+    assert check.status == "NOT_TESTABLE"
+    assert check.statistic is None
