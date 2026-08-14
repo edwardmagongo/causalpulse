@@ -1,3 +1,4 @@
+import numpy as np
 import pytest
 from cp_core.results import (
     AssumptionCheck,
@@ -152,3 +153,54 @@ def test_estimate_accepts_p_value_at_boundary_one() -> None:
 def test_estimate_accepts_p_value_none() -> None:
     result = estimate(p_value=None)
     assert result.p_value is None
+
+
+def test_counterfactual_path_accepts_equal_length_arrays():
+    from cp_core.results import CounterfactualPath
+
+    path = CounterfactualPath(
+        periods=np.array([1, 2, 3]),
+        observed=np.array([1.0, 2.0, 3.5]),
+        predicted_absent_treatment=np.array([1.0, 2.0, 2.5]),
+        lower=np.array([0.8, 1.8, 2.3]),
+        upper=np.array([1.2, 2.2, 2.7]),
+        pointwise_effect=np.array([0.0, 0.0, 1.0]),
+        cumulative_effect=np.array([0.0, 0.0, 1.0]),
+    )
+
+    assert path.periods.size == 3
+
+
+def test_counterfactual_path_rejects_a_short_bound_array():
+    # A path whose bounds are shorter than its periods renders as a silently
+    # wrong chart rather than raising, which is the failure this guards.
+    from cp_core.results import CounterfactualPath
+
+    with pytest.raises(ValueError, match="same length"):
+        CounterfactualPath(
+            periods=np.array([1, 2, 3]),
+            observed=np.array([1.0, 2.0, 3.5]),
+            predicted_absent_treatment=np.array([1.0, 2.0, 2.5]),
+            lower=np.array([0.8, 1.8]),
+            upper=np.array([1.2, 2.2, 2.7]),
+            pointwise_effect=np.array([0.0, 0.0, 1.0]),
+            cumulative_effect=np.array([0.0, 0.0, 1.0]),
+        )
+
+
+def test_effect_estimate_accepts_a_counterfactual_path():
+    from cp_core.results import CounterfactualPath
+
+    path = CounterfactualPath(
+        periods=np.array([1, 2]),
+        observed=np.array([1.0, 2.0]),
+        predicted_absent_treatment=np.array([1.0, 1.5]),
+        lower=np.array([0.9, 1.4]),
+        upper=np.array([1.1, 1.6]),
+        pointwise_effect=np.array([0.0, 0.5]),
+        cumulative_effect=np.array([0.0, 0.5]),
+    )
+
+    result = estimate(counterfactual=path)
+
+    assert result.counterfactual is path

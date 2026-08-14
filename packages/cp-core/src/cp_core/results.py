@@ -17,6 +17,8 @@ from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError, version
 from typing import Literal
 
+import numpy as np
+
 from cp_core.values import Diagnostic, Interval
 
 AssumptionStatus = Literal["PASS", "WARN", "FAIL", "NOT_TESTABLE"]
@@ -146,6 +148,47 @@ class CounterfactualPoint:
 
 
 @dataclass(frozen=True, eq=False)
+class CounterfactualPath:
+    """A counterfactual trajectory, for methods that estimate one per period.
+
+    A different type from `CounterfactualPoint` rather than a widened version of
+    it, so a scalar counterfactual can never be rendered as a trajectory.
+
+    `eq=False` because every field is an ndarray: a generated `__eq__` would
+    raise on the ambiguous truth value of an array rather than compare.
+    """
+
+    periods: np.ndarray
+    observed: np.ndarray
+    predicted_absent_treatment: np.ndarray
+    lower: np.ndarray
+    upper: np.ndarray
+    pointwise_effect: np.ndarray
+    cumulative_effect: np.ndarray
+
+    def __post_init__(self) -> None:
+        fields = {
+            "observed": self.observed,
+            "predicted_absent_treatment": self.predicted_absent_treatment,
+            "lower": self.lower,
+            "upper": self.upper,
+            "pointwise_effect": self.pointwise_effect,
+            "cumulative_effect": self.cumulative_effect,
+        }
+        expected = self.periods.shape[0]
+        wrong = {
+            name: array.shape[0]
+            for name, array in fields.items()
+            if array.shape[0] != expected
+        }
+        if wrong:
+            raise ValueError(
+                f"every array must have the same length as `periods` ({expected}); "
+                f"got {wrong}"
+            )
+
+
+@dataclass(frozen=True, eq=False)
 class EffectEstimate:
     """The single result type returned by every estimator."""
 
@@ -162,7 +205,7 @@ class EffectEstimate:
     scale: EffectScale
     diagnostics: Mapping[str, Diagnostic]
     assumptions: tuple[AssumptionCheck, ...]
-    counterfactual: CounterfactualPoint | None
+    counterfactual: CounterfactualPoint | CounterfactualPath | None
     fit_metadata: FitMetadata
 
     def __post_init__(self) -> None:

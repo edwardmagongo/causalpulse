@@ -145,3 +145,111 @@ def test_dataset_rejects_treatment_with_missing_values():
     )
     with pytest.raises(ValueError, match="missing"):
         CausalDataset(frame=frame, schema=schema)
+
+
+def panel_frame(n_units=4, n_periods=4, start=3, never=2):
+    rows = []
+    for unit in range(n_units):
+        cohort = 0 if unit < never else start
+        for period in range(1, n_periods + 1):
+            rows.append(
+                {
+                    "unit_id": unit,
+                    "period": period,
+                    "x1": float(unit),
+                    "treated": int(cohort > 0 and period >= cohort),
+                    "outcome": float(unit + period),
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+PANEL_SCHEMA = CausalSchema(
+    unit="unit_id",
+    treatment="treated",
+    outcome="outcome",
+    covariates=("x1",),
+    outcome_type="continuous",
+    time="period",
+)
+
+
+def test_panel_helpers_report_periods_and_balance():
+    dataset = CausalDataset(frame=panel_frame(), schema=PANEL_SCHEMA)
+
+    assert list(dataset.periods) == [1, 2, 3, 4]
+    assert dataset.n_periods == 4
+    assert dataset.is_balanced
+
+
+def test_cohort_by_unit_is_derived_from_treatment_not_from_a_column():
+    # Derived from the data, so the helper works on real datasets that carry no
+    # cohort column, and cannot disagree with the treatment it is supposed to
+    # describe.
+    dataset = CausalDataset(frame=panel_frame(), schema=PANEL_SCHEMA)
+
+    cohorts = dataset.cohort_by_unit()
+
+    assert cohorts.loc[0] == 0  # never treated
+    assert cohorts.loc[1] == 0
+    assert cohorts.loc[2] == 3
+    assert cohorts.loc[3] == 3
+
+
+def test_unbalanced_panel_is_reported_not_rejected():
+    # Attrition is a legitimate real-data condition. It surfaces as a property
+    # an estimator checks, not as a construction error.
+    frame = panel_frame().drop(index=0)
+
+    dataset = CausalDataset(frame=frame, schema=PANEL_SCHEMA)
+
+    assert not dataset.is_balanced
+
+
+def test_treatment_switching_off_is_reported_not_rejected():
+    frame = panel_frame()
+    frame.loc[(frame["unit_id"] == 2) & (frame["period"] == 4), "treated"] = 0
+
+    dataset = CausalDataset(frame=frame, schema=PANEL_SCHEMA)
+
+    assert not dataset.treatment_is_absorbing
+
+
+def test_absorbing_treatment_is_the_normal_case():
+    dataset = CausalDataset(frame=panel_frame(), schema=PANEL_SCHEMA)
+
+    assert dataset.treatment_is_absorbing
+
+
+def test_panel_rejects_a_non_orderable_time_column():
+    frame = panel_frame()
+    frame["period"] = frame["period"].astype(str) + "-label"
+
+    with pytest.raises(ValueError, match="orderable"):
+        CausalDataset(frame=frame, schema=PANEL_SCHEMA)
+
+
+def test_panel_rejects_missing_values_in_the_time_column():
+    frame = panel_frame()
+    frame.loc[0, "period"] = None
+
+    with pytest.raises(ValueError, match="missing values"):
+        CausalDataset(frame=frame, schema=PANEL_SCHEMA)
+
+
+def test_panel_helpers_refuse_a_cross_section():
+    dataset = CausalDataset(frame=cross_section_frame(), schema=cross_section_schema())
+
+    with pytest.raises(ValueError, match="not a panel"):
+        _ = dataset.periods
+
+
+def test_declared_pre_period_minimums_are_enforced_not_decorative():
+    from cp_causal.base import Requirements
+
+    dataset = CausalDataset(frame=panel_frame(start=2), schema=PANEL_SCHEMA)
+
+    unmet = Requirements(needs_panel=True, min_pre_periods=3).unmet(dataset)
+
+    assert any("pre-treatment period" in reason for reason in unmet)
+    assert Requirements(needs_panel=True, min_pre_periods=1).unmet(dataset) == ()

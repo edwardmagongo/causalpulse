@@ -66,6 +66,7 @@ class CausalDataset:
         self._validate_treatment_missing_values()
         self._validate_treatment_is_binary()
         self._validate_outcome_type()
+        self._validate_time_column()
         self._validate_no_duplicate_observations()
 
     def _validate_columns_present(self) -> None:
@@ -108,6 +109,82 @@ class CausalDataset:
                 f"frame contains duplicate observations for key {keys}; "
                 "expected one row per unit" + (" per period" if self.schema.time else "")
             )
+
+    def _validate_time_column(self) -> None:
+        """Structural check only: the time column must be orderable and complete.
+
+        Panel *balance* and whether treatment is absorbing are deliberately not
+        validated here. Both are legitimate real-data conditions — attrition
+        produces unbalanced panels, and some interventions genuinely switch off
+        — so they surface as properties an estimator checks and reports as an
+        assumption failure. This mirrors rejecting nulls in the treatment column
+        while permitting them in the outcome column: structural impossibilities
+        are rejected, adverse data conditions are reported.
+        """
+        if self.schema.time is None:
+            return
+        column = self.frame[self.schema.time]
+        if column.isna().any():
+            raise ValueError(
+                f"time column {self.schema.time!r} contains missing values"
+            )
+        if not (
+            pd.api.types.is_numeric_dtype(column)
+            or pd.api.types.is_datetime64_any_dtype(column)
+        ):
+            raise ValueError(
+                f"time column {self.schema.time!r} must be orderable "
+                f"(numeric or datetime), got dtype {column.dtype}"
+            )
+
+    def _require_panel(self) -> str:
+        if self.schema.time is None:
+            raise ValueError("dataset is not a panel; it declares no time column")
+        return self.schema.time
+
+    @property
+    def periods(self) -> np.ndarray:
+        """Sorted unique periods."""
+        time = self._require_panel()
+        return np.sort(np.asarray(pd.unique(self.frame[time])))
+
+    @property
+    def n_periods(self) -> int:
+        return int(self.periods.size)
+
+    @property
+    def is_balanced(self) -> bool:
+        """Whether every unit is observed in every period."""
+        time = self._require_panel()
+        counts = self.frame.groupby(self.schema.unit)[time].nunique()
+        return bool((counts == self.n_periods).all())
+
+    @property
+    def treatment_is_absorbing(self) -> bool:
+        """Whether no unit ever switches treatment back off.
+
+        Reported rather than enforced. DiD is where it changes the answer, so
+        the estimators check it; the contract layer only makes it observable.
+        """
+        time = self._require_panel()
+        ordered = self.frame.sort_values([self.schema.unit, time])
+        deltas = ordered.groupby(self.schema.unit)[self.schema.treatment].diff()
+        return not bool((deltas < 0).any())
+
+    def cohort_by_unit(self) -> pd.Series:
+        """First treated period per unit; 0 for never-treated units.
+
+        Derived from the treatment column rather than read from
+        `schema.cohort`, so it works on real data carrying no cohort column and
+        cannot disagree with the treatment it describes. `0` follows the
+        convention in the DiD literature; the panel estimators guard against a
+        collision by refusing a dataset whose periods are not strictly positive.
+        """
+        time = self._require_panel()
+        treated_rows = self.frame[self.frame[self.schema.treatment] == 1]
+        first = treated_rows.groupby(self.schema.unit)[time].min()
+        units = pd.Index(np.sort(np.asarray(pd.unique(self.frame[self.schema.unit]))))
+        return first.reindex(units).fillna(0)
 
     @property
     def n_units(self) -> int:
