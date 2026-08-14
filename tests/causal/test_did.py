@@ -122,10 +122,9 @@ def test_the_router_admits_it_on_uniform_adoption():
 def test_twfe_and_the_two_by_two_agree_exactly_under_uniform_adoption():
     # Two independent implementations of the same estimand on identical data,
     # which is a stronger cross-check than either has alone. Measured max
-    # discrepancy 2.66e-14 over 10 seeds at these parameters (n_units=200), so
-    # the tolerance is 1e-9 rather than the 1e-14 an earlier draft of the
-    # design proposed -- 1e-14 is below the precision the two paths actually
-    # achieve.
+    # discrepancy 2.66e-14 over the 5 seeds below (n_units=200), so the
+    # tolerance is 1e-9 rather than the 1e-14 an earlier draft of the design
+    # proposed -- 1e-14 is below the precision the two paths actually achieve.
     from cp_causal.estimators.did import TwoWayFixedEffects
 
     for seed in range(5):
