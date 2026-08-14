@@ -11,7 +11,7 @@ from cp_core.results import (
     EffectEstimate,
     FitMetadata,
 )
-from cp_core.values import EstimatorConfig
+from cp_core.values import Diagnostic, EstimatorConfig
 from cp_statistics.covariance import cluster_robust_covariance, ols_fit, robust_covariance
 
 from cp_causal._panel import (
@@ -136,6 +136,150 @@ class DifferenceInDifferences:
             diagnostics={
                 "clustered_se_ratio": clustered_vs_iid_diagnostic(se, iid_se),
                 "cluster_count": cluster_count_diagnostic(panel.n_units),
+                "bootstrap_degenerate_replicates": degeneracy_diagnostic(
+                    bootstrap_result.n_degenerate, min_arm_size=MIN_UNITS_PER_ARM
+                ),
+            },
+            assumptions=(
+                absorbing_treatment_check(dataset),
+                sufficient_pre_periods_check(panel, minimum=1),
+                no_concurrent_intervention_check(),
+            ),
+            counterfactual=CounterfactualPoint(
+                observed_mean=observed,
+                predicted_absent_treatment=observed - point,
+                lower=observed - point - critical * se,
+                upper=observed - point + critical * se,
+            ),
+            fit_metadata=FitMetadata.capture(
+                estimator=self.name,
+                config_hash=config_hash(config),
+                runtime_seconds=time.perf_counter() - started,
+                random_seed=config.random_seed,
+            ),
+        )
+
+
+def twfe_design(panel: PanelArrays) -> np.ndarray:
+    """Intercept, treatment indicator, unit dummies, period dummies.
+
+    Explicit dummies rather than two-way demeaning: demeaning is not exact on
+    unbalanced panels, and exact agreement with an external reference is what
+    this estimator is pinned against.
+
+    One unit dummy and one period dummy are dropped against the intercept. That
+    is the rank-deficiency guard: keeping all of them makes the design singular,
+    and while lstsq would still return a minimum-norm solution, the covariance
+    would be meaningless.
+    """
+    n = panel.n_obs
+    rows = np.arange(n)
+
+    unit_dummies = np.zeros((n, panel.n_units - 1))
+    keep = panel.unit_index > 0
+    unit_dummies[rows[keep], panel.unit_index[keep] - 1] = 1.0
+
+    period_dummies = np.zeros((n, panel.n_periods - 1))
+    keep = panel.period_index > 0
+    period_dummies[rows[keep], panel.period_index[keep] - 1] = 1.0
+
+    return np.column_stack(
+        [np.ones(n), panel.treatment, unit_dummies, period_dummies]
+    )
+
+
+@register
+class TwoWayFixedEffects:
+    """Unit and period fixed effects with a treatment indicator.
+
+    Accepts staggered adoption, and is biased under it when effects differ
+    across cohorts: already-treated units then serve as controls with negative
+    weights. Scenario P4 demonstrates that failure, and
+    `goodman_bacon_decomposition` explains where it comes from.
+    """
+
+    name = "twfe"
+    requirements = Requirements(
+        needs_panel=True,
+        min_pre_periods=1,
+        min_post_periods=1,
+        min_treated_units=MIN_UNITS_PER_ARM,
+        min_control_units=MIN_UNITS_PER_ARM,
+    )
+
+    def fit(self, dataset: CausalDataset, config: EstimatorConfig) -> EffectEstimate:
+        started = time.perf_counter()
+        panel = panel_arrays(dataset)
+
+        fit = ols_fit(twfe_design(panel), panel.outcome)
+        covariance = cluster_robust_covariance(fit, panel.unit_index)
+
+        point = float(fit.beta[1])
+        # Only the treatment coefficient's own diagonal entry, never a blanket
+        # sqrt over the diagonal: see `coefficient_se`.
+        se = coefficient_se(covariance, 1)
+        iid_se = coefficient_se(robust_covariance(fit, kind="HC1"), 1)
+
+        def point_from(indices: np.ndarray) -> float:
+            sub_units = np.unique(panel.unit_index[indices])
+            ever = panel.cohort[panel.unit_index[indices]] > 0
+            if (
+                np.unique(panel.unit_index[indices][ever]).size < MIN_UNITS_PER_ARM
+                or np.unique(panel.unit_index[indices][~ever]).size
+                < MIN_UNITS_PER_ARM
+                or sub_units.size < 2
+            ):
+                return float("nan")
+            # Reindex units so the dummy block stays the size of the resample.
+            remapped = np.searchsorted(sub_units, panel.unit_index[indices])
+            sub = PanelArrays(
+                outcome=panel.outcome[indices],
+                treatment=panel.treatment[indices],
+                unit_index=remapped,
+                period_index=panel.period_index[indices],
+                units=sub_units,
+                periods=panel.periods,
+                # Sliced to the resampled units, matching `remapped`. Passing
+                # the full-length cohort array here would misalign every
+                # cohort lookup in the resample while still producing numbers.
+                cohort=panel.cohort[sub_units],
+            )
+            resampled = ols_fit(twfe_design(sub), sub.outcome)
+            return float(resampled.beta[1])
+
+        bootstrap_result = bootstrap_panel_effect(point_from, panel, config)
+
+        treated_units = panel.cohort > 0
+        treated_rows = panel.treatment == 1
+        observed = float(panel.outcome[treated_rows].mean())
+        critical = critical_value(config.ci_level)
+
+        return EffectEstimate(
+            estimand="ATT",
+            method=self.name,
+            point=point,
+            se=se,
+            ci=wald_interval(point, se, config.ci_level),
+            ci_basis="analytic",
+            bootstrap_ci=bootstrap_result.interval,
+            p_value=normal_p_value(point, se),
+            n_treated=int(treated_units.sum()),
+            n_control=int((~treated_units).sum()),
+            scale=outcome_scale(dataset),
+            diagnostics={
+                "clustered_se_ratio": clustered_vs_iid_diagnostic(se, iid_se),
+                "cluster_count": cluster_count_diagnostic(panel.n_units),
+                "n_adoption_periods": Diagnostic(
+                    name="n_adoption_periods",
+                    value=float(len(panel.adoption_periods)),
+                    unit="periods",
+                    interpretation=(
+                        "Distinct adoption periods. With more than one and "
+                        "effects that differ across cohorts, this estimator is "
+                        "biased; run goodman_bacon_decomposition to see how much "
+                        "of it rests on already-treated comparisons."
+                    ),
+                ),
                 "bootstrap_degenerate_replicates": degeneracy_diagnostic(
                     bootstrap_result.n_degenerate, min_arm_size=MIN_UNITS_PER_ARM
                 ),

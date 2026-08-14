@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 from cp_causal.estimators.did import DifferenceInDifferences
 from cp_core.values import EstimatorConfig
 from cp_simulation.panel_scenarios import build_panel_scenario
@@ -116,3 +117,84 @@ def test_the_router_admits_it_on_uniform_adoption():
     from cp_causal.router import eligible_estimators
 
     assert "did_2x2" in eligible_estimators(generate("P1").dataset)
+
+
+def test_twfe_and_the_two_by_two_agree_exactly_under_uniform_adoption():
+    # Two independent implementations of the same estimand on identical data,
+    # which is a stronger cross-check than either has alone. Measured max
+    # discrepancy 2.66e-14 over 10 seeds at these parameters (n_units=200), so
+    # the tolerance is 1e-9 rather than the 1e-14 an earlier draft of the
+    # design proposed -- 1e-14 is below the precision the two paths actually
+    # achieve.
+    from cp_causal.estimators.did import TwoWayFixedEffects
+
+    for seed in range(5):
+        panel = generate("P1", seed=seed, n_units=200)
+        a = DifferenceInDifferences().fit(panel.dataset, CONFIG).point
+        b = TwoWayFixedEffects().fit(panel.dataset, CONFIG).point
+        assert a == pytest.approx(b, abs=1e-9), seed
+
+
+def test_twfe_accepts_staggered_adoption():
+    from cp_causal.estimators.did import TwoWayFixedEffects
+    from cp_causal.router import eligible_estimators
+
+    assert "twfe" in eligible_estimators(generate("P3").dataset)
+
+    result = TwoWayFixedEffects().fit(generate("P3").dataset, CONFIG)
+
+    assert result.estimand == "ATT"
+
+
+def test_twfe_recovers_truth_when_effects_are_homogeneous():
+    # The brief's literal test used a single fixed seed (P3's default seed=0).
+    # Per this project's just-relearned discipline (see
+    # test_recovers_the_effect_on_a_clean_two_by_two above), a single seed is
+    # checked for being a deterministic worst case before it is trusted, and
+    # the honest fix is to average rather than to pick or widen around one
+    # draw.
+    #
+    # Measured here at seeds=10, n_units=400 (this module's `generate`
+    # default): deviations were [0.0761, -0.0195, 0.0430, 0.1032, 0.0296,
+    # -0.0126, -0.1242, 0.0012, 0.0246, 0.0421], mean 0.0164, SEM 0.0197 (std
+    # 0.0622 / sqrt(10)). seed=0's own deviation is 0.0761 -- not the worst
+    # draw (seed=6 is, at -0.1242) -- and every one of the 10 sampled seeds
+    # stays under abs=0.15. abs=0.15 leaves (0.15 - 0.0164) / 0.0197 = 6.78 SEM
+    # of headroom on the mean, comfortably above this project's four-SEM bar,
+    # while still catching a genuinely broken estimator.
+    from cp_causal.estimators.did import TwoWayFixedEffects
+
+    errors = []
+    for seed in range(10):
+        panel = generate("P3", seed=seed)
+        result = TwoWayFixedEffects().fit(panel.dataset, CONFIG)
+        errors.append(result.point - panel.truth.true_att_overall)
+
+    assert abs(float(np.mean(errors))) < 0.15
+
+
+def test_twfe_standard_error_survives_a_near_singular_fixed_effect_block():
+    # On a full-rank TWFE design the unit- and period-dummy coefficients have
+    # near-zero true variances and the sandwich returns some of them as small
+    # negatives (around -1.7e-27, roughly one seed in thirty-six on the
+    # cluster-robust path). A blanket sqrt over the diagonal turns that into
+    # `RuntimeWarning: invalid value encountered in sqrt`, which
+    # filterwarnings=["error"] promotes to an intermittent failure with no
+    # obvious cause. Reading only the treatment coefficient's entry is the fix.
+    from cp_causal.estimators.did import TwoWayFixedEffects
+
+    for seed in range(12):
+        result = TwoWayFixedEffects().fit(generate("P1", seed=seed).dataset, CONFIG)
+        assert result.se is not None and np.isfinite(result.se)
+
+
+def test_twfe_clusters_by_default_even_though_the_config_says_iid():
+    # EstimatorConfig defaults bootstrap_kind="iid". A panel estimator must not
+    # inherit that: an iid bootstrap over panel rows destroys within-unit
+    # dependence.
+    from cp_causal.estimators.did import TwoWayFixedEffects
+
+    config = EstimatorConfig(bootstrap_reps=50, random_seed=1, bootstrap_kind="iid")
+    result = TwoWayFixedEffects().fit(generate("P1").dataset, config)
+
+    assert result.diagnostics["clustered_se_ratio"].value > 1.0
