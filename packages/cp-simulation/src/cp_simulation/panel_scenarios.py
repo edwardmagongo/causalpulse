@@ -16,10 +16,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from cp_simulation.components import UnitGenerator
+from cp_simulation.panel_binary import BinaryPanelDGP
 from cp_simulation.panel_components import (
     Adoption,
     ConstantDynamicEffect,
     DynamicEffect,
+    LevelSelectedAdoption,
     LinearTimePath,
     NormalUnitEffects,
     RampDynamicEffect,
@@ -50,7 +52,7 @@ class PanelScenarioSpec:
     name: str
     declared_effect: float
     description: str
-    build: Callable[[], PanelDGP]
+    build: Callable[[], PanelDGP | BinaryPanelDGP]
 
 
 def _panel(
@@ -146,10 +148,43 @@ PANEL_SCENARIOS: dict[str, PanelScenarioSpec] = {
             slope_sd=0.3,
         ),
     ),
+    # P6 uses the SAME time_slope every other panel scenario uses -- no special
+    # parameter. (Corrected 2026-08-14: an earlier version pinned this at 0.3,
+    # on a since-falsified claim that the shared slope of 0.1 made the bias
+    # vanish. It does not -- measured at 800 units over 120 seeds against this
+    # scenario's actual unit-level parameters, the bias is +0.0360 (18.3 MCSE) at
+    # the shared slope of 0.1, larger than the +0.0139 (7.0 MCSE) the discarded
+    # 0.3 parameterisation produced. The bias is non-monotonic in time_slope and
+    # even changes sign across the range; it is not a straight line to zero.)
+    # What IS load-bearing: LevelSelectedAdoption. Link-function bias needs the
+    # two arms to sit at different points on the logistic curve, which is what
+    # selecting on level does and random adoption does not. Switching this to
+    # UniformAdoption would leave a preset that appears to demonstrate the bias
+    # and does not -- see test_random_adoption_produces_no_link_bias.
+    "P6": PanelScenarioSpec(
+        scenario_id="P6",
+        name="Binary panel",
+        declared_effect=0.1061,
+        description="Binary outcomes with the effect applied on the logit "
+        "scale and level-selected adoption. Parallel trends holds on the "
+        "logit scale but not on the probability scale, so a 2x2 DiD "
+        "reporting percentage points is biased with no confounding and no "
+        "differential pre-trend. Measures and documents that link-function "
+        "bias rather than avoiding it.",
+        build=lambda: BinaryPanelDGP(
+            unit_generator=UnitGenerator(covariate_names=_COVARIATES),
+            unit_effects=NormalUnitEffects(level_sd=0.8, slope_sd=0.0),
+            time_path=LinearTimePath(slope=0.1),
+            adoption=LevelSelectedAdoption(start=_UNIFORM_START),
+            scenario_id="P6",
+            intercept=-1.5,
+            tau_logit=0.45,
+        ),
+    ),
 }
 
 
-def build_panel_scenario(scenario_id: str) -> PanelDGP:
+def build_panel_scenario(scenario_id: str) -> PanelDGP | BinaryPanelDGP:
     """Instantiate a panel scenario's DGP."""
     if scenario_id not in PANEL_SCENARIOS:
         raise KeyError(
