@@ -19,9 +19,11 @@ inverse probability weighting, and cross-fitted AIPW — each scored against kno
 measured from realised potential outcomes rather than declared, six panel scenarios, and four
 estimators — the canonical 2×2 difference-in-differences, two-way fixed effects, an event study
 with a counterfactual path, and Callaway–Sant'Anna — plus the Goodman–Bacon decomposition that
-explains *why* two-way fixed effects fails when it does. Every estimator is scored against
-measured truth over 60 seeds at 400 units and 8 periods, and two-way fixed effects is additionally
-checked against `statsmodels` as an independent reference oracle.
+explains *why* two-way fixed effects fails when it does. The 2×2, two-way fixed effects, and
+Callaway–Sant'Anna are each scored against measured truth over 60 seeds at 400 units and 8 periods
+on every scenario they are eligible for; the event study is scored the same way where its point
+estimate and the scenario's measured ATT are the same estimand (see below), and two-way fixed
+effects is additionally checked against `statsmodels` as an independent reference oracle.
 
 Synthetic control, the Bayesian structural time series counterfactual, heterogeneous-effect
 estimation, the robustness suite, and the benchmark harness are still ahead.
@@ -136,10 +138,19 @@ a special parameter. (An earlier draft of the design tried to make the bias vani
 `time_slope = 0.3`; that claim did not survive implementation and was corrected during Task 6.) With
 adoption selected on the baseline level, so the two arms sit at different points on the logistic
 curve, a 2×2 DiD reporting percentage points is biased by **+0.0360** against a true effect of
-0.1061 — 34%, at 18.3 Monte Carlo standard errors — **with no confounding and no differential
-pre-trend**, measured at 800 units and 120 seeds. With random adoption the arms are compositionally
-identical and the same measurement gives −0.0015 (0.8 MCSE), indistinguishable from zero — confirming
-the bias requires selection on level, not the time path.
+0.1061 — 34%, at 18.3 Monte Carlo standard errors — measured at 800 units and 120 seeds. With random
+adoption the arms are compositionally identical and the same measurement gives −0.0015 (0.8 MCSE),
+indistinguishable from zero — confirming the bias requires selection on level, not the time path.
+
+This is **not** bias arising from zero pre-trend signal. Parallel trends holds exactly on the
+**logit** scale the data are generated on, and fails on the **probability** scale the 2×2 estimator
+reports on — the link-function bias *is* that probability-scale differential trend, not a separate
+phenomenon from it. Measured directly: `true_pre_trend_gap` on P6 is **+0.0091 per period** (over
+120 seeds, ~456 standard errors of the mean from zero — essentially deterministic, not noise), and
+with adoption at period 5 of an 8-period panel the pre/post centroid gap is roughly 4 periods, so
+`0.0091 × 4 ≈ 0.0364` — close to the measured +0.0360 bias above. A reader should not conclude that
+link-function bias can appear with zero pre-trend signal, or dismiss a real pre-trend warning on a
+binary panel as "just the link function."
 
 This is a property of applying a linear difference-in-differences to a non-linear outcome, not a
 defect in the estimator. It is documented rather than hidden because binary conversion rates are
