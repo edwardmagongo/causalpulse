@@ -166,11 +166,12 @@ PANEL_SCENARIOS: dict[str, PanelScenarioSpec] = {
         name="Binary panel",
         declared_effect=0.1061,
         description="Binary outcomes with the effect applied on the logit "
-        "scale and level-selected adoption. Parallel trends holds on the "
-        "logit scale but not on the probability scale, so a 2x2 DiD "
-        "reporting percentage points is biased with no confounding and no "
-        "differential pre-trend. Measures and documents that link-function "
-        "bias rather than avoiding it.",
+        "scale and level-selected adoption. Parallel trends holds exactly on "
+        "the logit scale but fails on the probability scale, so a 2x2 DiD "
+        "reporting percentage points is biased with no confounding -- the "
+        "bias IS a differential pre-trend, just one that only shows up on "
+        "the probability scale the estimator reports on. Measures and "
+        "documents that link-function bias rather than avoiding it.",
         build=lambda: BinaryPanelDGP(
             unit_generator=UnitGenerator(covariate_names=_COVARIATES),
             unit_effects=NormalUnitEffects(level_sd=0.8, slope_sd=0.0),
