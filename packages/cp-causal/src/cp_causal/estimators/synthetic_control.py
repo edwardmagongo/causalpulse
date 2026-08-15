@@ -1,13 +1,14 @@
 """Synthetic control: a donor-weighted counterfactual for one treated unit.
 
-Permutation inference (p-value, confidence interval) and the assumption
-checks are added in Tasks 5-6 of the Phase 4 plan; this module starts with
-the weight solve, the point estimate, and `CounterfactualPath`.
+Permutation inference (p-value, confidence interval) is implemented here via
+`placebo_runs` and `permutation_p_value`. The assumption checks are added in
+Task 6 of the Phase 4 plan.
 """
 
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 
 import numpy as np
 from cp_core.dataset import CausalDataset
@@ -60,6 +61,111 @@ def solve_donor_weights(treated_pre: np.ndarray, donor_pre: np.ndarray) -> np.nd
     return np.asarray(result.x)
 
 
+@dataclass(frozen=True, eq=False)
+class PlaceboRuns:
+    """One synthetic-control fit per unit: the real treated unit at index 0,
+    then each donor playing "treated" in turn, with the remaining donors as
+    its own donor pool.
+
+    Backs three things from one computation, not three: the permutation
+    p-value (`permutation_p_value`, over `rmspe_ratios`), the confidence
+    interval (`SyntheticControl.fit`, over `point_estimates[1:]`), and the
+    donor_contamination assumption check (Task 6, over `rmspe_ratios[1:]`) --
+    a genuinely contaminated donor looks, from this placebo procedure's point
+    of view, exactly like a unit whose post-period diverges from what its own
+    donor pool predicts, which is what the ratio measures regardless of why
+    the divergence happened.
+    """
+
+    point_estimates: np.ndarray
+    rmspe_ratios: np.ndarray
+
+
+def placebo_runs(
+    treated_series: np.ndarray,
+    donor_series: np.ndarray,
+    pre_mask: np.ndarray,
+    post_mask: np.ndarray,
+) -> PlaceboRuns:
+    n_donors = donor_series.shape[0]
+    points = np.empty(n_donors + 1)
+    ratios = np.empty(n_donors + 1)
+    for index in range(n_donors + 1):
+        if index == 0:
+            unit_series, pool = treated_series, donor_series
+        else:
+            unit_series = donor_series[index - 1]
+            pool = np.delete(donor_series, index - 1, axis=0)
+        weights = solve_donor_weights(unit_series[pre_mask], pool[:, pre_mask])
+        synthetic = weights @ pool
+        points[index] = float(np.mean(unit_series[post_mask] - synthetic[post_mask]))
+        pre_rmspe = float(np.sqrt(np.mean((unit_series[pre_mask] - synthetic[pre_mask]) ** 2)))
+        post_rmspe = float(np.sqrt(np.mean((unit_series[post_mask] - synthetic[post_mask]) ** 2)))
+        ratios[index] = post_rmspe / pre_rmspe if pre_rmspe > 0 else float("inf")
+    return PlaceboRuns(point_estimates=points, rmspe_ratios=ratios)
+
+
+def permutation_p_value(rmspe_ratios: np.ndarray) -> float:
+    """Rank-based p-value: how extreme the real unit's ratio is among all units.
+
+    Index 0 is the real treated unit (see `PlaceboRuns`). `rank` counts every
+    unit, including the real one, whose ratio is at least as large -- so a
+    real unit tied for most extreme gets `p = 1 / (n + 1)`, the smallest
+    achievable p-value with `n` donors, matching Abadie's construction.
+    """
+    n = rmspe_ratios.size
+    rank = int(np.sum(rmspe_ratios >= rmspe_ratios[0]))
+    return rank / n
+
+
+def _in_time_placebo(
+    treated_series: np.ndarray, donor_series: np.ndarray, pre_mask: np.ndarray
+) -> float:
+    """A fake treatment date at the pre-period's midpoint; effect should be near zero.
+
+    Splits the *real* pre-period in two: the first half as the placebo's own
+    pre-period, the second half as its placebo post-period. A well-behaved
+    fit should show a small effect here, since nothing was actually treated
+    yet.
+    """
+    pre_periods = np.flatnonzero(pre_mask)
+    if pre_periods.size < 4:
+        return float("nan")
+    midpoint = pre_periods.size // 2
+    fake_pre = pre_periods[:midpoint]
+    fake_post = pre_periods[midpoint:]
+    weights = solve_donor_weights(treated_series[fake_pre], donor_series[:, fake_pre])
+    synthetic = weights @ donor_series
+    return float(np.mean(treated_series[fake_post] - synthetic[fake_post]))
+
+
+def _leave_one_donor_out_max_swing(
+    treated_series: np.ndarray,
+    donor_series: np.ndarray,
+    pre_mask: np.ndarray,
+    post_mask: np.ndarray,
+    full_point: float,
+    weight_threshold: float = 0.05,
+) -> float:
+    """Largest change in the point estimate from dropping one influential donor.
+
+    Only donors actually carrying non-trivial weight are worth re-fitting
+    without -- dropping a zero-weight donor cannot move the estimate.
+    """
+    weights = solve_donor_weights(treated_series[pre_mask], donor_series[:, pre_mask])
+    influential = np.flatnonzero(weights > weight_threshold)
+    if influential.size == 0:
+        return 0.0
+    max_swing = 0.0
+    for donor_index in influential:
+        remaining = np.delete(donor_series, donor_index, axis=0)
+        loo_weights = solve_donor_weights(treated_series[pre_mask], remaining[:, pre_mask])
+        loo_synthetic = loo_weights @ remaining
+        loo_point = float(np.mean(treated_series[post_mask] - loo_synthetic[post_mask]))
+        max_swing = max(max_swing, abs(loo_point - full_point))
+    return max_swing
+
+
 def _donor_matrix(panel: PanelArrays) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Wide (unit x period) outcome arrays for the treated unit and its donors.
 
@@ -104,22 +210,33 @@ class SyntheticControl:
         treated_series, donor_series, pre_mask = _donor_matrix(panel)
         post_mask = ~pre_mask
 
+        runs = placebo_runs(treated_series, donor_series, pre_mask, post_mask)
+        point = float(runs.point_estimates[0])
+        p_value = permutation_p_value(runs.rmspe_ratios)
+
         weights = solve_donor_weights(treated_series[pre_mask], donor_series[:, pre_mask])
         synthetic = weights @ donor_series
-        point = float(np.mean(treated_series[post_mask] - synthetic[post_mask]))
-
         pointwise_effect = treated_series - synthetic
+
+        # A permutation-based interval from the placebo distribution's own
+        # spread, following the same logic as the p-value: donors' point
+        # estimates under "no true effect on them" are the reference
+        # distribution `point`'s own uncertainty is judged against.
+        placebo_spread = runs.point_estimates[1:]
+        half_width = float(np.quantile(np.abs(placebo_spread), config.ci_level))
+        ci = Interval(lower=point - half_width, upper=point + half_width, level=config.ci_level)
+
+        in_time_placebo = _in_time_placebo(treated_series, donor_series, pre_mask)
+        loo_swing = _leave_one_donor_out_max_swing(
+            treated_series, donor_series, pre_mask, post_mask, point
+        )
+
         path = CounterfactualPath(
             periods=panel.periods.astype(float),
             observed=treated_series,
             predicted_absent_treatment=synthetic,
-            # Placeholder-width band until Task 5 replaces it with the
-            # permutation-based interval; a fixed +/-0 band would violate
-            # `CounterfactualPath`'s own shape contract only if the arrays
-            # mismatched, which they do not, so this stays valid but is not
-            # yet meaningful uncertainty -- Task 5 makes it real.
-            lower=synthetic,
-            upper=synthetic,
+            lower=synthetic - half_width,
+            upper=synthetic + half_width,
             pointwise_effect=pointwise_effect,
             cumulative_effect=np.cumsum(np.where(post_mask, pointwise_effect, 0.0)),
         )
@@ -129,10 +246,10 @@ class SyntheticControl:
             method=self.name,
             point=point,
             se=None,
-            ci=Interval(lower=point, upper=point + 1e-9),
+            ci=ci,
             ci_basis="permutation",
             bootstrap_ci=None,
-            p_value=None,
+            p_value=p_value,
             n_treated=1,
             n_control=int(donor_series.shape[0]),
             scale=outcome_scale(dataset),
@@ -144,6 +261,29 @@ class SyntheticControl:
                     interpretation=(
                         "Simplex weight placed on each donor by the "
                         "pre-treatment fit, in donor order."
+                    ),
+                ),
+                "in_time_placebo_effect": Diagnostic(
+                    name="in_time_placebo_effect",
+                    value=in_time_placebo,
+                    unit=None,
+                    interpretation=(
+                        "Estimated effect from a fake treatment date at the "
+                        "pre-period's midpoint, where nothing was actually "
+                        "treated. Should be small; a large value means the "
+                        "method finds 'effects' even with no real "
+                        "intervention."
+                    ),
+                ),
+                "leave_one_donor_out_max_swing": Diagnostic(
+                    name="leave_one_donor_out_max_swing",
+                    value=loo_swing,
+                    unit=None,
+                    interpretation=(
+                        "Largest change in the point estimate from dropping "
+                        "any single donor holding more than 5% weight. A "
+                        "large value means the result rests heavily on one "
+                        "donor rather than a genuine combination."
                     ),
                 ),
             },
