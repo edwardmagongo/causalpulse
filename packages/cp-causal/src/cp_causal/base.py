@@ -28,6 +28,7 @@ class Requirements:
     min_treated_units: int = 1
     min_control_units: int = 1
     needs_uniform_adoption: bool = False
+    max_treated_units: int | None = None
     supports_outcome_types: frozenset[str] = field(
         default_factory=lambda: frozenset({"binary", "continuous"})
     )
@@ -93,6 +94,19 @@ class Requirements:
         if dataset.n_treated_units < self.min_treated_units:
             reasons.append(
                 f"requires at least {self.min_treated_units} treated units; "
+                f"dataset has {dataset.n_treated_units}"
+            )
+        if (
+            self.max_treated_units is not None
+            and dataset.n_treated_units > self.max_treated_units
+        ):
+            # Symmetric to the min-side check above. Synthetic control needs
+            # exactly one treated unit -- an ordinary multi-unit panel is not
+            # a donor-pool shape, and offering SC on one would repeat Task
+            # 13's Phase 3 finding: `needs_panel` was only ever checked in
+            # one direction until a router test exercised both.
+            reasons.append(
+                f"requires at most {self.max_treated_units} treated unit(s); "
                 f"dataset has {dataset.n_treated_units}"
             )
         if dataset.n_control_units < self.min_control_units:

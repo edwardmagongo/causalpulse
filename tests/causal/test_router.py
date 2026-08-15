@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 from cp_causal.base import Requirements
 from cp_causal.registry import register
@@ -52,6 +53,27 @@ def panel_dataset(start: int = 3, n_units: int = 4, n_periods: int = 4) -> Causa
         outcome="outcome",
         covariates=(),
         outcome_type="continuous",
+    )
+    return CausalDataset(frame=frame, schema=schema)
+
+
+def _panel_dataset(n_treated: int, n_control: int) -> CausalDataset:
+    n_periods = 6
+    n_units = n_treated + n_control
+    unit_id = np.repeat(np.arange(n_units), n_periods)
+    period = np.tile(np.arange(1, n_periods + 1), n_units)
+    treated = (unit_id < n_treated) & (period >= 4)
+    frame = pd.DataFrame(
+        {
+            "unit_id": unit_id,
+            "period": period,
+            "treated": treated.astype(int),
+            "outcome": np.zeros(n_units * n_periods),
+        }
+    )
+    schema = CausalSchema(
+        unit="unit_id", treatment="treated", outcome="outcome",
+        covariates=(), outcome_type="continuous", time="period",
     )
     return CausalDataset(frame=frame, schema=schema)
 
@@ -227,3 +249,26 @@ def test_needs_panel_false_excludes_a_cross_sectional_estimator_from_panel_data(
 
 def test_needs_panel_true_is_unaffected_by_the_symmetric_check():
     assert Requirements(needs_panel=True).unmet(panel_dataset()) == ()
+
+
+def test_max_treated_units_rejects_a_dataset_with_too_many_treated_units():
+    requirements = Requirements(max_treated_units=1)
+    dataset_obj = _panel_dataset(n_treated=3, n_control=10)
+
+    unmet = requirements.unmet(dataset_obj)
+
+    assert any("at most 1 treated unit" in reason for reason in unmet)
+
+
+def test_max_treated_units_accepts_a_dataset_with_exactly_one_treated_unit():
+    requirements = Requirements(needs_panel=True, max_treated_units=1)
+    dataset_obj = _panel_dataset(n_treated=1, n_control=10)
+
+    assert requirements.unmet(dataset_obj) == ()
+
+
+def test_max_treated_units_none_by_default_does_not_reject_a_large_cohort():
+    requirements = Requirements(needs_panel=True)
+    dataset_obj = _panel_dataset(n_treated=200, n_control=200)
+
+    assert requirements.unmet(dataset_obj) == ()
