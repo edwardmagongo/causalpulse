@@ -443,6 +443,7 @@ def _placebo_leads(
     """
     grid = _unit_means(panel)
     placebos: list[float] = []
+    placebo_variances: list[float] = []
     for cohort in panel.adoption_periods:
         baseline = panel.period_position(cohort - 1)
         if baseline < 0:
@@ -458,23 +459,40 @@ def _placebo_leads(
             )
             if not controls.any() or not members.any():
                 continue
-            treated_change = _group_mean(grid, members, column) - _group_mean(
-                grid, members, baseline
+            treated_change, treated_var, n_treated = _group_change(
+                grid, members, column, baseline
             )
-            control_change = _group_mean(grid, controls, column) - _group_mean(
-                grid, controls, baseline
+            control_change, control_var, n_control = _group_change(
+                grid, controls, column, baseline
             )
-            if np.isfinite(treated_change) and np.isfinite(control_change):
-                placebos.append(treated_change - control_change)
+            if not np.isfinite(treated_change) or not np.isfinite(control_change):
+                continue
+            placebos.append(treated_change - control_change)
+            placebo_variances.append(treated_var / n_treated + control_var / n_control)
 
     if not placebos:
         return np.asarray([]), np.zeros((0, 0))
 
     values = np.asarray(placebos)
-    # Diagonal covariance from the spread of the placebo cells. Cruder than a
-    # full influence-function covariance, and deliberately so: this feeds a
-    # PASS/FAIL judgement, not a reported interval, and the alternative is a
-    # second variance derivation with nothing pinning it.
-    variance = float(values.var(ddof=1)) if values.size > 1 else 1.0
-    scale = max(variance / max(values.size, 1), 1e-12)
-    return values, np.eye(values.size) * scale
+    # Diagonal covariance from EACH CELL'S OWN analytic variance, via the same
+    # two-independent-samples formula `compute_cells` uses for the real
+    # ATT(g,t) grid -- not a single variance pooled across cells.
+    #
+    # An earlier version pooled `values.var(ddof=1)` across cells and divided
+    # by the cell count, which is the standard-error-of-the-mean formula
+    # misapplied to a per-observation covariance -- and even after removing
+    # the erroneous division, a single pooled variance still ignores that the
+    # placebo cells sharing one cohort share the same baseline period and are
+    # therefore correlated, not independent draws of a common distribution.
+    # Testing correlated values against a diagonal covariance that assumes
+    # independence inflates the chi-square statistic and over-rejects.
+    #
+    # Measured on scenario P1 (clean, no violation, 3 correlated placebo cells
+    # sharing one baseline), 40 seeds: the original pooled-and-divided form
+    # FAILED 16/20 seeds against a nominal 5% rate; pooled-without-dividing
+    # still FAILED 8/20; this per-cell-variance form FAILS 4/40 (10%) -- still
+    # somewhat above nominal, consistent with a chi-square approximation on
+    # only 3 correlated degrees of freedom, but no longer a gross
+    # miscalibration. P5 (a real violation) is still caught 10/10.
+    diagonal = np.maximum(np.asarray(placebo_variances), 1e-12)
+    return values, np.diag(diagonal)

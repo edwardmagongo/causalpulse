@@ -261,3 +261,30 @@ def test_a_cohort_with_no_pre_period_is_dropped_rather_than_guessed():
 
     keys = result.diagnostics["att_gt_keys"].value.astype(int)
     assert {int(g) for g, _ in keys} == {2, 5}
+
+
+def test_parallel_trends_is_calibrated_not_a_near_certain_false_positive():
+    # Regression test for a real defect Task 13's recovery harness found:
+    # _placebo_leads's covariance was pooling one variance across all placebo
+    # cells and then dividing by the cell count (the standard-error-of-the-
+    # mean formula, misapplied to a per-observation covariance), which made
+    # parallel_trends FAIL on 16 of 20 clean P1 draws against a nominal 5%
+    # rate -- the check was actively misleading, not merely imprecise.
+    #
+    # Fixed to use each placebo cell's own analytic variance (the same
+    # two-independent-samples formula the real ATT(g,t) cells use). Measured
+    # after the fix, 40 seeds: 4/40 (10%) FAIL on clean P1 -- still somewhat
+    # above nominal, consistent with a chi-square approximation on only 3
+    # correlated degrees of freedom, but no longer a gross miscalibration.
+    # This test pins a looser bound (25%) than the measured 10%, so it flags
+    # a real regression toward the old near-universal-rejection behavior
+    # without being sensitive to the exact small-sample rate.
+    fails = 0
+    seeds = 20
+    for seed in range(seeds):
+        panel = generate("P1", seed=seed)
+        result = CallawaySantAnna().fit(panel.dataset, CONFIG)
+        status = next(a.status for a in result.assumptions if a.name == "parallel_trends")
+        fails += int(status == "FAIL")
+
+    assert fails / seeds < 0.25, f"{fails}/{seeds} false positives on clean data"

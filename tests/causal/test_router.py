@@ -210,3 +210,20 @@ def test_declared_pre_period_minimums_are_enforced_not_decorative():
 
     assert any("pre-treatment period" in reason for reason in unmet)
     assert Requirements(needs_panel=True, min_pre_periods=1).unmet(dataset_) == ()
+
+
+def test_needs_panel_false_excludes_a_cross_sectional_estimator_from_panel_data():
+    # Regression test for a real gap Task 13's recovery harness found: this
+    # check only ever ran in one direction (needs_panel=True rejects a
+    # cross-section), so every Phase 1/2 estimator -- which all default to
+    # needs_panel=False and have no unit/period awareness -- was silently
+    # eligible on panel data. Fit there, each would treat every unit-period
+    # row as an independent observation, double-counting each unit's
+    # baseline covariates once per period.
+    unmet = Requirements().unmet(panel_dataset())
+
+    assert any("cross-section" in reason for reason in unmet)
+
+
+def test_needs_panel_true_is_unaffected_by_the_symmetric_check():
+    assert Requirements(needs_panel=True).unmet(panel_dataset()) == ()

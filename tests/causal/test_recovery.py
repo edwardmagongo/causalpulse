@@ -117,13 +117,17 @@ def test_router_offers_every_registered_estimator_on_covariate_data():
 
     eligible = set(eligible_estimators(simulated.dataset))
 
+    # Exact, not a subset: a panel estimator becoming eligible on a
+    # cross-section would mean its `needs_panel` requirement had stopped
+    # working, which is the router's whole job.
     assert {"difference_in_means", "lin_regression", "ipw", "aipw"} == eligible
 
 
-def test_importing_cp_causal_registers_every_estimator():
+def test_importing_cp_causal_registers_every_cross_sectional_estimator():
     import cp_causal  # noqa: F401
 
-    assert {"difference_in_means", "lin_regression", "ipw", "aipw"} == set(
+    # A subset check here, since the registry now also holds panel estimators.
+    assert {"difference_in_means", "lin_regression", "ipw", "aipw"} <= set(
         all_estimators()
     )
 

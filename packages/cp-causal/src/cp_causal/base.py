@@ -44,6 +44,24 @@ class Requirements:
 
         if self.needs_panel and not schema.is_panel:
             reasons.append("requires panel data; dataset is a cross-section")
+        if not self.needs_panel and schema.is_panel:
+            # Symmetric to the check above. `needs_panel=False` was only ever
+            # enforced in one direction: it rejected panel-only estimators
+            # from cross-sections, but nothing rejected a cross-section-only
+            # estimator from a panel. Every Phase 1/2 estimator (AIPW, IPW,
+            # Lin regression, difference in means) defaults to
+            # `needs_panel=False` and has no unit/period awareness at all --
+            # fit on a long-format panel, each would silently treat every
+            # unit-period row as an independent observation, double-counting
+            # each unit's baseline covariates once per period and violating
+            # the independence assumption every one of their standard errors
+            # rests on. Caught by Task 13's recovery harness, which was the
+            # first place in the project to route an estimator pool against
+            # real panel data.
+            reasons.append(
+                "requires a cross-section; dataset is a panel and this "
+                "estimator has no unit/period structure to exploit or protect"
+            )
         if schema.is_panel and (
             self.needs_uniform_adoption or self.min_pre_periods or self.min_post_periods
         ):
