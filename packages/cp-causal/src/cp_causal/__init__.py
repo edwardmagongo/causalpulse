@@ -15,6 +15,7 @@ from cp_causal.estimators import (  # noqa: F401
     event_study,
     experimental,
     regression,
+    synthetic_control,
     weighting,
 )
 
