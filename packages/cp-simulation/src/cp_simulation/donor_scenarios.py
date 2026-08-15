@@ -75,12 +75,12 @@ class DonorScenarioSpec:
     name: str
     declared_effect: float
     description: str
-    build: Callable[[], "PanelDGP | ContaminatedDonorPanel"]
+    build: Callable[[], PanelDGP | ContaminatedDonorPanel]
     n_units: int = DONOR_N_UNITS
     n_periods: int = DONOR_N_PERIODS
 
 
-def build_donor_scenario(scenario_id: str) -> "PanelDGP | ContaminatedDonorPanel":
+def build_donor_scenario(scenario_id: str) -> PanelDGP | ContaminatedDonorPanel:
     return DONOR_SCENARIOS[scenario_id].build()
 
 
