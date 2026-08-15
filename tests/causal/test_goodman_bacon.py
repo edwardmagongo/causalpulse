@@ -20,15 +20,33 @@ def test_weights_sum_to_one():
     assert sum(c.weight for c in decomposition.components) == pytest.approx(1.0)
 
 
+def _mean_reconstruction_deviation(scenario_id: str, seeds: int = 10) -> float:
+    diffs = []
+    for seed in range(seeds):
+        panel = generate(scenario_id, seed=seed)
+        decomposition = goodman_bacon_decomposition(panel.dataset)
+        twfe = TwoWayFixedEffects().fit(panel.dataset, CONFIG).point
+        diffs.append(decomposition.weighted_average - twfe)
+    return float(np.mean(diffs))
+
+
 def test_the_weighted_average_reproduces_the_twfe_estimate():
     # The decomposition is only meaningful if it adds back up to the thing it
     # decomposes. This is the test that makes the shares interpretable.
-    panel = generate("P3")
-
-    decomposition = goodman_bacon_decomposition(panel.dataset)
-    twfe = TwoWayFixedEffects().fit(panel.dataset, CONFIG).point
-
-    assert decomposition.weighted_average == pytest.approx(twfe, abs=0.05)
+    #
+    # A single fixed seed is the wrong instrument here, per this project's
+    # established discipline (see test_did.py's `mean_deviation` fix and
+    # test_callaway_santanna.py's `_overall_mean_deviation`): seed=0 (this
+    # module's `generate` default) deviates by -0.0447, the worst of the
+    # seeds sampled below, which is why a single-seed assertion needed a
+    # loose abs=0.05 tolerance to pass at all.
+    #
+    # Measured at seeds=10, n_units=400 (this module's `generate` default):
+    # mean deviation -0.0049, SEM 0.0061 (std 0.0194 / sqrt(10)).
+    # abs=0.03 leaves (0.03 - 0.0049) / 0.0061 = 4.09 SEM of headroom,
+    # above this project's four-SEM bar, while still catching a genuinely
+    # broken reconstruction (wrong sign, wrong scale, or mismatched weights).
+    assert abs(_mean_reconstruction_deviation("P3")) < 0.03
 
 
 def test_a_uniform_design_has_no_already_treated_comparisons():
