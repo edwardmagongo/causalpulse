@@ -112,6 +112,8 @@ class LevelOffsetUnitEffects:
     level_offset: float
 
     def draw(self, n_units: int, rng: np.random.Generator) -> tuple[np.ndarray, np.ndarray]:
+        if not 0 <= self.unit_index < n_units:
+            raise ValueError(f"unit_index {self.unit_index} is out of range for {n_units} units")
         alpha, delta = self.base.draw(n_units, rng)
         alpha = alpha.copy()
         alpha[self.unit_index] += self.level_offset
