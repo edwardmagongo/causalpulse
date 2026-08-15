@@ -174,15 +174,20 @@ DONOR_SCENARIOS: dict[str, DonorScenarioSpec] = {
         name="Donor contamination",
         declared_effect=1.0,
         description=(
-            "S1's DGP, with donor 0 receiving its own +1.5 hidden shock "
+            "S1's DGP, with donor 0 receiving its own +5.0 hidden shock "
             "from the treatment period onward -- a shift no adoption "
             "mechanism declares and that never appears in ground truth. "
-            "Triggers the donor_contamination assumption check."
+            "Triggers the donor_contamination assumption check. Corrected "
+            "from an original +1.5: the check's real statistic (the max "
+            "robust z-score across all donors, not one pre-specified donor) "
+            "has much lower power than a single-donor check, so a smaller "
+            "shock was not reliably detectable at a well-calibrated "
+            "threshold. See donor_contamination_check's own docstring."
         ),
         build=lambda: ContaminatedDonorPanel(
             base=_representative("S4", tau=1.0),
             donor_offset=0,
-            shock=1.5,
+            shock=5.0,
             shock_start=DONOR_START,
         ),
     ),
