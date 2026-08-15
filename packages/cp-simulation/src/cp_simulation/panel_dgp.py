@@ -16,7 +16,11 @@ from cp_simulation.panel_components import (
     TimePath,
     UnitEffects,
 )
-from cp_simulation.panel_truth import PanelGroundTruth, SimulatedPanel
+from cp_simulation.panel_truth import (
+    PanelGroundTruth,
+    SimulatedPanel,
+    measure_panel_truth,
+)
 
 
 @dataclass(frozen=True)
@@ -149,37 +153,20 @@ class PanelDGP:
         y0: np.ndarray,
         periods: np.ndarray,
     ) -> PanelGroundTruth:
-        """Every quantity averaged over realised potential outcomes."""
-        att_gt: dict[tuple[int, int], float] = {}
-        for cohort in sorted({int(c) for c in cohorts if c > 0}):
-            members = cohorts == cohort
-            for index, period in enumerate(periods.astype(int)):
-                if period < cohort:
-                    continue
-                att_gt[(cohort, int(period))] = float(tau[members, index].mean())
+        """Every quantity averaged over realised potential outcomes.
 
-        by_cohort: dict[int, float] = {}
-        for cohort in sorted({int(c) for c in cohorts if c > 0}):
-            members = cohorts == cohort
-            cells = treated[members]
-            by_cohort[cohort] = float(tau[members][cells].mean())
-
-        by_event_time: dict[int, float] = {}
-        exposure = periods.astype(int)[None, :] - cohorts[:, None]
-        for horizon in sorted({int(h) for h in exposure[treated]}):
-            mask = treated & (exposure == horizon)
-            by_event_time[horizon] = float(tau[mask].mean())
-
-        return PanelGroundTruth(
-            true_att_gt=att_gt,
-            true_att_overall=(
-                float(tau[treated].mean()) if treated.any() else float("nan")
-            ),
-            true_att_by_cohort=by_cohort,
-            true_att_by_event_time=by_event_time,
-            true_effect_matrix=np.where(treated, tau, 0.0),
-            true_cohorts=cohorts,
-            true_pre_trend_gap=pre_trend_gap(y0, cohorts, periods),
+        `tau` is the potential-outcome difference, so it is passed straight
+        through as the effect matrix; `y0` is the untreated path the pre-trend
+        gap is measured against. The aggregation itself is shared with
+        `BinaryPanelDGP`, whose `_measure` works in `p1 - p0` space instead --
+        see `measure_panel_truth`.
+        """
+        return measure_panel_truth(
+            cohorts=cohorts,
+            effect_matrix=tau,
+            treated=treated,
+            untreated_path=y0,
+            periods=periods,
             scenario_id=self.scenario_id,
             config_hash=self.config_hash,
         )
@@ -206,22 +193,3 @@ class PanelDGP:
         for name in names:
             frame[name] = np.repeat(units[name].to_numpy(), n_periods)
         return frame
-
-
-def pre_trend_gap(
-    y0: np.ndarray, cohorts: np.ndarray, periods: np.ndarray
-) -> float:
-    """Measured Y(0) trend-slope gap, ever-treated minus never-treated.
-
-    Measured from the untreated potential outcomes rather than declared, so
-    parallel trends is an observable property of a scenario rather than a claim
-    about it — the precedent `confounders()` set for the cross-sectional DGP.
-    Returns nan when either arm is empty, since there is then no gap to report.
-    """
-    ever = cohorts > 0
-    if not ever.any() or ever.all():
-        return float("nan")
-    centred = periods - periods.mean()
-    denominator = float((centred**2).sum())
-    slopes = (y0 * centred[None, :]).sum(axis=1) / denominator
-    return float(slopes[ever].mean() - slopes[~ever].mean())

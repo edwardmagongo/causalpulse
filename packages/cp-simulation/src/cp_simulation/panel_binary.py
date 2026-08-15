@@ -19,8 +19,11 @@ from scipy.special import expit
 from cp_simulation._hashing import component_hash, describe_components
 from cp_simulation.components import UnitGenerator
 from cp_simulation.panel_components import Adoption, TimePath, UnitEffects
-from cp_simulation.panel_dgp import pre_trend_gap
-from cp_simulation.panel_truth import PanelGroundTruth, SimulatedPanel
+from cp_simulation.panel_truth import (
+    PanelGroundTruth,
+    SimulatedPanel,
+    measure_panel_truth,
+)
 
 
 @dataclass(frozen=True)
@@ -124,34 +127,18 @@ class BinaryPanelDGP:
         p0: np.ndarray,
         periods: np.ndarray,
     ) -> PanelGroundTruth:
-        att_gt: dict[tuple[int, int], float] = {}
-        by_cohort: dict[int, float] = {}
-        for cohort in sorted({int(c) for c in cohorts if c > 0}):
-            members = cohorts == cohort
-            for index, period in enumerate(periods.astype(int)):
-                if period < cohort:
-                    continue
-                att_gt[(cohort, int(period))] = float(effect[members, index].mean())
-            by_cohort[cohort] = float(effect[members][treated[members]].mean())
-
-        exposure = periods.astype(int)[None, :] - cohorts[:, None]
-        by_event_time = {
-            int(h): float(effect[treated & (exposure == h)].mean())
-            for h in sorted({int(v) for v in exposure[treated]})
-        }
-
-        return PanelGroundTruth(
-            true_att_gt=att_gt,
-            true_att_overall=float(effect[treated].mean())
-            if treated.any()
-            else float("nan"),
-            true_att_by_cohort=by_cohort,
-            true_att_by_event_time=by_event_time,
-            true_effect_matrix=np.where(treated, effect, 0.0),
-            true_cohorts=cohorts,
-            # Measured on the untreated probability path, so the reported gap is
-            # on the same scale as the effect the estimators report.
-            true_pre_trend_gap=pre_trend_gap(p0, cohorts, periods),
+        """`effect` is `p1 - p0`, the probability-scale gap; `p0` is the
+        untreated probability path the pre-trend gap is measured against, so
+        the reported gap is on the same scale as the effect the estimators
+        report. The aggregation itself is shared with `PanelDGP`, whose
+        `_measure` works in `tau` space instead -- see `measure_panel_truth`.
+        """
+        return measure_panel_truth(
+            cohorts=cohorts,
+            effect_matrix=effect,
+            treated=treated,
+            untreated_path=p0,
+            periods=periods,
             scenario_id=self.scenario_id,
             config_hash=self.config_hash,
         )
