@@ -1,4 +1,10 @@
-"""Every panel estimator against every panel scenario, scored on measured truth.
+"""Every panel estimator against every scenario it can be honestly scored on.
+
+Not literally every estimator against every scenario: `DifferenceInDifferences`
+is n/a on staggered adoption (P3-P5), and `EventStudy` is scored on P1/P3 only
+-- see the note above `test_event_study_recovers_truth_where_its_point_is_the_
+same_estimand` for why P4/P5 would compare two different quantities rather
+than test recovery.
 
 Tolerances are set from measurements taken at exactly this protocol - 400
 units, 8 periods, 60 seeds, matching PANEL_N_UNITS/PANEL_N_PERIODS/PANEL_SEEDS
@@ -65,6 +71,28 @@ def test_callaway_santanna_recovers_truth_where_it_should(scenario_id):
     # Headroom under 0.09: (0.09 - 0.0064) / 0.0155 = 5.4 MCSE on P1,
     # (0.09 - 0.0008) / 0.0131 = 6.8 MCSE on P3.
     assert abs(mean_bias(CallawaySantAnna(), scenario_id)) < 0.09
+
+
+@pytest.mark.parametrize("scenario_id", ["P1", "P3"])
+def test_event_study_recovers_truth_where_its_point_is_the_same_estimand(scenario_id):
+    # EventStudy.point is the unweighted mean over post-treatment event-time
+    # coefficients (see event_study.py's own docstring). On P1 and P3, every
+    # treated cohort's effect is constant across exposure, so that unweighted
+    # average and true_att_overall's cell-count-weighted average are the same
+    # quantity. On P4 they are NOT: a ramping effect makes later exposure
+    # cells larger, so the unweighted mean (which treats every exposure
+    # horizon equally) and the cell-weighted ATT (which weights by how many
+    # treated cells actually exist at each horizon) diverge structurally --
+    # measured at roughly +0.64 off true_att_overall on P4, which is not a
+    # broken estimator, it is two different quantities being compared. P4/P5
+    # are deliberately excluded from this test for that reason, not omitted
+    # by oversight.
+    #
+    # Measured at 400 units / 8 periods / 60 seeds: P1 -0.0064 (MCSE 0.0155),
+    # P3 -0.0047 (MCSE 0.0139).
+    # Headroom under 0.09: (0.09 - 0.0064) / 0.0155 = 5.4 MCSE on P1,
+    # (0.09 - 0.0047) / 0.0139 = 6.1 MCSE on P3.
+    assert abs(mean_bias(EventStudy(), scenario_id)) < 0.09
 
 
 def test_twfe_and_callaway_santanna_agree_under_homogeneous_effects():
