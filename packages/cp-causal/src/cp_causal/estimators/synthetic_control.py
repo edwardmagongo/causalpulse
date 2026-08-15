@@ -1,8 +1,9 @@
 """Synthetic control: a donor-weighted counterfactual for one treated unit.
 
 Permutation inference (p-value, confidence interval) is implemented here via
-`placebo_runs` and `permutation_p_value`. The assumption checks are added in
-Task 6 of the Phase 4 plan.
+`placebo_runs` and `permutation_p_value`. The assumption checks live in
+`panel_checks.py`; `ridge_augmented_weights` is the fallback `fit` switches
+to when `convex_hull_check` fails.
 """
 
 from __future__ import annotations
@@ -19,6 +20,12 @@ from scipy.optimize import minimize
 from cp_causal._panel import PanelArrays, outcome_scale, panel_arrays
 from cp_causal._support import config_hash
 from cp_causal.base import Requirements
+from cp_causal.panel_checks import (
+    convex_hull_check,
+    donor_contamination_check,
+    pre_treatment_fit_check,
+    sufficient_pre_periods_check,
+)
 from cp_causal.registry import register
 
 MIN_DONORS = 5
@@ -59,6 +66,33 @@ def solve_donor_weights(treated_pre: np.ndarray, donor_pre: np.ndarray) -> np.nd
         options={"maxiter": 200, "ftol": 1e-10},
     )
     return np.asarray(result.x)
+
+
+def ridge_augmented_weights(
+    treated_pre: np.ndarray, donor_pre: np.ndarray, penalty: float = 1.0
+) -> tuple[float, np.ndarray]:
+    """Ridge-regularised weights with an intercept, for a convex-hull violation.
+
+    A documented simplification of Ben-Michael/Feller/Rothstein's augmented
+    synthetic control (design doc §5.4): fits an intercept plus L2-penalised,
+    unconstrained donor coefficients directly, rather than the residual-
+    correction form of the original method. Simplex weights cannot reproduce
+    a value outside the donor pool's range by construction; an intercept plus
+    unconstrained coefficients can. Measured (design doc §2 item 5), 300
+    seeds on the convex-hull-violation scenario: plain simplex SC bias +1.21
+    against ridge-augmented (penalty=1.0) bias +0.0223 -- and an earlier,
+    no-intercept version of this ridge fit was *worse* than plain SC
+    (bias -1.87 at the same penalty), which is why the intercept term here is
+    load-bearing and not a minor refinement.
+    """
+    n_pre = donor_pre.shape[1]
+    design = np.column_stack([np.ones(n_pre), donor_pre.T])
+    gram = design.T @ design
+    n_params = design.shape[1]
+    ridge = penalty * np.eye(n_params)
+    ridge[0, 0] = 0.0  # never shrink the intercept
+    beta = np.linalg.solve(gram + ridge, design.T @ treated_pre)
+    return float(beta[0]), np.asarray(beta[1:])
 
 
 @dataclass(frozen=True, eq=False)
@@ -211,12 +245,27 @@ class SyntheticControl:
         post_mask = ~pre_mask
 
         runs = placebo_runs(treated_series, donor_series, pre_mask, post_mask)
-        point = float(runs.point_estimates[0])
         p_value = permutation_p_value(runs.rmspe_ratios)
 
         weights = solve_donor_weights(treated_series[pre_mask], donor_series[:, pre_mask])
-        synthetic = weights @ donor_series
+        synthetic_simplex = weights @ donor_series
+
+        treated_pre_mean = float(treated_series[pre_mask].mean())
+        donor_pre_means = donor_series[:, pre_mask].mean(axis=1)
+        convex_hull = convex_hull_check(treated_pre_mean, donor_pre_means)
+
+        if convex_hull.status == "FAIL":
+            intercept, coefficients = ridge_augmented_weights(
+                treated_series[pre_mask], donor_series[:, pre_mask]
+            )
+            synthetic = intercept + coefficients @ donor_series
+        else:
+            synthetic = synthetic_simplex
+
+        point = float(np.mean(treated_series[post_mask] - synthetic[post_mask]))
         pointwise_effect = treated_series - synthetic
+        pre_rmspe = float(np.sqrt(np.mean((treated_series[pre_mask] - synthetic[pre_mask]) ** 2)))
+        outcome_sd = float(treated_series[pre_mask].std(ddof=1))
 
         # A permutation-based interval from the placebo distribution's own
         # spread, following the same logic as the p-value: donors' point
@@ -260,7 +309,10 @@ class SyntheticControl:
                     unit=None,
                     interpretation=(
                         "Simplex weight placed on each donor by the "
-                        "pre-treatment fit, in donor order."
+                        "pre-treatment fit, in donor order. When convex_hull "
+                        "below is FAIL, the reported point estimate and path "
+                        "use the ridge-augmented fallback instead of these "
+                        "weights directly."
                     ),
                 ),
                 "in_time_placebo_effect": Diagnostic(
@@ -287,7 +339,12 @@ class SyntheticControl:
                     ),
                 ),
             },
-            assumptions=(),
+            assumptions=(
+                pre_treatment_fit_check(pre_rmspe, outcome_sd),
+                convex_hull,
+                donor_contamination_check(runs.rmspe_ratios[1:]),
+                sufficient_pre_periods_check(panel, minimum=10),
+            ),
             counterfactual=path,
             fit_metadata=FitMetadata.capture(
                 estimator=self.name,

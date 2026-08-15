@@ -12,6 +12,7 @@ from cp_causal.estimators.synthetic_control import (
     SyntheticControl,
     permutation_p_value,
     placebo_runs,
+    ridge_augmented_weights,
     solve_donor_weights,
 )
 from cp_core.values import EstimatorConfig
@@ -151,3 +152,64 @@ def test_null_scenario_permutation_p_value_is_roughly_uniform():
         result = SyntheticControl().fit(panel.dataset, CONFIG)
         significant += int(result.p_value is not None and result.p_value < 0.05)
     assert significant / 100 < 0.25
+
+
+def test_ridge_augmented_weights_have_an_intercept_and_one_coefficient_per_donor():
+    rng = np.random.default_rng(0)
+    treated = rng.normal(size=10)
+    donors = rng.normal(size=(5, 10))
+
+    intercept, coefficients = ridge_augmented_weights(treated, donors, penalty=1.0)
+
+    assert isinstance(intercept, float)
+    assert coefficients.shape == (5,)
+
+
+def test_ridge_augmented_weights_recover_truth_on_the_convex_hull_scenario():
+    # Measured (design doc §2 item 5), 300 seeds, plain simplex-SC bias
+    # +1.21 (badly biased) vs ridge-augmented (penalty=1.0) bias +0.0223
+    # (MCSE 0.0270). Tolerance 0.15 gives (0.15 - 0.0223) / 0.0270 = 4.7
+    # MCSE headroom. Run at fewer seeds here (this is a unit test, not the
+    # calibrated recovery harness -- that is Task 7) with a looser bound.
+    from cp_causal._panel import panel_arrays
+    from cp_causal.estimators.synthetic_control import _donor_matrix
+
+    errors = []
+    for seed in range(40):
+        panel = build_donor_scenario("S3").generate(
+            DONOR_N_UNITS, DONOR_N_PERIODS, np.random.default_rng(seed)
+        )
+        parr = panel_arrays(panel.dataset)
+        treated, donors, pre = _donor_matrix(parr)
+        intercept, coefficients = ridge_augmented_weights(treated[pre], donors[:, pre], penalty=1.0)
+        synthetic = intercept + coefficients @ donors
+        point = float(np.mean(treated[~pre] - synthetic[~pre]))
+        errors.append(point - panel.truth.true_att_by_cohort[18])
+    assert abs(float(np.mean(errors))) < 0.2
+
+
+def test_fit_reports_all_four_assumption_checks():
+    panel = _generate("S1")
+    result = SyntheticControl().fit(panel.dataset, CONFIG)
+    names = {check.name for check in result.assumptions}
+    assert names == {
+        "pre_treatment_fit",
+        "convex_hull",
+        "donor_contamination",
+        "sufficient_pre_periods",
+    }
+
+
+def test_convex_hull_check_fails_on_s3_and_passes_on_s1():
+    s1 = SyntheticControl().fit(_generate("S1").dataset, CONFIG)
+    s3 = SyntheticControl().fit(_generate("S3").dataset, CONFIG)
+    s1_status = {c.name: c.status for c in s1.assumptions}
+    s3_status = {c.name: c.status for c in s3.assumptions}
+    assert s1_status["convex_hull"] == "PASS"
+    assert s3_status["convex_hull"] == "FAIL"
+
+
+def test_sufficient_pre_periods_fails_on_s5():
+    result = SyntheticControl().fit(_generate("S5").dataset, CONFIG)
+    status = {c.name: c.status for c in result.assumptions}
+    assert status["sufficient_pre_periods"] == "FAIL"

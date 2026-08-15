@@ -40,8 +40,7 @@ def parallel_trends_check(
                 "This is not evidence that trends are parallel."
             ),
             remedy=(
-                "Extend the panel backwards so at least two pre-treatment "
-                "periods are observed."
+                "Extend the panel backwards so at least two pre-treatment periods are observed."
             ),
         )
 
@@ -166,9 +165,7 @@ def absorbing_treatment_check(dataset: CausalDataset) -> AssumptionCheck:
     )
 
 
-def sufficient_pre_periods_check(
-    panel: PanelArrays, minimum: int
-) -> AssumptionCheck:
+def sufficient_pre_periods_check(panel: PanelArrays, minimum: int) -> AssumptionCheck:
     """Observed pre-treatment periods against the estimator's declared minimum."""
     adoption = panel.adoption_periods
     earliest = min(adoption) if adoption else int(panel.periods.max()) + 1
@@ -186,6 +183,118 @@ def sufficient_pre_periods_check(
             f"minimum of {minimum}."
         ),
         remedy=None if ok else "Extend the panel backwards.",
+    )
+
+
+def pre_treatment_fit_check(
+    pre_rmspe: float, outcome_sd: float, threshold: float = 1.75
+) -> AssumptionCheck:
+    """Pre-treatment fit quality, relative to the outcome's own dispersion.
+
+    Threshold measured (design doc §2 item 5), 100 seeds each: on the clean
+    S1 scenario the ratio's mean is 0.65 and its max is 1.53; on S3 (the
+    convex-hull-violation scenario, before the ridge fallback) the mean is
+    4.76 and the min is 2.04. 1.75 sits cleanly between the two.
+    """
+    ratio = pre_rmspe / outcome_sd if outcome_sd > 0 else float("inf")
+    ok = ratio <= threshold
+    return AssumptionCheck(
+        name="pre_treatment_fit",
+        status="PASS" if ok else "FAIL",
+        statistic=ratio,
+        threshold=threshold,
+        interpretation=(
+            f"Pre-treatment RMSPE is {ratio:.2f}x the outcome's own "
+            f"pre-period standard deviation " + ("(a good fit)." if ok else "(a poor fit).")
+        ),
+        remedy=(
+            None
+            if ok
+            else "The donor pool cannot closely track this unit's "
+            "pre-treatment path; consider a larger or more comparable "
+            "donor pool."
+        ),
+    )
+
+
+def convex_hull_check(treated_pre_mean: float, donor_pre_means: np.ndarray) -> AssumptionCheck:
+    """Whether the treated unit's pre-period mean lies within the donor range.
+
+    Interpolation bias is synthetic control's principal failure mode (parent
+    spec §5.4): a simplex-constrained combination of donors can only ever
+    reproduce values inside their convex hull, so a treated unit outside it
+    cannot be matched by construction, not merely by chance.
+    """
+    lower = float(donor_pre_means.min())
+    upper = float(donor_pre_means.max())
+    inside = lower <= treated_pre_mean <= upper
+    return AssumptionCheck(
+        name="convex_hull",
+        status="PASS" if inside else "FAIL",
+        statistic=treated_pre_mean,
+        threshold=None,
+        interpretation=(
+            f"The treated unit's pre-period mean ({treated_pre_mean:.3f}) "
+            + (
+                f"lies within the donor pool's range [{lower:.3f}, {upper:.3f}]."
+                if inside
+                else f"lies outside the donor pool's range [{lower:.3f}, "
+                f"{upper:.3f}]. No non-negative, simplex-constrained "
+                "combination of donors can match it."
+            )
+        ),
+        remedy=(
+            None
+            if inside
+            else "A ridge-augmented fit was used instead of the plain "
+            "simplex weights; treat the result with more caution than an "
+            "in-hull match, and consider expanding the donor pool."
+        ),
+    )
+
+
+def donor_contamination_check(
+    donor_rmspe_ratios: np.ndarray, z_threshold: float = 2.0
+) -> AssumptionCheck:
+    """Flags a donor whose own placebo RMSPE ratio is a robust outlier.
+
+    Reuses the same placebo procedure permutation inference already runs
+    (each donor playing "treated" in turn, `placebo_runs` in
+    `synthetic_control.py`) rather than a bespoke statistical test. Measured
+    (design doc §2 item 5), threshold 2.0 (a robust z-score via the median
+    and MAD, scaled by 1.4826 so it estimates a standard deviation under
+    normality): false-positive rate 5/100 on a clean donor pool, true-positive
+    rate 79/100 against a donor carrying its own +1.5 hidden shock.
+    """
+    median = float(np.median(donor_rmspe_ratios))
+    mad = float(np.median(np.abs(donor_rmspe_ratios - median))) + 1e-9
+    z_scores = (donor_rmspe_ratios - median) / (1.4826 * mad)
+    worst = float(np.max(z_scores))
+    flagged = worst > z_threshold
+    return AssumptionCheck(
+        name="donor_contamination",
+        status="FAIL" if flagged else "PASS",
+        statistic=worst,
+        threshold=z_threshold,
+        interpretation=(
+            f"The most extreme donor's own placebo ratio is {worst:.2f} "
+            "robust standard deviations from the rest of the pool's median."
+            + (
+                " At least one donor's post-period behaviour looks "
+                "unlike what its own donor pool would have predicted, "
+                "which is what a hidden shock to that donor looks like "
+                "from this test's point of view."
+                if flagged
+                else " No donor stands out from the rest."
+            )
+        ),
+        remedy=(
+            "Inspect the flagged donor's own series for an unrelated shock "
+            "or intervention around the treatment date, and consider "
+            "excluding it from the donor pool."
+            if flagged
+            else None
+        ),
     )
 
 
