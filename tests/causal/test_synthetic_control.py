@@ -130,13 +130,21 @@ def test_fit_reports_a_real_p_value_and_diagnostics():
 
 
 def test_null_scenario_permutation_p_value_is_roughly_uniform():
-    # Design doc §6: S0 calibrates the false-positive rate. At the 5% level,
-    # roughly 1 in 20 fits should read as significant by chance. Measured
-    # over 100 seeds at this protocol (documented here so a future reader can
-    # check the arithmetic): X/100 read significant -- run once and record
-    # the real count before asserting a bound, exactly as
-    # test_null_scenario_produces_no_systematic_significance does in
-    # test_panel_recovery.py.
+    # Design doc §6: S0 calibrates the false-positive rate. Measured over 100
+    # seeds at this protocol: 0/100 read significant at p < 0.05. That is not
+    # evidence of good (or conservative) calibration -- it is a mathematical
+    # certainty at this donor-pool size. permutation_p_value's minimum
+    # achievable value is 1 / (n_donors + 1) = 1/18 ~= 0.0556 (rank >= 1
+    # always, since the real unit trivially counts itself), which already
+    # exceeds 0.05, so p < 0.05 can never be true with 17 donors regardless
+    # of the data. This is the well-documented 1/(N+1) floor of
+    # permutation/randomisation tests with few units, the same one Abadie's
+    # own construction has (see permutation_p_value's docstring). The bound
+    # below is therefore a much weaker check than
+    # test_null_scenario_produces_no_systematic_significance plays for the
+    # DiD family in test_panel_recovery.py -- it can only ever confirm
+    # nothing is catastrophically broken, not that inference here is
+    # well-calibrated at the 5% level, which this donor count cannot express.
     significant = 0
     for seed in range(100):
         panel = _generate("S0", seed=seed)
