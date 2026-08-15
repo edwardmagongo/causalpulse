@@ -367,9 +367,18 @@ class EventStudy:
             rows = treated_rows & (panel.period_index == index)
             observed[index] = float(panel.outcome[rows].mean()) if rows.any() else np.nan
             # The average effect at this calendar period is the mean of the
-            # event-time coefficients the treated units are sitting at.
+            # event-time coefficients the treated units are sitting at, among
+            # only the units already at or past their own adoption (horizon
+            # >= 0). Pre-adoption event times are deliberately excluded: a
+            # unit that has not yet been treated has nothing to have caused
+            # a divergence, so `effect` stays at its zero-initialised value
+            # and `predicted_absent_treatment` equals `observed` exactly for
+            # every (period, unit-group) combination before that unit's own
+            # adoption -- which is also the calendar period before any cohort
+            # has adopted, under staggered adoption.
             at_period = event[rows]
-            matched = np.isin(horizons, at_period)
+            post_adoption = at_period[at_period >= 0]
+            matched = np.isin(horizons, post_adoption)
             if matched.any():
                 effect[index] = float(coefficients[matched].mean())
                 error[index] = float(standard_errors[matched].mean())

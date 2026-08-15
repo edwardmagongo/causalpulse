@@ -100,6 +100,32 @@ def test_the_counterfactual_path_is_populated_and_consistent():
     assert (path.lower <= path.upper).all()
 
 
+@pytest.mark.parametrize("scenario_id", ["P1", "P3"])
+def test_the_counterfactual_path_has_no_effect_before_any_adoption(scenario_id):
+    # The bug this guards: `_path` used to average in the event-time
+    # coefficients at EVERY event time the treated group was sitting at,
+    # including negative (pre-treatment) ones, which are not pinned at zero
+    # except for the omitted reference horizon. On P1 (uniform adoption at
+    # period 5) that produced a non-zero `pointwise_effect` from period 1
+    # onward and a `cumulative_effect` of -0.33 before adoption even
+    # happened. Phase 4's synthetic control and BSTS estimators reuse this
+    # exact type, so its pre-period convention must be "nothing has happened
+    # yet" -- predicted_absent_treatment == observed, effect == 0 -- not an
+    # artefact of averaging estimated pre-trend noise into the trajectory.
+    panel = generate(scenario_id)
+    earliest_adoption = int(panel.truth.true_cohorts[panel.truth.true_cohorts > 0].min())
+    result = EventStudy().fit(panel.dataset, CONFIG)
+
+    path = result.counterfactual
+    pre_adoption = path.periods < earliest_adoption
+    assert pre_adoption.any(), scenario_id
+    np.testing.assert_array_equal(path.pointwise_effect[pre_adoption], 0.0)
+    np.testing.assert_array_equal(path.cumulative_effect[pre_adoption], 0.0)
+    np.testing.assert_allclose(
+        path.predicted_absent_treatment[pre_adoption], path.observed[pre_adoption]
+    )
+
+
 def test_breakdown_value_is_zero_when_the_interval_already_spans_zero():
     # Nothing needs to go wrong for the conclusion to flip if it is already
     # not significant.
