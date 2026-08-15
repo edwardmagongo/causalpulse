@@ -32,6 +32,7 @@ from cp_causal._support import (
     wald_interval,
 )
 from cp_causal.base import Requirements
+from cp_causal.goodman_bacon import goodman_bacon_decomposition
 from cp_causal.panel_checks import (
     absorbing_treatment_check,
     no_concurrent_intervention_check,
@@ -249,6 +250,12 @@ class TwoWayFixedEffects:
 
         bootstrap_result = bootstrap_panel_effect(point_from, panel, config)
 
+        bacon = (
+            goodman_bacon_decomposition(dataset)
+            if len(panel.adoption_periods) > 1
+            else None
+        )
+
         treated_units = panel.cohort > 0
         treated_rows = panel.treatment == 1
         observed = float(panel.outcome[treated_rows].mean())
@@ -282,6 +289,18 @@ class TwoWayFixedEffects:
                 ),
                 "bootstrap_degenerate_replicates": degeneracy_diagnostic(
                     bootstrap_result.n_degenerate, min_arm_size=MIN_UNITS_PER_ARM
+                ),
+                "already_treated_control_share": Diagnostic(
+                    name="already_treated_control_share",
+                    value=float(bacon.already_treated_share) if bacon else 0.0,
+                    unit="share",
+                    interpretation=(
+                        "Share of this estimate resting on comparisons that use "
+                        "already-treated units as controls. Those comparisons "
+                        "carry the wrong sign when effects change over time, so "
+                        "a large share here is the mechanism behind the bias, "
+                        "not merely a warning about it."
+                    ),
                 ),
             },
             assumptions=(
