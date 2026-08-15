@@ -67,6 +67,24 @@ def test_panel_estimators_do_not_reach_panel_ground_truth():
         )
 
 
+def test_synthetic_control_does_not_reach_donor_pool_ground_truth():
+    # cp_causal must have no code path to DonorScenarioSpec, ContaminatedDonorPanel,
+    # or build_donor_scenario. These are ground-truth generation utilities in
+    # cp_simulation. If any estimator could import them, recovery numbers would be
+    # contaminated by knowledge of the donor pool specification.
+    import cp_causal
+
+    source_root = cp_causal.__path__[0]
+    for symbol in ("DonorScenarioSpec", "ContaminatedDonorPanel", "build_donor_scenario"):
+        offenders = subprocess.run(
+            ["grep", "-rn", symbol, source_root], capture_output=True, text=True
+        )
+        assert offenders.returncode in (0, 1), offenders.stderr
+        assert offenders.stdout == "", (
+            f"cp_causal must never reference {symbol}:\n" + offenders.stdout
+        )
+
+
 def test_cp_core_contains_no_algorithms():
     # cp-core holds contracts only; depending on scipy would signal that
     # estimation logic had leaked into the contract layer.
