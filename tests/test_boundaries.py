@@ -51,6 +51,22 @@ def test_contract_layer_cannot_import_cp_simulation(module_name):
     )
 
 
+def test_panel_estimators_do_not_reach_panel_ground_truth():
+    # The panel DGP carries PanelGroundTruth. If any estimator could import it,
+    # every recovery number in this repository would be worthless.
+    import cp_causal
+
+    source_root = cp_causal.__path__[0]
+    for symbol in ("PanelGroundTruth", "SimulatedPanel", "true_att_gt"):
+        offenders = subprocess.run(
+            ["grep", "-rn", symbol, source_root], capture_output=True, text=True
+        )
+        assert offenders.returncode in (0, 1), offenders.stderr
+        assert offenders.stdout == "", (
+            f"cp_causal must never reference {symbol}:\n" + offenders.stdout
+        )
+
+
 def test_cp_core_contains_no_algorithms():
     # cp-core holds contracts only; depending on scipy would signal that
     # estimation logic had leaked into the contract layer.

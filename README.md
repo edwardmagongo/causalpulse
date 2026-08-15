@@ -6,7 +6,7 @@ was, for whom it differed, and how much the conclusion should be trusted.
 
 ## Status
 
-Phases 1 and 2 of the causal core are implemented.
+Phases 1 through 3 of the causal core are implemented.
 
 **Phase 1** delivered the foundations: the workspace, data contracts, statistical primitives, and
 a simulation framework whose data-generating processes carry known ground truth.
@@ -15,8 +15,16 @@ a simulation framework whose data-generating processes carry known ground truth.
 registry, the design router, and four estimators — difference in means, Lin regression adjustment,
 inverse probability weighting, and cross-fitted AIPW — each scored against known truth.
 
-Panel methods (difference-in-differences, synthetic control), heterogeneous-effect estimation,
-Bayesian analysis, the robustness suite, and the benchmark harness are still ahead.
+**Phase 3** delivered panel estimation: a panel data-generating process whose ground truth is
+measured from realised potential outcomes rather than declared, six panel scenarios, and four
+estimators — the canonical 2×2 difference-in-differences, two-way fixed effects, an event study
+with a counterfactual path, and Callaway–Sant'Anna — plus the Goodman–Bacon decomposition that
+explains *why* two-way fixed effects fails when it does. Every estimator is scored against
+measured truth over 60 seeds at 400 units and 8 periods, and two-way fixed effects is additionally
+checked against `statsmodels` as an independent reference oracle.
+
+Synthetic control, the Bayesian structural time series counterfactual, heterogeneous-effect
+estimation, the robustness suite, and the benchmark harness are still ahead.
 
 ## Packages
 
@@ -25,7 +33,7 @@ Bayesian analysis, the robustness suite, and the benchmark harness are still ahe
 | `cp-core` | Value types, dataset contract, and the result contract. No algorithms. |
 | `cp-statistics` | Proportion intervals, robust and cluster-robust covariance, bootstrap engines. |
 | `cp-simulation` | Compositional data-generating processes carrying computed ground truth. |
-| `cp-causal` | Estimators, propensity diagnostics, design router. Forbidden from importing `cp-simulation`. |
+| `cp-causal` | Cross-sectional and panel estimators, propensity diagnostics, panel assumption checks, design router. Forbidden from importing `cp-simulation`. |
 
 ## Why the import boundary matters
 
@@ -68,6 +76,105 @@ IPW −0.0031. IPW shares the same misspecified propensity model and stays essen
 which confirms the bias is specific to AIPW's combination of nuisance models rather than to the
 propensity model alone. The bias shrinks as `n` grows but does not vanish at the sample sizes
 tested here.
+
+### What the panel estimators are checked against
+
+Six panel scenarios, each carrying ground truth measured from realised potential outcomes rather
+than copied from an input parameter. Bias is the mean error over 60 seeds at 400 units and 8
+periods, with the Monte Carlo standard error of that mean in brackets.
+
+| Scenario | What it is | 2×2 DiD | TWFE | Callaway–Sant'Anna |
+|---|---|---|---|---|
+| P1 | Clean 2×2, parallel trends exact | −0.0143 (0.0088) | −0.0143 (0.0088) | −0.0064 (0.0155) |
+| P2 | Null effect | −0.0143 (0.0088) | −0.0143 (0.0088) | −0.0064 (0.0155) |
+| P3 | Staggered, homogeneous effects | n/a | +0.0047 (0.0084) | +0.0008 (0.0131) |
+| P4 | Staggered, effects grow with exposure | n/a | **−0.9946 (0.0112)** | +0.0008 (0.0131) |
+| P5 | Parallel trends violated | n/a | **+1.2704 (0.0111)** | **+1.6776 (0.0138)** |
+
+2×2 DiD is n/a on P3–P5 because it requires uniform adoption; staggered adoption has no single
+pre/post split for it to use. P1's Goodman–Bacon already-treated-as-control share is exactly 0.0000
+across all 60 seeds — there is no earlier cohort to serve as a control, since adoption is uniform —
+which is the mechanical reason P1 has nothing for two-way fixed effects to get wrong.
+
+Two-way fixed effects and the canonical 2×2 agree to a measured **2.66e-14** on identical
+uniform-adoption data — two independent implementations of the same estimand, which is a stronger
+cross-check than either has alone.
+
+### Where two-way fixed effects breaks down
+
+P4 is the phase's headline. Effects grow with exposure, so at any calendar period an early cohort's
+effect exceeds a late cohort's. Two-way fixed effects then uses already-treated units as controls
+with negative weights, and its estimate is off by **−0.9946** (88.8 Monte Carlo standard errors
+from zero) against a true ATT of **2.8361** — a 35% error. Callaway–Sant'Anna, which never uses an
+already-treated unit as a control, is off by +0.0008 (0.1 MCSE from zero) — indistinguishable from
+noise.
+
+The Goodman–Bacon decomposition reports **where** that comes from: across the 60 seeds, a mean of
+26.24% (minimum 23.63%) of the two-way fixed effects estimate on staggered data rests on
+already-treated-as-control comparisons — available as a diagnostic on every staggered fit.
+
+### Where Callaway–Sant'Anna breaks down
+
+P5 exists so the suite does not present Callaway–Sant'Anna as magic. It assumes parallel trends as
+much as two-way fixed effects does. When steeper-trending units adopt earlier, **both** are badly
+biased against a true effect of 1.0 — TWFE by +1.2704 (114.8 MCSE from zero) and CS by +1.6776
+(121.5 MCSE from zero). CS is the *worse* of the two here.
+
+What the platform does provide is that the failure is announced: `parallel_trends` reports FAIL on
+P5 for both the event study and Callaway–Sant'Anna, and the measured pre-trend gap is reported as a
+diagnostic.
+
+### Binary panels carry link-function bias
+
+Parallel trends is a functional-form-dependent assumption. A binary panel generated as
+`P(Y=1) = expit(alpha_i + gamma_t + tau·D_it)` has parallel trends on the **logit** scale and not on
+the probability scale: the same time shift moves a unit at `p = 0.1` and a unit at `p = 0.5` by
+different amounts.
+
+Scenario P6 measures it, using the **same common time slope every other panel scenario uses** — not
+a special parameter. (An earlier draft of the design tried to make the bias vanish with a bespoke
+`time_slope = 0.3`; that claim did not survive implementation and was corrected during Task 6.) With
+adoption selected on the baseline level, so the two arms sit at different points on the logistic
+curve, a 2×2 DiD reporting percentage points is biased by **+0.0360** against a true effect of
+0.1061 — 34%, at 18.3 Monte Carlo standard errors — **with no confounding and no differential
+pre-trend**, measured at 800 units and 120 seeds. With random adoption the arms are compositionally
+identical and the same measurement gives −0.0015 (0.8 MCSE), indistinguishable from zero — confirming
+the bias requires selection on level, not the time path.
+
+This is a property of applying a linear difference-in-differences to a non-linear outcome, not a
+defect in the estimator. It is documented rather than hidden because binary conversion rates are
+the motivating use case.
+
+### What the pre-trend diagnostics do and do not do
+
+- `parallel_trends` is a joint Wald test on the pre-treatment leads. **Failure to reject is not
+  evidence that parallel trends holds** — the test has limited power, and the assumption concerns
+  counterfactual post-treatment trends that no pre-treatment data can observe. With a single
+  pre-period there are no leads at all and the status is `NOT_TESTABLE`, never `PASS`.
+- The breakdown value is the **linear-extrapolation** form: the smallest per-period linear trend
+  violation that would pull the interval onto zero. It is **not** a Rambachan–Roth honest confidence
+  set, which is not implemented here.
+- `no_concurrent_intervention` is always `NOT_TESTABLE`. Whether another change hit the treated
+  units at the same time cannot be determined from the data at all.
+
+### Two defects the panel recovery harness found
+
+Building the harness that produced the table above (Task 13) found two real, previously-latent
+defects, neither caught by any individual estimator's own tests:
+
+- **`CallawaySantAnna`'s `parallel_trends` check was miscalibrated.** On a clean scenario with no
+  violation, it reported FAIL on 80% of seeds against a nominal 5% — actively misleading, not
+  merely imprecise. The cause: the placebo-lead covariance pooled one variance across three
+  correlated placebo cells sharing the same baseline period instead of giving each cell its own
+  analytic variance. Fixed to give each cell its own variance via the same two-independent-samples
+  formula the real ATT(g,t) cells use; the false-positive rate measured 10% after the fix (still
+  slightly above nominal, consistent with a chi-square approximation on correlated degrees of
+  freedom, no longer a gross miscalibration), with power against a real violation unchanged.
+- **The router silently allowed cross-sectional estimators to run on panel data.** `needs_panel`
+  was enforced in only one direction — panel estimators were kept off cross-sectional data, but
+  nothing kept cross-sectional estimators (difference in means, Lin regression, IPW, AIPW, all of
+  which have no unit/period awareness at all) off panel data. Fitting one on a panel would silently
+  treat every unit-period row as an independent observation. Fixed with the symmetric check.
 
 ## On scikit-learn
 
