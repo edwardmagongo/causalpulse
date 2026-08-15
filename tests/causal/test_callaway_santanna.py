@@ -117,12 +117,34 @@ def test_baseline_lookup_uses_the_actual_period_value_not_a_position():
         assert estimate == pytest.approx(3.0, abs=1e-9)
 
 
+def _overall_mean_deviation(scenario_id: str, seeds: int = 10) -> float:
+    diffs = []
+    for seed in range(seeds):
+        panel = generate(scenario_id, seed=seed)
+        result = CallawaySantAnna().fit(panel.dataset, CONFIG)
+        diffs.append(result.point - panel.truth.true_att_overall)
+    return float(np.mean(diffs))
+
+
 def test_recovers_truth_where_two_way_fixed_effects_does_not():
+    # A single fixed seed is the wrong instrument here, per this project's
+    # established discipline (see test_did.py's `mean_deviation` fix and
+    # this file's own `_per_cell_mean_deviation`): seed=0 (this module's
+    # `generate` default) deviates by +0.1499, which is not the worst of
+    # the seeds sampled below but still leaves a materially thinner margin
+    # under a single-seed assertion than an averaged one does.
+    #
+    # Measured at seeds=10, n_units=400 (this module's `generate` default):
+    # mean deviation +0.0488, SEM 0.0270 (std 0.0853 / sqrt(10)).
+    # abs=0.16 leaves (0.16 - 0.0488) / 0.0270 = 4.12 SEM of headroom,
+    # above this project's four-SEM bar, while still catching a genuinely
+    # broken estimator (wrong sign, wrong scale, or one that ignores
+    # treatment).
+    assert abs(_overall_mean_deviation("P4")) < 0.16
+
     panel = generate("P4")
-
     result = CallawaySantAnna().fit(panel.dataset, CONFIG)
-
-    assert result.point == pytest.approx(panel.truth.true_att_overall, abs=0.2)
+    assert result.estimand == "ATT"
 
 
 def test_dynamic_aggregation_is_keyed_by_event_time():
