@@ -118,8 +118,8 @@ def test_donor_contamination_check_discriminates_clean_from_contaminated():
 
     false_positives = sum(contamination_status("S1", seed) == "FAIL" for seed in range(100))
     true_positives = sum(contamination_status("S4", seed) == "FAIL" for seed in range(100))
-    assert false_positives <= 20, f"{false_positives}/100 false positives on clean S1"
-    assert true_positives >= 80, f"{true_positives}/100 true positives on contaminated S4"
+    assert false_positives <= 16, f"{false_positives}/100 false positives on clean S1"
+    assert true_positives >= 85, f"{true_positives}/100 true positives on contaminated S4"
 
 
 def test_sufficient_pre_periods_fires_reliably_on_s5():
