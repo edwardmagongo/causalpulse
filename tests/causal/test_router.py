@@ -72,8 +72,12 @@ def _panel_dataset(n_treated: int, n_control: int) -> CausalDataset:
         }
     )
     schema = CausalSchema(
-        unit="unit_id", treatment="treated", outcome="outcome",
-        covariates=(), outcome_type="continuous", time="period",
+        unit="unit_id",
+        treatment="treated",
+        outcome="outcome",
+        covariates=(),
+        outcome_type="continuous",
+        time="period",
     )
     return CausalDataset(frame=frame, schema=schema)
 
@@ -134,8 +138,7 @@ def test_excluded_estimator_states_why():
 
 def test_multiple_unmet_requirements_are_all_reported():
     decisions = {
-        d.estimator_name: d
-        for d in route(dataset(n_treated=2, n_control=2), candidates=CANDIDATES)
+        d.estimator_name: d for d in route(dataset(n_treated=2, n_control=2), candidates=CANDIDATES)
     }
 
     assert len(decisions["needs_many_units"].reasons) == 1
@@ -170,8 +173,7 @@ def test_all_unmet_requirements_are_reported_not_just_the_first():
     candidates = {"fails_every_requirement": _FailsEveryRequirement}
 
     decisions = {
-        d.estimator_name: d
-        for d in route(cross_sectional_no_covariates, candidates=candidates)
+        d.estimator_name: d for d in route(cross_sectional_no_covariates, candidates=candidates)
     }
     reasons = decisions["fails_every_requirement"].reasons
 
@@ -180,9 +182,7 @@ def test_all_unmet_requirements_are_reported_not_just_the_first():
 
 
 def test_eligible_estimators_returns_sorted_names():
-    assert eligible_estimators(dataset(), candidates=CANDIDATES) == (
-        "cross_sectional_only",
-    )
+    assert eligible_estimators(dataset(), candidates=CANDIDATES) == ("cross_sectional_only",)
 
 
 def test_decisions_are_ordered_by_name_for_stable_output():

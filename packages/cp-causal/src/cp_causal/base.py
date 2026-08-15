@@ -96,10 +96,7 @@ class Requirements:
                 f"requires at least {self.min_treated_units} treated units; "
                 f"dataset has {dataset.n_treated_units}"
             )
-        if (
-            self.max_treated_units is not None
-            and dataset.n_treated_units > self.max_treated_units
-        ):
+        if self.max_treated_units is not None and dataset.n_treated_units > self.max_treated_units:
             # Symmetric to the min-side check above. Synthetic control needs
             # exactly one treated unit -- an ordinary multi-unit panel is not
             # a donor-pool shape, and offering SC on one would repeat Task
