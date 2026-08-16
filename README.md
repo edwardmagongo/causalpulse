@@ -25,8 +25,15 @@ on every scenario they are eligible for; the event study is scored the same way 
 estimate and the scenario's measured ATT are the same estimand (see below), and two-way fixed
 effects is additionally checked against `statsmodels` as an independent reference oracle.
 
-Synthetic control, the Bayesian structural time series counterfactual, heterogeneous-effect
-estimation, the robustness suite, and the benchmark harness are still ahead.
+**Phase 4** delivered synthetic control: a donor-pool data-generating process whose ground truth is
+likewise measured rather than declared, six donor-pool scenarios (S0–S5), and `SyntheticControl` —
+scored on a clean recovery scenario and a headline divergent-pre-trend scenario against a naive
+donor-average baseline, with a ridge-augmented fallback for convex-hull violations, a
+donor-contamination check, and permutation-based inference. `solve_donor_weights` is additionally
+pinned against the reference implementation `pysyncon`.
+
+The Bayesian structural time series counterfactual, heterogeneous-effect estimation, the robustness
+suite, and the benchmark harness are still ahead.
 
 ## Packages
 
@@ -186,6 +193,123 @@ defects, neither caught by any individual estimator's own tests:
   nothing kept cross-sectional estimators (difference in means, Lin regression, IPW, AIPW, all of
   which have no unit/period awareness at all) off panel data. Fitting one on a panel would silently
   treat every unit-period row as an independent observation. Fixed with the symmetric check.
+
+## Synthetic control (Phase 4)
+
+`SyntheticControl` is a donor-weighted counterfactual for a single treated unit: non-negative,
+simplex-constrained weights on up to 17 donors, chosen to minimise pre-treatment fit error, with
+the post-treatment mean gap between the treated unit and its synthetic twin as the point estimate.
+It is scored against six donor-pool scenarios (S0–S5), each carrying ground truth measured from
+realised potential outcomes the same way Phase 3's panel scenarios are, at a fixed protocol of 17
+donors, 24 periods, adoption at period 18.
+
+### What it is checked against
+
+| Scenario | What it is | SC bias (seeds) |
+|---|---|---|
+| S1 | Clean recovery | −0.0324 (MCSE 0.0320), 400 seeds |
+| S2 | Divergent pre-trend | +0.1736 (MCSE 0.0190), 400 seeds |
+
+S2 is the phase's headline result. A naive equal-weighted donor average, scored on the same seeds
+as the losing baseline, is biased by **+4.4167 (MCSE 0.0260)** — SC's +0.1736 is a dramatic
+improvement over it, the same two-sided assertion pattern Phase 3's P4 test established (asserting
+only SC's accuracy could quietly pass even if the naive comparison had stopped being wrong, so both
+sides are checked). But +0.1736 is itself well clear of zero, not a near-zero recovery the way S1
+or the panel estimators on their clean scenarios are. That is an honest property of single-treated-
+unit synthetic control, not a defect in this implementation: there is no averaging across many
+treated units the way the DiD family had available to it in Phase 3, so idiosyncratic donor-fit
+error in one unit's synthetic path does not average out the way it does across a treated cohort.
+
+### The convex-hull violation and the ridge-augmented fallback
+
+Interpolation bias is synthetic control's principal failure mode: a simplex-constrained combination
+of donors can only ever reproduce values inside their convex hull, so a treated unit outside that
+hull cannot be matched by construction. S3 is built to trigger exactly this. The `convex_hull` check
+fires on **300/300** seeds there. Plain simplex weights are badly biased as a result — **+1.21**
+against S3's true effect — while the ridge-augmented fallback (an intercept plus L2-penalised,
+unconstrained donor coefficients, which can reproduce values outside the donor pool's range) recovers
+to **+0.0223 (MCSE 0.0270)** over 300 seeds, tolerance 0.15. `SyntheticControl.fit` switches to this
+fallback automatically whenever `convex_hull` reports FAIL.
+
+### The donor-contamination check, and a correction it needed
+
+`donor_contamination_check` flags a donor whose own placebo RMSPE ratio is a robust statistical
+outlier, reusing the same placebo procedure permutation inference already runs rather than a bespoke
+test. Its real statistic is the **maximum** robust z-score across all 17 donors, not one
+pre-specified donor's z-score — that has to be the maximum, since nobody knows in advance which
+donor, if any, might be contaminated.
+
+An earlier calibration of this check measured its threshold against one pre-specified donor's
+z-score instead of the max, which found a false-positive rate of 5/100 at threshold 2.0. Deployed
+against the real max-over-17-donors statistic the check actually uses, that same threshold produced
+72/100 false positives on clean data — a multiple-comparisons gap between "is this one donor
+extreme" and "is the most extreme of 17 donors extreme," caught by the recovery harness rather than
+by the check's own unit tests, which had never measured the max statistic's real null distribution.
+Recalibrated by measuring the max statistic's distribution directly (300 seeds): threshold **5.5**,
+false-positive rate **7/100** on a clean donor pool, true-positive rate **96/100** against a donor
+carrying its own **+5.0** hidden shock (also corrected up from +1.5, which was not reliably
+detectable once the check was properly calibrated against the max statistic). This is exactly the
+kind of measured-not-assumed correction this project's README already documents for other phases —
+see "Two defects the panel recovery harness found" above for the earlier instance of the same
+discipline.
+
+### S5: insufficient pre-periods
+
+S5 has only 2 actual pre-treatment periods. `sufficient_pre_periods_check(minimum=10)`, reused
+unchanged from Phase 3, fires FAIL deterministically against it.
+
+### A limitation worth stating plainly: S0 and the p-value floor
+
+S0 has zero true effect, and measuring `SyntheticControl().fit(...).p_value < 0.05` over 100 seeds
+gives **0/100** significant. That number is not evidence of good — or even conservative — 5%-level
+calibration. It is a mathematical certainty at this donor-pool size, not a property of the data.
+`permutation_p_value`'s minimum achievable value is `1 / (n_donors + 1) = 1/18 ≈ 0.0556`, since the
+real treated unit always counts itself when ranking among the placebo donors — and that floor is
+already above 0.05, so `p < 0.05` can never be true with 17 donors regardless of what the data look
+like. This is the same 1/(N+1) floor Abadie's own permutation-inference construction has. A reader
+should not conclude from "0/100 significant" that inference here is well-calibrated at the 5% level;
+this donor count cannot express that at all, in either direction.
+
+### `CounterfactualPath`: a deliberate convention divergence from `EventStudy`
+
+`EventStudy`'s Phase 3 convention pins pre-treatment `predicted_absent_treatment` at exactly
+`observed`, because its leads are pinned at zero by construction. `SyntheticControl` has no
+equivalent guarantee: its pre-treatment `predicted_absent_treatment` is only as good as the donor
+weights' fit, so pre-period `pointwise_effect` is small but genuinely nonzero — equal to the fit
+residual, not zero. This is a deliberate, documented difference in what the two estimators' paths
+mean during the pre-period, not a bug in either one.
+
+### Donor weights use uniform predictor weighting, not Abadie's nested optimisation
+
+`solve_donor_weights` matches the treated unit's standardised pre-treatment outcome path itself,
+weighting every pre-period equally, rather than nesting a second, outer optimisation over a separate
+predictor-importance matrix the way Abadie's original method does. This is a documented
+simplification, not an oversight, and it stays correct as long as the donor pool is small relative
+to the pre-period length — the measured protocol above uses 17 donors against 17 pre-periods, not
+more donors than periods, specifically to avoid the underdetermined regime where this simplification
+would let the solver overfit pre-period noise at the cost of post-period extrapolation.
+
+### Reference parity: `pysyncon`
+
+Unlike Callaway–Sant'Anna in Phase 3, which shipped without a pinned reference implementation,
+synthetic control's donor-weight solve **is** pinned against `pysyncon`'s `Synth`: `solve_donor_weights`
+matches its pre-treatment RMSPE within `rel=0.2` on S1, measured agreement of roughly 0.4% between the
+two solvers — the 0.2 tolerance leaves about 50x headroom over that measurement for
+environment-specific numerical drift (BLAS, scipy version) while still catching a solver that
+regresses to a materially worse optimum. The comparison is on pre-treatment fit quality, not
+elementwise weights, because the weight solve is a nonconvex-adjacent constrained optimisation with
+potentially multiple near-optimal solutions when the pre-period is close to underdetermined — two
+different SLSQP starting points and convergence paths can land on different vertices of a tied or
+near-tied optimum. `pysyncon` is a dev-only dependency, marked `slow`, and never imported outside
+`test_reference_parity.py`.
+
+`pysyncon` also has a real import-time landmine worth recording: on a fresh, bytecode-cache-less
+import, an invalid escape sequence in one of its submodules raises a `SyntaxWarning` that this
+project's `filterwarnings = ["error"]` promotes to a hard `SyntaxError` — reproducible by clearing
+`pysyncon`'s `__pycache__` and importing it under pytest's real config. The reference-parity test's
+`_pysyncon()` helper works around it with a local, narrowly-scoped `SyntaxWarning` suppression around
+the import only; nothing downstream of the import runs under anything but the project's normal
+warnings-as-errors policy.
 
 ## On scikit-learn
 
