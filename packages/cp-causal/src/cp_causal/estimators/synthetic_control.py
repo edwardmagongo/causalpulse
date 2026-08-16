@@ -179,22 +179,40 @@ def _leave_one_donor_out_max_swing(
     pre_mask: np.ndarray,
     post_mask: np.ndarray,
     full_point: float,
+    reference_weights: np.ndarray,
+    use_ridge: bool,
     weight_threshold: float = 0.05,
 ) -> float:
     """Largest change in the point estimate from dropping one influential donor.
 
     Only donors actually carrying non-trivial weight are worth re-fitting
     without -- dropping a zero-weight donor cannot move the estimate.
+    `reference_weights` identifies which donors count as influential, and
+    `use_ridge` picks which estimator form each leave-one-out refit uses --
+    both must match whichever form produced `full_point` (simplex weights,
+    or the ridge-augmented fallback's donor coefficients). An earlier
+    version always refit with plain simplex weights regardless of which
+    form the reported point actually came from, so on a convex-hull
+    violation the "swing" it reported was mostly the gap between the two
+    estimator forms, not genuine donor influence -- caught by the final
+    whole-branch review, not by any task-scoped test, because nothing
+    exercised this diagnostic through `fit()` on a convex-hull-violation
+    scenario.
     """
-    weights = solve_donor_weights(treated_series[pre_mask], donor_series[:, pre_mask])
-    influential = np.flatnonzero(weights > weight_threshold)
+    influential = np.flatnonzero(np.abs(reference_weights) > weight_threshold)
     if influential.size == 0:
         return 0.0
     max_swing = 0.0
     for donor_index in influential:
         remaining = np.delete(donor_series, donor_index, axis=0)
-        loo_weights = solve_donor_weights(treated_series[pre_mask], remaining[:, pre_mask])
-        loo_synthetic = loo_weights @ remaining
+        if use_ridge:
+            intercept, coefficients = ridge_augmented_weights(
+                treated_series[pre_mask], remaining[:, pre_mask]
+            )
+            loo_synthetic = intercept + coefficients @ remaining
+        else:
+            loo_weights = solve_donor_weights(treated_series[pre_mask], remaining[:, pre_mask])
+            loo_synthetic = loo_weights @ remaining
         loo_point = float(np.mean(treated_series[post_mask] - loo_synthetic[post_mask]))
         max_swing = max(max_swing, abs(loo_point - full_point))
     return max_swing
@@ -234,7 +252,15 @@ class SyntheticControl:
         min_treated_units=1,
         max_treated_units=1,
         min_control_units=MIN_DONORS,
-        min_pre_periods=2,
+        # Matches sufficient_pre_periods_check's own minimum=10 below,
+        # following every Phase 3 estimator's convention (DID 1/1, CS 1/1,
+        # EventStudy 2/2: Requirements' floor always equals the check's own
+        # declared minimum). An earlier version left this at a bare floor
+        # of 2, which routed data as short as S5's 2 pre-periods onto this
+        # estimator -- the exact underdetermined regime
+        # solve_donor_weights's own docstring says its uniform-predictor
+        # simplification stops being valid in. Found at final review.
+        min_pre_periods=10,
         min_post_periods=1,
     )
 
@@ -254,17 +280,32 @@ class SyntheticControl:
         donor_pre_means = donor_series[:, pre_mask].mean(axis=1)
         convex_hull = convex_hull_check(treated_pre_mean, donor_pre_means)
 
-        if convex_hull.status == "FAIL":
+        use_ridge = convex_hull.status == "FAIL"
+        if use_ridge:
             intercept, coefficients = ridge_augmented_weights(
                 treated_series[pre_mask], donor_series[:, pre_mask]
             )
             synthetic = intercept + coefficients @ donor_series
+            reference_weights = coefficients
         else:
             synthetic = synthetic_simplex
+            reference_weights = weights
 
         point = float(np.mean(treated_series[post_mask] - synthetic[post_mask]))
         pointwise_effect = treated_series - synthetic
-        pre_rmspe = float(np.sqrt(np.mean((treated_series[pre_mask] - synthetic[pre_mask]) ** 2)))
+        # Measured from the *simplex* fit always, regardless of which form
+        # produced `synthetic` above. `pre_treatment_fit_check`'s threshold
+        # is calibrated against exactly this quantity (design doc §2 item 5:
+        # S1 vs S3 *before* the ridge fallback) precisely because it answers
+        # "could the donor weights find a good match on their own" -- a
+        # question the ridge fallback exists to route around, not to
+        # answer differently. Reading it from the post-fallback `synthetic`
+        # instead (an earlier version of this code did) makes the check
+        # unable to ever FAIL on the one scenario it was built to catch,
+        # since the ridge fit is by design a good one.
+        pre_rmspe = float(
+            np.sqrt(np.mean((treated_series[pre_mask] - synthetic_simplex[pre_mask]) ** 2))
+        )
         outcome_sd = float(treated_series[pre_mask].std(ddof=1))
 
         # A permutation-based interval from the placebo distribution's own
@@ -277,7 +318,13 @@ class SyntheticControl:
 
         in_time_placebo = _in_time_placebo(treated_series, donor_series, pre_mask)
         loo_swing = _leave_one_donor_out_max_swing(
-            treated_series, donor_series, pre_mask, post_mask, point
+            treated_series,
+            donor_series,
+            pre_mask,
+            post_mask,
+            point,
+            reference_weights,
+            use_ridge,
         )
 
         path = CounterfactualPath(

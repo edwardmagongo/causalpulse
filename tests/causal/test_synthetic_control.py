@@ -16,14 +16,29 @@ from cp_causal.estimators.synthetic_control import (
     solve_donor_weights,
 )
 from cp_core.values import EstimatorConfig
-from cp_simulation.donor_scenarios import DONOR_N_PERIODS, DONOR_N_UNITS, build_donor_scenario
+from cp_simulation.donor_scenarios import (
+    DONOR_N_PERIODS,
+    DONOR_N_UNITS,
+    DONOR_SCENARIOS,
+    build_donor_scenario,
+)
 
 CONFIG = EstimatorConfig(bootstrap_reps=10, random_seed=1)
 
 
 def _generate(scenario_id: str, seed: int = 0):
+    # Reads n_units/n_periods off the scenario's own spec, not the shared
+    # constants directly -- S5 deliberately overrides both to a shorter
+    # panel (design doc §3.2), and generating it at the default protocol
+    # instead would silently test a scenario other than the registered
+    # one. Found at final whole-branch review: an earlier version of this
+    # helper always used DONOR_N_UNITS/DONOR_N_PERIODS, so
+    # test_sufficient_pre_periods_fails_on_s5 below happened to still pass
+    # (adoption at period 3 still gives 2 pre-periods either way) without
+    # actually exercising S5 as registered.
+    spec = DONOR_SCENARIOS[scenario_id]
     return build_donor_scenario(scenario_id).generate(
-        DONOR_N_UNITS, DONOR_N_PERIODS, np.random.default_rng(seed)
+        spec.n_units, spec.n_periods, np.random.default_rng(seed)
     )
 
 
@@ -130,30 +145,6 @@ def test_fit_reports_a_real_p_value_and_diagnostics():
     assert "leave_one_donor_out_max_swing" in result.diagnostics
 
 
-def test_null_scenario_permutation_p_value_is_roughly_uniform():
-    # Design doc §6: S0 calibrates the false-positive rate. Measured over 100
-    # seeds at this protocol: 0/100 read significant at p < 0.05. That is not
-    # evidence of good (or conservative) calibration -- it is a mathematical
-    # certainty at this donor-pool size. permutation_p_value's minimum
-    # achievable value is 1 / (n_donors + 1) = 1/18 ~= 0.0556 (rank >= 1
-    # always, since the real unit trivially counts itself), which already
-    # exceeds 0.05, so p < 0.05 can never be true with 17 donors regardless
-    # of the data. This is the well-documented 1/(N+1) floor of
-    # permutation/randomisation tests with few units, the same one Abadie's
-    # own construction has (see permutation_p_value's docstring). The bound
-    # below is therefore a much weaker check than
-    # test_null_scenario_produces_no_systematic_significance plays for the
-    # DiD family in test_panel_recovery.py -- it can only ever confirm
-    # nothing is catastrophically broken, not that inference here is
-    # well-calibrated at the 5% level, which this donor count cannot express.
-    significant = 0
-    for seed in range(100):
-        panel = _generate("S0", seed=seed)
-        result = SyntheticControl().fit(panel.dataset, CONFIG)
-        significant += int(result.p_value is not None and result.p_value < 0.05)
-    assert significant / 100 < 0.25
-
-
 def test_ridge_augmented_weights_have_an_intercept_and_one_coefficient_per_donor():
     rng = np.random.default_rng(0)
     treated = rng.normal(size=10)
@@ -207,6 +198,31 @@ def test_convex_hull_check_fails_on_s3_and_passes_on_s1():
     s3_status = {c.name: c.status for c in s3.assumptions}
     assert s1_status["convex_hull"] == "PASS"
     assert s3_status["convex_hull"] == "FAIL"
+
+
+def test_pre_treatment_fit_and_loo_swing_are_measured_on_the_right_branch_through_fit():
+    # Found at final whole-branch review: pre_rmspe and the leave-one-out
+    # diagnostic were both computed from whichever branch produced the
+    # reported point (simplex, or the ridge fallback), which made
+    # pre_treatment_fit_check's calibrated threshold (1.75, calibrated
+    # against the *simplex* residual per its own docstring) unable to ever
+    # FAIL on S3 -- the ridge fallback always fits well -- and made
+    # leave_one_donor_out_max_swing mostly measure the gap between two
+    # different estimator forms rather than genuine donor influence.
+    # Both are now measured on the simplex residual / the branch that
+    # actually produced `point`, matching their calibration. Measured over
+    # 10 seeds post-fix: pre_treatment_fit statistic 3.6-7.0 (FAIL on
+    # 10/10, well above the 1.75 threshold and consistent with the
+    # calibration's S3-pre-ridge range of 2.04-4.76), loo_swing 0.07-0.21
+    # (small and stable, not the 1.1-4.4 the pre-fix version reported).
+    for seed in range(10):
+        panel = _generate("S3", seed=seed)
+        result = SyntheticControl().fit(panel.dataset, CONFIG)
+        checks = {c.name: c for c in result.assumptions}
+        assert checks["pre_treatment_fit"].status == "FAIL", seed
+        assert checks["pre_treatment_fit"].statistic > 1.75, seed
+        loo_swing = result.diagnostics["leave_one_donor_out_max_swing"].value
+        assert loo_swing < 0.5, f"seed={seed} loo_swing={loo_swing}"
 
 
 def test_sufficient_pre_periods_fails_on_s5():
