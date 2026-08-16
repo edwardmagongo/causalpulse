@@ -130,10 +130,17 @@ def test_sufficient_pre_periods_fires_reliably_on_s5():
 
 
 def test_null_scenario_permutation_p_value_stays_under_a_quarter_significant():
-    # S0 has zero true effect. At the 5% level roughly 1 in 20 fits should
-    # read as significant by chance. One-sided bound only -- cannot detect
-    # over-wide intervals, the same limitation test_panel_recovery.py's P2
-    # test carries forward from Phase 2/3.
+    # S0 has zero true effect. This is a much weaker check than it looks:
+    # permutation_p_value's minimum achievable value is 1/(n_donors+1) =
+    # 1/18 ~= 0.0556, already above the 0.05 threshold below, so p < 0.05
+    # can never be true at this donor-pool size regardless of the data --
+    # the "roughly 1 in 20 by chance" reasoning that motivates a 5%-level
+    # bound does not apply here (see permutation_p_value's own docstring).
+    # This bound can only confirm nothing is catastrophically broken, not
+    # that inference is well-calibrated at the 5% level. One-sided bound
+    # only in any case -- cannot detect over-wide intervals, the same
+    # limitation test_panel_recovery.py's P2 test carries forward from
+    # Phase 2/3.
     significant = sum(
         SyntheticControl().fit(generate("S0", seed).dataset, CONFIG).p_value < 0.05
         for seed in range(100)
