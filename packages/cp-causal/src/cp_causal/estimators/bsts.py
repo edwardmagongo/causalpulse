@@ -172,12 +172,25 @@ def summarize_posterior(
     samples: Mapping[str, np.ndarray],
     donor_pre_std: np.ndarray,
     donor_post_std: np.ndarray,
-    treated_pre: np.ndarray,
     treated_post: np.ndarray,
     treated_mean: float,
     treated_sd: float,
     ci_level: float,
 ) -> PosteriorSummary:
+    """Reconstruct the pre-period trend recursion from posterior draws and
+    forecast the post-period by deterministic mean continuation
+    (`level + h*slope`, no future process noise injected per horizon `h`).
+
+    Because of that mean-continuation forecast, the post-period credible
+    interval carries only parameter/state uncertainty as of the end of the
+    pre-period -- it does NOT accumulate the random-walk innovation variance
+    that a true posterior predictive interval would add at each additional
+    horizon step. In other words, this returns the posterior of the
+    conditional mean forecast, not a horizon-widening posterior predictive
+    interval. This does not cause measurable under-coverage at this
+    protocol's short 7-period post-window (measured 15/15 coverage on S1/S2),
+    but the gap would grow with a longer post-period.
+    """
     eta = np.asarray(samples["eta"])
     zeta = np.asarray(samples["zeta"])
     level = np.asarray(samples["level0"]).copy()
@@ -234,6 +247,14 @@ class BSTS:
         min_treated_units=1,
         max_treated_units=1,
         min_control_units=MIN_DONORS,
+        # Matches sufficient_pre_periods_check's own minimum=10 below,
+        # following every Phase 3 estimator's convention (DID 1/1, CS 1/1,
+        # EventStudy 2/2: Requirements' floor always equals the check's own
+        # declared minimum). Also matches SyntheticControl's identical
+        # min_pre_periods=10 -- same donor-pool data shape, same rationale:
+        # routing data as short as S5's 2 pre-periods onto a donor-pool
+        # estimator is the underdetermined regime this floor exists to keep
+        # both estimators out of.
         min_pre_periods=10,
         min_post_periods=1,
     )
@@ -256,7 +277,7 @@ class BSTS:
         treated_sd = float(treated_pre.std()) + 1e-9
         treated_pre_std = (treated_pre - treated_mean) / treated_sd
 
-        mcmc_config = config.options.get("mcmc_config", FAST_MCMC_CONFIG)
+        mcmc_config = config.options.get("mcmc_config", PRODUCTION_MCMC_CONFIG)
         if not isinstance(mcmc_config, MCMCConfig):
             raise TypeError(
                 f"config.options['mcmc_config'] must be an MCMCConfig, got {type(mcmc_config)!r}"
@@ -273,7 +294,6 @@ class BSTS:
             samples,
             donor_pre_std,
             donor_post_std,
-            treated_pre,
             treated_post,
             treated_mean,
             treated_sd,

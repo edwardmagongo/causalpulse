@@ -16,8 +16,11 @@ from cp_causal.estimators.bsts import (
     _run_mcmc,
     summarize_posterior,
 )
+from cp_causal.registry import all_estimators
+from cp_causal.router import eligible_estimators
 from cp_core.values import EstimatorConfig
 from cp_simulation.donor_scenarios import DONOR_N_PERIODS, DONOR_N_UNITS, build_donor_scenario
+from cp_simulation.scenarios import build_scenario
 
 
 def _generate(scenario_id: str, seed: int = 0):
@@ -79,11 +82,10 @@ def test_summarize_posterior_shapes_match_pre_plus_post_periods():
     samples = _synthetic_posterior(n_draws, t_pre, n_donors, n_post)
     donor_pre_std = np.zeros((n_donors, t_pre))
     donor_post_std = np.zeros((n_donors, n_post))
-    treated_pre = np.zeros(t_pre)
     treated_post = np.zeros(n_post)
 
     summary = summarize_posterior(
-        samples, donor_pre_std, donor_post_std, treated_pre, treated_post,
+        samples, donor_pre_std, donor_post_std, treated_post,
         treated_mean=0.0, treated_sd=1.0, ci_level=0.95,
     )
 
@@ -113,11 +115,10 @@ def test_summarize_posterior_recovers_a_known_constant_effect():
     }
     donor_pre_std = np.zeros((n_donors, t_pre))
     donor_post_std = np.zeros((n_donors, n_post))
-    treated_pre = np.zeros(t_pre)
     treated_post = np.full(n_post, 2.0)
 
     summary = summarize_posterior(
-        samples, donor_pre_std, donor_post_std, treated_pre, treated_post,
+        samples, donor_pre_std, donor_post_std, treated_post,
         treated_mean=0.0, treated_sd=1.0, ci_level=0.95,
     )
 
@@ -183,3 +184,30 @@ def test_bsts_fit_fails_sufficient_pre_periods_on_a_short_pre_period_scenario():
 
     status = {c.name: c.status for c in result.assumptions}
     assert status["sufficient_pre_periods"] == "FAIL"
+
+
+def test_importing_cp_causal_registers_bsts():
+    # test_bsts_is_registered_under_its_own_name above is self-fulfilling --
+    # it passes only because this file already imports
+    # cp_causal.estimators.bsts directly above, not because `import cp_causal`
+    # alone triggers registration. This test pins the real contract: that
+    # `cp_causal/__init__.py` imports the bsts module (for its @register side
+    # effect) so real callers who only do `import cp_causal` still see it in
+    # the registry. Mirrors test_importing_cp_causal_registers_every_panel_
+    # estimator (test_panel_recovery.py) and test_importing_cp_causal_
+    # registers_every_cross_sectional_estimator (test_recovery.py).
+    import cp_causal  # noqa: F401
+
+    assert "bsts" in set(all_estimators())
+
+
+def test_bsts_is_eligible_on_a_donor_pool_panel_dataset():
+    panel = _generate("S1")
+
+    assert "bsts" in set(eligible_estimators(panel.dataset))
+
+
+def test_bsts_is_excluded_on_a_cross_sectional_dataset():
+    simulated = build_scenario("A").generate(n_units=200, rng=np.random.default_rng(0))
+
+    assert "bsts" not in set(eligible_estimators(simulated.dataset))
