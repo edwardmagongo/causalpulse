@@ -51,6 +51,9 @@ select = ["E", "F", "I", "N", "UP", "B", "SIM", "NPY"]
 # stays enforced everywhere else in the workspace.
 "packages/cp-statistics/src/cp_statistics/covariance.py" = ["N803", "N806"]
 "tests/statistics/test_covariance.py" = ["N803", "N806"]
+# `T_pre` mirrors the BSTS design doc's notation for the pre-period length;
+# lowercasing it would fight every reference to the same symbol there.
+"packages/cp-causal/src/cp_causal/estimators/bsts.py" = ["N803"]
 
 [tool.mypy]
 python_version = "3.12"
