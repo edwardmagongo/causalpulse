@@ -71,8 +71,13 @@ class MCMCConfig:
 FAST_MCMC_CONFIG = MCMCConfig(num_warmup=50, num_samples=50, num_chains=2)
 
 # Measured (design doc §2 item 7 prototype): clean R-hat (<=1.01) on S1/S2/S5
-# at this configuration; ~1.5-2s per fit after compile, keeping a 400-seed
-# recovery run under 15 minutes. Only the recovery harness (`slow`) uses it.
+# at this configuration. The prototype's ~1.5-2s/fit estimate did not hold up
+# under Task 10's real measurement: ~17.5s/fit in this repo's actual test
+# environment, making a full 400-seed recovery run several hours, not the
+# ~15 minutes originally estimated (see test_bsts_recovery.py's module
+# docstring for the full correction). This is the default `BSTS.fit()` uses
+# when a caller supplies no `options["mcmc_config"]` -- FAST_MCMC_CONFIG is
+# opt-in only, since its own diagnostics would reliably FAIL r_hat/ESS.
 PRODUCTION_MCMC_CONFIG = MCMCConfig(num_warmup=500, num_samples=500, num_chains=4)
 
 

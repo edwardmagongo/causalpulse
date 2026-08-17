@@ -330,9 +330,11 @@ clean finding.
 
 ### Two-tier MCMC configuration
 
-Regular tests use a deliberately tiny chain (`FAST_MCMC_CONFIG`) that exercises code paths and array
-shapes, not a trustworthy posterior. Only the `slow`-marked recovery harness uses the production
-configuration (`PRODUCTION_MCMC_CONFIG`).
+`BSTS.fit()` defaults to `PRODUCTION_MCMC_CONFIG` -- a caller who supplies no
+`options["mcmc_config"]` gets a real, trustworthy posterior, not a shortcut. `FAST_MCMC_CONFIG` (a
+deliberately tiny chain that exercises code paths and array shapes only) is opt-in, used only by
+this project's own fast contract tests; its own R-hat/effective-sample-size diagnostics would
+reliably FAIL if relied on for a real result, which is exactly why it is never the default.
 
 ### Bayesian outputs, not p-values
 
