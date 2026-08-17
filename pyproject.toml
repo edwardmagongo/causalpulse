@@ -63,6 +63,13 @@ strict = true
 module = "sklearn.*"
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+# numpyro ships no py.typed marker as of 0.21; jax does and needs no override.
+# Targeted, not blanket ignore_missing_imports, so other untyped imports still
+# fail loudly.
+module = "numpyro.*"
+ignore_missing_imports = true
+
 [tool.coverage.run]
 source = ["packages"]
 omit = ["*/tests/*"]

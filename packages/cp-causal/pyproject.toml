@@ -9,6 +9,8 @@ dependencies = [
     "pandas>=2.2",
     "scipy>=1.14",
     "scikit-learn>=1.5",
+    "numpyro>=0.15",
+    "jax>=0.4",
 ]
 
 [build-system]
