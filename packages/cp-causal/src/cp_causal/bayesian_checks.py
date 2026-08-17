@@ -13,7 +13,7 @@ from collections.abc import Mapping
 
 import numpy as np
 from cp_core.results import AssumptionCheck
-from numpyro.diagnostics import gelman_rubin
+from numpyro.diagnostics import effective_sample_size, gelman_rubin
 
 
 def r_hat_check(samples: Mapping[str, np.ndarray], threshold: float = 1.01) -> AssumptionCheck:
@@ -54,4 +54,45 @@ def r_hat_check(samples: Mapping[str, np.ndarray], threshold: float = 1.01) -> A
             else "Increase warmup/samples, or reparameterise the offending site; "
             "do not trust this fit's point estimate or interval."
         ),
+    )
+
+
+def effective_sample_size_check(
+    samples: Mapping[str, np.ndarray], threshold: float = 200.0
+) -> AssumptionCheck:
+    """Worst (minimum) effective sample size across every sampled site.
+
+    Threshold is a conservative floor, not a precisely calibrated one:
+    prototype fits at this repository's production MCMC configuration (design
+    doc §2 item 7) measured minimum ESS in the 800+ range on clean fits and
+    as low as 2.5 on a fit whose R-hat and divergence rate also independently
+    flagged it as unreliable (S2 seed 9: worst R-hat 2.35, ESS 2.47,
+    divergence rate 26.85%). 200 sits with wide margin below the former and
+    above the latter; the recovery harness (`test_bsts_recovery.py`) is where
+    this gets tightened against many seeds, the same two-stage process
+    `donor_contamination_check`'s threshold went through in Phase 4.
+    """
+    worst_name, worst = min(
+        (
+            (name, float(np.min(effective_sample_size(np.asarray(value)))))
+            for name, value in samples.items()
+        ),
+        key=lambda item: item[1],
+    )
+    ok = worst >= threshold
+    return AssumptionCheck(
+        name="effective_sample_size",
+        status="PASS" if ok else "FAIL",
+        statistic=worst,
+        threshold=threshold,
+        interpretation=(
+            f"The smallest effective sample size across all sampled "
+            f"parameters is {worst:.1f} ({worst_name}). "
+            + (
+                "Enough independent draws to trust the posterior summary."
+                if ok
+                else "Too few independent draws behind at least one parameter's summary."
+            )
+        ),
+        remedy=None if ok else "Increase num_samples, or investigate the poorly-mixing site.",
     )
