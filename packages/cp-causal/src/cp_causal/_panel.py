@@ -190,3 +190,31 @@ def cluster_count_diagnostic(n_units: int) -> Diagnostic:
             "observations, and are unreliable below roughly 40."
         ),
     )
+
+
+def donor_matrix(panel: PanelArrays) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Wide (unit x period) outcome arrays for the treated unit and its donors.
+
+    Shared by every donor-pool estimator (`SyntheticControl`, `BSTS`): built
+    once so two estimators cannot let the same extraction logic drift apart,
+    the same reasoning this module already applies to its other helpers.
+
+    Returns `(treated_series, donor_series, pre_mask)`. `pre_mask` is a
+    boolean mask over periods, shared by both series since they are aligned
+    on the same period axis.
+    """
+    wide = np.full((panel.n_units, panel.n_periods), np.nan)
+    wide[panel.unit_index, panel.period_index] = panel.outcome
+    treated_positions = np.flatnonzero(panel.cohort > 0)
+    if treated_positions.size != 1:
+        raise ValueError(
+            f"donor_matrix requires exactly one treated unit, found "
+            f"{treated_positions.size}; this should have been rejected by "
+            "Requirements.unmet() before fit() was ever called"
+        )
+    treated_index = int(treated_positions[0])
+    start = int(panel.cohort[treated_index])
+    pre_mask = panel.periods < start
+
+    donor_rows = np.delete(np.arange(panel.n_units), treated_index)
+    return wide[treated_index], wide[donor_rows], pre_mask

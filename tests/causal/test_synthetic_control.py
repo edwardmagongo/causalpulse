@@ -105,11 +105,10 @@ def test_fit_recovers_a_reasonable_estimate_on_the_clean_scenario():
 
 def test_placebo_runs_first_entry_is_the_real_treated_unit():
     panel = _generate("S1", seed=0)
-    from cp_causal._panel import panel_arrays
-    from cp_causal.estimators.synthetic_control import _donor_matrix
+    from cp_causal._panel import donor_matrix, panel_arrays
 
     parr = panel_arrays(panel.dataset)
-    treated, donors, pre = _donor_matrix(parr)
+    treated, donors, pre = donor_matrix(parr)
     runs = placebo_runs(treated, donors, pre, ~pre)
 
     assert runs.point_estimates.shape == (donors.shape[0] + 1,)
@@ -162,8 +161,7 @@ def test_ridge_augmented_weights_recover_truth_on_the_convex_hull_scenario():
     # (MCSE 0.0270). Tolerance 0.15 gives (0.15 - 0.0223) / 0.0270 = 4.7
     # MCSE headroom. Run at fewer seeds here (this is a unit test, not the
     # calibrated recovery harness -- that is Task 7) with a looser bound.
-    from cp_causal._panel import panel_arrays
-    from cp_causal.estimators.synthetic_control import _donor_matrix
+    from cp_causal._panel import donor_matrix, panel_arrays
 
     errors = []
     for seed in range(40):
@@ -171,7 +169,7 @@ def test_ridge_augmented_weights_recover_truth_on_the_convex_hull_scenario():
             DONOR_N_UNITS, DONOR_N_PERIODS, np.random.default_rng(seed)
         )
         parr = panel_arrays(panel.dataset)
-        treated, donors, pre = _donor_matrix(parr)
+        treated, donors, pre = donor_matrix(parr)
         intercept, coefficients = ridge_augmented_weights(treated[pre], donors[:, pre], penalty=1.0)
         synthetic = intercept + coefficients @ donors
         point = float(np.mean(treated[~pre] - synthetic[~pre]))

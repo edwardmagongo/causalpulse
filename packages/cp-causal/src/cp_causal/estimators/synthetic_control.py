@@ -17,7 +17,7 @@ from cp_core.results import CounterfactualPath, EffectEstimate, FitMetadata
 from cp_core.values import Diagnostic, EstimatorConfig, Interval
 from scipy.optimize import minimize
 
-from cp_causal._panel import PanelArrays, outcome_scale, panel_arrays
+from cp_causal._panel import PanelArrays, donor_matrix, outcome_scale, panel_arrays
 from cp_causal._support import config_hash
 from cp_causal.base import Requirements
 from cp_causal.panel_checks import (
@@ -218,29 +218,6 @@ def _leave_one_donor_out_max_swing(
     return max_swing
 
 
-def _donor_matrix(panel: PanelArrays) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Wide (unit x period) outcome arrays for the treated unit and its donors.
-
-    Returns `(treated_series, donor_series, pre_mask)`. `pre_mask` is a
-    boolean mask over periods, shared by both series since they are aligned
-    on the same period axis.
-    """
-    wide = np.full((panel.n_units, panel.n_periods), np.nan)
-    wide[panel.unit_index, panel.period_index] = panel.outcome
-    treated_positions = np.flatnonzero(panel.cohort > 0)
-    if treated_positions.size != 1:
-        raise ValueError(
-            f"SyntheticControl requires exactly one treated unit, found "
-            f"{treated_positions.size}; this should have been rejected by "
-            "Requirements.unmet() before fit() was ever called"
-        )
-    treated_index = int(treated_positions[0])
-    start = int(panel.cohort[treated_index])
-    pre_mask = panel.periods < start
-
-    donor_rows = np.delete(np.arange(panel.n_units), treated_index)
-    return wide[treated_index], wide[donor_rows], pre_mask
-
 
 @register
 class SyntheticControl:
@@ -267,7 +244,7 @@ class SyntheticControl:
     def fit(self, dataset: CausalDataset, config: EstimatorConfig) -> EffectEstimate:
         started = time.perf_counter()
         panel = panel_arrays(dataset)
-        treated_series, donor_series, pre_mask = _donor_matrix(panel)
+        treated_series, donor_series, pre_mask = donor_matrix(panel)
         post_mask = ~pre_mask
 
         runs = placebo_runs(treated_series, donor_series, pre_mask, post_mask)
