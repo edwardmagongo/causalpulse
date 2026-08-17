@@ -33,10 +33,14 @@ def test_run_mcmc_returns_samples_shaped_by_the_fast_config():
 
     mcmc = _run_mcmc(donor_pre_std, treated_pre_std, treated_pre.shape[0], FAST_MCMC_CONFIG, 0)
     samples = mcmc.get_samples()
+    # get_samples() (no group_by_chain) concatenates draws across chains, so
+    # the leading dimension is num_chains * num_samples, not num_samples alone
+    # -- found during Task 8, when FAST_MCMC_CONFIG moved from 1 to 2 chains.
+    total_draws = FAST_MCMC_CONFIG.num_chains * FAST_MCMC_CONFIG.num_samples
 
-    assert samples["donor_coef"].shape == (FAST_MCMC_CONFIG.num_samples, donor_pre.shape[0])
-    assert samples["level0"].shape == (FAST_MCMC_CONFIG.num_samples,)
-    assert samples["eta"].shape == (FAST_MCMC_CONFIG.num_samples, treated_pre.shape[0])
+    assert samples["donor_coef"].shape == (total_draws, donor_pre.shape[0])
+    assert samples["level0"].shape == (total_draws,)
+    assert samples["eta"].shape == (total_draws, treated_pre.shape[0])
 
 
 def test_mcmc_config_is_a_frozen_dataclass():

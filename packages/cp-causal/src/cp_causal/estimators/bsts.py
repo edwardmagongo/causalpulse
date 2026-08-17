@@ -43,10 +43,15 @@ class MCMCConfig:
 
 
 # Exercises the code path and array shapes only -- not a trustworthy
-# posterior. Used by every fast/contract test in test_bsts.py. Measured
-# (design doc §2 item 7 prototype): ~2-3s including JAX's one-time JIT
-# compile.
-FAST_MCMC_CONFIG = MCMCConfig(num_warmup=50, num_samples=50, num_chains=1)
+# posterior. Used by every fast/contract test in test_bsts.py. Two chains,
+# not one: numpyro.diagnostics.gelman_rubin (r_hat_check's dependency) hard-
+# asserts x.shape[0] >= 2, so a 1-chain config crashes the moment fit() calls
+# r_hat_check -- found at Task 8, the first task to actually wire fit()
+# through to the assumption checks (Tasks 3 and 6 each tested their own piece
+# in isolation and never exercised this combination). Measured directly:
+# 2 chains at this warmup/sample count cost no more than 1 (~2.5-2.9s either
+# way, JIT compile dominates), so this is free, not a real speed tradeoff.
+FAST_MCMC_CONFIG = MCMCConfig(num_warmup=50, num_samples=50, num_chains=2)
 
 # Measured (design doc §2 item 7 prototype): clean R-hat (<=1.01) on S1/S2/S5
 # at this configuration; ~1.5-2s per fit after compile, keeping a 400-seed
@@ -107,6 +112,15 @@ def _run_mcmc(
         num_warmup=config.num_warmup,
         num_samples=config.num_samples,
         num_chains=config.num_chains,
+        # Explicit, not the "parallel" default: this process has one CPU
+        # device (no `numpyro.set_host_device_count` call anywhere in the
+        # codebase), so "parallel" would silently downgrade to sequential
+        # anyway -- except it does so with a UserWarning, and this project's
+        # pytest config (`filterwarnings = ["error"]`) turns that warning
+        # into a test failure. Found immediately after FAST_MCMC_CONFIG grew
+        # a second chain. Sequential is also what the FAST_MCMC_CONFIG timing
+        # claim above assumes.
+        chain_method="sequential",
         progress_bar=False,
     )
     mcmc.run(
