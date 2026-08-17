@@ -18,6 +18,7 @@ every R-hat <= 1.01 at the same protocol (design doc §2 item 7 prototype).
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import jax.numpy as jnp
@@ -115,3 +116,77 @@ def _run_mcmc(
         T_pre=T_pre,
     )
     return mcmc
+
+
+@dataclass(frozen=True, eq=False)
+class PosteriorSummary:
+    """Posterior-derived quantities needed to build `CounterfactualPath` and
+    `EffectEstimate`, already converted back into the outcome's original
+    units.
+
+    Separated from `_run_mcmc` so this arithmetic -- reconstructing the
+    pre-period trend recursion, forecasting the post-period by mean
+    continuation, and converting out of standardised units -- is testable
+    against a synthetic posterior without paying for a real MCMC run.
+    """
+
+    mu_path: np.ndarray
+    lower: np.ndarray
+    upper: np.ndarray
+    att_draws: np.ndarray
+    donor_coef_mean: np.ndarray
+
+
+def summarize_posterior(
+    samples: Mapping[str, np.ndarray],
+    donor_pre_std: np.ndarray,
+    donor_post_std: np.ndarray,
+    treated_pre: np.ndarray,
+    treated_post: np.ndarray,
+    treated_mean: float,
+    treated_sd: float,
+    ci_level: float,
+) -> PosteriorSummary:
+    eta = np.asarray(samples["eta"])
+    zeta = np.asarray(samples["zeta"])
+    level = np.asarray(samples["level0"]).copy()
+    slope = np.asarray(samples["slope0"]).copy()
+    sigma_level = np.asarray(samples["sigma_level"])
+    sigma_slope = np.asarray(samples["sigma_slope"])
+    donor_coef = np.asarray(samples["donor_coef"])
+
+    t_pre = eta.shape[1]
+    n_post = donor_post_std.shape[1]
+    n_draws = level.shape[0]
+
+    mu_pre_std = np.empty((n_draws, t_pre))
+    for t in range(t_pre):
+        level = level + slope + sigma_level * eta[:, t]
+        slope = slope + sigma_slope * zeta[:, t]
+        mu_pre_std[:, t] = level + donor_coef @ donor_pre_std[:, t]
+
+    # Deterministic mean-continuation forecast (no future process noise):
+    # level_forecast[h] = level + h * slope, the local-linear-trend
+    # point-forecast convention.
+    horizons = np.arange(1, n_post + 1)
+    level_forecast = level[:, None] + horizons[None, :] * slope[:, None]
+    mu_post_std = level_forecast + donor_coef @ donor_post_std
+
+    mu_pre = mu_pre_std * treated_sd + treated_mean
+    mu_post = mu_post_std * treated_sd + treated_mean
+    mu_path = np.concatenate([mu_pre.mean(axis=0), mu_post.mean(axis=0)])
+
+    lower_q, upper_q = (1 - ci_level) / 2, 1 - (1 - ci_level) / 2
+    all_draws = np.concatenate([mu_pre, mu_post], axis=1)
+    lower = np.quantile(all_draws, lower_q, axis=0)
+    upper = np.quantile(all_draws, upper_q, axis=0)
+
+    att_draws = (treated_post[None, :] - mu_post).mean(axis=1)
+
+    return PosteriorSummary(
+        mu_path=mu_path,
+        lower=lower,
+        upper=upper,
+        att_draws=att_draws,
+        donor_coef_mean=donor_coef.mean(axis=0),
+    )
