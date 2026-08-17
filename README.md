@@ -311,6 +311,42 @@ project's `filterwarnings = ["error"]` promotes to a hard `SyntaxError` — repr
 the import only; nothing downstream of the import runs under anything but the project's normal
 warnings-as-errors policy.
 
+## BSTS (Phase 5)
+
+A Bayesian structural time series counterfactual for the same donor-pool data shape synthetic
+control uses: one treated unit, a donor pool, a long pre-period. Local linear trend (level and
+slope, both random walks, sampled as explicit latents via NumPyro's `scan`) plus a
+regularized-horseshoe regression on standardized donor series, fit with NUTS.
+
+### What it is checked against
+
+No reference-library parity dependency, unlike synthetic control's `pysyncon` pin: BSTS's
+structural form is hand-specified and won't match any external library's model closely enough for
+numerical parity to mean anything. Validated purely via the measured-ground-truth recovery harness
+(`tests/causal/test_bsts_recovery.py`, `slow`) against the same `S0`-`S5` scenarios synthetic
+control uses, plus three MCMC diagnostics (R-hat, effective sample size, divergent transitions,
+`bayesian_checks.py`) that mark a fit unreliable rather than let a bad posterior be reported as a
+clean finding.
+
+### Two-tier MCMC configuration
+
+Regular tests use a deliberately tiny chain (`FAST_MCMC_CONFIG`) that exercises code paths and array
+shapes, not a trustworthy posterior. Only the `slow`-marked recovery harness uses the production
+configuration (`PRODUCTION_MCMC_CONFIG`).
+
+### Bayesian outputs, not p-values
+
+`ci_basis="posterior"` always; `p_value` is always `None`. `P(effect > 0)` and `P(effect >
+practical_threshold)` are Bayesian posterior probabilities, not p-values, and are reported through
+`diagnostics` instead -- the same discipline that keeps a credible interval from ever being
+described as a confidence interval anywhere in this codebase.
+
+### `donor_matrix` is now shared
+
+`SyntheticControl` and `BSTS` both extract their treated/donor wide arrays through
+`cp_causal._panel.donor_matrix`, moved there from `synthetic_control.py` when BSTS needed the
+identical extraction.
+
 ## On scikit-learn
 
 scikit-learn fits nuisance models only — the propensity model and the outcome regressions, which
