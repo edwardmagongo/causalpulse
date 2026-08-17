@@ -96,3 +96,44 @@ def effective_sample_size_check(
         ),
         remedy=None if ok else "Increase num_samples, or investigate the poorly-mixing site.",
     )
+
+
+def divergent_transitions_check(
+    diverging: np.ndarray, threshold: float = 0.10
+) -> AssumptionCheck:
+    """Fraction of post-warmup draws NUTS flagged as divergent.
+
+    A divergence is a direct symptom of the funnel geometry the regularised
+    horseshoe (design doc §2 item 4) exists to avoid, so this check is also
+    an indirect check on that prior choice. Threshold 0.10 is measured
+    (design doc §2 item 7 prototype) to separate clean donor-pool fits
+    (`S1` mean divergence rate 4.22% over 15 seeds, `S2` mean 7.25%) from a
+    fit independently flagged bad by R-hat and ESS (`S2` seed 9: 26.85%) --
+    with real headroom, not a tight cut. Final calibration is the recovery
+    harness's job, the same two-stage process `donor_contamination_check`
+    went through in Phase 4.
+    """
+    diverging = np.asarray(diverging)
+    rate = float(np.mean(diverging))
+    ok = rate <= threshold
+    return AssumptionCheck(
+        name="divergent_transitions",
+        status="PASS" if ok else "FAIL",
+        statistic=rate,
+        threshold=threshold,
+        interpretation=(
+            f"{int(diverging.sum())} of {diverging.size} post-warmup draws "
+            f"({rate:.1%}) were divergent transitions. "
+            + (
+                "Within tolerance."
+                if ok
+                else "The sampler could not traverse the posterior reliably here."
+            )
+        ),
+        remedy=(
+            None
+            if ok
+            else "Do not trust this fit's point estimate or interval; increase "
+            "target_accept_prob, or treat this fit as unreliable."
+        ),
+    )

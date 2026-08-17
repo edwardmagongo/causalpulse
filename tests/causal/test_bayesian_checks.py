@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 import numpy as np
-from cp_causal.bayesian_checks import effective_sample_size_check, r_hat_check
+import pytest
+from cp_causal.bayesian_checks import (
+    divergent_transitions_check,
+    effective_sample_size_check,
+    r_hat_check,
+)
 
 
 def _converged_chains(
@@ -60,3 +65,18 @@ def test_effective_sample_size_check_fails_on_a_stuck_chain():
     stuck = np.cumsum(rng.normal(scale=0.01, size=(4, 200)), axis=1)
     result = effective_sample_size_check({"mu": stuck})
     assert result.status == "FAIL"
+
+
+def test_divergent_transitions_check_passes_with_no_divergences():
+    diverging = np.zeros((4, 500), dtype=bool)
+    result = divergent_transitions_check(diverging)
+    assert result.status == "PASS"
+    assert result.statistic == 0.0
+
+
+def test_divergent_transitions_check_fails_above_threshold():
+    diverging = np.zeros((4, 500), dtype=bool)
+    diverging[:, :100] = True  # 20% divergent
+    result = divergent_transitions_check(diverging)
+    assert result.status == "FAIL"
+    assert result.statistic == pytest.approx(0.2)
