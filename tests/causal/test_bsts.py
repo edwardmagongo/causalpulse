@@ -9,7 +9,14 @@ from __future__ import annotations
 
 import numpy as np
 from cp_causal._panel import donor_matrix, panel_arrays
-from cp_causal.estimators.bsts import FAST_MCMC_CONFIG, MCMCConfig, _run_mcmc, summarize_posterior
+from cp_causal.estimators.bsts import (
+    BSTS,
+    FAST_MCMC_CONFIG,
+    MCMCConfig,
+    _run_mcmc,
+    summarize_posterior,
+)
+from cp_core.values import EstimatorConfig
 from cp_simulation.donor_scenarios import DONOR_N_PERIODS, DONOR_N_UNITS, build_donor_scenario
 
 
@@ -115,3 +122,64 @@ def test_summarize_posterior_recovers_a_known_constant_effect():
     )
 
     assert np.allclose(summary.att_draws, 2.0)
+
+
+CONFIG = EstimatorConfig(random_seed=0, options={"mcmc_config": FAST_MCMC_CONFIG})
+
+
+def test_bsts_is_registered_under_its_own_name():
+    from cp_causal.registry import get_estimator
+
+    assert get_estimator("bsts") is BSTS
+
+
+def test_bsts_requirements_match_synthetic_controls_donor_pool_shape():
+    from cp_causal.estimators.synthetic_control import SyntheticControl
+
+    assert BSTS.requirements.needs_panel == SyntheticControl.requirements.needs_panel
+    assert BSTS.requirements.max_treated_units == SyntheticControl.requirements.max_treated_units
+    assert BSTS.requirements.min_control_units == SyntheticControl.requirements.min_control_units
+
+
+def test_bsts_fit_returns_a_posterior_based_effect_estimate():
+    panel = _generate("S1")
+    result = BSTS().fit(panel.dataset, CONFIG)
+
+    assert result.ci_basis == "posterior"
+    assert result.p_value is None
+    assert result.ci.lower <= result.point <= result.ci.upper
+    assert "p_effect_positive" in result.diagnostics
+    assert "p_effect_above_threshold" in result.diagnostics
+    assert "donor_coef" in result.diagnostics
+
+
+def test_bsts_fit_reports_four_assumption_checks():
+    panel = _generate("S1")
+    result = BSTS().fit(panel.dataset, CONFIG)
+
+    names = {c.name for c in result.assumptions}
+    assert names == {
+        "r_hat",
+        "effective_sample_size",
+        "divergent_transitions",
+        "sufficient_pre_periods",
+    }
+
+
+def test_bsts_fit_populates_counterfactual_path_for_every_period():
+    panel = _generate("S1")
+    result = BSTS().fit(panel.dataset, CONFIG)
+
+    assert result.counterfactual is not None
+    assert result.counterfactual.periods.shape == result.counterfactual.observed.shape
+    assert result.counterfactual.predicted_absent_treatment.shape == (
+        result.counterfactual.periods.shape
+    )
+
+
+def test_bsts_fit_fails_sufficient_pre_periods_on_a_short_pre_period_scenario():
+    panel = _generate("S5")
+    result = BSTS().fit(panel.dataset, CONFIG)
+
+    status = {c.name: c.status for c in result.assumptions}
+    assert status["sufficient_pre_periods"] == "FAIL"

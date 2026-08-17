@@ -18,6 +18,7 @@ every R-hat <= 1.01 at the same protocol (design doc §2 item 7 prototype).
 
 from __future__ import annotations
 
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 
@@ -26,8 +27,24 @@ import jax.random as random
 import numpy as np
 import numpyro
 import numpyro.distributions as dist
+from cp_core.dataset import CausalDataset
+from cp_core.results import CounterfactualPath, EffectEstimate, FitMetadata
+from cp_core.values import Diagnostic, EstimatorConfig, Interval
 from numpyro.contrib.control_flow import scan
 from numpyro.infer import MCMC, NUTS
+
+from cp_causal._panel import donor_matrix, outcome_scale, panel_arrays
+from cp_causal._support import config_hash
+from cp_causal.base import Requirements
+from cp_causal.bayesian_checks import (
+    divergent_transitions_check,
+    effective_sample_size_check,
+    r_hat_check,
+)
+from cp_causal.panel_checks import sufficient_pre_periods_check
+from cp_causal.registry import register
+
+MIN_DONORS = 5  # matches SyntheticControl's floor; same donor-pool shape
 
 
 @dataclass(frozen=True)
@@ -204,3 +221,144 @@ def summarize_posterior(
         att_draws=att_draws,
         donor_coef_mean=donor_coef.mean(axis=0),
     )
+
+
+@register
+class BSTS:
+    """Bayesian structural time series: a donor-weighted, probabilistic
+    counterfactual for one treated unit."""
+
+    name = "bsts"
+    requirements = Requirements(
+        needs_panel=True,
+        min_treated_units=1,
+        max_treated_units=1,
+        min_control_units=MIN_DONORS,
+        min_pre_periods=10,
+        min_post_periods=1,
+    )
+
+    def fit(self, dataset: CausalDataset, config: EstimatorConfig) -> EffectEstimate:
+        started = time.perf_counter()
+        panel = panel_arrays(dataset)
+        treated_series, donor_series, pre_mask = donor_matrix(panel)
+        post_mask = ~pre_mask
+
+        treated_pre, treated_post = treated_series[pre_mask], treated_series[post_mask]
+        donor_pre, donor_post = donor_series[:, pre_mask], donor_series[:, post_mask]
+
+        donor_mean = donor_pre.mean(axis=1, keepdims=True)
+        donor_sd = donor_pre.std(axis=1, keepdims=True) + 1e-9
+        donor_pre_std = (donor_pre - donor_mean) / donor_sd
+        donor_post_std = (donor_post - donor_mean) / donor_sd
+
+        treated_mean = float(treated_pre.mean())
+        treated_sd = float(treated_pre.std()) + 1e-9
+        treated_pre_std = (treated_pre - treated_mean) / treated_sd
+
+        mcmc_config = config.options.get("mcmc_config", FAST_MCMC_CONFIG)
+        if not isinstance(mcmc_config, MCMCConfig):
+            raise TypeError(
+                f"config.options['mcmc_config'] must be an MCMCConfig, got {type(mcmc_config)!r}"
+            )
+        seed = 0 if config.random_seed is None else config.random_seed
+
+        mcmc = _run_mcmc(donor_pre_std, treated_pre_std, treated_pre.shape[0], mcmc_config, seed)
+
+        samples = mcmc.get_samples()
+        chain_samples = mcmc.get_samples(group_by_chain=True)
+        diverging = mcmc.get_extra_fields(group_by_chain=True)["diverging"]
+
+        summary = summarize_posterior(
+            samples,
+            donor_pre_std,
+            donor_post_std,
+            treated_pre,
+            treated_post,
+            treated_mean,
+            treated_sd,
+            config.ci_level,
+        )
+
+        point = float(summary.att_draws.mean())
+        lower_q, upper_q = (1 - config.ci_level) / 2, 1 - (1 - config.ci_level) / 2
+        lo, hi = np.quantile(summary.att_draws, [lower_q, upper_q])
+        ci = Interval(lower=float(lo), upper=float(hi), level=config.ci_level)
+
+        practical_threshold_raw = config.options.get("practical_threshold", 0.0)
+        if not isinstance(practical_threshold_raw, int | float):
+            raise TypeError(
+                f"options['practical_threshold'] must be a number, "
+                f"got {type(practical_threshold_raw)!r}"
+            )
+        practical_threshold = float(practical_threshold_raw)
+        p_effect_positive = float(np.mean(summary.att_draws > 0))
+        p_effect_above_threshold = float(np.mean(summary.att_draws > practical_threshold))
+
+        pointwise_effect = treated_series - summary.mu_path
+        path = CounterfactualPath(
+            periods=panel.periods.astype(float),
+            observed=treated_series,
+            predicted_absent_treatment=summary.mu_path,
+            lower=summary.lower,
+            upper=summary.upper,
+            pointwise_effect=pointwise_effect,
+            cumulative_effect=np.cumsum(np.where(post_mask, pointwise_effect, 0.0)),
+        )
+
+        return EffectEstimate(
+            estimand="ATT",
+            method=self.name,
+            point=point,
+            se=None,
+            ci=ci,
+            ci_basis="posterior",
+            bootstrap_ci=None,
+            p_value=None,
+            n_treated=1,
+            n_control=int(donor_series.shape[0]),
+            scale=outcome_scale(dataset),
+            diagnostics={
+                "p_effect_positive": Diagnostic(
+                    name="p_effect_positive",
+                    value=p_effect_positive,
+                    unit="probability",
+                    interpretation=(
+                        f"P(effect > 0) = {p_effect_positive:.3f} under the posterior. "
+                        "A Bayesian probability statement, not a p-value."
+                    ),
+                ),
+                "p_effect_above_threshold": Diagnostic(
+                    name="p_effect_above_threshold",
+                    value=p_effect_above_threshold,
+                    unit="probability",
+                    interpretation=(
+                        f"P(effect > {practical_threshold:g}) = "
+                        f"{p_effect_above_threshold:.3f} under the posterior."
+                    ),
+                ),
+                "donor_coef": Diagnostic(
+                    name="donor_coef",
+                    value=summary.donor_coef_mean,
+                    unit=None,
+                    interpretation=(
+                        "Posterior mean regression coefficient on each "
+                        "standardised donor series, in donor order, under the "
+                        "regularised horseshoe prior."
+                    ),
+                ),
+            },
+            assumptions=(
+                r_hat_check(chain_samples),
+                effective_sample_size_check(chain_samples),
+                divergent_transitions_check(diverging),
+                sufficient_pre_periods_check(panel, minimum=10),
+            ),
+            counterfactual=path,
+            fit_metadata=FitMetadata.capture(
+                estimator=self.name,
+                config_hash=config_hash(config),
+                runtime_seconds=time.perf_counter() - started,
+                random_seed=config.random_seed,
+            ),
+        )
