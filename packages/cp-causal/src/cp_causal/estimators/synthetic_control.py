@@ -17,7 +17,7 @@ from cp_core.results import CounterfactualPath, EffectEstimate, FitMetadata
 from cp_core.values import Diagnostic, EstimatorConfig, Interval
 from scipy.optimize import minimize
 
-from cp_causal._panel import PanelArrays, donor_matrix, outcome_scale, panel_arrays
+from cp_causal._panel import donor_matrix, outcome_scale, panel_arrays
 from cp_causal._support import config_hash
 from cp_causal.base import Requirements
 from cp_causal.panel_checks import (
