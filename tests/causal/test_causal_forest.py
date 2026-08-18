@@ -10,6 +10,7 @@ from cp_causal.estimators.causal_forest import (
     build_honest_tree,
     cross_fitted_outcome_model,
     fit_forest,
+    infinitesimal_jackknife_terms,
     infinitesimal_jackknife_variance,
     leaf_tau,
     oob_cate,
@@ -151,3 +152,73 @@ def test_infinitesimal_jackknife_variance_is_non_negative_and_finite():
         "Prototype findings section); the naive bias-corrected formula "
         "cannot be used as-is"
     )
+    # NOTE: this test does not pin down the bias-correction factor. The
+    # objective-Bayes debiasing step is strictly positive by construction, so
+    # `np.any(variances > 0)` holds under the correct p*(1-p) factor and under
+    # the broken bootstrap factor alike. The factor itself is guarded by
+    # test_infinitesimal_jackknife_correction_cancels_the_raw_term_under_independence.
+
+
+def _independent_forest_fit(
+    n: int, n_trees: int, subsample_frac: float, seed: int
+) -> ForestFit:
+    """A ForestFit whose per-tree predictions are pure noise, drawn with no
+    reference whatsoever to which units each tree subsampled.
+
+    Membership is drawn the way `fit_forest` draws it (without replacement,
+    fixed subsample size `subsample_frac * n` per tree); predictions are iid
+    normal. `y_res`/`w_res` are unused by the variance path and are filled
+    with zeros. Because prediction and membership are independent by
+    construction, the true infinitesimal-jackknife variance is zero and the
+    entire raw term is Monte-Carlo noise -- which is exactly what the
+    correction term is supposed to estimate.
+    """
+    rng = np.random.default_rng(seed)
+    subsample_size = int(n * subsample_frac)
+    membership = np.zeros((n_trees, n), dtype=bool)
+    for tree_index in range(n_trees):
+        membership[tree_index, rng.choice(n, size=subsample_size, replace=False)] = True
+    predictions = rng.normal(size=(n_trees, n))
+    return ForestFit(
+        cate=predictions.mean(axis=0),
+        per_tree_predictions=predictions,
+        membership=membership,
+        y_res=np.zeros(n),
+        w_res=np.zeros(n),
+    )
+
+
+def test_infinitesimal_jackknife_correction_cancels_the_raw_term_under_independence():
+    """Regression guard on the Monte-Carlo bias-correction factor.
+
+    When per-tree predictions are generated independently of subsample
+    membership there is no real signal for the raw infinitesimal-jackknife sum
+    to carry: all of it is finite-B noise, so the correction term must match
+    it, `raw / correction ~= 1`. That holds for the without-replacement factor
+    `n * p * (1 - p) * v / B` the forest actually needs. The textbook
+    *bootstrap* factor `n * v / B` -- the broken form measured during
+    plan-writing -- is `1 / (p * (1 - p))` times too large, so it would drive
+    this ratio to `p * (1 - p)`: 0.25 at p = 0.5, 0.21 at p = 0.3.
+
+    Two subsample rates are checked precisely so the guard pins the *shape* of
+    the factor and not just its value at one rate: a wrong-but-constant factor
+    cannot hit 1.0 at both rates.
+    """
+    for subsample_frac in (0.5, 0.3):
+        fit = _independent_forest_fit(
+            n=300, n_trees=400, subsample_frac=subsample_frac, seed=17
+        )
+        raw, correction = infinitesimal_jackknife_terms(fit)
+
+        assert np.all(correction > 0)
+        ratio = float(np.mean(raw / correction))
+        # Measured across 8 seeds and several (n, n_trees, p) configurations,
+        # this mean ratio stays inside [0.98, 1.02]; the 10% band is slack.
+        assert 0.9 < ratio < 1.1, (
+            f"at subsample_frac={subsample_frac} the mean raw/correction ratio is "
+            f"{ratio:.4f}, not ~1.0. Under independence the raw term is pure "
+            f"Monte-Carlo noise and the correction must cancel it. A ratio near "
+            f"{subsample_frac * (1 - subsample_frac):.2f} means the correction is "
+            f"using the with-replacement bootstrap factor n*v/B instead of the "
+            f"without-replacement factor n*p*(1-p)*v/B this forest requires."
+        )

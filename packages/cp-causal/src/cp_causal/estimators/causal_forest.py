@@ -307,56 +307,36 @@ def oob_cate(fit: ForestFit) -> np.ndarray:
 _IJ_CHUNK = 512
 
 
-def infinitesimal_jackknife_variance(fit: ForestFit) -> np.ndarray:
-    """Per-unit sampling variance of the ensemble's CATE estimate.
+def infinitesimal_jackknife_terms(fit: ForestFit) -> tuple[np.ndarray, np.ndarray]:
+    """The two per-unit intermediate quantities `infinitesimal_jackknife_variance`
+    differences, returned before any debiasing: `(raw, correction)`.
 
-    The estimator is the infinitesimal jackknife of Efron (2014) / Wager,
-    Hastie & Efron (2014): for target unit `i`, the covariance across trees
-    between a training unit `j`'s subsample membership and the tree's
-    prediction at `i`,
+    Split out of `infinitesimal_jackknife_variance` so the Monte-Carlo
+    bias-correction factor can be tested directly. The debiasing step applied
+    downstream is strictly positive by construction, so it masks the
+    difference between the correct `p * (1 - p)` (without-replacement) factor
+    and the textbook bootstrap factor -- a test written against the final
+    variances alone cannot tell them apart, but one written against these two
+    terms can (see
+    `test_infinitesimal_jackknife_correction_cancels_the_raw_term_under_independence`).
+
+    `raw` is the rescaled infinitesimal-jackknife sum
+    `scale * sum_j cov[i, j]**2` with
 
         cov[i, j] = (1/B) * sum_t (N[t, j] - p) * (tau_t(x_i) - taubar(x_i))
 
-    is the directional derivative of the ensemble prediction with respect to
-    `j`'s sampling weight, and the variance is `sum_j cov[i, j]**2` rescaled
-    for the subsampling rate `p = s/n`.
+    the across-tree covariance between training unit `j`'s subsample
+    membership and the tree's prediction at target unit `i`, and
+    `scale = 1 / (1 - p)**2` the standard rescaling from a subsample of size
+    `s = p * n` back to the full sample.
 
-    Two corrections are applied on top of that raw sum, both of which the
-    naive form measured during plan-writing got wrong:
-
-    1. **The Monte-Carlo bias correction is the without-replacement one.**
-       With finitely many trees, `sum_j cov[i, j]**2` is inflated by the
-       sampling noise of the membership indicators even when the prediction
-       is independent of them. For a *bootstrap* (with-replacement, Poisson)
-       resample that inflation is `n * v / B`; for the without-replacement
-       subsample this forest actually draws it is `n * p * (1 - p) * v / B`,
-       where `v` is the across-tree variance of the prediction at `i`. The
-       plan-writing attempt subtracted the bootstrap form from a
-       without-replacement forest run at `p = 0.5`, i.e. a correction
-       `1 / (p * (1 - p)) = 4x` too large, which is why the raw term sat at a
-       near-constant ~0.27 (~1/4) of the correction at every tree count and
-       the difference clamped to zero regardless of `B`. With the matching
-       correction the raw term converges to a fixed positive quantity while
-       the correction decays as `1/B`, as the theory says it should.
-
-    2. **The residual is debiased rather than clamped at zero.** Both terms
-       are noisy, so their difference is negative for some units at any
-       finite `B`. This follows `econml`'s own generalized-random-forest
-       inference (`econml/grf/_base_grf.py`, `BaseGRF._predict_point_and_var`,
-       the block commented "Objective bayes debiasing for the diagonals where
-       we know a-prior they are positive"): treat the difference as a draw
-       from `N(V, se**2)` with `se = max(raw, correction) * sqrt(2 / B)` and
-       report the mean of that normal truncated to the positive half-line,
-       `naive + se * phi(z) / Phi(z)` with `z = naive / se`. That inverse
-       Mills ratio is strictly positive, so a unit whose point estimate
-       happens to land below zero gets a small positive variance rather than
-       a hard zero, and the adjustment vanishes as `B` grows and `se -> 0`.
-
-    Only the objective-Bayes step is taken from `econml`; the covariance term
-    itself is not `econml`'s estimator, which uses the bootstrap of little
-    bags over groups of trees sharing a half-sample -- a grouping
-    `fit_forest` does not build, since it draws every tree's subsample
-    independently.
+    `correction` is the finite-`B` Monte-Carlo bias of that sum: even when the
+    prediction is independent of the membership indicators, the sampled
+    covariances are nonzero noise, and their squares accumulate. For a
+    *bootstrap* (with-replacement, Poisson) resample that inflation is
+    `scale * n * v / B`; for the without-replacement subsample `fit_forest`
+    actually draws it is `scale * n * p * (1 - p) * v / B`, where `v` is the
+    across-tree variance of the prediction at `i`.
     """
     predictions = fit.per_tree_predictions
     membership = fit.membership.astype(np.float64)
@@ -388,6 +368,85 @@ def infinitesimal_jackknife_variance(fit: ForestFit) -> np.ndarray:
     correction = (
         scale * n * inclusion_rate * (1.0 - inclusion_rate) * across_tree_variance / n_trees
     )
+    return raw, correction
+
+
+def infinitesimal_jackknife_variance(fit: ForestFit) -> np.ndarray:
+    """Per-unit sampling variance of the ensemble's CATE estimate.
+
+    The estimator is the infinitesimal jackknife of Efron (2014) / Wager,
+    Hastie & Efron (2014): for target unit `i`, the covariance across trees
+    between a training unit `j`'s subsample membership and the tree's
+    prediction at `i`,
+
+        cov[i, j] = (1/B) * sum_t (N[t, j] - p) * (tau_t(x_i) - taubar(x_i))
+
+    is the directional derivative of the ensemble prediction with respect to
+    `j`'s sampling weight, and the variance is `sum_j cov[i, j]**2` rescaled
+    for the subsampling rate `p = s/n`. `infinitesimal_jackknife_terms`
+    computes that raw sum and its Monte-Carlo bias correction; this function
+    differences and debiases them.
+
+    Two corrections are applied on top of that raw sum, both of which the
+    naive form measured during plan-writing got wrong:
+
+    1. **The Monte-Carlo bias correction is the without-replacement one.**
+       With finitely many trees, `sum_j cov[i, j]**2` is inflated by the
+       sampling noise of the membership indicators even when the prediction
+       is independent of them. For a *bootstrap* (with-replacement, Poisson)
+       resample that inflation is `n * v / B`; for the without-replacement
+       subsample this forest actually draws it is `n * p * (1 - p) * v / B`,
+       where `v` is the across-tree variance of the prediction at `i`. The
+       plan-writing attempt subtracted the bootstrap form from a
+       without-replacement forest run at `p = 0.5`, i.e. a correction
+       `1 / (p * (1 - p)) = 4x` too large, which is why the raw term sat at a
+       near-constant ~0.27 (~1/4) of the correction at every tree count and
+       the difference clamped to zero regardless of `B`.
+
+       With the matching correction, both terms still decay at `1/B` -- `raw`
+       measured 7.56e-2 at `B = 200` and 1.40e-2 at `B = 1600`, still falling
+       toward its ~4.7e-3 asymptote -- but their *difference*, the quantity
+       actually reported, stabilizes early, because the `1/B` component of
+       `raw` is exactly what `correction` estimates and removes. It is the gap
+       between the two terms that converges, not `raw` on its own.
+
+    2. **The residual is debiased rather than clamped at zero.** Both terms
+       are noisy, so their difference is negative for some units at any
+       finite `B`. This follows `econml`'s own generalized-random-forest
+       inference (`econml/grf/_base_grf.py`, `BaseGRF._predict_point_and_var`,
+       the block commented "Objective bayes debiasing for the diagonals where
+       we know a-prior they are positive"): treat the difference as a draw
+       from `N(V, se**2)` with `se = max(raw, correction) * sqrt(2 / B)` and
+       report the mean of that normal truncated to the positive half-line,
+       `naive + se * phi(z) / Phi(z)` with `z = naive / se`. That inverse
+       Mills ratio is strictly positive, so a unit whose point estimate
+       happens to land below zero gets a small positive variance rather than
+       a hard zero, and the adjustment vanishes as `B` grows and `se -> 0`.
+
+    Only the objective-Bayes step is taken from `econml`; the covariance term
+    itself is not `econml`'s estimator, which uses the bootstrap of little
+    bags over groups of trees sharing a half-sample -- a grouping
+    `fit_forest` does not build, since it draws every tree's subsample
+    independently.
+
+    **The variance is conditional on the fitted nuisance models.**
+    `fit_forest` residualizes once on the full sample (`residualize`, i.e. the
+    cross-fitted `m(x)` and `e(x)`) before drawing a single subsample, so
+    `y_res` and `w_res` -- and therefore every tree's prediction -- depend on
+    all `n` units through those nuisance fits. The only quantity that varies
+    across trees is the subsample, so what this function measures is
+    ensemble/subsampling variance *given* `m_hat` and `e_hat`; it does not
+    propagate the estimation uncertainty of the nuisance models themselves.
+    Intervals built from it are therefore conditional, not fully
+    unconditional, and will run slightly narrow to the extent nuisance
+    uncertainty matters. This matches standard practice (`econml` and `grf`
+    both residualize once and report the same conditional variance), but
+    callers that build confidence intervals or measure their coverage should
+    know the omission is there.
+    """
+    raw, correction = infinitesimal_jackknife_terms(fit)
+    n_trees = fit.per_tree_predictions.shape[0]
+    n = raw.size
 
     naive = raw - correction
     standard_error = np.maximum(raw, correction) * np.sqrt(2.0 / n_trees)
@@ -397,10 +456,14 @@ def infinitesimal_jackknife_variance(fit: ForestFit) -> np.ndarray:
     informative = standard_error > 0.0
     variance = np.zeros(n)
     z_score = naive[informative] / standard_error[informative]
-    # logpdf - logcdf rather than econml's erfc ratio: the ratio form
-    # underflows to 0/0 in the lower tail, which would hand back the raw
-    # negative `naive` and reintroduce the clamp this correction exists to
-    # avoid.
+    # logpdf - logcdf rather than econml's erfc ratio: both numerator and
+    # denominator of that ratio underflow to 0.0 in the lower tail, and 0/0
+    # in numpy is `nan` (with an invalid-value warning), not a fallback to
+    # anything. The nan would propagate through `naive + se * nan` and through
+    # `np.maximum(nan, 0.0)`, so the failure would surface as a non-finite
+    # variance -- caught by the `np.isfinite` assertion in the covering test,
+    # but only after having silently poisoned any interval built from it.
+    # Working in log space keeps the ratio accurate that far out instead.
     inverse_mills = np.exp(norm.logpdf(z_score) - norm.logcdf(z_score))
     variance[informative] = naive[informative] + standard_error[informative] * inverse_mills
     # Analytically the line above is strictly positive; this only absorbs
