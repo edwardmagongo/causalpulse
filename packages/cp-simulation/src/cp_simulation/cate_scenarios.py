@@ -26,6 +26,7 @@ from cp_simulation.dgp import CrossSectionDGP
 # unvalidated regime.
 CATE_N_UNITS = 2000
 _CATE_COVARIATES = ("x0", "x1", "x2", "x3", "x4", "x5")
+_NOISY_COVARIATES = tuple(f"x{i}" for i in range(12))
 
 _RICH_EFFECT = MultivariateHeterogeneousEffect(
     base_tau=0.05,
@@ -54,6 +55,11 @@ def _baseline() -> LogisticBaseline:
     return LogisticBaseline(
         intercept=0.0, coefficients=(0.2, -0.3, 0.0, 0.1, 0.0, 0.0)
     )
+
+
+def _noisy_baseline() -> LogisticBaseline:
+    coefficients = [0.2, -0.3, 0.0, 0.1] + [0.0] * 8
+    return LogisticBaseline(intercept=0.0, coefficients=tuple(coefficients))
 
 
 CATE_SCENARIOS: dict[str, CATEScenarioSpec] = {
@@ -92,6 +98,24 @@ CATE_SCENARIOS: dict[str, CATEScenarioSpec] = {
             effect=_NULL_EFFECT,
             assignment=RandomAssignment(share=0.5),
             scenario_id="NULL",
+        ),
+    ),
+    "NOISY": CATEScenarioSpec(
+        scenario_id="NOISY",
+        name="Many noise covariates",
+        description=(
+            "Same interaction structure as RICH (x0/x1/x2 drive tau) but "
+            "widened to 12 covariates, 9 of which are pure noise. Large "
+            "enough for Benjamini-Hochberg FDR control across subgroup "
+            "comparisons to have something real to correct: many candidate "
+            "subgroups on noise covariates that must NOT survive correction."
+        ),
+        build=lambda: CrossSectionDGP(
+            unit_generator=UnitGenerator(covariate_names=_NOISY_COVARIATES),
+            baseline=_noisy_baseline(),
+            effect=_RICH_EFFECT,
+            assignment=RandomAssignment(share=0.5),
+            scenario_id="NOISY",
         ),
     ),
 }

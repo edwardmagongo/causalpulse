@@ -69,5 +69,16 @@ def test_null_heterogeneity_scenario_measured_truth_is_flat():
     assert true_cate.std() < 0.005, f"NULL scenario's true_cate is not flat: std={true_cate.std()}"
 
 
+def test_noisy_scenario_has_more_covariates_than_true_drivers():
+    dgp = build_cate_scenario("NOISY")
+    simulated = dgp.generate(CATE_N_UNITS, np.random.default_rng(0))
+    assert simulated.dataset.schema.covariates == (
+        "x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7", "x8", "x9", "x10", "x11"
+    )
+    # Only x0/x1 (interaction) and x2 (secondary) drive tau; x3-x11 do not.
+    true_cate = simulated.truth.true_cate
+    assert true_cate.std() > 0.02
+
+
 def test_every_cate_scenario_is_covered_by_this_registry():
     assert set(CATE_SCENARIOS) == {"RICH", "NULL", "NOISY"}
