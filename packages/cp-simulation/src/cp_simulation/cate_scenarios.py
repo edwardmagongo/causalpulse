@@ -12,6 +12,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from cp_simulation.components import (
+    ConstantEffect,
     LogisticBaseline,
     MultivariateHeterogeneousEffect,
     RandomAssignment,
@@ -37,6 +38,8 @@ _RICH_EFFECT = MultivariateHeterogeneousEffect(
     secondary_coefficient=0.03,
     secondary_clip=1.0,
 )
+
+_NULL_EFFECT = ConstantEffect(tau=0.05)
 
 
 @dataclass(frozen=True)
@@ -71,6 +74,24 @@ CATE_SCENARIOS: dict[str, CATEScenarioSpec] = {
             effect=_RICH_EFFECT,
             assignment=RandomAssignment(share=0.5),
             scenario_id="RICH",
+        ),
+    ),
+    "NULL": CATEScenarioSpec(
+        scenario_id="NULL",
+        name="Null heterogeneity",
+        description=(
+            "Effect is constant (tau=0.05) across every covariate. This is "
+            "the scenario the omnibus calibration test must correctly pass "
+            "on -- reporting 'no reliable evidence of heterogeneity' and no "
+            "subgroups -- the guard this phase exists to prove works, not "
+            "just the forest's ability to find signal when it's there."
+        ),
+        build=lambda: CrossSectionDGP(
+            unit_generator=UnitGenerator(covariate_names=_CATE_COVARIATES),
+            baseline=_baseline(),
+            effect=_NULL_EFFECT,
+            assignment=RandomAssignment(share=0.5),
+            scenario_id="NULL",
         ),
     ),
 }

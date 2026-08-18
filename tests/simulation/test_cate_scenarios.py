@@ -62,5 +62,12 @@ def test_rich_heterogeneity_scenario_measured_truth_has_real_spread():
     assert std > 0.02, f"RICH scenario's true_cate is nearly flat: std={std}"
 
 
+def test_null_heterogeneity_scenario_measured_truth_is_flat():
+    dgp = build_cate_scenario("NULL")
+    simulated = dgp.generate(CATE_N_UNITS, np.random.default_rng(0))
+    true_cate = simulated.truth.true_cate
+    assert true_cate.std() < 0.005, f"NULL scenario's true_cate is not flat: std={true_cate.std()}"
+
+
 def test_every_cate_scenario_is_covered_by_this_registry():
     assert set(CATE_SCENARIOS) == {"RICH", "NULL", "NOISY"}
