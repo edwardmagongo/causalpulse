@@ -5,10 +5,14 @@ from __future__ import annotations
 
 import numpy as np
 from cp_causal.estimators.causal_forest import (
+    ForestFit,
     assign_estimation_leaves,
     build_honest_tree,
     cross_fitted_outcome_model,
+    fit_forest,
+    infinitesimal_jackknife_variance,
     leaf_tau,
+    oob_cate,
     predict_leaf_tau,
     residualize,
 )
@@ -83,3 +87,67 @@ def test_leaf_tau_returns_zero_for_a_degenerate_index_set():
     Y_res = np.array([1.0, 2.0])
     W_res = np.array([0.0, 0.0])  # zero W_res everywhere -> zero denominator
     assert leaf_tau(Y_res, W_res, np.array([0, 1])) == 0.0
+
+
+def test_fit_forest_returns_a_forestfit_with_consistent_shapes():
+    rng = np.random.default_rng(0)
+    n = 300
+    X = rng.normal(size=(n, 3))
+    W = rng.binomial(1, 0.5, n)
+    Y = X[:, 0] + W * (1 + X[:, 1]) + rng.normal(scale=0.1, size=n)
+
+    fit = fit_forest(
+        X, W, Y, n_trees=20, min_leaf_structure=10, max_depth=3,
+        subsample_frac=0.5, cross_fit_folds=5, rng=rng,
+    )
+
+    assert isinstance(fit, ForestFit)
+    assert fit.cate.shape == (n,)
+    assert fit.per_tree_predictions.shape == (20, n)
+    assert fit.membership.shape == (20, n)
+    assert fit.membership.dtype == bool
+
+
+def test_oob_cate_uses_only_trees_that_excluded_the_unit():
+    rng = np.random.default_rng(0)
+    n = 300
+    X = rng.normal(size=(n, 3))
+    W = rng.binomial(1, 0.5, n)
+    Y = X[:, 0] + W * (1 + X[:, 1]) + rng.normal(scale=0.1, size=n)
+
+    fit = fit_forest(
+        X, W, Y, n_trees=50, min_leaf_structure=10, max_depth=3,
+        subsample_frac=0.5, cross_fit_folds=5, rng=rng,
+    )
+    oob = oob_cate(fit)
+    assert oob.shape == (n,)
+    # Every unit should have at least some out-of-bag trees at 50%
+    # subsampling and 50 trees (near-certain, not asserting a specific count).
+    assert np.all(np.isfinite(oob))
+
+
+def test_infinitesimal_jackknife_variance_is_non_negative_and_finite():
+    rng = np.random.default_rng(0)
+    n = 300
+    X = rng.normal(size=(n, 3))
+    W = rng.binomial(1, 0.5, n)
+    Y = X[:, 0] + W * (1 + X[:, 1]) + rng.normal(scale=0.1, size=n)
+
+    fit = fit_forest(
+        X, W, Y, n_trees=200, min_leaf_structure=10, max_depth=3,
+        subsample_frac=0.5, cross_fit_folds=5, rng=rng,
+    )
+    variances = infinitesimal_jackknife_variance(fit)
+    assert variances.shape == (n,)
+    assert np.all(variances >= 0)
+    assert np.all(np.isfinite(variances))
+    # This is the acceptance bar the "Prototype findings" section flagged as
+    # needing task-time derivation: at least some units must show a
+    # strictly positive variance estimate, or the formula is still the
+    # broken always-zero one measured during plan-writing.
+    assert np.any(variances > 0), (
+        "infinitesimal_jackknife_variance returned all zeros -- this is the "
+        "exact failure mode measured during plan-writing (see this plan's "
+        "Prototype findings section); the naive bias-corrected formula "
+        "cannot be used as-is"
+    )

@@ -12,7 +12,10 @@ causal quantity in this project gets.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
+from scipy.stats import norm
 from sklearn.linear_model import LinearRegression
 
 from cp_causal.propensity import fit_propensity
@@ -208,3 +211,199 @@ def predict_leaf_tau(
     if node.leaf_idx is None or node.leaf_idx.size == 0:
         return 0.0
     return leaf_tau(y_res, w_res, node.leaf_idx)
+
+
+@dataclass(frozen=True, eq=False)
+class ForestFit:
+    """Everything downstream consumers (per-unit CATE, OOB calibration,
+    variance) need from a fitted ensemble.
+
+    `eq=False`: every field is an ndarray, so a generated `__eq__` would
+    raise on the ambiguous truth value of an array rather than compare.
+    """
+
+    cate: np.ndarray
+    per_tree_predictions: np.ndarray
+    membership: np.ndarray
+    y_res: np.ndarray
+    w_res: np.ndarray
+
+
+def fit_forest(
+    covariates: np.ndarray,
+    treatment: np.ndarray,
+    outcome: np.ndarray,
+    *,
+    n_trees: int,
+    min_leaf_structure: int,
+    max_depth: int,
+    subsample_frac: float,
+    cross_fit_folds: int,
+    rng: np.random.Generator,
+) -> ForestFit:
+    """Grow `n_trees` honest trees, each on its own without-replacement
+    subsample of `subsample_frac * n` units, split in half into that tree's
+    structure and estimation samples.
+
+    Residualization happens once for the whole forest (the R-learner nuisance
+    models are already cross-fitted, so they are not a source of per-tree
+    in-sample bias); only the tree-growing subsample varies across trees.
+    """
+    n = covariates.shape[0]
+    y_res, w_res = residualize(
+        covariates, treatment, outcome, cross_fit_folds=cross_fit_folds, rng=rng
+    )
+
+    per_tree_predictions = np.full((n_trees, n), np.nan)
+    membership = np.zeros((n_trees, n), dtype=bool)
+
+    for tree_index in range(n_trees):
+        subsample_size = int(n * subsample_frac)
+        subsample = rng.choice(n, size=subsample_size, replace=False)
+        membership[tree_index, subsample] = True
+        rng.shuffle(subsample)
+        half = subsample_size // 2
+        structure_idx, estimation_idx = subsample[:half], subsample[half:]
+
+        tree = build_honest_tree(
+            covariates, y_res, w_res, structure_idx,
+            min_leaf_structure=min_leaf_structure, max_depth=max_depth,
+        )
+        assign_estimation_leaves(tree, covariates, estimation_idx)
+
+        for unit_index in range(n):
+            per_tree_predictions[tree_index, unit_index] = predict_leaf_tau(
+                tree, covariates[unit_index], y_res, w_res
+            )
+
+    cate = np.nanmean(per_tree_predictions, axis=0)
+    return ForestFit(
+        cate=cate,
+        per_tree_predictions=per_tree_predictions,
+        membership=membership,
+        y_res=y_res,
+        w_res=w_res,
+    )
+
+
+def oob_cate(fit: ForestFit) -> np.ndarray:
+    """Per-unit CATE averaging only over trees where the unit was excluded
+    from the subsample entirely -- the standard random-forest
+    out-of-bag mechanism, extended to an honest forest. Used by the omnibus
+    calibration test (`heterogeneity_checks.py`), never by the headline
+    per-unit CATE (`ForestFit.cate`, which uses every tree for the tightest
+    point estimate): evaluating a forest's own fit on itself is exactly the
+    in-sample overfitting bias measured during plan-writing to produce a
+    false positive on a null-heterogeneity scenario.
+    """
+    out_of_bag_mask = ~fit.membership
+    masked = np.where(out_of_bag_mask, fit.per_tree_predictions, np.nan)
+    return np.asarray(np.nanmean(masked, axis=0))
+
+
+# Peak memory of the infinitesimal-jackknife covariance block is
+# `_IJ_CHUNK * n * 8` bytes; 512 target units against a 100k-row training
+# sample is ~400MB, and the full un-chunked (n, n) product would be 80GB.
+_IJ_CHUNK = 512
+
+
+def infinitesimal_jackknife_variance(fit: ForestFit) -> np.ndarray:
+    """Per-unit sampling variance of the ensemble's CATE estimate.
+
+    The estimator is the infinitesimal jackknife of Efron (2014) / Wager,
+    Hastie & Efron (2014): for target unit `i`, the covariance across trees
+    between a training unit `j`'s subsample membership and the tree's
+    prediction at `i`,
+
+        cov[i, j] = (1/B) * sum_t (N[t, j] - p) * (tau_t(x_i) - taubar(x_i))
+
+    is the directional derivative of the ensemble prediction with respect to
+    `j`'s sampling weight, and the variance is `sum_j cov[i, j]**2` rescaled
+    for the subsampling rate `p = s/n`.
+
+    Two corrections are applied on top of that raw sum, both of which the
+    naive form measured during plan-writing got wrong:
+
+    1. **The Monte-Carlo bias correction is the without-replacement one.**
+       With finitely many trees, `sum_j cov[i, j]**2` is inflated by the
+       sampling noise of the membership indicators even when the prediction
+       is independent of them. For a *bootstrap* (with-replacement, Poisson)
+       resample that inflation is `n * v / B`; for the without-replacement
+       subsample this forest actually draws it is `n * p * (1 - p) * v / B`,
+       where `v` is the across-tree variance of the prediction at `i`. The
+       plan-writing attempt subtracted the bootstrap form from a
+       without-replacement forest run at `p = 0.5`, i.e. a correction
+       `1 / (p * (1 - p)) = 4x` too large, which is why the raw term sat at a
+       near-constant ~0.27 (~1/4) of the correction at every tree count and
+       the difference clamped to zero regardless of `B`. With the matching
+       correction the raw term converges to a fixed positive quantity while
+       the correction decays as `1/B`, as the theory says it should.
+
+    2. **The residual is debiased rather than clamped at zero.** Both terms
+       are noisy, so their difference is negative for some units at any
+       finite `B`. This follows `econml`'s own generalized-random-forest
+       inference (`econml/grf/_base_grf.py`, `BaseGRF._predict_point_and_var`,
+       the block commented "Objective bayes debiasing for the diagonals where
+       we know a-prior they are positive"): treat the difference as a draw
+       from `N(V, se**2)` with `se = max(raw, correction) * sqrt(2 / B)` and
+       report the mean of that normal truncated to the positive half-line,
+       `naive + se * phi(z) / Phi(z)` with `z = naive / se`. That inverse
+       Mills ratio is strictly positive, so a unit whose point estimate
+       happens to land below zero gets a small positive variance rather than
+       a hard zero, and the adjustment vanishes as `B` grows and `se -> 0`.
+
+    Only the objective-Bayes step is taken from `econml`; the covariance term
+    itself is not `econml`'s estimator, which uses the bootstrap of little
+    bags over groups of trees sharing a half-sample -- a grouping
+    `fit_forest` does not build, since it draws every tree's subsample
+    independently.
+    """
+    predictions = fit.per_tree_predictions
+    membership = fit.membership.astype(np.float64)
+    n_trees, n = predictions.shape
+    inclusion_rate = float(membership.mean())
+
+    if n_trees < 2:
+        raise ValueError("infinitesimal-jackknife variance needs at least 2 trees")
+    if not 0.0 < inclusion_rate < 1.0:
+        raise ValueError(
+            f"infinitesimal-jackknife variance needs a subsample rate strictly between "
+            f"0 and 1, got {inclusion_rate}: with no variation in which units each tree "
+            f"saw, the membership-prediction covariance carries no information"
+        )
+
+    # (n/(n - s))**2 == 1/(1 - p)**2, the standard rescaling from a
+    # subsample of size s back to the full sample.
+    scale = 1.0 / (1.0 - inclusion_rate) ** 2
+    centered_predictions = predictions - predictions.mean(axis=0, keepdims=True)
+    centered_membership = membership - membership.mean(axis=0, keepdims=True)
+
+    raw = np.empty(n)
+    for start in range(0, n, _IJ_CHUNK):
+        block = centered_predictions[:, start : start + _IJ_CHUNK]
+        covariance = (block.T @ centered_membership) / n_trees
+        raw[start : start + _IJ_CHUNK] = scale * np.sum(covariance**2, axis=1)
+
+    across_tree_variance = np.mean(centered_predictions**2, axis=0)
+    correction = (
+        scale * n * inclusion_rate * (1.0 - inclusion_rate) * across_tree_variance / n_trees
+    )
+
+    naive = raw - correction
+    standard_error = np.maximum(raw, correction) * np.sqrt(2.0 / n_trees)
+    # A unit whose predictions never varied across trees has raw == correction
+    # == 0 and a genuinely zero variance estimate; leave it there rather than
+    # dividing by a floor.
+    informative = standard_error > 0.0
+    variance = np.zeros(n)
+    z_score = naive[informative] / standard_error[informative]
+    # logpdf - logcdf rather than econml's erfc ratio: the ratio form
+    # underflows to 0/0 in the lower tail, which would hand back the raw
+    # negative `naive` and reintroduce the clamp this correction exists to
+    # avoid.
+    inverse_mills = np.exp(norm.logpdf(z_score) - norm.logcdf(z_score))
+    variance[informative] = naive[informative] + standard_error[informative] * inverse_mills
+    # Analytically the line above is strictly positive; this only absorbs
+    # floating-point cancellation when `naive` is many standard errors below
+    # zero and the Mills term nearly cancels it.
+    return np.maximum(variance, 0.0)
