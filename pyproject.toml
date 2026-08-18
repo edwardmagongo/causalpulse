@@ -22,6 +22,7 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.11",
     "import-linter>=2.0",
+    "econml>=0.17.0",
     "pandas-stubs>=3.0.5.260730",
     "pysyncon>=1.5",
     "scipy-stubs>=1.18.0.1",
