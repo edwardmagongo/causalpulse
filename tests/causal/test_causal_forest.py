@@ -4,7 +4,7 @@ the registered estimator.
 from __future__ import annotations
 
 import numpy as np
-from cp_causal.estimators.causal_forest import cross_fitted_outcome_model
+from cp_causal.estimators.causal_forest import cross_fitted_outcome_model, residualize
 
 
 def test_cross_fitted_outcome_model_predictions_are_out_of_fold():
@@ -32,3 +32,18 @@ def test_cross_fitted_outcome_model_requires_an_explicit_rng_for_more_than_one_f
     except ValueError:
         raised = True
     assert raised
+
+
+def test_residualize_returns_arrays_shaped_like_the_input():
+    rng = np.random.default_rng(0)
+    n = 500
+    x = rng.normal(size=(n, 3))
+    w = rng.binomial(1, 0.5, n)
+    y = x[:, 0] + w * (1 + x[:, 1]) + rng.normal(scale=0.1, size=n)
+
+    y_res, w_res = residualize(x, w, y, cross_fit_folds=5, rng=rng)
+
+    assert y_res.shape == (n,)
+    assert w_res.shape == (n,)
+    # w_res should average near zero under random assignment (propensity ~0.5).
+    assert abs(float(w_res.mean())) < 0.1
