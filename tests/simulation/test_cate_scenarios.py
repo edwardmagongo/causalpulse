@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+from cp_simulation.cate_scenarios import CATE_N_UNITS, CATE_SCENARIOS, build_cate_scenario
 from cp_simulation.components import MultivariateHeterogeneousEffect
 
 
@@ -47,3 +48,19 @@ def test_multivariate_heterogeneous_effect_clips_the_secondary_driver():
     covariates = np.array([[0.0, 0.0, 5.0, 0.0, 0.0, 0.0]])  # secondary driver way above the clip
     tau = effect.tau_values(covariates)
     assert tau[0] == 1.0  # clipped to secondary_clip, not 5.0
+
+
+def test_rich_heterogeneity_scenario_measured_truth_has_real_spread():
+    # A sanity check, not the calibrated recovery harness (that's Task 14).
+    # The framework validates itself per parent spec §4.5: this scenario's
+    # true_cate must actually vary meaningfully, or it cannot test per-unit
+    # CATE recovery at all.
+    dgp = build_cate_scenario("RICH")
+    simulated = dgp.generate(CATE_N_UNITS, np.random.default_rng(0))
+    true_cate = simulated.truth.true_cate
+    std = true_cate.std()
+    assert std > 0.02, f"RICH scenario's true_cate is nearly flat: std={std}"
+
+
+def test_every_cate_scenario_is_covered_by_this_registry():
+    assert set(CATE_SCENARIOS) == {"RICH", "NULL", "NOISY"}
