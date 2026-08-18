@@ -55,6 +55,10 @@ select = ["E", "F", "I", "N", "UP", "B", "SIM", "NPY"]
 # `T_pre` mirrors the BSTS design doc's notation for the pre-period length;
 # lowercasing it would fight every reference to the same symbol there.
 "packages/cp-causal/src/cp_causal/estimators/bsts.py" = ["N803"]
+# `X`/`Y_res`/`W_res` mirror the R-learner design doc's notation for the
+# covariate matrix and residualized outcome/treatment; lowercasing them
+# would fight every reference to the same symbols there.
+"tests/causal/test_causal_forest.py" = ["N806"]
 
 [tool.mypy]
 python_version = "3.12"
