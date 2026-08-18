@@ -196,3 +196,57 @@ class BaselineSelectionAssignment:
         if self.strength == 0.0:
             return ()
         return covariate_names
+
+
+@dataclass(frozen=True)
+class MultivariateHeterogeneousEffect:
+    """Effect driven by an interaction between a continuous and a binary
+    covariate, plus a smaller independent continuous driver.
+
+    `HeterogeneousEffect` varies tau along exactly one binary covariate --
+    too simple to meaningfully exercise an estimator whose entire purpose is
+    discovering heterogeneity structure the analyst didn't specify (a single
+    interaction term recovers a one-covariate step function as well as a
+    forest would). This component gives Phase 6's CATE scenarios genuine
+    multi-covariate structure: an interaction effect that only fires when a
+    continuous covariate is positive AND a binary covariate is 1, plus an
+    independent, clipped linear effect from a second continuous covariate.
+    """
+
+    base_tau: float
+    continuous_index: int
+    continuous_coefficient: float
+    binary_interaction_index: int
+    binary_interaction_continuous_index: int
+    binary_interaction_coefficient: float
+    secondary_continuous_index: int
+    secondary_coefficient: float
+    secondary_clip: float
+
+    def tau_values(self, covariates: np.ndarray) -> np.ndarray:
+        width = covariates.shape[1]
+        for index in (
+            self.continuous_index,
+            self.binary_interaction_index,
+            self.binary_interaction_continuous_index,
+            self.secondary_continuous_index,
+        ):
+            if index < 0 or index >= width:
+                raise ValueError(f"covariate index {index} out of range for width {width}")
+
+        continuous = covariates[:, self.continuous_index]
+        binary = covariates[:, self.binary_interaction_index]
+        interaction_driver = covariates[:, self.binary_interaction_continuous_index]
+        secondary = np.clip(
+            covariates[:, self.secondary_continuous_index],
+            -self.secondary_clip,
+            self.secondary_clip,
+        )
+
+        interaction = self.binary_interaction_coefficient * (interaction_driver > 0) * binary
+        return np.asarray(
+            self.base_tau
+            + self.continuous_coefficient * continuous
+            + interaction
+            + self.secondary_coefficient * secondary
+        )
