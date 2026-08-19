@@ -8,6 +8,8 @@ Not folded into `causal_forest.py`: these operate on an already-fitted
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 from cp_core.results import AssumptionCheck
 from scipy.stats import norm
@@ -355,3 +357,56 @@ def best_linear_projection(
         name: float(coefficient)
         for name, coefficient in zip(covariate_names, coefficients[1:], strict=True)
     }
+
+
+@dataclass(frozen=True, eq=False)
+class CandidateSubgroup:
+    """One candidate subgroup before significance testing.
+
+    `eq=False`: `mask` is an ndarray, so a generated `__eq__` would raise on
+    the ambiguous truth value of an array rather than compare.
+    """
+
+    covariate: str
+    condition: str
+    mask: np.ndarray
+
+
+def candidate_subgroups(
+    covariates: np.ndarray, covariate_names: tuple[str, ...], min_cell_size: int
+) -> list[CandidateSubgroup]:
+    """Every covariate's natural subgroup split, filtered to cells with at
+    least `min_cell_size` units before any significance testing -- so a
+    subgroup finding is never driven by a handful of units.
+
+    A binary covariate (values in {0, 1}) splits into its two indicator
+    cells. A continuous covariate splits at its median into below/above
+    cells. This is a starting candidate-generation rule, not a claim that
+    richer splits (terciles, decision-tree-derived cells) wouldn't also be
+    reasonable -- kept to the simplest rule that gives Benjamini-Hochberg
+    FDR control (Task 13) something real to correct on `CATE_SCENARIOS["NOISY"]`.
+    """
+    subgroups: list[CandidateSubgroup] = []
+    for index, name in enumerate(covariate_names):
+        values = covariates[:, index]
+        unique_values = np.unique(values)
+        if set(unique_values.tolist()) <= {0.0, 1.0}:
+            for level in (0.0, 1.0):
+                mask = values == level
+                if int(mask.sum()) >= min_cell_size:
+                    subgroups.append(
+                        CandidateSubgroup(
+                            covariate=name, condition=f"{name} == {int(level)}", mask=mask
+                        )
+                    )
+        else:
+            median = float(np.median(values))
+            for condition_label, mask in (
+                (f"{name} <= {median:.4f}", values <= median),
+                (f"{name} > {median:.4f}", values > median),
+            ):
+                if int(mask.sum()) >= min_cell_size:
+                    subgroups.append(
+                        CandidateSubgroup(covariate=name, condition=condition_label, mask=mask)
+                    )
+    return subgroups

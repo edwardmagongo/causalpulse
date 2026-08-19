@@ -8,9 +8,11 @@ import numpy as np
 from cp_causal.estimators.causal_forest import ForestFit, fit_forest
 from cp_causal.heterogeneity_checks import (
     _KERNEL_ROW_MASS,
+    CandidateSubgroup,
     best_linear_projection,
     calibration_terms,
     calibration_test,
+    candidate_subgroups,
 )
 from cp_simulation.cate_scenarios import CATE_N_UNITS, build_cate_scenario
 
@@ -402,3 +404,28 @@ def test_calibration_test_does_not_open_the_gate_on_an_inverted_prediction():
         f"only {negatives}/200 fixtures produced a strongly negative statistic, so "
         f"this test is not actually exercising the inverted-prediction case"
     )
+
+
+def test_candidate_subgroups_drops_cells_below_the_minimum_size():
+    # A rare binary covariate: only 5 units have x=1 out of 200.
+    rng = np.random.default_rng(0)
+    n = 200
+    rare = np.zeros(n)
+    rare[:5] = 1.0
+    covariates = np.column_stack([rare, rng.normal(size=n)])
+
+    subgroups = candidate_subgroups(covariates, ("rare", "continuous"), min_cell_size=20)
+    conditions = [s.condition for s in subgroups]
+    assert not any("rare == 1" in c for c in conditions), (
+        "a 5-unit cell must not survive a min_cell_size=20 filter"
+    )
+
+
+def test_candidate_subgroups_for_a_binary_covariate_are_the_two_indicator_cells():
+    covariates = np.column_stack(
+        [np.array([0.0, 0.0, 1.0, 1.0, 1.0, 1.0] * 10), np.zeros(60)]
+    )
+    subgroups = candidate_subgroups(covariates, ("binary", "other"), min_cell_size=10)
+    binary_conditions = {s.condition for s in subgroups if s.covariate == "binary"}
+    assert binary_conditions == {"binary == 0", "binary == 1"}
+    assert all(isinstance(subgroup, CandidateSubgroup) for subgroup in subgroups)
