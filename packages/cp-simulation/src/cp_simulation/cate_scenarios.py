@@ -28,15 +28,33 @@ CATE_N_UNITS = 2000
 _CATE_COVARIATES = ("x0", "x1", "x2", "x3", "x4", "x5")
 _NOISY_COVARIATES = tuple(f"x{i}" for i in range(12))
 
+# The coefficients are set from a measured detection floor, not chosen by eye.
+# These scenarios score a binary (logistic) outcome, so the per-unit noise is
+# sigma ~ 0.50, and a differential-calibration test at CATE_N_UNITS = 2000
+# resolves an effect spread only in proportion to sd(tau) * sqrt(n) / sigma.
+# An earlier draft used 0.08 / 0.03, giving sd(tau) ~ 0.038: measured, that is
+# below the floor for ANY such test -- substituting the TRUE per-unit tau for
+# an estimate (an oracle no estimator can beat) detected heterogeneity on only
+# 50% of seeds, and the real forest detected it on 0 of 12. A scenario whose
+# stated job is "what per-unit CATE and subgroup recovery get scored against"
+# cannot carry heterogeneity that is undetectable in principle.
+#
+# At 0.25 / 0.10 the same measurement gives sd(tau) ~ 0.123, an oracle t of
+# +4.25, and the real forest detecting on 12 of 12 seeds with its out-of-bag
+# CATE correlating +0.82 with the truth (it was +0.38 at 0.08 / 0.03 -- the
+# forest recovers the structure better when there is more of it to find, so
+# the two effects compound). NULL is deliberately left untouched: the
+# false-positive guard this phase exists to prove keeps exactly its old
+# meaning.
 _RICH_EFFECT = MultivariateHeterogeneousEffect(
     base_tau=0.05,
     continuous_index=0,
     continuous_coefficient=0.0,
     binary_interaction_index=1,
     binary_interaction_continuous_index=0,
-    binary_interaction_coefficient=0.08,
+    binary_interaction_coefficient=0.25,
     secondary_continuous_index=2,
-    secondary_coefficient=0.03,
+    secondary_coefficient=0.10,
     secondary_clip=1.0,
 )
 

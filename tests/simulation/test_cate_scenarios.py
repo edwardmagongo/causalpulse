@@ -55,11 +55,24 @@ def test_rich_heterogeneity_scenario_measured_truth_has_real_spread():
     # The framework validates itself per parent spec §4.5: this scenario's
     # true_cate must actually vary meaningfully, or it cannot test per-unit
     # CATE recovery at all.
+    #
+    # The floor is a measured detection threshold, not a round number. These
+    # scenarios use a binary outcome (sigma ~ 0.50) at n = 2000, where an
+    # effect spread below ~0.05 is undetectable even by an oracle holding the
+    # TRUE per-unit tau -- an earlier draft of this scenario sat at 0.038 and
+    # the real forest detected its heterogeneity on 0 of 12 seeds. See
+    # `cate_scenarios._RICH_EFFECT`'s comment for the full measurement.
+    # Measured here: 0.1225, range [0.1187, 0.1263] over 20 seeds.
     dgp = build_cate_scenario("RICH")
     simulated = dgp.generate(CATE_N_UNITS, np.random.default_rng(0))
     true_cate = simulated.truth.true_cate
     std = true_cate.std()
-    assert std > 0.02, f"RICH scenario's true_cate is nearly flat: std={std}"
+    assert std > 0.08, (
+        f"RICH scenario's true_cate spread is {std:.4f}, below the ~0.05 floor at "
+        f"which a differential-calibration test can detect heterogeneity at all "
+        f"on a binary outcome at n={CATE_N_UNITS}. Subgroup discovery is gated on "
+        f"that test, so a spread this small makes the whole subgroup path dead code."
+    )
 
 
 def test_null_heterogeneity_scenario_measured_truth_is_flat():
@@ -76,8 +89,9 @@ def test_noisy_scenario_has_more_covariates_than_true_drivers():
         "x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7", "x8", "x9", "x10", "x11"
     )
     # Only x0/x1 (interaction) and x2 (secondary) drive tau; x3-x11 do not.
+    # Same measured detection floor as RICH, whose effect this scenario reuses.
     true_cate = simulated.truth.true_cate
-    assert true_cate.std() > 0.02
+    assert true_cate.std() > 0.08
 
 
 def test_every_cate_scenario_is_covered_by_this_registry():

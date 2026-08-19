@@ -20,46 +20,49 @@ from cp_simulation.cate_scenarios import CATE_N_UNITS, build_cate_scenario
 # `calibration_test` now computes (numerator + sigma^2, standard error times
 # sqrt(2), one-sided).
 #
-#                     t mean   t sd   |t|>1.96   one-sided t>1.645
-#     NULL  naive     -1.274   1.556   12/40            --
-#     NULL  fixed     -0.303   0.973    4/40          0/40
-#     RICH  naive     -0.195   1.670    9/40            --
-#     RICH  fixed     +0.377   1.036    3/40          3/40
+# The naive statistic, on the weaker first draft of the RICH scenario:
 #
-# The naive statistic rejected on 30% of NULL seeds at a nominal 5%, and every
-# one of those rejections -- and every one of RICH's -- was NEGATIVE, i.e. the
-# first draft's two-sided rule would have opened the subgroup gate on evidence
-# that the forest's predicted ordering is inverted. Corrected, the statistic's
-# sd drops to ~1.0 (the sqrt(2) term) and its mean rises by ~1.0 (the sigma^2
-# term), and the one-sided rule never fires on NULL.
+#                     t mean   t sd   |t|>1.96
+#     NULL  naive     -1.274   1.556   12/40
+#     RICH  naive     -0.195   1.670    9/40
 #
-# The n_trees sweep at data seed 0, before and after (naive / fixed):
+# It rejected on 30% of NULL seeds at a nominal 5%, and every one of those
+# rejections -- and every one of RICH's -- was NEGATIVE, i.e. the two-sided
+# rule would have opened the subgroup gate on evidence that the forest's
+# predicted ordering is inverted. That is what the +sigma^2, sqrt(2) and
+# one-sided corrections fix; they are pinned directly, on a synthetic forest
+# with a closed-form kernel, by the two `_leaking_forest_fit` tests below.
+#
+# The shipped statistic, on the scenarios as they now stand:
+#
+#              t mean   t sd    t min   PASS    corr(oob_cate, true_cate)
+#     NULL     -0.303   0.973   -2.46   0/40    -0.040 [-0.467, +0.438]
+#     RICH     +3.224   0.701   +1.75  40/40    +0.808 [+0.591, +0.935]
+#
+# Clean separation in both directions, so the two scenario tests below assert
+# the real gate behaviour rather than only the checks' shape.
+#
+# This separation needs the scenario to carry heterogeneity above the detection
+# floor. It did not always: an earlier draft of RICH had sd(tau) ~ 0.038
+# against a binary outcome's sigma ~ 0.50, where an ORACLE holding the true
+# per-unit tau detected on only 50% of seeds and this test on 0/12.
+# `cate_scenarios._RICH_EFFECT` was raised on that measurement to sd(tau) ~
+# 0.123; see its comment for the sweep. The lesson is worth keeping: a
+# non-detection here is as likely to be the fixture's signal-to-noise as the
+# statistic's correctness, and the two are told apart by the oracle
+# substitution, not by inspection.
+#
+# The n_trees sweep at data seed 0 (on the earlier, weaker RICH -- the point it
+# establishes is about tree count, not effect size):
 #
 #     n_trees   RICH naive  RICH fixed   NULL naive  NULL fixed
 #         500      +1.268      +1.232       +1.409      +1.371
 #        1000      +1.323      +1.292       +1.476      +1.426
 #        2000      +1.234      +1.247       +1.461      +1.424
 #
-# Still essentially invariant in n_trees -- a 4x increase moves it by <0.1 at a
-# fixed seed -- so 500 is kept as the cheapest. The spread is across data
-# seeds, not tree counts.
-#
-# WHY RICH IS NOT DETECTED, measured rather than assumed. Substituting the TRUE
-# per-unit tau for `oob_cate` -- an oracle no estimator can beat -- gives t mean
-# +1.964, sd 1.076, |t|>1.96 on 20/40 RICH seeds. RICH's effect spread (sd
-# ~0.038) is simply small against a binary outcome's noise (sigma ~0.50) at
-# n=2000, so 50% is the ceiling for ANY differential-calibration test here. The
-# forest's out-of-bag CATE correlates with the truth at a median +0.418, which
-# scales that ceiling down to the 3/40 measured above. `sd(oob_cate)` is 0.0332
-# [0.0176, 0.0602] on RICH and 0.0276 [0.0162, 0.0418] on NULL.
-#
-# So these two scenario-level tests still assert only the checks' *shape*: a
-# test asserting RICH PASS / NULL FAIL per seed would be asserting a magnitude
-# measured not to hold, and would be asserting it about the scenario's
-# signal-to-noise rather than about this module's code. What the code does own
-# -- the two correction constants -- is pinned by
-# `test_calibration_test_corrects_the_out_of_bag_numerators_bias_and_variance`
-# below, on a synthetic forest whose kernel is known in closed form.
+# Essentially invariant in n_trees -- a 4x increase moves it by <0.1 at a fixed
+# seed -- so 500 is kept as the cheapest. The spread is across data seeds, not
+# tree counts.
 _FOREST_CONFIG: dict[str, object] = dict(
     n_trees=500, min_leaf_structure=20, max_depth=4, subsample_frac=0.5, cross_fit_folds=5,
 )
@@ -77,12 +80,42 @@ def _fit_on_scenario(scenario_id: str, seed: int):
     return fit, covariates
 
 
-def test_calibration_test_reports_a_real_assumption_check():
+def test_calibration_test_detects_the_rich_scenarios_real_heterogeneity():
+    """End-to-end, on the scenario per-unit CATE recovery is scored against.
+
+    Measured over 40 seeds: t mean +3.224, sd 0.701, minimum +1.75, PASS on
+    40/40. Seed 0 is asserted rather than the whole sweep because each seed
+    costs a 500-tree forest fit; the sweep lives in this file's header.
+    """
     fit, _ = _fit_on_scenario("RICH", seed=0)
     result = calibration_test(fit, alpha=0.05)
+
     assert result.name == "calibration_test"
-    assert result.status in ("PASS", "FAIL")
     assert result.statistic is not None
+    assert result.status == "PASS", (
+        f"the calibration test did not detect RICH's heterogeneity "
+        f"(t={result.statistic:.3f}). Subgroup discovery is gated on this check, "
+        f"so a miss here shuts the whole subgroup path on the one scenario built "
+        f"to exercise it."
+    )
+
+
+def test_calibration_test_reports_no_heterogeneity_on_the_null_scenario():
+    """The guard this phase exists to prove: a scenario with a constant tau
+    must not license subgroup reporting.
+
+    Measured over 40 seeds: t mean -0.303, sd 0.973, PASS on 0/40. The naive
+    statistic this replaced fired on 12/40, every one of them negative.
+    """
+    fit, _ = _fit_on_scenario("NULL", seed=0)
+    result = calibration_test(fit, alpha=0.05)
+
+    assert result.status == "FAIL", (
+        f"the calibration test claimed detectable heterogeneity on a scenario "
+        f"whose true tau is exactly constant (t={result.statistic:.3f}) -- this is "
+        f"fabricated heterogeneity reaching a report."
+    )
+    assert result.remedy is not None
 
 
 def test_best_linear_projection_returns_one_coefficient_per_covariate():

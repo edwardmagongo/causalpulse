@@ -168,19 +168,23 @@ def calibration_test(fit: ForestFit, alpha: float = 0.05) -> AssumptionCheck:
     exactly that: every one of its null-scenario rejections, and every one of
     its rich-scenario rejections, was negative.
 
-    **Power, measured, not assumed.** Corrected, the statistic is correctly
-    sized -- conservative, in fact -- but it has very little power at
-    `CATE_N_UNITS = 2000`, and that ceiling is the scenario's, not the
-    statistic's. Substituting the *true* per-unit tau for `cate_oob` (an
-    oracle no estimator can beat) gives t ~ N(+1.96, 1.08) on
-    `CATE_SCENARIOS["RICH"]`, rejecting on 50% of seeds: RICH's effect
-    spread (sd ~0.038) is small against a binary outcome's noise (sigma
-    ~0.50) at n=2000. The forest's own out-of-bag predictions correlate with
-    the truth at a median +0.42, which scales that down to 3/40 seeds. Full
-    tables in `tests/causal/test_heterogeneity_checks.py`. Reporting no
-    heterogeneity on RICH at this sample size is the statistically correct
-    answer, and it is the safe direction for a gate; treat this check as a
-    guard against fabricated subgroups, not as a heterogeneity detector.
+    **Power, measured, not assumed.** Over 40 data seeds at `n_trees=500`
+    and `CATE_N_UNITS=2000`, the shipped statistic separates the two
+    scenarios cleanly: `CATE_SCENARIOS["RICH"]` gives t mean +3.22 (sd 0.70,
+    min +1.75) and detects on 40/40 seeds, while `CATE_SCENARIOS["NULL"]`
+    gives t mean -0.30 (sd 0.97) and detects on 0/40. Full tables in
+    `tests/causal/test_heterogeneity_checks.py`.
+
+    That separation depends on the scenario carrying heterogeneity above the
+    detection floor, which is a property of the fixture rather than of this
+    code. An earlier draft of RICH had an effect spread of sd ~0.038 against
+    a binary outcome's sigma ~0.50, which is below the floor for *any*
+    differential-calibration test at this sample size -- an oracle holding
+    the true per-unit tau detected it on only 50% of seeds, and this test on
+    0/12. `cate_scenarios._RICH_EFFECT` was raised to sd ~0.123 on that
+    measurement; see its comment. If this check ever reports no
+    heterogeneity on data believed to be heterogeneous, compare the effect
+    spread against the outcome's noise before suspecting the statistic.
     """
     numerator, denominator, residual_variance = calibration_terms(fit)
 
