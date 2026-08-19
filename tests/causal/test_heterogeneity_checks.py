@@ -7,6 +7,7 @@ from __future__ import annotations
 import numpy as np
 from cp_causal.estimators.causal_forest import ForestFit, fit_forest
 from cp_causal.heterogeneity_checks import (
+    _KERNEL_ROW_MASS,
     best_linear_projection,
     calibration_terms,
     calibration_test,
@@ -110,12 +111,16 @@ def test_calibration_test_reports_no_heterogeneity_on_the_null_scenario():
     fit, _ = _fit_on_scenario("NULL", seed=0)
     result = calibration_test(fit, alpha=0.05)
 
-    assert result.status == "FAIL", (
+    assert result.status == "WARN", (
         f"the calibration test claimed detectable heterogeneity on a scenario "
         f"whose true tau is exactly constant (t={result.statistic:.3f}) -- this is "
         f"fabricated heterogeneity reaching a report."
     )
     assert result.remedy is not None
+    # WARN, not FAIL: a homogeneous effect is a sound analysis, not a violated
+    # assumption, and `worst_assumption_status` rolls up the maximum severity
+    # across every check attached to the estimate.
+    assert result.status != "FAIL"
 
 
 def test_best_linear_projection_returns_one_coefficient_per_covariate():
@@ -182,6 +187,70 @@ def _leaf_driven_tau(seed: int, spread: float) -> np.ndarray:
     leaf = rng.integers(0, _LEAK_LEAVES, _LEAK_N)
     centred = (leaf - (_LEAK_LEAVES - 1) / 2) / _LEAK_LEAVES
     return _LEAK_BASE_TAU + spread * _LEAK_SIGMA * centred
+
+
+def test_calibration_kernel_row_mass_is_exactly_one():
+    """The identity `_KERNEL_ROW_MASS` encodes, asserted deterministically.
+
+    `trace(B) = -1` is exact arithmetic, not a statistical tendency, so it can
+    be checked to floating-point tolerance instead of through a Monte-Carlo
+    band. That matters: the 2000-replication test below has a standard error
+    around 0.10 and cannot tell a correct correction from a doubled one, so
+    without this test `_KERNEL_ROW_MASS = 2.0` passes the whole file.
+
+    Building `C` explicitly also guards the failure mode the constant's comment
+    warns about. A degenerate leaf -- fewer than two units, or no treatment
+    variation -- makes `leaf_tau` return 0.0, contributing row mass 0 instead
+    of 1 and turning the correction into an over-correction that biases the
+    statistic positive. Here the row mass is asserted per unit, so any such
+    leaf shows up directly rather than as a drift in a distribution.
+    """
+    rng = np.random.default_rng(2000)
+    w_res = rng.binomial(1, 0.5, _LEAK_N) - 0.5
+    rng.normal(scale=_LEAK_SIGMA, size=_LEAK_N)  # keep the fixture's rng stream aligned
+    leaf = rng.integers(0, _LEAK_LEAVES, _LEAK_N)
+
+    # C[j, i]: the weight leaf-averaging gives training unit i in unit j's
+    # out-of-bag prediction. Leave-one-out within the shared leaf, exactly as
+    # `_leaking_forest_fit` and `leaf_tau` compute it.
+    same_leaf = leaf[:, None] == leaf[None, :]
+    np.fill_diagonal(same_leaf, False)
+    leaf_weight = (same_leaf * w_res[None, :] ** 2).sum(axis=1, keepdims=True)
+    kernel = same_leaf * w_res[None, :] / leaf_weight
+
+    assert np.all(np.diag(kernel) == 0.0), "out-of-bag must zero the kernel's diagonal"
+
+    row_mass = kernel @ w_res
+    assert np.allclose(row_mass, 1.0, atol=1e-12), (
+        f"kernel row mass ranges [{row_mass.min():.12f}, {row_mass.max():.12f}], not "
+        f"exactly 1.0. `_KERNEL_ROW_MASS` assumes every row puts total mass one on "
+        f"the other units in the w_res inner product; a degenerate leaf breaks that "
+        f"and makes the -sigma^2 correction the wrong size."
+    )
+
+    weight = w_res**2
+    projection = np.eye(_LEAK_N) - np.outer(np.ones(_LEAK_N), weight) / weight.sum()
+    b_matrix = np.diag(w_res) @ projection @ kernel
+    trace = float(np.trace(b_matrix))
+    assert abs(trace - -1.0) < 1e-10, (
+        f"trace(B) is {trace:.12f}, not -1. This is the exact identity the "
+        f"-sigma^2 bias correction is sized from: E[numerator] = sigma^2 * trace(B)."
+    )
+    assert abs(float(np.abs(b_matrix @ w_res).max())) < 1e-10, (
+        "B @ w_res must annihilate a constant tau, or the null statistic carries a "
+        "signal term the correction does not account for"
+    )
+
+    # Bind the shipped constant to the identity just measured, rather than
+    # leaving them to agree by coincidence. The Monte-Carlo tests below have a
+    # standard error near 0.10 and pass for any multiplier in roughly
+    # [0.44, 2.8]; this is what actually pins the value.
+    required_correction = float(-round(trace))
+    assert required_correction == _KERNEL_ROW_MASS, (
+        f"_KERNEL_ROW_MASS is {_KERNEL_ROW_MASS}, but the kernel's measured "
+        f"trace(B) = {trace:.12f} calls for {required_correction:.1f}. The constant "
+        f"exists to cancel exactly that bias."
+    )
 
 
 def test_calibration_terms_numerator_carries_exactly_the_minus_sigma_squared_bias():
@@ -293,7 +362,7 @@ def test_calibration_test_detects_heterogeneity_the_forest_genuinely_tracks():
     )
     assert detections == 400, (
         f"only {detections}/400 detections on a fixture whose out-of-bag CATE "
-        f"tracks a true tau spanning four noise standard deviations -- the "
+        f"tracks a true tau spanning 1.83 noise standard deviations -- the "
         f"statistic has been made conservative to the point of uselessness"
     )
 
@@ -324,7 +393,7 @@ def test_calibration_test_does_not_open_the_gate_on_an_inverted_prediction():
             w_res=tracking.w_res,
         )
         result = calibration_test(inverted)
-        assert result.status == "FAIL", (
+        assert result.status == "WARN", (
             "an inverted out-of-bag CATE was reported as detectable heterogeneity; "
             "the calibration test must be one-sided"
         )

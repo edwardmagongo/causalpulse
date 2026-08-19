@@ -24,11 +24,28 @@ from cp_causal.estimators.causal_forest import ForestFit, oob_cate
 # the diagonal, while each row of the forest's leaf-averaging kernel sums to one
 # in the `w_res`-inner product. So the numerator carries a `-sigma^2` bias that
 # has to be added back.
+#
+# The identity is exact only while no leaf degenerates. `leaf_tau` returns 0.0
+# for a leaf with fewer than two units or no treatment variation, and
+# `predict_leaf_tau` returns 0.0 for an empty leaf; each such (tree, unit) pair
+# contributes row mass 0 rather than 1, pulling `trace(B)` above -1 and making
+# this constant an OVER-correction, which biases the statistic positive -- the
+# anti-conservative direction for a gate. Measured at the shipped
+# configuration: 0 degenerate leaf-rows out of 5108. A deeper `max_depth` or a
+# smaller `min_leaf_structure` could reach it, so
+# `test_calibration_kernel_row_mass_is_exactly_one` asserts the row mass
+# directly rather than trusting that it stays true.
 _KERNEL_ROW_MASS = 1.0
-# `Var[num] = sigma^4 * (trace(B @ B) + trace(B @ B.T))` while OLS reports only
-# `sigma^2 * denominator = sigma^2 * E[den] / sigma^2 * ...`, i.e. the
-# `trace(B @ B.T)` half. The forest's co-leaf kernel is symmetric, so the two
-# traces coincide and the true variance is twice the OLS one.
+# `Var[num] = sigma^4 * (trace(B @ B) + trace(B @ B.T))` while OLS's
+# `sigma^2 * denominator` estimates only the `trace(B @ B.T)` half.
+#
+# This is a BOUND, not an equality. `trace(A @ A) <= trace(A @ A.T)` for every
+# real matrix -- their difference is `0.5 * ||A - A.T||_F**2 >= 0` -- so the
+# true inflation is at most 2, with equality exactly when `B` is symmetric.
+# Measured: the closed-form fixture in the tests is exactly symmetric and hits
+# 2.000, but the real forest's kernel is not (relative asymmetry 0.44), and its
+# inflation is 1.90. Using 2.0 therefore cannot be anti-conservative, which is
+# the property that matters for a check that gates subgroup reporting.
 _VARIANCE_INFLATION = 2.0
 
 
@@ -77,18 +94,37 @@ def calibration_terms(fit: ForestFit) -> tuple[float, float, float]:
        column subtracts. Each row of `C` puts total mass exactly one on the
        training units, in the sense `sum_i u[i] C[j, i] = 1` (leaf tau is
        `sum(u*y) / sum(u**2)` over the leaf), so the surviving off-diagonal
-       mass is exactly one and the bias is exactly `-sigma**2`. Measured on a
-       synthetic forest whose kernel is known in closed form: `trace(B) =
-       -0.9985` against a theoretical `-1`, and `sum_i u[i] C[j, i] = 0.9985
-       +/- 0.0169` across units.
+       mass is exactly one and the bias is exactly `-sigma**2`. This is a
+       deterministic identity, not an approximation: reconstructing `C`
+       explicitly gives `max|diag(C)| = 0`, row mass `1.000000000000` with a
+       spread of 4e-17, and `trace(B) = -1.000000000000` -- on the tests'
+       closed-form fixture and on a real 500-tree forest alike. It holds only
+       while no leaf degenerates; see `_KERNEL_ROW_MASS`.
+
+       A related exactness worth knowing when reading the null behaviour:
+       `B @ u = 0` to 1e-16, so a constant true tau is annihilated outright.
 
     2. **`Var[numerator] = sigma**4 (trace(B @ B) + trace(B @ B.T))`**, of
        which OLS's `sigma**2 * denominator` estimates only the
        `trace(B @ B.T)` half (`E[denominator] = sigma**2 trace(B @ B.T)`).
-       Co-leaf membership is symmetric, so `B` is symmetric up to the
-       out-of-bag tree bookkeeping and the two traces coincide: measured
-       `trace(B @ B) / trace(B @ B.T) = 0.987`. The standard error is
-       therefore `sqrt(2)` times the OLS one.
+       The two traces coincide when `B` is symmetric, giving a standard error
+       `sqrt(2)` times the OLS one. The forest's kernel is NOT symmetric in
+       general -- measured relative asymmetry `||B - B.T||_F / ||B||_F = 0.44`
+       on a real forest, where the trace ratio is 0.903 rather than 1, so the
+       true inflation there is 1.90. `sqrt(2)` is used anyway because
+       `trace(A @ A) <= trace(A @ A.T)` always, making 2.0 a provable upper
+       bound and the correction conservative by construction. On the tests'
+       fixture, where `u**2` is constant and `B` comes out exactly symmetric,
+       the ratio is 1.000000 and the bound is attained.
+
+    Two assumptions this leaves implicit. Everything is conditional on the
+    tree structure -- for a real forest `C` depends on `y_res` through the
+    splits, and honest splitting is what makes that dependence weak enough to
+    ignore; the 40-seed null sweep in the tests is the evidence that it is.
+    And `E[numerator] = sum_i sigma_i**2 B[i, i]` under heteroskedasticity,
+    while the code subtracts a single pooled `sigma**2`; on a binary outcome
+    the two differ, and the residual shows up as the null statistic's mean of
+    -0.30 rather than 0. Both leftovers point the conservative way.
 
     Both effects are invisible at the sample sizes forests are usually
     reported at, because they are `O(sigma**2 / denominator)` and
@@ -106,6 +142,17 @@ def calibration_terms(fit: ForestFit) -> tuple[float, float, float]:
     cate_oob = cate_oob[valid]
     y_res = fit.y_res[valid]
     w_res = fit.w_res[valid]
+
+    if cate_oob.size < 3:
+        # Every unit was in-bag in every tree, so nothing has an out-of-bag
+        # prediction at all. Reached by `subsample_frac=1.0` or a single tree,
+        # not by anything the estimator's own defaults produce -- and a
+        # distinct cause from the zero-treatment-variation case below.
+        raise ValueError(
+            f"calibration test needs out-of-bag predictions for at least 3 units, "
+            f"got {cate_oob.size}. Every unit was in-bag in every tree; check that "
+            f"subsample_frac is below 1.0 and that the forest has several trees."
+        )
 
     weight = w_res**2
     total_weight = float(weight.sum())
@@ -137,6 +184,18 @@ def calibration_test(fit: ForestFit, alpha: float = 0.05) -> AssumptionCheck:
     the true effect and subgroup reporting is licensed; if it is not, this
     estimator reports "no reliable evidence of heterogeneity" and skips
     subgroup discovery entirely (parent spec §5.7's explicit requirement).
+
+    **Status semantics.** `PASS` means heterogeneity was detected, `WARN`
+    means it was not. `WARN` rather than `FAIL` is deliberate and differs
+    from the sibling checks in `panel_checks.py`/`bayesian_checks.py`, where
+    `FAIL` means an identification assumption is violated. Finding no
+    heterogeneity is not a violation: the analysis is sound, the effect is
+    simply homogeneous, and the correct response -- report the aggregate
+    ATE/ATT and no subgroups -- happens automatically. Since
+    `EffectEstimate.worst_assumption_status` rolls up the maximum severity
+    across all checks, returning `FAIL` here would mark every correct
+    null-heterogeneity analysis as broken. `WARN` keeps the caveat visible
+    without making that claim.
 
     Three things this implementation does that the textbook form does not,
     each of which was measured to matter here:
@@ -209,7 +268,7 @@ def calibration_test(fit: ForestFit, alpha: float = 0.05) -> AssumptionCheck:
 
     return AssumptionCheck(
         name="calibration_test",
-        status="PASS" if detected else "FAIL",
+        status="PASS" if detected else "WARN",
         statistic=t_statistic,
         threshold=float(norm.ppf(1 - alpha)),
         interpretation=(
@@ -233,10 +292,13 @@ def calibration_test(fit: ForestFit, alpha: float = 0.05) -> AssumptionCheck:
 
 
 def _no_evidence(alpha: float, reason: str) -> AssumptionCheck:
+    # `statistic=None`, not 0.0: no statistic was computed, and the contract
+    # allows saying so. Reporting 0.0 would render as a real-looking t of 0.00
+    # for a quantity that was never estimated.
     return AssumptionCheck(
         name="calibration_test",
-        status="FAIL",
-        statistic=0.0,
+        status="WARN",
+        statistic=None,
         threshold=float(norm.ppf(1 - alpha)),
         interpretation=(
             f"{reason} No reliable evidence of heterogeneity -- subgroup "
@@ -256,7 +318,35 @@ def best_linear_projection(
     interpretable linear summary of which covariates the forest's
     heterogeneity estimate actually moves with, not a claim that the true
     CATE function is linear.
+
+    Two honest limits on how far these numbers can be read.
+
+    This is an ordinary least-squares fit of the forest's *estimated*
+    out-of-bag CATE, so the coefficients are attenuated toward zero by that
+    estimate's own noise and carry no standard errors -- they rank and sign
+    the drivers, they do not test them. The name is a term of art
+    (Semenova-Chernozhukov; grf's `best_linear_projection`) for a
+    doubly-robust projection of the *true* CATE that does come with valid
+    inference; this is the descriptive cousin, not that estimator.
+
+    And the design is not checked for rank. `lstsq` returns the minimum-norm
+    solution when covariates are collinear, which silently splits a
+    coefficient between them rather than failing, so a driver can look weak
+    because it shares its variance with a neighbour.
     """
+    if covariates.ndim != 2:
+        raise ValueError(f"covariates must be 2-dimensional, got shape {covariates.shape}")
+    if covariates.shape[0] != fit.cate.size:
+        raise ValueError(
+            f"covariates has {covariates.shape[0]} rows but the forest was fitted on "
+            f"{fit.cate.size} units"
+        )
+    if covariates.shape[1] != len(covariate_names):
+        raise ValueError(
+            f"got {len(covariate_names)} covariate names for {covariates.shape[1]} "
+            f"covariate columns"
+        )
+
     cate_oob = oob_cate(fit)
     valid = np.isfinite(cate_oob)
     design = np.column_stack([np.ones(int(valid.sum())), covariates[valid]])

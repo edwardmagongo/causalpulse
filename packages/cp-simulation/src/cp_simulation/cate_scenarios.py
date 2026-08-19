@@ -34,18 +34,28 @@ _NOISY_COVARIATES = tuple(f"x{i}" for i in range(12))
 # resolves an effect spread only in proportion to sd(tau) * sqrt(n) / sigma.
 # An earlier draft used 0.08 / 0.03, giving sd(tau) ~ 0.038: measured, that is
 # below the floor for ANY such test -- substituting the TRUE per-unit tau for
-# an estimate (an oracle no estimator can beat) detected heterogeneity on only
-# 50% of seeds, and the real forest detected it on 0 of 12. A scenario whose
-# stated job is "what per-unit CATE and subgroup recovery get scored against"
-# cannot carry heterogeneity that is undetectable in principle.
+# an estimate (an oracle no estimator can beat) reached only t ~ +1.68 and
+# detected heterogeneity on 7 of 20 seeds, and the real forest detected it on 0
+# of 12. A scenario whose stated job is "what per-unit CATE and subgroup
+# recovery get scored against" cannot carry heterogeneity that is undetectable
+# in principle.
 #
 # At 0.25 / 0.10 the same measurement gives sd(tau) ~ 0.123, an oracle t of
-# +4.25, and the real forest detecting on 12 of 12 seeds with its out-of-bag
-# CATE correlating +0.82 with the truth (it was +0.38 at 0.08 / 0.03 -- the
-# forest recovers the structure better when there is more of it to find, so
-# the two effects compound). NULL is deliberately left untouched: the
-# false-positive guard this phase exists to prove keeps exactly its old
-# meaning.
+# +5.54 detecting on 20 of 20 seeds, and the real forest detecting on 12 of 12
+# with its out-of-bag CATE correlating +0.82 with the truth (it was +0.38 at
+# 0.08 / 0.03 -- the forest recovers the structure better when there is more of
+# it to find, so the two effects compound). The oracle figures use plain OLS:
+# the true tau is not a function of the outcome, so the out-of-bag bias and
+# variance corrections in `heterogeneity_checks.calibration_test` do not apply
+# to it. NULL is deliberately left untouched: the false-positive guard this
+# phase exists to prove keeps exactly its old meaning.
+#
+# Two consequences worth stating, since Tasks 12-16 inherit them. The true CATE
+# range widens from [+0.020, +0.160] to [-0.050, +0.400], so 24% of units now
+# have genuinely NEGATIVE individual effects where none did before -- a
+# treatment that helps most units and harms some, which is the realistic case
+# subgroup discovery exists for, but a change in character rather than only in
+# scale. And the true ATE rises from 0.065 to 0.096 (seed 0, n=2000).
 _RICH_EFFECT = MultivariateHeterogeneousEffect(
     base_tau=0.05,
     continuous_index=0,
