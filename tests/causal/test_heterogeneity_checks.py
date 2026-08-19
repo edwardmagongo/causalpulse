@@ -48,12 +48,14 @@ from cp_simulation.cate_scenarios import CATE_N_UNITS, build_cate_scenario
 # This separation needs the scenario to carry heterogeneity above the detection
 # floor. It did not always: an earlier draft of RICH had sd(tau) ~ 0.038
 # against a binary outcome's sigma ~ 0.50, where an ORACLE holding the true
-# per-unit tau detected on only 50% of seeds and this test on 0/12.
-# `cate_scenarios._RICH_EFFECT` was raised on that measurement to sd(tau) ~
-# 0.123; see its comment for the sweep. The lesson is worth keeping: a
-# non-detection here is as likely to be the fixture's signal-to-noise as the
-# statistic's correctness, and the two are told apart by the oracle
-# substitution, not by inspection.
+# per-unit tau reached only t ~ +1.68 and detected on 7 of 20 seeds, and this
+# test on 0/12. `cate_scenarios._RICH_EFFECT` was raised on that measurement to
+# sd(tau) ~ 0.123; see its comment for the sweep. (The oracle figures use plain
+# OLS -- the true tau is not a function of the outcome, so the out-of-bag
+# corrections do not apply to it.) The lesson is worth keeping: a non-detection
+# here is as likely to be the fixture's signal-to-noise as the statistic's
+# correctness, and the two are told apart by the oracle substitution, not by
+# inspection.
 #
 # The n_trees sweep at data seed 0 (on the earlier, weaker RICH -- the point it
 # establishes is about tree count, not effect size):
