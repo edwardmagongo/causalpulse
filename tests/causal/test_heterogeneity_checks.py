@@ -5,14 +5,18 @@ best-linear-projection, minimum cell size, Benjamini-Hochberg FDR control.
 from __future__ import annotations
 
 import numpy as np
-from cp_causal.estimators.causal_forest import ForestFit, fit_forest
+import pytest
+from cp_causal.estimators.causal_forest import ForestFit, fit_forest, oob_cate
 from cp_causal.heterogeneity_checks import (
     _KERNEL_ROW_MASS,
     CandidateSubgroup,
+    _benjamini_hochberg,
+    _subgroup_statistics,
     best_linear_projection,
     calibration_terms,
     calibration_test,
     candidate_subgroups,
+    discover_subgroups,
 )
 from cp_simulation.cate_scenarios import CATE_N_UNITS, build_cate_scenario
 
@@ -431,3 +435,164 @@ def test_candidate_subgroups_for_a_binary_covariate_are_the_two_indicator_cells(
     binary_conditions = {s.condition for s in subgroups if s.covariate == "binary"}
     assert binary_conditions == {"binary == 0", "binary == 1"}
     assert all(isinstance(subgroup, CandidateSubgroup) for subgroup in subgroups)
+
+
+_NOISY_NAMES = tuple(f"x{i}" for i in range(12))
+
+
+def test_benjamini_hochberg_returns_step_up_adjusted_q_values():
+    """The procedure against hand-computable inputs, since the scenario tests
+    below cannot tell a correct BH from a slightly wrong one."""
+    # q_i = p_(i) * m / i, already increasing here, so no monotonicity repair.
+    q_values = _benjamini_hochberg(np.array([0.001, 0.10, 0.30, 0.60, 0.90]))
+    assert np.allclose(q_values, [0.005, 0.25, 0.50, 0.75, 0.90])
+
+    # Raw q for rank 3 is 0.9 * 4 / 3 = 1.2, above the rank-4 raw q of 0.9. The
+    # step-up correction takes the running minimum from the largest p-value
+    # down, so both land on 0.9 rather than one exceeding 1 and being clipped.
+    q_values = _benjamini_hochberg(np.array([0.01, 0.02, 0.90, 0.90]))
+    assert np.allclose(q_values, [0.04, 0.04, 0.90, 0.90])
+
+    # q-values must travel with their hypotheses, not with the sorted order.
+    p_values = np.array([0.60, 0.001, 0.90, 0.30, 0.10])
+    shuffled = _benjamini_hochberg(p_values)
+    assert np.allclose(shuffled, [0.75, 0.005, 0.90, 0.50, 0.25])
+    assert np.all((shuffled >= 0.0) & (shuffled <= 1.0))
+
+
+def test_discover_subgroups_on_the_noisy_scenario_keeps_the_true_drivers():
+    """The NOISY scenario's whole purpose: 9 of its 12 covariates are pure
+    noise, and the reported subgroups must be dominated by the 3 that are not.
+
+    Measured at seed 0 with the shipped `_FOREST_CONFIG`: 24 candidate cells
+    enter the family, 8 survive Benjamini-Hochberg at `fdr_level=0.10`, and
+    they are both cells of x0, x1, x2 -- the scenario's only true tau drivers
+    -- plus both cells of x4, a pure-noise covariate.
+
+    x4 is a REAL false discovery that BH does not remove: its raw p-values are
+    1.7e-03 and 4.2e-03, which correct to q = 5.9e-03 and 1.3e-02, still far
+    inside 0.10. It is asserted here rather than tuned away, because the honest
+    claim this test can support is "the true drivers survive and most noise
+    covariates do not", not "no noise covariate ever survives". A single-seed
+    test cannot establish a false-discovery RATE; Task 16's recovery harness
+    is where that gets scored.
+    """
+    fit, covariates = _fit_on_scenario("NOISY", seed=0)
+    findings = discover_subgroups(
+        fit,
+        covariates,
+        _NOISY_NAMES,
+        min_cell_size=50,
+        fdr_level=0.10,
+        ci_level=0.95,
+    )
+
+    reported = {finding.covariate for finding in findings}
+    assert reported == {"x0", "x1", "x2", "x4"}, (
+        f"reported subgroups on {sorted(reported)}; expected the three true "
+        f"drivers x0/x1/x2 plus the measured x4 false discovery. Losing a driver "
+        f"means the discovery path has no power; gaining a noise covariate means "
+        f"the correction has stopped correcting."
+    )
+    assert len(findings) == 8
+    assert not reported & {"x6", "x7", "x8", "x9", "x10", "x11"}, (
+        "a covariate that enters neither the baseline nor tau was reported as a "
+        "subgroup -- this is a fabricated finding reaching a report"
+    )
+
+    q_by_covariate: dict[str, list[float]] = {}
+    for finding in findings:
+        q_by_covariate.setdefault(finding.covariate, []).append(finding.q_value)
+    # The genuine interaction drivers are separated from the false discovery by
+    # ~80 orders of magnitude, which is why BH cannot tell them apart at any
+    # level that keeps x0 (q = 4.0e-04 and 3.5e-03) -- see the docstring on
+    # `discover_subgroups` about reading these p-values as a ranking only.
+    assert max(q_by_covariate["x1"]) < 1e-90
+    assert max(q_by_covariate["x2"]) < 1e-80
+    assert all(1e-03 < q < 2e-02 for q in q_by_covariate["x4"])
+
+    for finding in findings:
+        assert 0.0 <= finding.q_value <= 1.0
+        assert finding.n_units >= 50
+        assert finding.ci.level == 0.95
+        assert finding.ci.contains(finding.cate_estimate)
+
+
+def test_discover_subgroups_on_the_null_scenario_reports_nothing():
+    """The guard this phase exists to prove, at the end of the pipeline rather
+    than at the calibration test alone.
+
+    And it checks WHICH guard does the work. On NULL at seed 0 the per-cell
+    p-values are not remotely null-looking: 8 of the 12 candidates are
+    significant at raw p<0.05 against the overall mean, and 9 survive
+    Benjamini-Hochberg at `fdr_level=0.10`. Every one of those would be a
+    fabricated finding on a scenario whose true tau is exactly constant. It is
+    the calibration gate, not the FDR correction, that keeps the output empty
+    -- so a change that quietly stops the gate from firing would still leave
+    this file's other tests green while shipping 9 invented subgroups.
+    """
+    fit, covariates = _fit_on_scenario("NULL", seed=0)
+    names = ("x0", "x1", "x2", "x3", "x4", "x5")
+    findings = discover_subgroups(
+        fit, covariates, names, min_cell_size=50, fdr_level=0.10, ci_level=0.95
+    )
+    assert findings == (), (
+        "subgroups were reported on a scenario whose true tau is exactly "
+        "constant; the calibration test must gate subgroup discovery shut"
+    )
+    assert calibration_test(fit).status == "WARN"
+
+    ungated = _subgroup_statistics(
+        oob_cate(fit), candidate_subgroups(covariates, names, 50), min_cell_size=50
+    )
+    survivors = int((_benjamini_hochberg(ungated.p_values) < 0.10).sum())
+    assert survivors == 9, (
+        f"{survivors} of {ungated.p_values.size} NULL candidates survive BH "
+        f"without the gate (measured 9 of 12). If this ever reaches 0 the test "
+        f"above stops proving anything, because the p-values alone would have "
+        f"produced an empty report."
+    )
+
+
+def test_discover_subgroups_de_duplicates_identical_candidate_masks():
+    """Two covariates that induce the same cell are one hypothesis, not two.
+
+    Measured on NOISY at seed 0: appending an exact copy of x0 and of x1 takes
+    the candidate family from 24 to 28 cells whose masks are only 24 distinct
+    bit patterns, and without de-duplication the survivor count goes 8 -> 12,
+    the four extra being exactly the copies' own cells -- the same units
+    reported twice under two names, and an `m` inflated by restatements of
+    hypotheses already in the family. De-duplicating keeps the first name in
+    `covariate_names` order and leaves every q-value untouched.
+    """
+    fit, covariates = _fit_on_scenario("NOISY", seed=0)
+    base = discover_subgroups(
+        fit, covariates, _NOISY_NAMES, min_cell_size=50, fdr_level=0.10, ci_level=0.95
+    )
+
+    widened = np.column_stack([covariates, covariates[:, 0], covariates[:, 1]])
+    duplicated = discover_subgroups(
+        fit,
+        widened,
+        (*_NOISY_NAMES, "x0_copy", "x1_copy"),
+        min_cell_size=50,
+        fdr_level=0.10,
+        ci_level=0.95,
+    )
+
+    assert [f.condition for f in duplicated] == [f.condition for f in base]
+    assert [f.q_value for f in duplicated] == [f.q_value for f in base], (
+        "duplicating a covariate changed the q-values of the findings, so the "
+        "duplicate masks are still inflating the size of the tested family"
+    )
+
+
+def test_discover_subgroups_rejects_covariate_names_that_do_not_match_the_columns():
+    """`candidate_subgroups` alone silently ignores extra columns and raises a
+    bare IndexError when given too many names; the public entry point checks,
+    the same way `best_linear_projection` already does."""
+    fit, covariates = _fit_on_scenario("NULL", seed=0)
+    with pytest.raises(ValueError, match="covariate names"):
+        discover_subgroups(
+            fit, covariates, ("x0", "x1"), min_cell_size=50, fdr_level=0.10, ci_level=0.95
+        )

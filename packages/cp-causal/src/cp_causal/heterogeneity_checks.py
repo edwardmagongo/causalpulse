@@ -8,10 +8,12 @@ Not folded into `causal_forest.py`: these operate on an already-fitted
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
-from cp_core.results import AssumptionCheck
+from cp_core.results import AssumptionCheck, SubgroupFinding
+from cp_core.values import Interval
 from scipy.stats import norm
 
 from cp_causal.estimators.causal_forest import ForestFit, oob_cate
@@ -410,3 +412,251 @@ def candidate_subgroups(
                         CandidateSubgroup(covariate=name, condition=condition_label, mask=mask)
                     )
     return subgroups
+
+
+def _benjamini_hochberg(p_values: np.ndarray) -> np.ndarray:
+    """Benjamini-Hochberg step-up procedure, returning adjusted q-values for
+    every hypothesis rather than a reject/accept mask -- so a surviving
+    finding can report the q-value that let it through.
+
+    Takes no `fdr_level`: the level is a reporting threshold applied to these
+    q-values by the caller, and the adjustment itself does not depend on it.
+
+    The `minimum.accumulate` running from the largest p-value down is the
+    step-up part, not a cosmetic monotonicity repair: without it the raw
+    `p_(i) * m / i` sequence can decrease, and a hypothesis would be rejected
+    while a more significant one was not.
+    """
+    n = p_values.size
+    order = np.argsort(p_values)
+    ranked = p_values[order]
+    q_raw = ranked * n / np.arange(1, n + 1)
+    q_monotone = np.minimum.accumulate(q_raw[::-1])[::-1]
+    q_values = np.empty(n)
+    q_values[order] = np.clip(q_monotone, 0.0, 1.0)
+    return q_values
+
+
+@dataclass(frozen=True, eq=False)
+class _SubgroupStatistics:
+    """The per-candidate quantities `discover_subgroups` feeds to
+    Benjamini-Hochberg, kept separate so a test can ask what the p-values
+    alone would have reported and thereby check which guard is doing the work.
+
+    `eq=False` for the same reason `CandidateSubgroup` uses it: the fields are
+    ndarrays.
+    """
+
+    candidates: tuple[CandidateSubgroup, ...]
+    n_units: np.ndarray
+    estimates: np.ndarray
+    standard_errors: np.ndarray
+    p_values: np.ndarray
+
+
+def _subgroup_statistics(
+    cate_oob: np.ndarray, candidates: Sequence[CandidateSubgroup], min_cell_size: int
+) -> _SubgroupStatistics:
+    """Test each candidate cell's mean out-of-bag CATE against the OVERALL
+    mean out-of-bag CATE -- not against zero.
+
+    This is the whole difference between subgroup discovery and re-testing
+    the average effect. "Does this cell have an effect" is not the question;
+    "does this cell differ from everyone else" is. Measured on
+    `CATE_SCENARIOS["NOISY"]` at seed 0 with the shipped forest configuration
+    and `min_cell_size=50` (24 candidate cells):
+
+        null tested            raw p < 0.05    what survives BH at 0.10
+        against zero              24 of 24     all 24, every p numerically 0.0
+        against the overall mean   8 of 24     8: both cells of x0, x1, x2, x4
+
+    Against zero the procedure reports every one of the nine pure-noise
+    covariates as a subgroup and leaves Benjamini-Hochberg nothing to correct,
+    which is precisely the fabricated-finding failure this module exists to
+    prevent. x0/x1/x2 are NOISY's only true tau drivers.
+
+    Two guards applied here rather than downstream:
+
+    - **Minimum cell size is re-applied after intersecting with the
+      out-of-bag mask.** `candidate_subgroups` filters on the raw cell; a unit
+      with no out-of-bag prediction contributes nothing, so the promise
+      "no finding rests on fewer than `min_cell_size` units" has to be
+      enforced on the units actually used.
+    - **Bit-identical cells are de-duplicated**, keeping the first name in
+      `covariate_names` order. A duplicated or perfectly collinear covariate
+      produces the same mask, and that is one hypothesis, not two: counting it
+      twice inflates `m`, and if it survives, the same units are reported
+      twice under different names. Measured on NOISY at seed 0: appending an
+      exact copy of x0, a copy of x1 and a near-copy of x0 (Gaussian noise,
+      sd 0.01) takes the family from 24 to 30 cells spanning only 26 distinct
+      masks, and the survivor count from 8 to 14; de-duplicating brings it to
+      26 cells and 10 survivors.
+
+      De-duplication is exact-mask only, and that is a real limit rather than
+      an oversight -- it cannot see near-collinearity. Measured on the same
+      data, adding Gaussian noise of sd 0.001 to x0 leaves the median-split
+      mask bit-identical, while sd 0.01 moves 8 of 2000 units and so slips
+      through as a separate hypothesis (both of its cells are among the 10
+      survivors above). Two nearly-collinear covariates therefore still enter
+      the family twice, which is positive dependence of the kind BH's PRDS
+      condition covers rather than the degenerate identical case it does not.
+
+    **The standard error treats a cell's out-of-bag values as iid, and they
+    are not.** They are estimates sharing trees and training data, so this
+    accounts for dispersion within the fitted CATE surface and not for the
+    forest's own estimation uncertainty -- which is what
+    `infinitesimal_jackknife_variance` measures, and folding it in properly
+    needs the covariance BETWEEN units' estimates, not just the per-unit
+    diagonal. Out of scope here; two measured consequences worth knowing:
+
+    - Conditional on a fixed fit the iid formula is close to right once the
+      finite-population correction is applied. Drawing 4000 random cells of
+      size k from the n=2000 NOISY fit at seed 0, the ratio of the empirical
+      sd of the cell mean to the mean iid standard error runs 0.966 / 0.941 /
+      0.868 / 0.712 at k = 100 / 250 / 500 / 1000, against `sqrt((n-k)/(n-1))`
+      predictions of 0.975 / 0.936 / 0.866 / 0.707.
+    - The resulting p-values are still far too small to read literally: on
+      NOISY at seed 0 the two strongest true drivers, x1 and x2, come out
+      between 3e-82 and 1e-227. These describe the ESTIMATED CATE surface,
+      not the true one. Treat them as a ranking and screening device feeding
+      BH, never as calibrated evidence. Task 16's recovery harness is where
+      false-discovery behaviour gets scored.
+    """
+    valid = np.isfinite(cate_oob)
+    overall = float(cate_oob[valid].mean())
+
+    kept: list[CandidateSubgroup] = []
+    sizes: list[int] = []
+    estimates: list[float] = []
+    standard_errors: list[float] = []
+    p_values: list[float] = []
+    seen: set[bytes] = set()
+    for candidate in candidates:
+        cell = candidate.mask & valid
+        size = int(cell.sum())
+        # `ddof=1` needs two units; `min_cell_size` is normally far above it,
+        # but a caller is free to pass 1 and must not get a NaN standard error.
+        if size < max(min_cell_size, 2):
+            continue
+        key = cell.tobytes()
+        if key in seen:
+            continue
+        seen.add(key)
+
+        values = cate_oob[cell]
+        estimate = float(values.mean())
+        standard_error = float(values.std(ddof=1) / np.sqrt(size))
+        # A cell whose out-of-bag CATE is exactly constant carries no evidence
+        # that it differs from anything. p=1 says so and keeps it in the
+        # family; an infinite t-statistic would say the opposite.
+        t_statistic = (estimate - overall) / standard_error if standard_error > 0.0 else 0.0
+
+        kept.append(candidate)
+        sizes.append(size)
+        estimates.append(estimate)
+        standard_errors.append(standard_error)
+        p_values.append(float(2.0 * norm.sf(abs(t_statistic))))
+
+    return _SubgroupStatistics(
+        candidates=tuple(kept),
+        n_units=np.asarray(sizes, dtype=int),
+        estimates=np.asarray(estimates, dtype=float),
+        standard_errors=np.asarray(standard_errors, dtype=float),
+        p_values=np.asarray(p_values, dtype=float),
+    )
+
+
+def discover_subgroups(
+    fit: ForestFit,
+    covariates: np.ndarray,
+    covariate_names: tuple[str, ...],
+    *,
+    min_cell_size: int,
+    fdr_level: float,
+    ci_level: float,
+) -> tuple[SubgroupFinding, ...]:
+    """Subgroup discovery behind all three guards the parent spec requires:
+    the omnibus calibration gate, a minimum cell size, and Benjamini-Hochberg
+    FDR control across every candidate cell.
+
+    **The calibration gate is the one that does the heavy lifting**, and it is
+    worth being concrete about why, because the FDR correction is the part
+    that looks like the safeguard. Measured on `CATE_SCENARIOS["NULL"]` at
+    seed 0 -- a scenario whose true tau is exactly constant, so every possible
+    finding is fabricated -- the per-cell p-values are not null-looking at all:
+    8 of 12 candidates reach raw p<0.05 against the overall mean and 9 of 12
+    survive BH at `fdr_level=0.10`. The output is empty only because
+    `calibration_test` returns WARN and this function stops there. BH is what
+    thins the family once heterogeneity is established; it is not what
+    establishes it.
+
+    The gate is written as `!= "PASS"` rather than `== "FAIL"`. That check
+    would never fire: `calibration_test` returns WARN, not FAIL, when it finds
+    no heterogeneity, deliberately -- FAIL means a violated identification
+    assumption and `EffectEstimate.worst_assumption_status` rolls up the
+    maximum severity across checks, so FAIL would mark every correct
+    homogeneous-effect analysis as broken. Gating on the positive condition
+    also stays correct if a further status is ever added to the contract.
+
+    **What survives is not guaranteed to be real.** On
+    `CATE_SCENARIOS["NOISY"]` at seed 0, of the 24 candidate cells that enter
+    the family, 8 survive at `fdr_level=0.10`: both cells of x0, x1, x2 -- the
+    scenario's only true tau drivers -- and both cells of x4, which is pure
+    noise. x4's raw p-values are 1.7e-03 and 4.2e-03, correcting to q =
+    5.9e-03 and 1.3e-02; x1 and x2 sit at q between 1.9e-81 and 2.5e-226, x0
+    at 4.0e-04 and 3.5e-03, and the eight remaining non-drivers of tau between
+    q = 0.44 and 1.00. So BH separates most of the noise and not all of it, at
+    a threshold loose enough to keep the weakest true driver. One surviving
+    false discovery on one seed is not a false-discovery rate; Task 16's
+    recovery harness is where that gets measured.
+
+    See `_subgroup_statistics` for what each candidate is tested against
+    (the overall mean CATE, not zero), how identical cells are de-duplicated,
+    and the standard error's known iid limitation.
+    """
+    if covariates.ndim != 2:
+        raise ValueError(f"covariates must be 2-dimensional, got shape {covariates.shape}")
+    if covariates.shape[0] != fit.cate.size:
+        raise ValueError(
+            f"covariates has {covariates.shape[0]} rows but the forest was fitted on "
+            f"{fit.cate.size} units"
+        )
+    if covariates.shape[1] != len(covariate_names):
+        raise ValueError(
+            f"got {len(covariate_names)} covariate names for {covariates.shape[1]} "
+            f"covariate columns"
+        )
+    if not 0.0 < fdr_level < 1.0:
+        raise ValueError(f"fdr_level must lie in (0, 1), got {fdr_level}")
+    if min_cell_size < 1:
+        raise ValueError(f"min_cell_size must be positive, got {min_cell_size}")
+
+    if calibration_test(fit).status != "PASS":
+        return ()
+
+    statistics = _subgroup_statistics(
+        oob_cate(fit), candidate_subgroups(covariates, covariate_names, min_cell_size),
+        min_cell_size,
+    )
+    if statistics.candidates == ():
+        return ()
+
+    q_values = _benjamini_hochberg(statistics.p_values)
+    half_width = float(norm.ppf(1 - (1 - ci_level) / 2)) * statistics.standard_errors
+
+    return tuple(
+        SubgroupFinding(
+            covariate=candidate.covariate,
+            condition=candidate.condition,
+            n_units=int(statistics.n_units[index]),
+            cate_estimate=float(statistics.estimates[index]),
+            ci=Interval(
+                lower=float(statistics.estimates[index] - half_width[index]),
+                upper=float(statistics.estimates[index] + half_width[index]),
+                level=ci_level,
+            ),
+            q_value=float(q_values[index]),
+        )
+        for index, candidate in enumerate(statistics.candidates)
+        if q_values[index] < fdr_level
+    )
