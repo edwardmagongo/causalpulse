@@ -204,3 +204,65 @@ def test_effect_estimate_accepts_a_counterfactual_path():
     result = estimate(counterfactual=path)
 
     assert result.counterfactual is path
+
+
+def test_subgroup_finding_holds_a_named_condition_and_a_credible_or_confidence_interval():
+    from cp_core.results import SubgroupFinding
+    from cp_core.values import Interval
+
+    finding = SubgroupFinding(
+        covariate="x1",
+        condition="x1 == 1",
+        n_units=340,
+        cate_estimate=0.09,
+        ci=Interval(lower=0.04, upper=0.14),
+        q_value=0.01,
+    )
+    assert finding.covariate == "x1"
+    assert finding.q_value == 0.01
+
+
+def test_subgroup_finding_rejects_a_q_value_outside_zero_one():
+    from cp_core.results import SubgroupFinding
+    from cp_core.values import Interval
+
+    try:
+        SubgroupFinding(
+            covariate="x1", condition="x1 == 1", n_units=10,
+            cate_estimate=0.0, ci=Interval(lower=-0.1, upper=0.1), q_value=1.5,
+        )
+        raised = False
+    except ValueError:
+        raised = True
+    assert raised
+
+
+def test_effect_estimate_subgroup_findings_defaults_to_empty():
+    # Every existing estimator's EffectEstimate(...) construction call omits
+    # subgroup_findings entirely -- this must stay valid unchanged, or every
+    # other estimator's tests break on this task's contract change. Reuse
+    # an existing estimator's real fit() output rather than hand-constructing
+    # an EffectEstimate here, since the point is to prove real call sites
+    # aren't broken, not just that the dataclass accepts a default.
+    import numpy as np
+    import pandas as pd
+    from cp_causal.estimators.experimental import DifferenceInMeans  # any existing estimator
+    from cp_core.dataset import CausalDataset, CausalSchema
+    from cp_core.values import EstimatorConfig
+
+    rng = np.random.default_rng(0)
+    frame = pd.DataFrame(
+        {
+            "unit_id": np.arange(200),
+            "treated": rng.binomial(1, 0.5, 200),
+            "outcome": rng.normal(size=200),
+        }
+    )
+    schema = CausalSchema(
+        unit="unit_id", treatment="treated", outcome="outcome",
+        covariates=(), outcome_type="continuous",
+    )
+    result = DifferenceInMeans().fit(
+        CausalDataset(frame=frame, schema=schema), EstimatorConfig()
+    )
+    assert result.subgroup_findings == ()

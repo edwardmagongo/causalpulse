@@ -63,6 +63,33 @@ class AssumptionCheck:
             )
 
 
+@dataclass(frozen=True)
+class SubgroupFinding:
+    """One reported subgroup from a heterogeneous-effects estimator, after
+    surviving minimum-cell-size and multiple-testing correction.
+
+    A dedicated type rather than a loosely-shaped dict, matching
+    `AssumptionCheck`'s and `CounterfactualPath`'s precedent: `covariate`
+    and `condition` name what defines the subgroup, `q_value` is the
+    Benjamini-Hochberg-adjusted significance (not a raw p-value -- reporting
+    many candidate subgroups without this correction is what "guards
+    against fabricated subgroup findings" exists to prevent).
+    """
+
+    covariate: str
+    condition: str
+    n_units: int
+    cate_estimate: float
+    ci: Interval
+    q_value: float
+
+    def __post_init__(self) -> None:
+        if self.n_units < 1:
+            raise ValueError(f"n_units must be positive, got {self.n_units}")
+        if not 0.0 <= self.q_value <= 1.0:
+            raise ValueError(f"q_value must be in [0, 1], got {self.q_value}")
+
+
 @dataclass(frozen=True, eq=False)
 class FitMetadata:
     """What a fit was produced by, and what it would take to reproduce it.
@@ -207,6 +234,7 @@ class EffectEstimate:
     assumptions: tuple[AssumptionCheck, ...]
     counterfactual: CounterfactualPoint | CounterfactualPath | None
     fit_metadata: FitMetadata
+    subgroup_findings: tuple[SubgroupFinding, ...] = ()
 
     def __post_init__(self) -> None:
         if self.estimand not in _VALID_ESTIMANDS:
