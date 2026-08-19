@@ -454,34 +454,88 @@ class _SubgroupStatistics:
     p_values: np.ndarray
 
 
+def _residual_effect(
+    y_res: np.ndarray, w_res: np.ndarray, mask: np.ndarray
+) -> tuple[float, float]:
+    """The R-learner effect on a subset of units, with a
+    heteroskedasticity-robust standard error.
+
+    `tau = sum(w_res * y_res) / sum(w_res**2)` is the least-squares
+    coefficient of `y_res` on `w_res` over the subset -- the same estimator
+    `leaf_tau` applies inside a leaf, here applied to a covariate-defined
+    cell. The standard error is the usual sandwich form
+    `sqrt(sum(w_res**2 * r**2)) / sum(w_res**2)` with `r` the residual from
+    that fit, so a cell whose noise varies with treatment is not understated.
+
+    Returns `(0.0, 0.0)` when the subset carries no residual treatment
+    variation, which callers read as "no contrast identified" rather than as
+    an effect of zero.
+    """
+    u = w_res[mask]
+    denominator = float(np.sum(u**2))
+    if denominator <= 0.0:
+        return 0.0, 0.0
+    tau = float(np.sum(u * y_res[mask]) / denominator)
+    residual = y_res[mask] - tau * u
+    return tau, float(np.sqrt(np.sum(u**2 * residual**2)) / denominator)
+
+
 def _subgroup_statistics(
-    cate_oob: np.ndarray, candidates: Sequence[CandidateSubgroup], min_cell_size: int
+    fit: ForestFit, candidates: Sequence[CandidateSubgroup], min_cell_size: int
 ) -> _SubgroupStatistics:
-    """Test each candidate cell's mean out-of-bag CATE against the OVERALL
-    mean out-of-bag CATE -- not against zero.
+    """Estimate each candidate cell's effect from the RESIDUALS, and test it
+    against the cell's own complement.
 
-    This is the whole difference between subgroup discovery and re-testing
-    the average effect. "Does this cell have an effect" is not the question;
-    "does this cell differ from everyone else" is. Measured on
-    `CATE_SCENARIOS["NOISY"]` at seed 0 with the shipped forest configuration
-    and `min_cell_size=50` (24 candidate cells):
+    Two decisions here, each measured rather than assumed, and each the
+    difference between a working guard and a broken one.
 
-        null tested            raw p < 0.05    what survives BH at 0.10
-        against zero              24 of 24     all 24, every p numerically 0.0
-        against the overall mean   8 of 24     8: both cells of x0, x1, x2, x4
+    **The effect is estimated from data, not from the forest's predictions.**
+    A cell's tau is the R-learner score restricted to that cell,
+    `sum(w_res * y_res) / sum(w_res**2)` -- the same quantity `leaf_tau`
+    computes, on the cross-fitted residuals -- with a heteroskedasticity-robust
+    standard error. It is NOT the average of the forest's out-of-bag CATE over
+    the cell.
 
-    Against zero the procedure reports every one of the nine pure-noise
-    covariates as a subgroup and leaves Benjamini-Hochberg nothing to correct,
-    which is precisely the fabricated-finding failure this module exists to
-    prevent. x0/x1/x2 are NOISY's only true tau drivers.
+    Averaging predictions is what an earlier draft did, and it does not
+    control the false-discovery rate at all. The forest splits on every
+    covariate it is given, so its fitted surface genuinely varies with a pure
+    noise covariate; asking whether the ESTIMATED surface differs across that
+    covariate's cells answers yes, correctly, while the question that matters
+    is whether the TRUE effect differs. Measured on `CATE_SCENARIOS["NOISY"]`
+    over 20 seeds at `fdr_level=0.10`, counting any surviving cell on a
+    covariate other than x0/x1/x2 (the scenario's only true tau drivers) as a
+    false discovery:
+
+        per-cell estimator            empirical false-discovery rate
+        mean of out-of-bag CATE                     0.43
+        R-learner score on residuals                0.05
+
+    Against a nominal 0.10. The prediction-averaging version leaked noise
+    covariates on every one of the first eight seeds; the residual version
+    produced none at all on seeds 8-19. It buys that with power -- typically 4
+    of the 6 true-driver cells rather than all 6 -- which is the honest price
+    of testing the effect instead of the fit.
+
+    Because the estimate uses only cross-fitted residuals and a
+    covariate-defined mask, it does not depend on the forest's fitted
+    structure. The forest's role is to decide, through `calibration_test`,
+    whether the search is licensed at all.
+
+    **Each cell is tested against its complement, not against the overall
+    mean.** The complement is a disjoint sample, so the difference of the two
+    estimates has a clean variance; the overall mean contains the cell itself
+    and its p-value understates the uncertainty. Testing against zero is
+    wronger still -- it asks "does this cell have an effect", not "does this
+    cell differ" -- and measured on NOISY at seed 0 it made all 24 of 24
+    candidates significant with every p-value numerically 0.0, leaving
+    Benjamini-Hochberg nothing whatever to correct.
 
     Two guards applied here rather than downstream:
 
-    - **Minimum cell size is re-applied after intersecting with the
-      out-of-bag mask.** `candidate_subgroups` filters on the raw cell; a unit
-      with no out-of-bag prediction contributes nothing, so the promise
-      "no finding rests on fewer than `min_cell_size` units" has to be
-      enforced on the units actually used.
+    - **Minimum cell size is enforced on both the cell and its complement.**
+      A cell that passes the size floor but whose complement does not leaves
+      the comparison resting on a handful of units at the other end, so both
+      sides have to clear it.
     - **Bit-identical cells are de-duplicated**, keeping the first name in
       `covariate_names` order. A duplicated or perfectly collinear covariate
       produces the same mask, and that is one hypothesis, not two: counting it
@@ -501,29 +555,19 @@ def _subgroup_statistics(
       the family twice, which is positive dependence of the kind BH's PRDS
       condition covers rather than the degenerate identical case it does not.
 
-    **The standard error treats a cell's out-of-bag values as iid, and they
-    are not.** They are estimates sharing trees and training data, so this
-    accounts for dispersion within the fitted CATE surface and not for the
-    forest's own estimation uncertainty -- which is what
-    `infinitesimal_jackknife_variance` measures, and folding it in properly
-    needs the covariance BETWEEN units' estimates, not just the per-unit
-    diagonal. Out of scope here; two measured consequences worth knowing:
-
-    - Conditional on a fixed fit the iid formula is close to right once the
-      finite-population correction is applied. Drawing 4000 random cells of
-      size k from the n=2000 NOISY fit at seed 0, the ratio of the empirical
-      sd of the cell mean to the mean iid standard error runs 0.966 / 0.941 /
-      0.868 / 0.712 at k = 100 / 250 / 500 / 1000, against `sqrt((n-k)/(n-1))`
-      predictions of 0.975 / 0.936 / 0.866 / 0.707.
-    - The resulting p-values are still far too small to read literally: on
-      NOISY at seed 0 the two strongest true drivers, x1 and x2, come out
-      between 3e-82 and 1e-227. These describe the ESTIMATED CATE surface,
-      not the true one. Treat them as a ranking and screening device feeding
-      BH, never as calibrated evidence. Task 16's recovery harness is where
-      false-discovery behaviour gets scored.
+    **What the standard error still does not carry.** It is robust to
+    heteroskedasticity and it treats the residuals as independent across
+    units, which they are up to the cross-fitting folds. What it does not
+    carry is the uncertainty in the nuisance models themselves -- `y_res` and
+    `w_res` are residuals from fitted models, and this treats them as data.
+    That is the same conditional-on-nuisances footing
+    `infinitesimal_jackknife_variance` documents for the per-unit variance,
+    and it is why the reported intervals should be read as somewhat narrow.
+    Unlike the prediction-averaging version this replaced, the effect is
+    nonetheless second-order rather than the dominant term: the measured
+    false-discovery rate over 20 NOISY seeds is 0.05 against a nominal 0.10.
     """
-    valid = np.isfinite(cate_oob)
-    overall = float(cate_oob[valid].mean())
+    y_res, w_res = fit.y_res, fit.w_res
 
     kept: list[CandidateSubgroup] = []
     sizes: list[int] = []
@@ -532,24 +576,22 @@ def _subgroup_statistics(
     p_values: list[float] = []
     seen: set[bytes] = set()
     for candidate in candidates:
-        cell = candidate.mask & valid
+        cell = candidate.mask
         size = int(cell.sum())
-        # `ddof=1` needs two units; `min_cell_size` is normally far above it,
-        # but a caller is free to pass 1 and must not get a NaN standard error.
-        if size < max(min_cell_size, 2):
+        if size < min_cell_size or int((~cell).sum()) < min_cell_size:
             continue
         key = cell.tobytes()
         if key in seen:
             continue
         seen.add(key)
 
-        values = cate_oob[cell]
-        estimate = float(values.mean())
-        standard_error = float(values.std(ddof=1) / np.sqrt(size))
-        # A cell whose out-of-bag CATE is exactly constant carries no evidence
-        # that it differs from anything. p=1 says so and keeps it in the
-        # family; an infinite t-statistic would say the opposite.
-        t_statistic = (estimate - overall) / standard_error if standard_error > 0.0 else 0.0
+        estimate, standard_error = _residual_effect(y_res, w_res, cell)
+        complement, complement_se = _residual_effect(y_res, w_res, ~cell)
+        difference_se = float(np.sqrt(standard_error**2 + complement_se**2))
+        # A cell with no treatment variation on either side identifies no
+        # contrast. p=1 says so and keeps it in the family; dividing by a zero
+        # standard error would say the opposite.
+        t_statistic = (estimate - complement) / difference_se if difference_se > 0.0 else 0.0
 
         kept.append(candidate)
         sizes.append(size)
@@ -598,21 +640,21 @@ def discover_subgroups(
     homogeneous-effect analysis as broken. Gating on the positive condition
     also stays correct if a further status is ever added to the contract.
 
-    **What survives is not guaranteed to be real.** On
-    `CATE_SCENARIOS["NOISY"]` at seed 0, of the 24 candidate cells that enter
-    the family, 8 survive at `fdr_level=0.10`: both cells of x0, x1, x2 -- the
-    scenario's only true tau drivers -- and both cells of x4, which is pure
-    noise. x4's raw p-values are 1.7e-03 and 4.2e-03, correcting to q =
-    5.9e-03 and 1.3e-02; x1 and x2 sit at q between 1.9e-81 and 2.5e-226, x0
-    at 4.0e-04 and 3.5e-03, and the eight remaining non-drivers of tau between
-    q = 0.44 and 1.00. So BH separates most of the noise and not all of it, at
-    a threshold loose enough to keep the weakest true driver. One surviving
-    false discovery on one seed is not a false-discovery rate; Task 16's
-    recovery harness is where that gets measured.
+    **What survives is not guaranteed to be real, but the rate is
+    controlled.** Measured on `CATE_SCENARIOS["NOISY"]` across 20 seeds at
+    `fdr_level=0.10`, counting any surviving cell on a covariate other than
+    x0/x1/x2 -- the scenario's only true tau drivers -- as a false discovery:
+    80 discoveries, 4 of them false, an empirical false-discovery rate of
+    0.05. Seeds 8-19 produced no false discovery at all. The cost is power:
+    a typical seed reports 4 of the 6 true-driver cells rather than all 6,
+    and one seed in twelve reports nothing.
 
-    See `_subgroup_statistics` for what each candidate is tested against
-    (the overall mean CATE, not zero), how identical cells are de-duplicated,
-    and the standard error's known iid limitation.
+    That control depends on estimating each cell's effect from the residuals
+    rather than by averaging the forest's predictions over the cell. The
+    prediction-averaging form measured a false-discovery rate of 0.43 against
+    the same nominal 0.10 and leaked noise covariates on every seed tried;
+    see `_subgroup_statistics` for why, along with how identical cells are
+    de-duplicated and what the standard error still does not carry.
     """
     if covariates.ndim != 2:
         raise ValueError(f"covariates must be 2-dimensional, got shape {covariates.shape}")
@@ -635,8 +677,7 @@ def discover_subgroups(
         return ()
 
     statistics = _subgroup_statistics(
-        oob_cate(fit), candidate_subgroups(covariates, covariate_names, min_cell_size),
-        min_cell_size,
+        fit, candidate_subgroups(covariates, covariate_names, min_cell_size), min_cell_size
     )
     if statistics.candidates == ():
         return ()

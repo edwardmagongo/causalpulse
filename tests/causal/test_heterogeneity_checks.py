@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from cp_causal.estimators.causal_forest import ForestFit, fit_forest, oob_cate
+from cp_causal.estimators.causal_forest import ForestFit, fit_forest
 from cp_causal.heterogeneity_checks import (
     _KERNEL_ROW_MASS,
     CandidateSubgroup,
@@ -462,20 +462,25 @@ def test_benjamini_hochberg_returns_step_up_adjusted_q_values():
 
 def test_discover_subgroups_on_the_noisy_scenario_keeps_the_true_drivers():
     """The NOISY scenario's whole purpose: 9 of its 12 covariates are pure
-    noise, and the reported subgroups must be dominated by the 3 that are not.
+    noise, and no pure-noise covariate may be reported as a subgroup.
 
     Measured at seed 0 with the shipped `_FOREST_CONFIG`: 24 candidate cells
-    enter the family, 8 survive Benjamini-Hochberg at `fdr_level=0.10`, and
-    they are both cells of x0, x1, x2 -- the scenario's only true tau drivers
-    -- plus both cells of x4, a pure-noise covariate.
+    enter the family and 4 survive Benjamini-Hochberg at `fdr_level=0.10` --
+    both cells of x1 and both of x2, two of the scenario's three true tau
+    drivers. x0, the weakest driver, is not detected at this seed.
 
-    x4 is a REAL false discovery that BH does not remove: its raw p-values are
-    1.7e-03 and 4.2e-03, which correct to q = 5.9e-03 and 1.3e-02, still far
-    inside 0.10. It is asserted here rather than tuned away, because the honest
-    claim this test can support is "the true drivers survive and most noise
-    covariates do not", not "no noise covariate ever survives". A single-seed
-    test cannot establish a false-discovery RATE; Task 16's recovery harness
-    is where that gets scored.
+    That miss is the honest cost of the estimator this uses. Each cell's
+    effect is the R-learner score on the residuals rather than the average of
+    the forest's out-of-bag predictions over the cell, and the difference is
+    not cosmetic: over 20 seeds the prediction-averaging form measured a
+    false-discovery rate of 0.43 against a nominal 0.10, leaking noise
+    covariates on every seed, while the residual form measures 0.05 and found
+    none at all on seeds 8-19. It reports fewer true cells in exchange. See
+    `_subgroup_statistics`.
+
+    A single seed cannot establish a false-discovery RATE; Task 16's recovery
+    harness is where that gets scored. What this seed pins is that the
+    surviving set contains real drivers and nothing else.
     """
     fit, covariates = _fit_on_scenario("NOISY", seed=0)
     findings = discover_subgroups(
@@ -488,48 +493,52 @@ def test_discover_subgroups_on_the_noisy_scenario_keeps_the_true_drivers():
     )
 
     reported = {finding.covariate for finding in findings}
-    assert reported == {"x0", "x1", "x2", "x4"}, (
-        f"reported subgroups on {sorted(reported)}; expected the three true "
-        f"drivers x0/x1/x2 plus the measured x4 false discovery. Losing a driver "
-        f"means the discovery path has no power; gaining a noise covariate means "
-        f"the correction has stopped correcting."
+    assert reported == {"x1", "x2"}, (
+        f"reported subgroups on {sorted(reported)}; expected exactly the true "
+        f"drivers x1 and x2 at this seed. An extra covariate means the correction "
+        f"has stopped correcting; a missing one means the discovery path has lost "
+        f"what little power it has."
     )
-    assert len(findings) == 8
-    assert not reported & {"x6", "x7", "x8", "x9", "x10", "x11"}, (
-        "a covariate that enters neither the baseline nor tau was reported as a "
-        "subgroup -- this is a fabricated finding reaching a report"
+    assert len(findings) == 4
+    assert not reported & {"x3", "x4", "x5", "x6", "x7", "x8", "x9", "x10", "x11"}, (
+        "a covariate that does not drive tau was reported as a subgroup -- this is "
+        "a fabricated finding reaching a report"
     )
 
-    q_by_covariate: dict[str, list[float]] = {}
-    for finding in findings:
-        q_by_covariate.setdefault(finding.covariate, []).append(finding.q_value)
-    # The genuine interaction drivers are separated from the false discovery by
-    # ~80 orders of magnitude, which is why BH cannot tell them apart at any
-    # level that keeps x0 (q = 4.0e-04 and 3.5e-03) -- see the docstring on
-    # `discover_subgroups` about reading these p-values as a ranking only.
-    assert max(q_by_covariate["x1"]) < 1e-90
-    assert max(q_by_covariate["x2"]) < 1e-80
-    assert all(1e-03 < q < 2e-02 for q in q_by_covariate["x4"])
+    # Both cells of a driver are reported together, and they are what makes the
+    # subgroup interesting: at x1 == 1 the effect is ~5x the effect at x1 == 0.
+    by_condition = {finding.condition: finding for finding in findings}
+    assert by_condition["x1 == 1"].cate_estimate > 4 * by_condition["x1 == 0"].cate_estimate
 
     for finding in findings:
         assert 0.0 <= finding.q_value <= 1.0
+        assert finding.q_value < 0.10
         assert finding.n_units >= 50
         assert finding.ci.level == 0.95
         assert finding.ci.contains(finding.cate_estimate)
+        # A reported subgroup differs from its COMPLEMENT; its own effect need
+        # not exclude zero, and at x1 == 0 it does not. Asserting otherwise
+        # would be asserting the wrong contrast.
+        assert finding.ci.upper > finding.ci.lower
 
 
 def test_discover_subgroups_on_the_null_scenario_reports_nothing():
     """The guard this phase exists to prove, at the end of the pipeline rather
     than at the calibration test alone.
 
-    And it checks WHICH guard does the work. On NULL at seed 0 the per-cell
-    p-values are not remotely null-looking: 8 of the 12 candidates are
-    significant at raw p<0.05 against the overall mean, and 9 survive
-    Benjamini-Hochberg at `fdr_level=0.10`. Every one of those would be a
-    fabricated finding on a scenario whose true tau is exactly constant. It is
-    the calibration gate, not the FDR correction, that keeps the output empty
-    -- so a change that quietly stops the gate from firing would still leave
-    this file's other tests green while shipping 9 invented subgroups.
+    And it checks that BOTH guards hold independently, which they now do. The
+    calibration gate returns WARN and stops the search; and separately, with
+    the gate bypassed, not one of the 12 candidate cells reaches even raw
+    p<0.05 (the smallest p-value measured across seeds 0-3 is 0.208).
+
+    That independence is new and is the point worth protecting. When each
+    cell's effect was the average of the forest's out-of-bag predictions
+    rather than the R-learner score on the residuals, the ungated p-values on
+    this same scenario were nowhere near null: 8 of 12 cells reached raw
+    p<0.05 and 9 survived Benjamini-Hochberg, so the gate was the only thing
+    standing between a constant-tau scenario and 9 invented subgroups. Now the
+    p-values would refuse on their own. Asserting both means a regression in
+    either guard is visible here rather than masked by the other.
     """
     fit, covariates = _fit_on_scenario("NULL", seed=0)
     names = ("x0", "x1", "x2", "x3", "x4", "x5")
@@ -543,14 +552,19 @@ def test_discover_subgroups_on_the_null_scenario_reports_nothing():
     assert calibration_test(fit).status == "WARN"
 
     ungated = _subgroup_statistics(
-        oob_cate(fit), candidate_subgroups(covariates, names, 50), min_cell_size=50
+        fit, candidate_subgroups(covariates, names, 50), min_cell_size=50
     )
     survivors = int((_benjamini_hochberg(ungated.p_values) < 0.10).sum())
-    assert survivors == 9, (
-        f"{survivors} of {ungated.p_values.size} NULL candidates survive BH "
-        f"without the gate (measured 9 of 12). If this ever reaches 0 the test "
-        f"above stops proving anything, because the p-values alone would have "
-        f"produced an empty report."
+    assert survivors == 0, (
+        f"{survivors} of {ungated.p_values.size} NULL candidates survive BH even "
+        f"with the calibration gate bypassed. On a scenario whose true tau is "
+        f"exactly constant every one of those is fabricated, and the second line "
+        f"of defence has gone."
+    )
+    assert float(ungated.p_values.min()) > 0.05, (
+        f"the smallest ungated p-value on a constant-tau scenario is "
+        f"{ungated.p_values.min():.4f}; these should look null (measured minimum "
+        f"0.208 across seeds 0-3)"
     )
 
 
