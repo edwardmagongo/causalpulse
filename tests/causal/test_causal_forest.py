@@ -4,8 +4,11 @@ the registered estimator.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from cp_causal.estimators.causal_forest import (
+    CausalForest,
     ForestFit,
+    aggregate_effect,
     assign_estimation_leaves,
     build_honest_tree,
     cross_fitted_outcome_model,
@@ -17,6 +20,8 @@ from cp_causal.estimators.causal_forest import (
     predict_leaf_tau,
     residualize,
 )
+from cp_core.values import EstimatorConfig
+from cp_simulation.cate_scenarios import CATE_N_UNITS, build_cate_scenario
 
 
 def test_cross_fitted_outcome_model_predictions_are_out_of_fold():
@@ -107,6 +112,7 @@ def test_fit_forest_returns_a_forestfit_with_consistent_shapes():
     assert fit.per_tree_predictions.shape == (20, n)
     assert fit.membership.shape == (20, n)
     assert fit.membership.dtype == bool
+    assert fit.propensity_scores.shape == (n,)
 
 
 def test_oob_cate_uses_only_trees_that_excluded_the_unit():
@@ -185,6 +191,7 @@ def _independent_forest_fit(
         membership=membership,
         y_res=np.zeros(n),
         w_res=np.zeros(n),
+        propensity_scores=np.full(n, 0.5),
     )
 
 
@@ -222,3 +229,90 @@ def test_infinitesimal_jackknife_correction_cancels_the_raw_term_under_independe
             f"using the with-replacement bootstrap factor n*v/B instead of the "
             f"without-replacement factor n*p*(1-p)*v/B this forest requires."
         )
+
+
+CONFIG = EstimatorConfig(
+    random_seed=0, options={"n_trees": 50, "max_depth": 3, "min_leaf_structure": 10}
+)
+
+
+def _generate_cate(scenario_id: str, seed: int = 0):
+    dgp = build_cate_scenario(scenario_id)
+    return dgp.generate(CATE_N_UNITS, np.random.default_rng(seed))
+
+
+def test_causal_forest_is_registered_under_its_own_name():
+    from cp_causal.registry import get_estimator
+
+    assert get_estimator("causal_forest") is CausalForest
+
+
+def test_causal_forest_requirements_need_covariates_and_reject_panels():
+    assert CausalForest.requirements.needs_covariates is True
+    assert CausalForest.requirements.needs_panel is False
+
+
+def test_causal_forest_fit_returns_ate_with_per_unit_cate_diagnostic():
+    simulated = _generate_cate("RICH")
+    result = CausalForest().fit(simulated.dataset, CONFIG)
+
+    assert result.estimand == "ATE"
+    assert result.ci.lower <= result.point <= result.ci.upper
+    assert "per_unit_cate" in result.diagnostics
+    per_unit = result.diagnostics["per_unit_cate"].value
+    assert per_unit.shape == (CATE_N_UNITS,)
+    variances = result.diagnostics["per_unit_cate_variance"].value
+    assert variances.shape == (CATE_N_UNITS,)
+    assert np.all(variances >= 0.0)
+
+
+def test_causal_forest_fit_reports_subgroup_findings_as_a_tuple():
+    simulated = _generate_cate("RICH")
+    result = CausalForest().fit(simulated.dataset, CONFIG)
+    assert isinstance(result.subgroup_findings, tuple)
+    for finding in result.subgroup_findings:
+        assert 0.0 <= finding.q_value <= 1.0
+
+
+def test_causal_forest_fit_reports_the_calibration_test_assumption():
+    simulated = _generate_cate("RICH")
+    result = CausalForest().fit(simulated.dataset, CONFIG)
+    names = {c.name for c in result.assumptions}
+    assert "calibration_test" in names
+
+
+def test_aggregate_effect_is_the_r_learner_score_not_the_mean_prediction():
+    """The headline ATE must come from the residuals, not from `fit.cate`.
+
+    This pins the *identity* of the estimator only. It cannot detect an
+    interval that undercovers -- the reported SE's coverage is a rate, scored
+    across seeds in
+    `test_causal_forest_recovery.py::test_causal_forest_ate_interval_covers_the_true_ate`,
+    and the formula this test excludes was the one that measured 0.35.
+    """
+    rng = np.random.default_rng(0)
+    n = 400
+    X = rng.normal(size=(n, 3))
+    W = rng.binomial(1, 0.5, n)
+    Y = X[:, 0] + W * (1 + X[:, 1]) + rng.normal(scale=0.1, size=n)
+
+    fit = fit_forest(
+        X, W, Y, n_trees=20, min_leaf_structure=10, max_depth=3,
+        subsample_frac=0.5, cross_fit_folds=5, rng=rng,
+    )
+    point, se = aggregate_effect(fit)
+
+    expected = float(np.sum(fit.w_res * fit.y_res) / np.sum(fit.w_res**2))
+    assert point == pytest.approx(expected)
+    assert se > 0.0
+    # Not the prediction average: those differ here, so a regression back to
+    # `fit.cate.mean()` cannot slip through as numerically indistinguishable.
+    assert abs(point - float(fit.cate.mean())) > 1e-6
+
+
+def test_causal_forest_rejects_a_non_integer_tuning_option():
+    simulated = _generate_cate("RICH")
+    config = EstimatorConfig(random_seed=0, options={"n_trees": 50.0})
+
+    with pytest.raises(TypeError, match="n_trees"):
+        CausalForest().fit(simulated.dataset, config)

@@ -11,6 +11,7 @@ comparison layer see a complete set without callers importing each module.
 from cp_causal.estimators import (  # noqa: F401
     bsts,
     callaway_santanna,
+    causal_forest,
     did,
     doubly_robust,
     event_study,

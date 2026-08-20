@@ -12,13 +12,25 @@ causal quantity in this project gets.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 
 import numpy as np
+from cp_core.dataset import CausalDataset
+from cp_core.results import EffectEstimate, FitMetadata
+from cp_core.values import Diagnostic, EstimatorConfig
 from scipy.stats import norm
 from sklearn.linear_model import LinearRegression
 
-from cp_causal.propensity import fit_propensity
+from cp_causal._panel import outcome_scale
+from cp_causal._support import arrays, config_hash, normal_p_value, wald_interval
+from cp_causal.base import Requirements
+from cp_causal.propensity import (
+    fit_propensity,
+    overlap_checks,
+    standardised_mean_differences,
+)
+from cp_causal.registry import register
 
 
 def cross_fitted_outcome_model(
@@ -59,6 +71,35 @@ def cross_fitted_outcome_model(
     return predictions
 
 
+def _residualize_with_propensity(
+    covariates: np.ndarray,
+    treatment: np.ndarray,
+    outcome: np.ndarray,
+    *,
+    cross_fit_folds: int,
+    rng: np.random.Generator,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """`residualize`, additionally returning the fitted propensity scores.
+
+    Split out so `fit_forest` can carry the cross-fitted scores on `ForestFit`
+    for the estimator's overlap diagnostics, without either refitting the
+    propensity model a second time (a second, differently-seeded fit would
+    diagnose overlap for a model the estimate was not built on) or changing
+    `residualize`'s two-value contract. The draw order on `rng` is the outcome
+    model first, then the propensity model -- unchanged from when this body
+    lived in `residualize`, so every measured number downstream still holds.
+    """
+    m_hat = cross_fitted_outcome_model(
+        covariates, outcome, cross_fit_folds=cross_fit_folds, rng=rng
+    )
+    propensity_fit = fit_propensity(
+        covariates, treatment, cross_fit_folds=cross_fit_folds, rng=rng
+    )
+    y_res = outcome - m_hat
+    w_res = treatment - propensity_fit.scores
+    return y_res, w_res, propensity_fit.scores
+
+
 def residualize(
     covariates: np.ndarray,
     treatment: np.ndarray,
@@ -76,14 +117,9 @@ def residualize(
     to X on average mean a split on the residualized pseudo-effect isn't
     confounded by X's direct effect on Y.
     """
-    m_hat = cross_fitted_outcome_model(
-        covariates, outcome, cross_fit_folds=cross_fit_folds, rng=rng
+    y_res, w_res, _ = _residualize_with_propensity(
+        covariates, treatment, outcome, cross_fit_folds=cross_fit_folds, rng=rng
     )
-    propensity_fit = fit_propensity(
-        covariates, treatment, cross_fit_folds=cross_fit_folds, rng=rng
-    )
-    y_res = outcome - m_hat
-    w_res = treatment - propensity_fit.scores
     return y_res, w_res
 
 
@@ -110,6 +146,33 @@ def leaf_tau(y_res: np.ndarray, w_res: np.ndarray, idx: np.ndarray) -> float:
     if denom < 1e-6 or idx.size < 2:
         return 0.0
     return float(np.sum(w_res[idx] * y_res[idx]) / denom)
+
+
+def residual_effect(
+    y_res: np.ndarray, w_res: np.ndarray, mask: np.ndarray
+) -> tuple[float, float]:
+    """The R-learner effect on a subset of units, with a
+    heteroskedasticity-robust standard error.
+
+    `tau = sum(w_res * y_res) / sum(w_res**2)` is the least-squares
+    coefficient of `y_res` on `w_res` over the subset -- exactly the
+    quantity `leaf_tau` above computes inside a leaf, here applied to an
+    arbitrary subset: a covariate-defined cell (`heterogeneity_checks`) or
+    the whole sample (`CausalForest`'s headline ATE). The standard error is the usual sandwich form
+    `sqrt(sum(w_res**2 * r**2)) / sum(w_res**2)` with `r` the residual from
+    that fit, so a cell whose noise varies with treatment is not understated.
+
+    Returns `(0.0, 0.0)` when the subset carries no residual treatment
+    variation, which callers read as "no contrast identified" rather than as
+    an effect of zero.
+    """
+    u = w_res[mask]
+    denominator = float(np.sum(u**2))
+    if denominator <= 0.0:
+        return 0.0, 0.0
+    tau = float(np.sum(u * y_res[mask]) / denominator)
+    residual = y_res[mask] - tau * u
+    return tau, float(np.sqrt(np.sum(u**2 * residual**2)) / denominator)
 
 
 def _node_objective(y_res: np.ndarray, w_res: np.ndarray, idx: np.ndarray) -> float:
@@ -227,6 +290,7 @@ class ForestFit:
     membership: np.ndarray
     y_res: np.ndarray
     w_res: np.ndarray
+    propensity_scores: np.ndarray
 
 
 def fit_forest(
@@ -250,7 +314,7 @@ def fit_forest(
     in-sample bias); only the tree-growing subsample varies across trees.
     """
     n = covariates.shape[0]
-    y_res, w_res = residualize(
+    y_res, w_res, propensity_scores = _residualize_with_propensity(
         covariates, treatment, outcome, cross_fit_folds=cross_fit_folds, rng=rng
     )
 
@@ -283,6 +347,7 @@ def fit_forest(
         membership=membership,
         y_res=y_res,
         w_res=w_res,
+        propensity_scores=propensity_scores,
     )
 
 
@@ -470,3 +535,238 @@ def infinitesimal_jackknife_variance(fit: ForestFit) -> np.ndarray:
     # floating-point cancellation when `naive` is many standard errors below
     # zero and the Mills term nearly cancels it.
     return np.maximum(variance, 0.0)
+
+
+def _int_option(config: EstimatorConfig, key: str, default: int) -> int:
+    """Read an integer tuning option, rejecting a wrong type rather than
+    coercing it: a float `n_trees` silently truncating is the kind of quiet
+    misconfiguration that only shows up as an unexplained accuracy change."""
+    raw = config.options.get(key, default)
+    if not isinstance(raw, int) or isinstance(raw, bool):
+        raise TypeError(f"options[{key!r}] must be an int, got {type(raw).__name__}")
+    if raw < 1:
+        raise ValueError(f"options[{key!r}] must be positive, got {raw}")
+    return raw
+
+
+def aggregate_effect(fit: ForestFit) -> tuple[float, float]:
+    """The forest's headline aggregate effect and its standard error,
+    estimated from the cross-fitted residuals rather than from the forest's
+    own predictions.
+
+    This is `residual_effect` over every unit: the R-learner least-squares
+    coefficient `sum(w_res * y_res) / sum(w_res**2)` with the same
+    heteroskedasticity-robust sandwich standard error each subgroup cell gets.
+
+    **Why not the mean of `fit.cate`, which is the obvious candidate.** Not
+    because the point estimate is bad -- it is fine, and measured bias is
+    near-identical (RICH, 20 seeds: +0.0022 for the prediction average against
+    +0.0025 here) -- but because nothing honest can be said about its
+    uncertainty from the forest's own output. Two formulas were measured
+    against realised truth on `CATE_SCENARIOS`, 20 seeds each, n=2000,
+    nominal 95%. The first two rows were measured on a prototype at
+    `n_trees=200`; the third was measured through `CausalForest.fit` itself at
+    the recovery harness's own `n_trees=500` config, and reproduces the
+    prototype's numbers to four decimals (this estimate does not depend on the
+    ensemble at all, only on the residuals):
+
+    | ATE point and SE                          | NULL | RICH |
+    |-------------------------------------------|------|------|
+    | mean(cate), mean per-unit IJ variance / n | 0.40 | 0.35 |
+    | mean(cate), IJ of the mean prediction     | 0.65 | 0.60 |
+    | this function                             | 1.00 | 0.95 |
+
+    The first row is the natural-looking formula and it is wrong by a factor
+    of six on the standard error: averaging the per-unit IJ variances and
+    dividing by `n` treats 2000 per-unit CATEs as independent draws, when
+    every one of them is built from the same trees fitted to the same
+    residuals. The second row keeps the correlation by applying the
+    infinitesimal jackknife to the mean prediction directly, which helps and
+    still undercovers -- the IJ measures the forest's sensitivity to *which
+    units it resampled*, not the sampling variability of the units themselves.
+
+    **What this estimates, precisely.** With a non-constant propensity the
+    `w_res**2` weights make this an overlap-weighted average effect rather
+    than the ATE proper -- units in the region where treatment is nearly
+    deterministic contribute almost nothing. Under the 50/50 random assignment
+    every `CATE_SCENARIOS` scenario uses, `e(X)` is constant and the two
+    coincide exactly. `estimand` is reported as `"ATE"` on that basis; a
+    future observational scenario with strongly varying propensity would make
+    the distinction real and is the case to revisit this on.
+
+    Per-unit heterogeneity is still the forest's job and is reported unchanged
+    in the `per_unit_cate` diagnostic; it is only the aggregate number, and
+    the interval around it, that comes from the residuals. That is the same
+    correction `_subgroup_statistics` applies for the same reason: a model's
+    predictions cannot testify about the data that trained them.
+    """
+    return residual_effect(fit.y_res, fit.w_res, np.ones(fit.cate.size, dtype=bool))
+
+
+@register
+class CausalForest:
+    """Honest causal forest: per-unit CATE, an aggregate ATE, and subgroup
+    discovery behind the guards in `heterogeneity_checks.py`.
+
+    `config.options` accepts three integer keys, all with defaults tuned for
+    production rather than for test speed:
+
+    - `"n_trees"` (default 500): ensemble size.
+    - `"max_depth"` (default 4): maximum honest-tree depth.
+    - `"min_leaf_structure"` (default 20): minimum structure-sample units a
+      leaf must retain for a split to be considered.
+
+    Three quantities that look interchangeable are deliberately not.
+
+    The headline `point` and `se` come from `aggregate_effect` -- the
+    R-learner score on the cross-fitted residuals -- and not from the forest's
+    predictions at all; that function documents the measured coverage the
+    obvious alternatives lose. `per_unit_cate` is `ForestFit.cate`, which uses
+    every tree, since a point estimate wants the tightest ensemble available.
+    The calibration test, the best linear projection and subgroup discovery
+    all read the *out-of-bag* CATE instead, because each asks a question about
+    the forest's fit that evaluating the forest on its own training units
+    cannot answer honestly.
+    """
+
+    name = "causal_forest"
+    requirements = Requirements(
+        needs_panel=False,
+        needs_covariates=True,
+        min_treated_units=50,
+        min_control_units=50,
+    )
+
+    def fit(self, dataset: CausalDataset, config: EstimatorConfig) -> EffectEstimate:
+        # Deferred rather than module-level: `heterogeneity_checks` imports
+        # `ForestFit` and `oob_cate` from this module, so importing it at the
+        # top would be a genuine cycle -- whichever of the two modules a caller
+        # reached first would find the other half-initialised. The estimator is
+        # a composition layer over both the forest primitives above and those
+        # checks, and it is only the file layout that puts it here rather than
+        # in a module of its own.
+        from cp_causal.heterogeneity_checks import (
+            best_linear_projection,
+            calibration_test,
+            discover_subgroups,
+        )
+
+        started = time.perf_counter()
+        covariates, treatment, outcome = arrays(dataset)
+
+        n_trees = _int_option(config, "n_trees", 500)
+        max_depth = _int_option(config, "max_depth", 4)
+        min_leaf_structure = _int_option(config, "min_leaf_structure", 20)
+
+        seed = 0 if config.random_seed is None else config.random_seed
+        # One generator seeded at the estimator boundary and threaded down, so
+        # every random choice in this fit -- cross-fitting folds and each
+        # tree's subsample alike -- traces back to `config.random_seed`.
+        rng = np.random.default_rng(np.random.SeedSequence(seed))
+
+        fit = fit_forest(
+            covariates,
+            treatment,
+            outcome,
+            n_trees=n_trees,
+            min_leaf_structure=min_leaf_structure,
+            max_depth=max_depth,
+            subsample_frac=0.5,
+            cross_fit_folds=5,
+            rng=rng,
+        )
+
+        point, se = aggregate_effect(fit)
+        interval = wald_interval(point, se, config.ci_level)
+
+        covariate_names = dataset.schema.covariates
+        # The forest's own cross-fitted propensity scores, carried on
+        # `ForestFit`, rather than a second independently-seeded fit: overlap
+        # is diagnosed for the model the estimate was actually built on.
+        #
+        # Weighted rather than raw standardised mean differences, matching
+        # `AugmentedIPW` and `InverseProbabilityWeighting`, because
+        # `overlap_checks` reports this number as balance "after weighting" --
+        # handing it an unweighted SMD would put a true number under a false
+        # label. This forest never reweights anything, but these are the
+        # scores that produced `w_res`, so the question the check answers is
+        # the one that matters here: whether the propensity model driving
+        # residualization actually accounts for the covariates.
+        weights = np.where(
+            treatment == 1,
+            1.0 / fit.propensity_scores,
+            1.0 / (1.0 - fit.propensity_scores),
+        )
+        smd_after = standardised_mean_differences(covariates, treatment, weights)
+        assumptions = (
+            *overlap_checks(fit.propensity_scores, treatment, smd_after),
+            calibration_test(fit),
+        )
+
+        findings = discover_subgroups(
+            fit,
+            covariates,
+            covariate_names,
+            min_cell_size=50,
+            fdr_level=0.10,
+            ci_level=config.ci_level,
+        )
+        projection = best_linear_projection(fit, covariates, covariate_names)
+
+        return EffectEstimate(
+            estimand="ATE",
+            method=self.name,
+            point=point,
+            se=se,
+            ci=interval,
+            ci_basis="analytic",
+            bootstrap_ci=None,
+            p_value=normal_p_value(point, se),
+            n_treated=int((treatment == 1).sum()),
+            n_control=int((treatment == 0).sum()),
+            scale=outcome_scale(dataset),
+            diagnostics={
+                "per_unit_cate": Diagnostic(
+                    name="per_unit_cate",
+                    value=fit.cate,
+                    unit=None,
+                    interpretation=(
+                        "Per-unit CATE estimate, one per row of the input dataset, "
+                        "in the same order."
+                    ),
+                ),
+                "per_unit_cate_variance": Diagnostic(
+                    name="per_unit_cate_variance",
+                    value=infinitesimal_jackknife_variance(fit),
+                    unit=None,
+                    interpretation=(
+                        "Infinitesimal-jackknife sampling variance of each unit's "
+                        "CATE estimate, aligned with per_unit_cate. Per-unit only: "
+                        "these do not aggregate into the variance of their own mean, "
+                        "because units sharing trees and residuals are far from "
+                        "independent -- see aggregate_effect for the measured cost "
+                        "of assuming otherwise."
+                    ),
+                ),
+                "best_linear_projection": Diagnostic(
+                    name="best_linear_projection",
+                    value=np.array(list(projection.values())),
+                    unit=None,
+                    interpretation=(
+                        f"Out-of-bag CATE projected onto covariates "
+                        f"{list(projection.keys())}, in that order. Ranks and signs "
+                        f"the drivers; carries no standard errors and does not test "
+                        f"them."
+                    ),
+                ),
+            },
+            assumptions=assumptions,
+            counterfactual=None,
+            fit_metadata=FitMetadata.capture(
+                estimator=self.name,
+                config_hash=config_hash(config),
+                runtime_seconds=time.perf_counter() - started,
+                random_seed=config.random_seed,
+            ),
+            subgroup_findings=findings,
+        )

@@ -183,6 +183,7 @@ def _leaking_forest_fit(seed: int, true_tau: np.ndarray) -> ForestFit:
         membership=np.zeros((2, _LEAK_N), dtype=bool),
         y_res=y_res,
         w_res=w_res,
+        propensity_scores=np.full(_LEAK_N, 0.5),
     )
 
 
@@ -399,6 +400,7 @@ def test_calibration_test_does_not_open_the_gate_on_an_inverted_prediction():
             membership=tracking.membership,
             y_res=tracking.y_res,
             w_res=tracking.w_res,
+            propensity_scores=tracking.propensity_scores,
         )
         result = calibration_test(inverted)
         assert result.status == "WARN", (

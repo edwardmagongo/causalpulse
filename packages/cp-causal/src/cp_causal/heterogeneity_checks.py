@@ -16,7 +16,7 @@ from cp_core.results import AssumptionCheck, SubgroupFinding
 from cp_core.values import Interval
 from scipy.stats import norm
 
-from cp_causal.estimators.causal_forest import ForestFit, oob_cate
+from cp_causal.estimators.causal_forest import ForestFit, oob_cate, residual_effect
 
 # The out-of-bag prediction is built from the same `y_res` the calibration
 # regression puts on the left-hand side, so its numerator is a *quadratic* form
@@ -454,32 +454,6 @@ class _SubgroupStatistics:
     p_values: np.ndarray
 
 
-def _residual_effect(
-    y_res: np.ndarray, w_res: np.ndarray, mask: np.ndarray
-) -> tuple[float, float]:
-    """The R-learner effect on a subset of units, with a
-    heteroskedasticity-robust standard error.
-
-    `tau = sum(w_res * y_res) / sum(w_res**2)` is the least-squares
-    coefficient of `y_res` on `w_res` over the subset -- the same estimator
-    `leaf_tau` applies inside a leaf, here applied to a covariate-defined
-    cell. The standard error is the usual sandwich form
-    `sqrt(sum(w_res**2 * r**2)) / sum(w_res**2)` with `r` the residual from
-    that fit, so a cell whose noise varies with treatment is not understated.
-
-    Returns `(0.0, 0.0)` when the subset carries no residual treatment
-    variation, which callers read as "no contrast identified" rather than as
-    an effect of zero.
-    """
-    u = w_res[mask]
-    denominator = float(np.sum(u**2))
-    if denominator <= 0.0:
-        return 0.0, 0.0
-    tau = float(np.sum(u * y_res[mask]) / denominator)
-    residual = y_res[mask] - tau * u
-    return tau, float(np.sqrt(np.sum(u**2 * residual**2)) / denominator)
-
-
 def _subgroup_statistics(
     fit: ForestFit, candidates: Sequence[CandidateSubgroup], min_cell_size: int
 ) -> _SubgroupStatistics:
@@ -585,8 +559,8 @@ def _subgroup_statistics(
             continue
         seen.add(key)
 
-        estimate, standard_error = _residual_effect(y_res, w_res, cell)
-        complement, complement_se = _residual_effect(y_res, w_res, ~cell)
+        estimate, standard_error = residual_effect(y_res, w_res, cell)
+        complement, complement_se = residual_effect(y_res, w_res, ~cell)
         difference_se = float(np.sqrt(standard_error**2 + complement_se**2))
         # A cell with no treatment variation on either side identifies no
         # contrast. p=1 says so and keeps it in the family; dividing by a zero

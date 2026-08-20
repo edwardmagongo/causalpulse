@@ -1,3 +1,6 @@
+import subprocess
+import sys
+
 import pandas as pd
 import pytest
 from cp_causal.base import Requirements
@@ -160,3 +163,28 @@ def test_isolated_registry_restores_contents_on_exit(registry_isolation):
 
     assert "isolation_probe" not in all_estimators()
     assert all_estimators() == before
+
+
+def test_importing_cp_causal_registers_causal_forest_in_a_fresh_interpreter():
+    """`import cp_causal` alone must register the causal forest.
+
+    Run in a subprocess deliberately. The equivalent in-process assertion is
+    self-fulfilling in two ways at once: `test_causal_forest.py` imports the
+    estimator module directly, and inside a full-suite run that import has
+    already happened by the time any assertion here executes -- so an
+    `__init__.py` that had never listed `causal_forest` would still pass. That
+    is exactly the defect Phase 5's final review found for `bsts`, and a fresh
+    interpreter is the only form of this check that cannot be fooled by it.
+    """
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import cp_causal; from cp_causal.registry import all_estimators; "
+            "print('causal_forest' in set(all_estimators()))",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert completed.stdout.strip() == "True", completed.stderr
