@@ -6,7 +6,7 @@ was, for whom it differed, and how much the conclusion should be trusted.
 
 ## Status
 
-Phases 1 through 3 of the causal core are implemented.
+Phases 1 through 6 of the causal core are implemented.
 
 **Phase 1** delivered the foundations: the workspace, data contracts, statistical primitives, and
 a simulation framework whose data-generating processes carry known ground truth.
@@ -32,8 +32,16 @@ donor-average baseline, with a ridge-augmented fallback for convex-hull violatio
 donor-contamination check, and permutation-based inference. `solve_donor_weights` is additionally
 pinned against the reference implementation `pysyncon`.
 
-The Bayesian structural time series counterfactual, heterogeneous-effect estimation, the robustness
-suite, and the benchmark harness are still ahead.
+**Phase 5** delivered the Bayesian structural time series counterfactual: a local linear trend plus
+regularized-horseshoe donor regression fit with NUTS, three MCMC reliability diagnostics, and a
+recovery harness over the same donor-pool scenarios synthetic control uses.
+
+**Phase 6** delivered heterogeneous-effect estimation: an honest causal forest producing per-unit
+CATE alongside an aggregate effect, three CATE scenarios whose per-unit ground truth is measured
+rather than declared, and subgroup discovery behind three independent guards — an omnibus
+calibration test, a minimum cell size, and Benjamini–Hochberg FDR control.
+
+The robustness suite and the benchmark harness are still ahead.
 
 ## Packages
 
@@ -348,6 +356,56 @@ described as a confidence interval anywhere in this codebase.
 `SyntheticControl` and `BSTS` both extract their treated/donor wide arrays through
 `cp_causal._panel.donor_matrix`, moved there from `synthetic_control.py` when BSTS needed the
 identical extraction.
+
+## Causal forest and CATE (Phase 6)
+
+An honest causal forest. R-learner residualization (cross-fitted nuisance models via scikit-learn)
+feeds a hand-rolled honest-splitting ensemble, which produces a per-unit CATE, an aggregate effect,
+and subgroup findings guarded by an omnibus calibration test, a minimum cell size, and
+Benjamini–Hochberg FDR control.
+
+### The splits are hand-rolled, not scikit-learn's tree
+
+This project's estimators are implemented from primitives, with scikit-learn restricted to nuisance
+models — already the pattern for AIPW's propensity and outcome regressions. A causal forest's
+splits *are* the causal quantity: they decide which units share a CATE estimate, which is not a
+prediction problem. So recursive binary splitting, honest sample-splitting, ensemble aggregation,
+and the infinitesimal-jackknife variance are all hand-written. scikit-learn fits only the
+R-learner's residualization nuisance models.
+
+### The omnibus calibration test uses out-of-bag CATE, not in-sample
+
+Evaluated in-sample, the calibration test fired on a genuinely heterogeneous scenario *and* on a
+null scenario with zero heterogeneity — an overfitting artifact, the same class of bias that honest
+splitting and cross-fitting exist to prevent elsewhere in this estimator. Averaging only over the
+trees that excluded a unit from their subsample entirely removed the false positive. The best
+linear projection and subgroup discovery read the out-of-bag CATE for the same reason; only the
+reported `per_unit_cate` diagnostic uses the full ensemble, because a point estimate wants every
+tree available.
+
+### The aggregate effect does not come from the forest's predictions
+
+The headline `point` and `se` are the R-learner score on the cross-fitted residuals, not the mean
+of the per-unit CATEs. The point estimates are near-identical; the intervals are not. Averaging the
+per-unit infinitesimal-jackknife variances and dividing by `n` — the natural-looking formula, and
+the one this phase's implementation plan specified — measured **0.40 coverage on the null scenario
+and 0.35 on the rich one** against a nominal 0.95, because it treats 2000 per-unit CATEs built from
+the same trees and the same residuals as independent draws. Applying the jackknife to the mean
+prediction directly reaches 0.65 and 0.60. The residual score reaches 1.00 and 0.95.
+
+Every fast test passed under the broken formula. Coverage is a *rate*, and only the multi-seed
+recovery harness could see it.
+
+### Reference parity: `econml`
+
+Per-unit CATE is checked for rough agreement — not exact match — against `econml`'s
+`CausalForestDML` on identical synthetic data. The two are independent implementations of the same
+algorithm *family*, differing in splitting criterion, honesty scheme, and nuisance models; they do
+not share an optimisation problem the way `SyntheticControl` and `pysyncon` do. Measured agreement
+is 0.958, while against measured truth the two score 0.669 and 0.634 respectively — the pair track
+each other far more closely than either tracks truth, which is what makes this a drift test rather
+than a second, weaker recovery test. `econml` is a dev-only dependency, marked `slow`, and never
+imported outside `tests/`.
 
 ## On scikit-learn
 
