@@ -120,7 +120,20 @@ def test_router_offers_every_registered_estimator_on_covariate_data():
     # Exact, not a subset: a panel estimator becoming eligible on a
     # cross-section would mean its `needs_panel` requirement had stopped
     # working, which is the router's whole job.
-    assert {"difference_in_means", "lin_regression", "ipw", "aipw"} == eligible
+    #
+    # `causal_forest` joined this set in Phase 6. It belongs here on the same
+    # terms as the other four -- cross-sectional, `needs_covariates`, and
+    # scenario D's 4000 units clear its 50-per-arm minimum -- so its arrival
+    # is the router working, not leaking. Every estimator added to this
+    # registry must be accounted for here deliberately; that is the point of
+    # pinning the set exactly rather than asserting a subset.
+    assert {
+        "difference_in_means",
+        "lin_regression",
+        "ipw",
+        "aipw",
+        "causal_forest",
+    } == eligible
 
 
 def test_importing_cp_causal_registers_every_cross_sectional_estimator():
