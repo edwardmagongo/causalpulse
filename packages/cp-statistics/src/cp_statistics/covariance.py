@@ -51,7 +51,16 @@ def ols_fit(X: np.ndarray, y: np.ndarray) -> OLSFit:
     beta, *_ = np.linalg.lstsq(X, y, rcond=None)
     residuals = y - X @ beta
     xtx_inv = np.linalg.pinv(X.T @ X)
-    leverage = np.einsum("ij,jk,ik->i", X, xtx_inv, X)
+    # `optimize=True` is not a micro-optimisation here. Without it einsum
+    # evaluates this three-operand contraction as one naive O(n*k^2) C loop
+    # with no BLAS; with it, it contracts pairwise (X @ xtx_inv, then a
+    # row-wise dot) and the same arithmetic goes through matrix multiply.
+    # Measured at the panel shape this project's TWFE/EventStudy fits produce
+    # (n=3200, k=408): 617ms unoptimised against 4.1ms optimised, which was
+    # 93% of the cost of an EventStudy fit and by far the largest single cost
+    # in the test suite. The two agree to 3.3e-16 absolute / 2.5e-15 relative
+    # -- summation order, nothing more.
+    leverage = np.einsum("ij,jk,ik->i", X, xtx_inv, X, optimize=True)
     return OLSFit(
         beta=beta, residuals=residuals, xtx_inv=xtx_inv, leverage=leverage, X=X
     )
