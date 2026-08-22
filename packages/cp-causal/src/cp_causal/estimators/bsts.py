@@ -23,7 +23,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 import jax.numpy as jnp
-import jax.random as random
 import numpy as np
 import numpyro
 import numpyro.distributions as dist
@@ -31,8 +30,9 @@ from cp_core.dataset import CausalDataset
 from cp_core.results import CounterfactualPath, EffectEstimate, FitMetadata
 from cp_core.values import Diagnostic, EstimatorConfig, Interval
 from numpyro.contrib.control_flow import scan
-from numpyro.infer import MCMC, NUTS
+from numpyro.infer import MCMC
 
+from cp_causal._mcmc import MCMCConfig, run_nuts
 from cp_causal._panel import donor_matrix, outcome_scale, panel_arrays
 from cp_causal._support import config_hash
 from cp_causal.base import Requirements
@@ -45,18 +45,6 @@ from cp_causal.panel_checks import sufficient_pre_periods_check
 from cp_causal.registry import register
 
 MIN_DONORS = 5  # matches SyntheticControl's floor; same donor-pool shape
-
-
-@dataclass(frozen=True)
-class MCMCConfig:
-    """NUTS sampler settings. Two tiers ship below; everything about BSTS's
-    estimation besides sampler effort is independent of which tier is used.
-    """
-
-    num_warmup: int
-    num_samples: int
-    num_chains: int
-    target_accept_prob: float = 0.95
 
 
 # Exercises the code path and array shapes only -- not a trustworthy
@@ -128,30 +116,18 @@ def _run_mcmc(
     config: MCMCConfig,
     random_seed: int,
 ) -> MCMC:
-    kernel = NUTS(_model, target_accept_prob=config.target_accept_prob)
-    mcmc = MCMC(
-        kernel,
-        num_warmup=config.num_warmup,
-        num_samples=config.num_samples,
-        num_chains=config.num_chains,
-        # Explicit, not the "parallel" default: this process has one CPU
-        # device (no `numpyro.set_host_device_count` call anywhere in the
-        # codebase), so "parallel" would silently downgrade to sequential
-        # anyway -- except it does so with a UserWarning, and this project's
-        # pytest config (`filterwarnings = ["error"]`) turns that warning
-        # into a test failure. Found immediately after FAST_MCMC_CONFIG grew
-        # a second chain. Sequential is also what the FAST_MCMC_CONFIG timing
-        # claim above assumes.
-        chain_method="sequential",
-        progress_bar=False,
-    )
-    mcmc.run(
-        random.PRNGKey(random_seed),
+    """Thin wrapper over the shared `run_nuts` that names BSTS's own model
+    arguments -- kept (rather than deleted outright) because
+    `test_bsts.py` imports and calls `_run_mcmc` directly by this signature.
+    """
+    return run_nuts(
+        _model,
+        config,
+        random_seed,
         donor_pre_std=jnp.asarray(donor_pre_std),
         treated_pre_std=jnp.asarray(treated_pre_std),
         T_pre=T_pre,
     )
-    return mcmc
 
 
 @dataclass(frozen=True, eq=False)
