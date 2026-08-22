@@ -188,3 +188,22 @@ def test_importing_cp_causal_registers_causal_forest_in_a_fresh_interpreter():
         check=True,
     )
     assert completed.stdout.strip() == "True", completed.stderr
+
+
+def test_importing_cp_causal_registers_hierarchical_did_in_a_fresh_interpreter():
+    """A subprocess deliberately: in-process this assertion is self-fulfilling,
+    because the test suite imports the estimator module directly elsewhere.
+    Phase 5 shipped an estimator unreachable via a bare `import cp_causal`
+    behind exactly that blind spot."""
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import cp_causal; from cp_causal.registry import all_estimators; "
+            "print('hierarchical_did' in set(all_estimators()))",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert completed.stdout.strip() == "True", completed.stderr

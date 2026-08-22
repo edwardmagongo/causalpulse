@@ -12,15 +12,32 @@ non-centred.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 
 import jax.numpy as jnp
 import numpy as np
 import numpyro
 import numpyro.distributions as dist
+from cp_core.dataset import CausalDataset
+from cp_core.results import AssumptionCheck, EffectEstimate, FitMetadata
+from cp_core.values import Diagnostic, EstimatorConfig, Interval
 
-from cp_causal._mcmc import MCMCConfig
-from cp_causal._panel import PanelArrays
+from cp_causal._mcmc import MCMCConfig, run_nuts
+from cp_causal._panel import PanelArrays, outcome_scale, panel_arrays
+from cp_causal._support import config_hash
+from cp_causal.base import Requirements
+from cp_causal.bayesian_checks import (
+    divergent_transitions_check,
+    effective_sample_size_check,
+    r_hat_check,
+)
+from cp_causal.panel_checks import (
+    absorbing_treatment_check,
+    no_anticipation_check,
+    parallel_trends_check,
+)
+from cp_causal.registry import register
 
 # Exercises shapes and code paths only -- not a trustworthy posterior. Two
 # chains, not one: numpyro.diagnostics.gelman_rubin hard-asserts >= 2.
@@ -207,3 +224,306 @@ def weighted_att_draws(
     """
     weights = cohort_cell_counts / cohort_cell_counts.sum()
     return np.asarray(tau_g_draws @ weights) * outcome_sd
+
+
+def _unit_means(panel: PanelArrays) -> np.ndarray:
+    """Outcome by (unit, period), with nan where a cell is unobserved."""
+    grid = np.full((panel.n_units, panel.n_periods), np.nan)
+    grid[panel.unit_index, panel.period_index] = panel.outcome
+    return grid
+
+
+def _group_change(
+    grid: np.ndarray, members: np.ndarray, column: int, baseline: int
+) -> tuple[float, float, int]:
+    """Mean within-unit change (column vs. baseline column), its variance, and
+    the contributing unit count -- the same independent-samples formula
+    `CallawaySantAnna.compute_cells`/`_group_change` uses, reimplemented here
+    rather than imported: this estimator's own placebo leads are a diagnostic
+    computed alongside its Bayesian point estimate, not a byproduct of it (the
+    hierarchical model produces no lead coefficients on its own the way an
+    OLS event-study regression does), and this module does not otherwise
+    depend on a sibling estimator's private helpers.
+    """
+    if not members.any():
+        return float("nan"), float("nan"), 0
+    changes = grid[members, column] - grid[members, baseline]
+    finite = changes[np.isfinite(changes)]
+    if finite.size < 2:
+        return float("nan"), float("nan"), int(finite.size)
+    return float(finite.mean()), float(finite.var(ddof=1)), int(finite.size)
+
+
+@dataclass(frozen=True)
+class _PreTreatmentLeads:
+    """Every pre-treatment placebo lead across every cohort, plus the single
+    lead nearest its own cohort's adoption -- for `no_anticipation_check`.
+    """
+
+    coefficients: np.ndarray
+    covariance: np.ndarray
+    nearest_coefficient: float | None
+    nearest_standard_error: float | None
+    nearest_horizon_label: str
+
+
+def pre_treatment_leads(panel: PanelArrays) -> _PreTreatmentLeads:
+    """Placebo leads for `parallel_trends_check`/`no_anticipation_check`.
+
+    For each cohort `g` with baseline period `g - 1` (its last untreated
+    period), and each earlier period `t < g - 1`, this compares cohort `g`'s
+    mean change from `t` to the baseline against the same change among units
+    not yet treated by `g` (the never-treated, plus later cohorts) -- the same
+    2x2 placebo mechanism `CallawaySantAnna._placebo_leads` uses, and the same
+    per-cell independent-samples variance `compute_cells` uses (not a single
+    variance pooled across cells, which `CallawaySantAnna`'s own history
+    measured as badly over-rejecting -- see that module's `_placebo_leads`
+    docstring). Controls are always the never-treated union not-yet-treated,
+    with no separate "control_group" option: `_model`'s own likelihood already
+    leans on every not-yet-treated row to identify `gamma_t`, the same units
+    this check treats as controls.
+
+    Returns an empty `coefficients`/`covariance` pair, and `None` for the
+    nearest lead, when no cohort has two pre-treatment periods -- the caller
+    reports that as `NOT_TESTABLE`, not as a passing test.
+
+    The "nearest" lead is the single placebo cell with the smallest gap to its
+    own cohort's adoption (i.e. period `g - 2`, immediately before the omitted
+    baseline `g - 1`) across all cohorts, generalising event-study's own
+    "nearest estimated lead" convention to a multi-cohort panel where no
+    single calendar period is "immediately before adoption" for every cohort
+    at once.
+    """
+    grid = _unit_means(panel)
+    leads: list[float] = []
+    variances: list[float] = []
+    gaps: list[int] = []
+    horizons: list[tuple[int, int]] = []
+
+    for cohort in panel.adoption_periods:
+        baseline = panel.period_position(cohort - 1)
+        if baseline < 0:
+            continue
+        members = panel.cohort == cohort
+        if not members.any():
+            continue
+        for column, period in enumerate(panel.periods.astype(int)):
+            if period >= cohort - 1 or column >= baseline:
+                continue
+            controls = (panel.cohort == 0) | (panel.cohort > cohort)
+            if not controls.any():
+                continue
+            treated_change, treated_var, n_treated = _group_change(
+                grid, members, column, baseline
+            )
+            control_change, control_var, n_control = _group_change(
+                grid, controls, column, baseline
+            )
+            if not np.isfinite(treated_change) or not np.isfinite(control_change):
+                continue
+            leads.append(treated_change - control_change)
+            variances.append(treated_var / n_treated + control_var / n_control)
+            gaps.append(int(cohort - period))
+            horizons.append((int(cohort), int(period)))
+
+    if not leads:
+        return _PreTreatmentLeads(
+            coefficients=np.asarray([]),
+            covariance=np.zeros((0, 0)),
+            nearest_coefficient=None,
+            nearest_standard_error=None,
+            nearest_horizon_label="",
+        )
+
+    values = np.asarray(leads)
+    diagonal = np.maximum(np.asarray(variances), 1e-12)
+    nearest = int(np.argmin(gaps))
+    nearest_cohort, nearest_period = horizons[nearest]
+    return _PreTreatmentLeads(
+        coefficients=values,
+        covariance=np.diag(diagonal),
+        nearest_coefficient=float(values[nearest]),
+        nearest_standard_error=float(np.sqrt(diagonal[nearest])),
+        nearest_horizon_label=(
+            f"period {nearest_period} placebo lead for the cohort adopting at "
+            f"period {nearest_cohort} (its nearest pre-treatment period to the "
+            "omitted baseline)"
+        ),
+    )
+
+
+HIER_MIN_PRE_PERIODS = 1
+HIER_MIN_POST_PERIODS = 1
+
+
+@register
+class HierarchicalDiD:
+    """Hierarchical Bayesian difference-in-differences: one partially-pooled
+    treatment effect per adoption cohort, reported as a treated-cell-weighted
+    posterior ATT.
+    """
+
+    name = "hierarchical_did"
+    requirements = Requirements(
+        needs_panel=True,
+        needs_covariates=False,
+        min_pre_periods=HIER_MIN_PRE_PERIODS,
+        min_post_periods=HIER_MIN_POST_PERIODS,
+        min_treated_units=1,
+        # The model's own likelihood leans on the never-treated to identify
+        # each `gamma_t` -- see `_model`'s docstring -- and there is no
+        # not-yet-treated fallback the way `CallawaySantAnna` has, so at
+        # least one never-treated unit is a genuine requirement, not a
+        # convention carried over from another estimator.
+        min_control_units=1,
+    )
+
+    def fit(self, dataset: CausalDataset, config: EstimatorConfig) -> EffectEstimate:
+        started = time.perf_counter()
+        panel = panel_arrays(dataset)
+        inputs = build_model_inputs(panel)
+
+        mcmc_config = config.options.get("mcmc_config", HIER_PRODUCTION_MCMC_CONFIG)
+        if not isinstance(mcmc_config, MCMCConfig):
+            raise TypeError(
+                f"config.options['mcmc_config'] must be an MCMCConfig, got {type(mcmc_config)!r}"
+            )
+        seed = 0 if config.random_seed is None else config.random_seed
+
+        mcmc = run_nuts(
+            _model,
+            mcmc_config,
+            seed,
+            outcome_std=inputs.outcome_std,
+            unit_index=inputs.unit_index,
+            time_index=inputs.time_index,
+            cohort_index=inputs.cohort_index,
+            treated_mask=inputs.treated_mask,
+            n_units=inputs.n_units,
+            n_periods=inputs.n_periods,
+            n_cohorts=inputs.n_cohorts,
+        )
+
+        samples = mcmc.get_samples()
+        chain_samples = mcmc.get_samples(group_by_chain=True)
+        diverging = mcmc.get_extra_fields(group_by_chain=True)["diverging"]
+
+        tau_g_draws = np.asarray(samples["tau_g"])
+        att = weighted_att_draws(tau_g_draws, inputs.cohort_cell_counts, inputs.outcome_sd)
+
+        point = float(att.mean())
+        lower_q, upper_q = (1 - config.ci_level) / 2, 1 - (1 - config.ci_level) / 2
+        lo, hi = np.quantile(att, [lower_q, upper_q])
+        ci = Interval(lower=float(lo), upper=float(hi), level=config.ci_level)
+        # Posterior standard deviation of the weighted ATT draws, NOT a
+        # sampling standard error: there is no sampling distribution here,
+        # only a posterior. Reported because BSTS's own `se` field is
+        # likewise the posterior sd, not because it plays the same role a
+        # frequentist se does.
+        se = float(att.std(ddof=1))
+
+        p_effect_positive = float(np.mean(att > 0))
+
+        mu_tau_mean = float(np.asarray(samples["mu_tau"]).mean()) * inputs.outcome_sd
+        sigma_tau_mean = float(np.asarray(samples["sigma_tau"]).mean()) * inputs.outcome_sd
+        tau_g_mean = tau_g_draws.mean(axis=0) * inputs.outcome_sd
+
+        leads = pre_treatment_leads(panel)
+        if leads.nearest_coefficient is None or leads.nearest_standard_error is None:
+            no_anticipation: AssumptionCheck = AssumptionCheck(
+                name="no_anticipation",
+                status="NOT_TESTABLE",
+                statistic=None,
+                threshold=None,
+                interpretation=(
+                    "No cohort has two pre-treatment periods to compare, so "
+                    "there is no placebo lead to test. This is not evidence "
+                    "that there was no anticipation."
+                ),
+                remedy=(
+                    "Extend the panel backwards so at least one cohort has "
+                    "two pre-treatment periods observed."
+                ),
+            )
+        else:
+            no_anticipation = no_anticipation_check(
+                coefficient=leads.nearest_coefficient,
+                standard_error=leads.nearest_standard_error,
+                horizon_label=leads.nearest_horizon_label,
+            )
+
+        treated_units = panel.cohort > 0
+        return EffectEstimate(
+            estimand="ATT",
+            method=self.name,
+            point=point,
+            se=se,
+            ci=ci,
+            ci_basis="posterior",
+            bootstrap_ci=None,
+            p_value=None,
+            n_treated=int(treated_units.sum()),
+            n_control=panel.n_never_treated_units,
+            scale=outcome_scale(dataset),
+            diagnostics={
+                "p_effect_positive": Diagnostic(
+                    name="p_effect_positive",
+                    value=p_effect_positive,
+                    unit="probability",
+                    interpretation=(
+                        f"P(effect > 0) = {p_effect_positive:.3f} under the "
+                        "posterior. A Bayesian probability statement, not a "
+                        "p-value."
+                    ),
+                ),
+                "mu_tau": Diagnostic(
+                    name="mu_tau",
+                    value=mu_tau_mean,
+                    unit=None,
+                    interpretation=(
+                        "Posterior mean of the population (across-cohort) "
+                        "treatment effect, rescaled to the outcome's original "
+                        "units. The unweighted 'typical cohort' effect -- not "
+                        "the treated-cell-weighted ATT this estimate reports "
+                        "as its point."
+                    ),
+                ),
+                "sigma_tau": Diagnostic(
+                    name="sigma_tau",
+                    value=sigma_tau_mean,
+                    unit=None,
+                    interpretation=(
+                        "Posterior mean of the across-cohort standard "
+                        "deviation of the treatment effect, rescaled to the "
+                        "outcome's original units. Near zero means the "
+                        "cohorts share essentially one effect; large means "
+                        "they genuinely differ."
+                    ),
+                ),
+                "tau_g": Diagnostic(
+                    name="tau_g",
+                    value=tau_g_mean,
+                    unit=None,
+                    interpretation=(
+                        "Posterior mean treatment effect for each adoption "
+                        "cohort, in adoption-period order, rescaled to the "
+                        "outcome's original units."
+                    ),
+                ),
+            },
+            assumptions=(
+                r_hat_check(chain_samples),
+                effective_sample_size_check(chain_samples),
+                divergent_transitions_check(diverging),
+                parallel_trends_check(leads.coefficients, leads.covariance),
+                no_anticipation,
+                absorbing_treatment_check(dataset),
+            ),
+            counterfactual=None,
+            fit_metadata=FitMetadata.capture(
+                estimator=self.name,
+                config_hash=config_hash(config),
+                runtime_seconds=time.perf_counter() - started,
+                random_seed=config.random_seed,
+            ),
+        )

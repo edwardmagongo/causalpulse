@@ -7,8 +7,18 @@ import pytest
 from cp_causal._mcmc import run_nuts
 from cp_causal.estimators.hierarchical_did import (
     HIER_FAST_MCMC_CONFIG,
+    HierarchicalDiD,
     _model,
 )
+from cp_core.values import EstimatorConfig
+from cp_simulation.panel_scenarios import build_panel_scenario
+
+CONFIG = EstimatorConfig(random_seed=0, options={"mcmc_config": HIER_FAST_MCMC_CONFIG})
+
+
+def _panel_fixture(scenario_id: str = "P3", seed: int = 0):
+    dgp = build_panel_scenario(scenario_id)
+    return dgp.generate(200, 8, np.random.default_rng(seed))
 
 
 def _toy_panel(n_units: int = 40, n_periods: int = 6, seed: int = 0):
@@ -256,3 +266,38 @@ def test_weighted_att_is_computed_per_draw_not_from_summaries():
         "weighted_att_draws averaged the draws before weighting -- the point "
         "estimate survives that, the credible interval does not"
     )
+
+
+def test_hierarchical_did_is_registered_under_its_own_name():
+    from cp_causal.registry import get_estimator
+
+    assert get_estimator("hierarchical_did") is HierarchicalDiD
+
+
+def test_hierarchical_did_requires_a_panel():
+    assert HierarchicalDiD.requirements.needs_panel is True
+
+
+def test_fit_reports_a_posterior_att_with_cohort_diagnostics():
+    result = HierarchicalDiD().fit(_panel_fixture().dataset, CONFIG)
+
+    assert result.estimand == "ATT"
+    assert result.ci_basis == "posterior"
+    assert result.p_value is None
+    assert result.ci.lower <= result.point <= result.ci.upper
+    for key in ("mu_tau", "sigma_tau", "tau_g", "p_effect_positive"):
+        assert key in result.diagnostics
+
+
+def test_fit_reports_the_mcmc_diagnostics_as_assumption_checks():
+    result = HierarchicalDiD().fit(_panel_fixture().dataset, CONFIG)
+    names = {c.name for c in result.assumptions}
+    assert {"r_hat", "effective_sample_size", "divergent_transitions"} <= names
+
+
+def test_fit_rejects_a_non_mcmcconfig_option():
+    with pytest.raises(TypeError, match="mcmc_config"):
+        HierarchicalDiD().fit(
+            _panel_fixture().dataset,
+            EstimatorConfig(random_seed=0, options={"mcmc_config": "production"}),
+        )

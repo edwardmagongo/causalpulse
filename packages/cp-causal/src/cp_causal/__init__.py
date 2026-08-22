@@ -16,6 +16,7 @@ from cp_causal.estimators import (  # noqa: F401
     doubly_robust,
     event_study,
     experimental,
+    hierarchical_did,
     regression,
     synthetic_control,
     weighting,

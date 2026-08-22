@@ -206,10 +206,10 @@ def test_the_router_offers_the_right_panel_estimators():
     uniform = set(eligible_estimators(generate("P1").dataset))
     staggered = set(eligible_estimators(generate("P3").dataset))
 
-    assert {"did_2x2", "twfe", "event_study", "callaway_santanna"} <= uniform
+    assert {"did_2x2", "twfe", "event_study", "callaway_santanna", "hierarchical_did"} <= uniform
     # The 2x2 is excluded from staggered data with an explicit reason.
     assert "did_2x2" not in staggered
-    assert {"twfe", "event_study", "callaway_santanna"} <= staggered
+    assert {"twfe", "event_study", "callaway_santanna", "hierarchical_did"} <= staggered
     # Cross-sectional estimators need covariates and a cross-section; none of
     # them should be offered on a panel.
     assert "aipw" not in uniform
@@ -232,4 +232,5 @@ def test_importing_cp_causal_registers_every_panel_estimator():
         "twfe",
         "event_study",
         "callaway_santanna",
+        "hierarchical_did",
     } <= set(all_estimators())
