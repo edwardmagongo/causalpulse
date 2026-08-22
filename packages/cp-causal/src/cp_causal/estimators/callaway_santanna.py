@@ -38,9 +38,12 @@ from cp_causal._support import (
 from cp_causal.base import Requirements
 from cp_causal.panel_checks import (
     absorbing_treatment_check,
+    group_change,
     no_concurrent_intervention_check,
     parallel_trends_check,
+    placebo_leads,
     sufficient_pre_periods_check,
+    unit_means,
 )
 from cp_causal.registry import register
 
@@ -89,42 +92,12 @@ class _Cells:
         )
 
 
-def _unit_means(panel: PanelArrays) -> np.ndarray:
-    """Outcome by (unit, period), with nan where a cell is unobserved.
-
-    Built once per fit. An unbalanced panel leaves nan cells, and every group
-    mean below is taken with `np.nanmean` so a missing cell drops out of that
-    comparison rather than poisoning it.
-    """
-    grid = np.full((panel.n_units, panel.n_periods), np.nan)
-    grid[panel.unit_index, panel.period_index] = panel.outcome
-    return grid
-
-
 def _group_mean(grid: np.ndarray, members: np.ndarray, column: int) -> float:
     if not members.any():
         return float("nan")
     values = grid[members, column]
     finite = values[np.isfinite(values)]
     return float(finite.mean()) if finite.size else float("nan")
-
-
-def _group_change(
-    grid: np.ndarray, members: np.ndarray, column: int, baseline: int
-) -> tuple[float, float, int]:
-    """Mean within-unit change, its variance, and the contributing unit count.
-
-    The change is differenced *within each unit* before averaging, so each
-    unit contributes one observation and the resulting standard error is
-    clustered on unit by construction rather than by a separate correction.
-    """
-    if not members.any():
-        return float("nan"), float("nan"), 0
-    changes = grid[members, column] - grid[members, baseline]
-    finite = changes[np.isfinite(changes)]
-    if finite.size < 2:
-        return float("nan"), float("nan"), int(finite.size)
-    return float(finite.mean()), float(finite.var(ddof=1)), int(finite.size)
 
 
 def compute_cells(
@@ -136,7 +109,7 @@ def compute_cells(
     cohort adopting in the first observed period has no such baseline and is
     dropped: using period g as its own baseline would fabricate a zero effect.
     """
-    grid = _unit_means(panel)
+    grid = unit_means(panel)
     cells = _Cells()
     control_union = np.zeros(panel.n_units, dtype=bool)
 
@@ -163,10 +136,10 @@ def compute_cells(
             if not controls.any():
                 continue
 
-            treated_change, treated_var, n_treated = _group_change(
+            treated_change, treated_var, n_treated = group_change(
                 grid, members, column, baseline
             )
-            control_change, control_var, n_control = _group_change(
+            control_change, control_var, n_control = group_change(
                 grid, controls, column, baseline
             )
             if not np.isfinite(treated_change) or not np.isfinite(control_change):
@@ -308,7 +281,11 @@ class CallawaySantAnna:
         observed = float(panel.outcome[treated_rows].mean())
         critical = critical_value(config.ci_level)
 
-        pre_leads, pre_covariance = _placebo_leads(panel, used)
+        # Keys (which (cohort, period) each cell belongs to) are not needed
+        # here: HierarchicalDiD, `placebo_leads`'s other caller, uses them to
+        # pick a nearest lead, but the joint Wald test below tests every lead
+        # at once.
+        _, pre_leads, pre_covariance = placebo_leads(panel, used)
 
         return EffectEstimate(
             estimand="ATT",
@@ -429,70 +406,3 @@ class CallawaySantAnna:
                 random_seed=config.random_seed,
             ),
         )
-
-
-def _placebo_leads(
-    panel: PanelArrays, control_group: str
-) -> tuple[np.ndarray, np.ndarray]:
-    """Pre-treatment placebo cells, for the parallel-trends check.
-
-    The same 2x2 machinery run on periods *before* adoption, where the true
-    effect is zero by construction. A non-zero placebo is a differential trend.
-    Returns an empty pair when no cohort has two pre-periods, which the check
-    reports as NOT_TESTABLE rather than PASS.
-    """
-    grid = _unit_means(panel)
-    placebos: list[float] = []
-    placebo_variances: list[float] = []
-    for cohort in panel.adoption_periods:
-        baseline = panel.period_position(cohort - 1)
-        if baseline < 0:
-            continue
-        members = panel.cohort == cohort
-        for column, period in enumerate(panel.periods.astype(int)):
-            if period >= cohort - 1 or column >= baseline:
-                continue
-            controls = (
-                (panel.cohort == 0)
-                if control_group == "never_treated"
-                else (panel.cohort == 0) | (panel.cohort > cohort)
-            )
-            if not controls.any() or not members.any():
-                continue
-            treated_change, treated_var, n_treated = _group_change(
-                grid, members, column, baseline
-            )
-            control_change, control_var, n_control = _group_change(
-                grid, controls, column, baseline
-            )
-            if not np.isfinite(treated_change) or not np.isfinite(control_change):
-                continue
-            placebos.append(treated_change - control_change)
-            placebo_variances.append(treated_var / n_treated + control_var / n_control)
-
-    if not placebos:
-        return np.asarray([]), np.zeros((0, 0))
-
-    values = np.asarray(placebos)
-    # Diagonal covariance from EACH CELL'S OWN analytic variance, via the same
-    # two-independent-samples formula `compute_cells` uses for the real
-    # ATT(g,t) grid -- not a single variance pooled across cells.
-    #
-    # An earlier version pooled `values.var(ddof=1)` across cells and divided
-    # by the cell count, which is the standard-error-of-the-mean formula
-    # misapplied to a per-observation covariance -- and even after removing
-    # the erroneous division, a single pooled variance still ignores that the
-    # placebo cells sharing one cohort share the same baseline period and are
-    # therefore correlated, not independent draws of a common distribution.
-    # Testing correlated values against a diagonal covariance that assumes
-    # independence inflates the chi-square statistic and over-rejects.
-    #
-    # Measured on scenario P1 (clean, no violation, 3 correlated placebo cells
-    # sharing one baseline), 40 seeds: the original pooled-and-divided form
-    # FAILED 16/20 seeds against a nominal 5% rate; pooled-without-dividing
-    # still FAILED 8/20; this per-cell-variance form FAILS 4/40 (10%) -- still
-    # somewhat above nominal, consistent with a chi-square approximation on
-    # only 3 correlated degrees of freedom, but no longer a gross
-    # miscalibration. P5 (a real violation) is still caught 10/10.
-    diagonal = np.maximum(np.asarray(placebo_variances), 1e-12)
-    return values, np.diag(diagonal)

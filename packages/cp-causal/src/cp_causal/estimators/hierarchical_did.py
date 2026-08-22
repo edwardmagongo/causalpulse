@@ -36,6 +36,7 @@ from cp_causal.panel_checks import (
     absorbing_treatment_check,
     no_anticipation_check,
     parallel_trends_check,
+    placebo_leads,
 )
 from cp_causal.registry import register
 
@@ -226,34 +227,6 @@ def weighted_att_draws(
     return np.asarray(tau_g_draws @ weights) * outcome_sd
 
 
-def _unit_means(panel: PanelArrays) -> np.ndarray:
-    """Outcome by (unit, period), with nan where a cell is unobserved."""
-    grid = np.full((panel.n_units, panel.n_periods), np.nan)
-    grid[panel.unit_index, panel.period_index] = panel.outcome
-    return grid
-
-
-def _group_change(
-    grid: np.ndarray, members: np.ndarray, column: int, baseline: int
-) -> tuple[float, float, int]:
-    """Mean within-unit change (column vs. baseline column), its variance, and
-    the contributing unit count -- the same independent-samples formula
-    `CallawaySantAnna.compute_cells`/`_group_change` uses, reimplemented here
-    rather than imported: this estimator's own placebo leads are a diagnostic
-    computed alongside its Bayesian point estimate, not a byproduct of it (the
-    hierarchical model produces no lead coefficients on its own the way an
-    OLS event-study regression does), and this module does not otherwise
-    depend on a sibling estimator's private helpers.
-    """
-    if not members.any():
-        return float("nan"), float("nan"), 0
-    changes = grid[members, column] - grid[members, baseline]
-    finite = changes[np.isfinite(changes)]
-    if finite.size < 2:
-        return float("nan"), float("nan"), int(finite.size)
-    return float(finite.mean()), float(finite.var(ddof=1)), int(finite.size)
-
-
 @dataclass(frozen=True)
 class _PreTreatmentLeads:
     """Every pre-treatment placebo lead across every cohort, plus the single
@@ -270,79 +243,49 @@ class _PreTreatmentLeads:
 def pre_treatment_leads(panel: PanelArrays) -> _PreTreatmentLeads:
     """Placebo leads for `parallel_trends_check`/`no_anticipation_check`.
 
-    For each cohort `g` with baseline period `g - 1` (its last untreated
-    period), and each earlier period `t < g - 1`, this compares cohort `g`'s
-    mean change from `t` to the baseline against the same change among units
-    not yet treated by `g` (the never-treated, plus later cohorts) -- the same
-    2x2 placebo mechanism `CallawaySantAnna._placebo_leads` uses, and the same
-    per-cell independent-samples variance `compute_cells` uses (not a single
-    variance pooled across cells, which `CallawaySantAnna`'s own history
-    measured as badly over-rejecting -- see that module's `_placebo_leads`
-    docstring). Controls are always the never-treated union not-yet-treated,
-    with no separate "control_group" option: `_model`'s own likelihood already
-    leans on every not-yet-treated row to identify `gamma_t`, the same units
-    this check treats as controls.
+    The 2x2 placebo computation itself -- the same one `CallawaySantAnna`
+    uses for its own placebo leads, including the per-cell independent-
+    samples variance (not a single variance pooled across cells, which
+    `CallawaySantAnna`'s own history measured as badly over-rejecting -- see
+    `panel_checks.placebo_leads`'s docstring) -- lives in
+    `panel_checks.placebo_leads`, so the two estimators cannot let this
+    formula drift apart across two copies. Controls are always the
+    never-treated union not-yet-treated, with no separate "control_group"
+    option: `_model`'s own likelihood already leans on every not-yet-treated
+    row to identify `gamma_t`, the same units this check treats as controls.
+
+    On top of that shared computation, this picks the single lead nearest
+    its own cohort's adoption (i.e. period `g - 2`, immediately before the
+    omitted baseline `g - 1`) across all cohorts, generalising event-study's
+    own "nearest estimated lead" convention to a multi-cohort panel where no
+    single calendar period is "immediately before adoption" for every cohort
+    at once -- a selection `CallawaySantAnna` has no equivalent of, which is
+    why this function exists as a thin wrapper around `placebo_leads` rather
+    than the estimator calling `placebo_leads` directly the way
+    `CallawaySantAnna` does.
 
     Returns an empty `coefficients`/`covariance` pair, and `None` for the
     nearest lead, when no cohort has two pre-treatment periods -- the caller
     reports that as `NOT_TESTABLE`, not as a passing test.
-
-    The "nearest" lead is the single placebo cell with the smallest gap to its
-    own cohort's adoption (i.e. period `g - 2`, immediately before the omitted
-    baseline `g - 1`) across all cohorts, generalising event-study's own
-    "nearest estimated lead" convention to a multi-cohort panel where no
-    single calendar period is "immediately before adoption" for every cohort
-    at once.
     """
-    grid = _unit_means(panel)
-    leads: list[float] = []
-    variances: list[float] = []
-    gaps: list[int] = []
-    horizons: list[tuple[int, int]] = []
-
-    for cohort in panel.adoption_periods:
-        baseline = panel.period_position(cohort - 1)
-        if baseline < 0:
-            continue
-        members = panel.cohort == cohort
-        if not members.any():
-            continue
-        for column, period in enumerate(panel.periods.astype(int)):
-            if period >= cohort - 1 or column >= baseline:
-                continue
-            controls = (panel.cohort == 0) | (panel.cohort > cohort)
-            if not controls.any():
-                continue
-            treated_change, treated_var, n_treated = _group_change(
-                grid, members, column, baseline
-            )
-            control_change, control_var, n_control = _group_change(
-                grid, controls, column, baseline
-            )
-            if not np.isfinite(treated_change) or not np.isfinite(control_change):
-                continue
-            leads.append(treated_change - control_change)
-            variances.append(treated_var / n_treated + control_var / n_control)
-            gaps.append(int(cohort - period))
-            horizons.append((int(cohort), int(period)))
-
-    if not leads:
+    keys, coefficients, covariance = placebo_leads(panel, "not_yet_treated")
+    if coefficients.size == 0:
         return _PreTreatmentLeads(
-            coefficients=np.asarray([]),
-            covariance=np.zeros((0, 0)),
+            coefficients=coefficients,
+            covariance=covariance,
             nearest_coefficient=None,
             nearest_standard_error=None,
             nearest_horizon_label="",
         )
 
-    values = np.asarray(leads)
-    diagonal = np.maximum(np.asarray(variances), 1e-12)
+    gaps = keys[:, 0] - keys[:, 1]
     nearest = int(np.argmin(gaps))
-    nearest_cohort, nearest_period = horizons[nearest]
+    nearest_cohort, nearest_period = int(keys[nearest, 0]), int(keys[nearest, 1])
+    diagonal = np.diag(covariance)
     return _PreTreatmentLeads(
-        coefficients=values,
-        covariance=np.diag(diagonal),
-        nearest_coefficient=float(values[nearest]),
+        coefficients=coefficients,
+        covariance=covariance,
+        nearest_coefficient=float(coefficients[nearest]),
         nearest_standard_error=float(np.sqrt(diagonal[nearest])),
         nearest_horizon_label=(
             f"period {nearest_period} placebo lead for the cohort adopting at "

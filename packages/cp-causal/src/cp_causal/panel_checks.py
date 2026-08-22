@@ -16,6 +16,127 @@ from cp_causal._panel import PanelArrays
 _ALPHA = 0.05
 
 
+def unit_means(panel: PanelArrays) -> np.ndarray:
+    """Outcome by (unit, period), with nan where a cell is unobserved.
+
+    Built once per fit. An unbalanced panel leaves nan cells, and every group
+    comparison drawn from this grid should treat a nan as "not observed", not
+    as zero.
+    """
+    grid = np.full((panel.n_units, panel.n_periods), np.nan)
+    grid[panel.unit_index, panel.period_index] = panel.outcome
+    return grid
+
+
+def group_change(
+    grid: np.ndarray, members: np.ndarray, column: int, baseline: int
+) -> tuple[float, float, int]:
+    """Mean within-unit change (column vs. baseline column), its variance, and
+    the contributing unit count.
+
+    The change is differenced *within each unit* before averaging, so each
+    unit contributes one observation and the resulting standard error is
+    clustered on unit by construction rather than by a separate correction.
+    """
+    if not members.any():
+        return float("nan"), float("nan"), 0
+    changes = grid[members, column] - grid[members, baseline]
+    finite = changes[np.isfinite(changes)]
+    if finite.size < 2:
+        return float("nan"), float("nan"), int(finite.size)
+    return float(finite.mean()), float(finite.var(ddof=1)), int(finite.size)
+
+
+def placebo_leads(
+    panel: PanelArrays, control_group: str
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Pre-treatment placebo cells: the 2x2 machinery run on periods *before*
+    adoption, where the true effect is zero by construction. A non-zero
+    placebo is a differential trend.
+
+    Shared by `CallawaySantAnna` (which folds the result straight into
+    `parallel_trends_check`) and `HierarchicalDiD` (which additionally picks
+    the single cell nearest its own cohort's adoption for
+    `no_anticipation_check`). This function does not pick a "nearest" cell
+    itself -- that is a caller-specific concern -- which is why `keys` is
+    returned: without the (cohort, period) identifying each cell, a caller
+    that needs the nearest one would have no way to find it after the fact.
+
+    For each cohort `g` with baseline period `g - 1` (its last untreated
+    period) and each earlier period `t < g - 1`, compares cohort `g`'s mean
+    change from `t` to the baseline against the same change among the
+    `control_group` -- "never_treated" (only never-treated units) or any
+    other value, treated as "not_yet_treated" (never-treated plus every
+    later-adopting cohort).
+
+    Returns `(keys, coefficients, covariance)`. `keys` is `(n, 2)`, each row
+    `(cohort, period)` identifying the cell at that index of `coefficients`
+    and of `covariance`'s diagonal. All three are empty (`(0, 2)`, `(0,)`,
+    `(0, 0)`) when no cohort has two pre-treatment periods to compare --
+    callers report that as NOT_TESTABLE, not as a passing test.
+
+    Diagonal covariance from EACH CELL'S OWN analytic variance, via the same
+    two-independent-samples formula the real ATT(g,t)/treatment-effect cells
+    use -- not a single variance pooled across cells.
+
+    An earlier version pooled `values.var(ddof=1)` across cells and divided
+    by the cell count, which is the standard-error-of-the-mean formula
+    misapplied to a per-observation covariance -- and even after removing
+    the erroneous division, a single pooled variance still ignores that the
+    placebo cells sharing one cohort share the same baseline period and are
+    therefore correlated, not independent draws of a common distribution.
+    Testing correlated values against a diagonal covariance that assumes
+    independence inflates the chi-square statistic and over-rejects.
+
+    Measured on scenario P1 (clean, no violation, 3 correlated placebo cells
+    sharing one baseline), 40 seeds: the original pooled-and-divided form
+    FAILED 16/20 seeds against a nominal 5% rate; pooled-without-dividing
+    still FAILED 8/20; this per-cell-variance form FAILS 4/40 (10%) -- still
+    somewhat above nominal, consistent with a chi-square approximation on
+    only 3 correlated degrees of freedom, but no longer a gross
+    miscalibration. P5 (a real violation) is still caught 10/10.
+    """
+    grid = unit_means(panel)
+    keys: list[tuple[int, int]] = []
+    placebos: list[float] = []
+    placebo_variances: list[float] = []
+    for cohort in panel.adoption_periods:
+        baseline = panel.period_position(cohort - 1)
+        if baseline < 0:
+            continue
+        members = panel.cohort == cohort
+        if not members.any():
+            continue
+        for column, period in enumerate(panel.periods.astype(int)):
+            if period >= cohort - 1 or column >= baseline:
+                continue
+            controls = (
+                (panel.cohort == 0)
+                if control_group == "never_treated"
+                else (panel.cohort == 0) | (panel.cohort > cohort)
+            )
+            if not controls.any():
+                continue
+            treated_change, treated_var, n_treated = group_change(
+                grid, members, column, baseline
+            )
+            control_change, control_var, n_control = group_change(
+                grid, controls, column, baseline
+            )
+            if not np.isfinite(treated_change) or not np.isfinite(control_change):
+                continue
+            keys.append((int(cohort), int(period)))
+            placebos.append(treated_change - control_change)
+            placebo_variances.append(treated_var / n_treated + control_var / n_control)
+
+    if not placebos:
+        return np.zeros((0, 2), dtype=int), np.asarray([]), np.zeros((0, 0))
+
+    values = np.asarray(placebos)
+    diagonal = np.maximum(np.asarray(placebo_variances), 1e-12)
+    return np.asarray(keys, dtype=int), values, np.diag(diagonal)
+
+
 def parallel_trends_check(
     lead_coefficients: np.ndarray,
     lead_covariance: np.ndarray,
