@@ -56,9 +56,13 @@ HIER_FAST_MCMC_CONFIG = MCMCConfig(num_warmup=50, num_samples=50, num_chains=2)
 #   P3 (3 cohorts,  400x8):  R-hat 1.0073, min ESS  781, divergent 25/4000 (0.63%), ~26s
 #   P4 (3 cohorts,  400x8):  R-hat 1.0020, min ESS  744, divergent  0/4000 (0.00%), ~80s
 #   P7 (7 cohorts, 600x20):  R-hat 1.0068, min ESS  261, divergent  0/4000 (0.00%), ~332s
-# All three clear R-hat <= 1.01 with effectively zero divergences; smaller
-# warmup/sample counts (tried: 200/200, 500/500, 700/700, 1000/1000, all with
-# 4 chains) left at least one scenario over the R-hat bound.
+# All three clear R-hat <= 1.01 with effectively zero divergences. Of the
+# smaller configs tried (all with 4 chains), 200/200, 500/500 and 700/700 each
+# left at least one scenario over the R-hat bound at seed 0. 1000/1000 did
+# NOT -- it passed all three at seed 0 (P3 1.0076, P4 1.0023, P7 1.0020) and
+# was rejected only by the seed sweep below. Those are two different
+# experiments and are kept apart deliberately: a single seed is what made
+# 1000/1000 look adequate in the first place.
 #
 # Finding, not swept under the rug: P3's 3-cohort funnel is seed-sensitive at
 # 1000 warmup / 1000 samples. Sweeping seeds 0-9 at that (smaller) config, one
