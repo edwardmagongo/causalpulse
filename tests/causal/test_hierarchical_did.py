@@ -143,6 +143,51 @@ def test_cohort_cell_counts_count_treated_cells_not_treated_units():
     assert abs(float(inputs.outcome_std.std()) - 1.0) < 1e-6
 
 
+def test_cohort_codes_are_ordered_by_adoption_period():
+    """Cohort codes must ascend with adoption period.
+
+    `cohort_cell_counts[i]` is the weight applied to the model's `tau_g[i]`,
+    so the two must refer to the same cohort. That alignment rests entirely
+    on codes being assigned in ascending-period order, and nothing else in
+    the suite pins it: the cell-count test above compares each count against
+    `cohort_index == code` self-consistently, so it passes identically under
+    a reversed or shuffled mapping.
+
+    A misordering does not raise. It silently misweights the effect --
+    reconstructing P4's ground truth with correct codes reproduces
+    `true_att_overall` exactly at 2.8376, while reversing the code-to-period
+    mapping yields 2.1624.
+    """
+    from cp_causal._panel import panel_arrays
+    from cp_causal.estimators.hierarchical_did import build_model_inputs
+    from cp_simulation.panel_scenarios import build_panel_scenario
+
+    dgp = build_panel_scenario("P3")
+    simulated = dgp.generate(200, 8, np.random.default_rng(0))
+    panel = panel_arrays(simulated.dataset)
+    inputs = build_model_inputs(panel)
+
+    # Every treated unit's code must rank the same way its adoption period
+    # does. Built from the panel's own per-unit cohort column rather than
+    # from `adoption_periods`, so this fails if either the ordering or the
+    # period-to-code mapping is disturbed.
+    period_of_code: dict[int, int] = {}
+    for unit, period in enumerate(panel.cohort):
+        if period <= 0:
+            continue
+        code = int(inputs.cohort_index[panel.unit_index == unit][0])
+        period_of_code.setdefault(code, int(period))
+        assert period_of_code[code] == int(period), (
+            f"code {code} maps to both period {period_of_code[code]} and {period}"
+        )
+
+    assert len(period_of_code) == inputs.n_cohorts
+    codes_in_order = [period_of_code[c] for c in range(inputs.n_cohorts)]
+    assert codes_in_order == sorted(codes_in_order), (
+        f"cohort codes are not ascending in adoption period: {codes_in_order}"
+    )
+
+
 def test_never_treated_units_carry_no_cohort():
     from cp_causal._panel import panel_arrays
     from cp_causal.estimators.hierarchical_did import build_model_inputs
