@@ -171,3 +171,39 @@ def build_model_inputs(panel: PanelArrays) -> ModelInputs:
         outcome_mean=outcome_mean,
         outcome_sd=outcome_sd,
     )
+
+
+def weighted_att_draws(
+    tau_g_draws: np.ndarray, cohort_cell_counts: np.ndarray, outcome_sd: float
+) -> np.ndarray:
+    """One treated-cell-weighted ATT per posterior draw, on the outcome's scale.
+
+    `tau_g_draws` is `(n_draws, n_cohorts)`; `cohort_cell_counts` counts
+    treated (unit, period) CELLS per cohort, in the same cohort order (see
+    `ModelInputs.cohort_cell_counts`).
+
+    Weighted by treated cells, and computed *within* each draw, for two
+    separate reasons that are easy to conflate.
+
+    The weighting fixes the estimand. `mu_tau`, the population mean, is the
+    unweighted "typical cohort" effect. The target is
+    `SimulatedPanel.truth.true_att_overall`, which averages over every treated
+    (unit, period) cell -- so a cohort's weight is `units x post-periods`, and
+    an earlier-adopting cohort counts for more than a later one of equal size.
+    Weighting by treated units instead was measured on P4 to give 2.5028
+    against the registered 2.8361 (`true_att_overall` itself measures
+    2.8356): roughly 150 Monte Carlo standard errors off, which would surface
+    in the recovery harness as estimator bias when it is really a weighting
+    error.
+
+    Computing per draw fixes the interval. Averaging the draws first and
+    weighting the summaries afterwards gives the same point estimate but a
+    wrong credible interval, because it discards the joint posterior's
+    cross-cohort correlation.
+
+    The `outcome_sd` scale-back matches `ModelInputs.outcome_sd`, which is a
+    population standard deviation (`ddof=0`), since that is what `_model`
+    standardised the outcome by.
+    """
+    weights = cohort_cell_counts / cohort_cell_counts.sum()
+    return np.asarray(tau_g_draws @ weights) * outcome_sd

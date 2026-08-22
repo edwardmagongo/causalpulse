@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from cp_causal._mcmc import run_nuts
 from cp_causal.estimators.hierarchical_did import (
     HIER_FAST_MCMC_CONFIG,
@@ -199,3 +200,41 @@ def test_never_treated_units_carry_no_cohort():
 
     # Never-treated rows must never be marked treated, whatever their index.
     assert not inputs.treated_mask[inputs.cohort_index < 0].any()
+
+
+def test_weighted_att_weights_by_treated_cells_not_uniformly():
+    from cp_causal.estimators.hierarchical_did import weighted_att_draws
+
+    # Two cohorts, wildly unequal treated-cell counts and very different
+    # effects. Cell counts, not unit counts -- see the docstring.
+    tau_g = np.array([[1.0, 5.0], [1.0, 5.0]])  # 2 draws, 2 cohorts
+    cells = np.array([90, 10])
+
+    att = weighted_att_draws(tau_g, cells, outcome_sd=1.0)
+
+    # Cell-weighted: 0.9*1 + 0.1*5 = 1.4.  Unweighted mean would be 3.0.
+    assert att == pytest.approx(np.array([1.4, 1.4]))
+    assert not np.allclose(att, 3.0), "weighting by treated cells is not happening"
+
+
+def test_weighted_att_rescales_off_the_standardised_scale():
+    from cp_causal.estimators.hierarchical_did import weighted_att_draws
+
+    tau_g = np.array([[2.0, 2.0]])
+    cells = np.array([1, 1])
+    att = weighted_att_draws(tau_g, cells, outcome_sd=3.0)
+    # The model fits standardised outcomes; effects come back multiplied by sd.
+    assert att == pytest.approx(np.array([6.0]))
+
+
+def test_weighted_att_is_computed_per_draw_not_from_summaries():
+    from cp_causal.estimators.hierarchical_did import weighted_att_draws
+
+    # Draws that share a mean but differ per draw. Averaging tau_g first and
+    # weighting after would collapse this to a constant and lose the spread
+    # the credible interval depends on.
+    tau_g = np.array([[0.0, 4.0], [4.0, 0.0]])
+    cells = np.array([50, 50])
+    att = weighted_att_draws(tau_g, cells, outcome_sd=1.0)
+    assert att.shape == (2,)
+    assert att == pytest.approx(np.array([2.0, 2.0]))
