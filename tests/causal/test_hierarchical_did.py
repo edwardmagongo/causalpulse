@@ -112,3 +112,45 @@ def test_never_treated_rows_do_not_contribute_a_treatment_effect():
     # differ from the no-effect baseline (else the assertion above would
     # pass trivially even with a broken model).
     assert not np.allclose(actual_mean[~never_treated_rows], baseline_mean[~never_treated_rows])
+
+
+def test_cohort_cell_counts_count_treated_cells_not_treated_units():
+    """Weights must match `true_att_overall`, which averages over every
+    treated (unit, period) CELL -- so a cohort's weight is units x
+    post-periods, not units. Measured on P4: cell weighting reproduces its
+    registered 2.8356; unit weighting gives 2.5028.
+    """
+    from cp_causal._panel import panel_arrays
+    from cp_causal.estimators.hierarchical_did import build_model_inputs
+    from cp_simulation.panel_scenarios import build_panel_scenario
+
+    dgp = build_panel_scenario("P3")
+    simulated = dgp.generate(200, 8, np.random.default_rng(0))
+    inputs = build_model_inputs(panel_arrays(simulated.dataset))
+
+    assert inputs.cohort_cell_counts.shape == (inputs.n_cohorts,)
+    # Cells, not units: each count is that cohort's treated-ROW total.
+    for code in range(inputs.n_cohorts):
+        expected = int(((inputs.cohort_index == code) & inputs.treated_mask).sum())
+        assert int(inputs.cohort_cell_counts[code]) == expected
+    # The total must equal the treated-row count exactly. A unit-based count
+    # would be smaller by roughly the post-period count -- the 2.8356 vs
+    # 2.5028 gap on P4.
+    assert int(inputs.cohort_cell_counts.sum()) == int(inputs.treated_mask.sum())
+    assert inputs.cohort_index[~inputs.treated_mask].size > 0
+    # Standardisation is what the model's priors assume.
+    assert abs(float(inputs.outcome_std.mean())) < 1e-6
+    assert abs(float(inputs.outcome_std.std()) - 1.0) < 1e-6
+
+
+def test_never_treated_units_carry_no_cohort():
+    from cp_causal._panel import panel_arrays
+    from cp_causal.estimators.hierarchical_did import build_model_inputs
+    from cp_simulation.panel_scenarios import build_panel_scenario
+
+    dgp = build_panel_scenario("P3")
+    simulated = dgp.generate(200, 8, np.random.default_rng(0))
+    inputs = build_model_inputs(panel_arrays(simulated.dataset))
+
+    # Never-treated rows must never be marked treated, whatever their index.
+    assert not inputs.treated_mask[inputs.cohort_index < 0].any()
