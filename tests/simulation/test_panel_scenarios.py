@@ -17,7 +17,7 @@ def generate(scenario_id, seed=0, n_units=PANEL_N_UNITS):
 
 
 def test_the_registry_holds_exactly_the_designed_scenarios():
-    assert sorted(PANEL_SCENARIOS) == ["P1", "P2", "P3", "P4", "P5", "P6"]
+    assert sorted(PANEL_SCENARIOS) == ["P1", "P2", "P3", "P4", "P5", "P6", "P7"]
 
 
 def test_panel_scenarios_do_not_collide_with_cross_sectional_ones():
@@ -106,3 +106,19 @@ def test_p5_is_the_only_continuous_scenario_that_selects_on_trend():
         spec = PANEL_SCENARIOS[scenario_id]
         assert not spec.build().adoption.violates_parallel_trends(), scenario_id
     assert PANEL_SCENARIOS["P5"].build().adoption.violates_parallel_trends()
+
+
+def test_p7_has_many_cohorts_each_with_pre_and_post_periods():
+    from cp_simulation.panel_scenarios import (
+        HIER_N_PERIODS,
+        HIER_N_UNITS,
+        build_panel_scenario,
+    )
+
+    dgp = build_panel_scenario("P7")
+    panel = dgp.generate(HIER_N_UNITS, HIER_N_PERIODS, np.random.default_rng(0))
+
+    cohorts = sorted(set(panel.truth.true_cohorts.tolist()) - {0})
+    assert len(cohorts) >= 6, f"P7 needs many cohorts to identify sigma_tau, got {cohorts}"
+    for g in cohorts:
+        assert 2 <= g <= HIER_N_PERIODS

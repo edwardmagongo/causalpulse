@@ -45,6 +45,16 @@ _UNIFORM_START = 5
 _COHORT_PERIODS = (3, 5, 7)
 _NEVER_SHARE = 0.4
 
+# This scenario's own protocol, deliberately separate from PANEL_N_* above:
+# a hierarchy over cohorts needs more cohorts than eight periods can hold,
+# and PANEL_N_PERIODS is the protocol every Phase 3 measurement was taken
+# at. Following CATE_N_UNITS' precedent from Phase 6 rather than widening a
+# constant other measurements depend on.
+HIER_N_UNITS = 600
+HIER_N_PERIODS = 20
+HIER_SEEDS = 20
+_HIER_COHORT_PERIODS = (4, 6, 8, 10, 12, 14, 16)
+
 
 @dataclass(frozen=True)
 class PanelScenarioSpec:
@@ -180,6 +190,26 @@ PANEL_SCENARIOS: dict[str, PanelScenarioSpec] = {
             scenario_id="P6",
             intercept=-1.5,
             tau_logit=0.45,
+        ),
+    ),
+    "P7": PanelScenarioSpec(
+        scenario_id="P7",
+        name="Many cohorts, dispersed effects",
+        declared_effect=6.7358,
+        description="Seven adoption cohorts with effects that differ across "
+        "cohorts, generated at this scenario's own longer protocol: "
+        "HIER_N_UNITS=600, HIER_N_PERIODS=20. Exists so a hierarchical "
+        "model's cross-cohort variance is identifiable: the three cohorts of "
+        "P3/P4 leave sigma_tau largely prior-driven. The declared effect is "
+        "the measured mean of true_att_overall across HIER_SEEDS=20 seeds -- "
+        "6.735807, sd 0.005855, MCSE 0.001309 -- the same quantity P4's "
+        "2.8361 was measured as, not a plain per-cohort-size weighted "
+        "average of true_att_by_cohort (which comes out to 6.01 here and "
+        "would similarly diverge from P4's declared label if used there).",
+        build=_panel(
+            "P7",
+            StaggeredAdoption(periods=_HIER_COHORT_PERIODS, never_share=_NEVER_SHARE),
+            RampDynamicEffect(tau=1.0),
         ),
     ),
 }

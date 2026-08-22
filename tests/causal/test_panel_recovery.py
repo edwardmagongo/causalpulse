@@ -219,7 +219,9 @@ def test_every_panel_scenario_is_covered_by_this_harness():
     # If a scenario is added without a recovery expectation, say so loudly
     # rather than letting it drift untested. P6's expectation lives in
     # tests/simulation/test_panel_binary.py, which measures its link bias.
-    assert set(PANEL_SCENARIOS) == {"P1", "P2", "P3", "P4", "P5", "P6"}
+    # P7's lives in tests/causal/test_hierarchical_did_recovery.py, which is
+    # the only estimator with enough cohorts to need it.
+    assert set(PANEL_SCENARIOS) == {"P1", "P2", "P3", "P4", "P5", "P6", "P7"}
 
 
 def test_importing_cp_causal_registers_every_panel_estimator():
