@@ -228,13 +228,31 @@ def test_weighted_att_rescales_off_the_standardised_scale():
 
 
 def test_weighted_att_is_computed_per_draw_not_from_summaries():
+    """Averaging the draws first and weighting the summaries afterwards gives
+    the same POINT estimate and a wrong credible interval, because it discards
+    the joint posterior's cross-cohort correlation. Only the spread separates
+    the two, so the fixture has to be built to make them diverge.
+
+    This fixture deliberately combines UNEQUAL weights with draws that are not
+    a symmetric swap. An earlier version used `tau_g=[[0,4],[4,0]]` with equal
+    weights `[50,50]`, which yields `[2.0, 2.0]` under BOTH the correct
+    per-draw computation and an average-first implementation -- it could only
+    ever have failed on the shape assertion, never on the property its own
+    name claims to guard. Verified numerically before replacing it.
+    """
     from cp_causal.estimators.hierarchical_did import weighted_att_draws
 
-    # Draws that share a mean but differ per draw. Averaging tau_g first and
-    # weighting after would collapse this to a constant and lose the spread
-    # the credible interval depends on.
-    tau_g = np.array([[0.0, 4.0], [4.0, 0.0]])
-    cells = np.array([50, 50])
+    tau_g = np.array([[0.0, 4.0], [8.0, 0.0]])
+    cells = np.array([90, 10])
     att = weighted_att_draws(tau_g, cells, outcome_sd=1.0)
+
     assert att.shape == (2,)
-    assert att == pytest.approx(np.array([2.0, 2.0]))
+    # Per draw: 0*0.9 + 4*0.1 = 0.4, then 8*0.9 + 0*0.1 = 7.2.
+    assert att == pytest.approx(np.array([0.4, 7.2]))
+    # Average-first would collapse both draws to 4*0.9 + 2*0.1 = 3.8. Asserted
+    # explicitly so the failure names the actual defect rather than just
+    # reporting two numbers that differ.
+    assert not np.allclose(att, 3.8), (
+        "weighted_att_draws averaged the draws before weighting -- the point "
+        "estimate survives that, the credible interval does not"
+    )
