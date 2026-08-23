@@ -290,6 +290,105 @@ def test_mcmc_diagnostics_are_reported_per_seed_not_assumed_clean(
     )
 
 
+def _compare(scenario_id: str, other, seeds: int) -> dict[str, float]:
+    """Fit HierarchicalDiD and one other estimator on identical panels."""
+    diffs: list[float] = []
+    inside = 0
+    overlap = 0
+    for seed in range(seeds):
+        simulated = _generate(scenario_id, seed)
+        hier = HierarchicalDiD().fit(simulated.dataset, _config(seed))
+        rival = other().fit(
+            simulated.dataset, EstimatorConfig(random_seed=seed, ci_level=0.95)
+        )
+        diffs.append(hier.point - rival.point)
+        inside += hier.ci.lower <= rival.point <= hier.ci.upper
+        overlap += (hier.ci.lower <= rival.ci.upper) and (rival.ci.lower <= hier.ci.upper)
+    return {
+        "abs_max_diff": float(np.abs(diffs).max()),
+        "mean_diff": float(np.mean(diffs)),
+        "inside": inside,
+        "overlap": overlap,
+        "n": seeds,
+    }
+
+
+@pytest.mark.slow
+def test_single_cohort_fit_collapses_onto_two_way_fixed_effects():
+    """With one adoption cohort the hierarchy has nothing to pool over, so
+    the estimate must reduce to the ordinary two-way fixed-effects answer.
+
+    P1 is exactly that case -- uniform adoption, a single cohort. This is the
+    cheapest real check available and it uses only code that already exists:
+    it catches cohort-indexing errors, weighting errors and sign errors that
+    a dispersed-cohort recovery test can absorb into partial pooling.
+
+    Measured over 8 seeds: mean difference +0.0093, sd 0.0121, largest
+    absolute difference 0.0277, and TWFE's point estimate falls inside the
+    posterior credible interval on 8 of 8 seeds. Both estimators carry
+    essentially the same bias here (-0.0430 and -0.0523), which is what
+    "collapses onto" should mean.
+
+    The bound is 0.10, about 8 sd above the measured mean difference and
+    roughly 4x the worst seed, so a genuine divergence between the two
+    parameterisations fails while MCMC noise does not.
+    """
+    from cp_causal.estimators.did import TwoWayFixedEffects
+
+    m = _compare("P1", TwoWayFixedEffects, RECOVERY_SEEDS)
+    assert m["abs_max_diff"] < 0.10, (
+        f"P1 hierarchical vs TWFE: largest difference {m['abs_max_diff']:.4f} "
+        f"(measured 0.0277 over 8 seeds) -- with one cohort these must agree"
+    )
+    assert m["inside"] >= 7, (
+        f"TWFE's point fell inside the credible interval on only "
+        f"{m['inside']}/{m['n']} seeds (measured 8/8)"
+    )
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("scenario", ["P3", "P4"])
+def test_agrees_with_callaway_santanna_on_staggered_adoption(scenario: str):
+    """Two genuinely different methods targeting the same estimand.
+
+    P3 (homogeneous) and P4 (effects ramping with exposure) are the scenarios
+    where Callaway-Sant'Anna recovers truth and two-way fixed effects does
+    not, so agreement here is evidence this estimator belongs in the former
+    group. Checked as interval overlap and rough magnitude, NOT exact match:
+    these solve the same statistical problem by different means -- posterior
+    partial pooling against a group-time ATT aggregation -- the way
+    CausalForest and econml do, not the same optimisation the way
+    SyntheticControl and pysyncon do.
+
+    Measured over 8 seeds per scenario: largest absolute difference 0.1902
+    (P3) and 0.1954 (P4); intervals overlap on 8 of 8 seeds in both;
+    Callaway-Sant'Anna's point falls inside the credible interval on 7 of 8.
+    Mean bias against measured truth: -0.0067 (this estimator) versus +0.0471
+    (Callaway-Sant'Anna) on P3, and -0.0075 versus +0.0471 on P4.
+
+    An aside worth recording, since it looks like a bug and is not:
+    Callaway-Sant'Anna's per-seed ERROR is identical on P3 and P4
+    (-0.0811, +0.0200, +0.1362, +0.1526, ...). The two scenarios share units,
+    noise and adoption timing at a given seed and differ only in the
+    deterministic effect added on top; a linear estimator's error does not
+    depend on that, so the errors coincide exactly. This estimator's do not,
+    because MCMC is stochastic.
+
+    The bound is 0.35, roughly 1.8x the worst measured seed.
+    """
+    from cp_causal.estimators.callaway_santanna import CallawaySantAnna
+
+    m = _compare(scenario, CallawaySantAnna, RECOVERY_SEEDS)
+    assert m["abs_max_diff"] < 0.35, (
+        f"{scenario} hierarchical vs Callaway-Sant'Anna: largest difference "
+        f"{m['abs_max_diff']:.4f} (measured 0.19)"
+    )
+    assert m["overlap"] >= 7, (
+        f"{scenario}: intervals overlapped on only {m['overlap']}/{m['n']} seeds "
+        f"(measured 8/8) -- two methods targeting one estimand should not be disjoint"
+    )
+
+
 def test_every_scenario_this_harness_scores_is_a_registered_panel_scenario():
     # A scenario renamed or removed upstream should break loudly here rather
     # than silently drop out of this file's coverage.
