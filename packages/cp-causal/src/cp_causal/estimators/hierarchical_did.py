@@ -87,11 +87,37 @@ def _model(
     time_index: np.ndarray,
     cohort_index: np.ndarray,
     treated_mask: np.ndarray,
+    exposure: np.ndarray,
     n_units: int,
     n_periods: int,
     n_cohorts: int,
 ) -> None:
     """One observation per (unit, period) row.
+
+    The treatment effect on a treated row is `tau_g + delta * exposure`,
+    where `exposure` counts periods since that unit adopted (0 in its first
+    treated period) and is 0 on every untreated row.
+
+    **Why the exposure term exists, measured rather than assumed.** Without
+    it the model forces one constant effect per cohort. When the true effect
+    instead grows with exposure, that misfit does not stay put: it is
+    positively correlated with calendar period (later periods hold more
+    heavily-exposed units), so `gamma_t` absorbs it, and the cohorts treated
+    only in late periods lose the most. Measured on P4 at 15 seeds with the
+    constant-only model: cohort effects estimated 3.36 / 2.03 / 0.49 against
+    a truth of 3.50 / 2.50 / 1.50 -- the latest-adopting cohort short by
+    two thirds -- giving a -17% ATT bias and 0/15 interval coverage, with
+    R-hat and divergences clean on every seed. P3, whose effect is genuinely
+    constant, was unbiased (+0.0002) under the same model, which is what
+    identified the misspecification rather than the sampler as the cause.
+
+    Note the signature: a *shared* slope, not one per cohort. This is the
+    smallest extension that lets the effect move with exposure at all, and
+    it deliberately stops short of the full cohort-by-exposure surface the
+    design document considered and rejected on complexity grounds. It cannot
+    represent a non-linear ramp or cohorts whose effects grow at different
+    rates; `delta` shrinks toward 0 when the effect is constant, so the
+    constant case is nested inside it.
 
     `cohort_index` is -1 for never-treated units; `treated_mask` is already
     False for every one of their rows, so the gathered value is never used.
@@ -115,8 +141,15 @@ def _model(
     z_g = numpyro.sample("z_g", dist.Normal(jnp.zeros(n_cohorts), 1.0))
     tau_g = numpyro.deterministic("tau_g", mu_tau + sigma_tau * z_g)
 
+    # Effect growth per period of exposure, shared across cohorts. Weakly
+    # informative on the standardised outcome scale, and centred on zero so
+    # a genuinely constant effect is the prior's default rather than
+    # something the data has to argue the model out of.
+    delta = numpyro.sample("delta", dist.Normal(0.0, 0.5))
+
     safe_index = jnp.clip(jnp.asarray(cohort_index), 0, n_cohorts - 1)
-    effect = jnp.where(jnp.asarray(treated_mask), tau_g[safe_index], 0.0)
+    per_row = tau_g[safe_index] + delta * jnp.asarray(exposure)
+    effect = jnp.where(jnp.asarray(treated_mask), per_row, 0.0)
 
     mean = alpha[jnp.asarray(unit_index)] + gamma[jnp.asarray(time_index)] + effect
     numpyro.sample("obs", dist.Normal(mean, sigma_y), obs=jnp.asarray(outcome_std))
@@ -153,6 +186,15 @@ class ModelInputs:
     # Carlo standard errors off, reported as estimator bias when it would
     # actually be this weighting error. See `test_cohort_cell_counts_...`.
     cohort_cell_counts: np.ndarray
+    # Periods since adoption on each row: 0 in a unit's first treated period,
+    # and 0 on every untreated row (where `_model` masks it away regardless).
+    # Feeds the model's shared exposure slope.
+    exposure: np.ndarray
+    # Mean exposure across treated cells only. This is what turns a draw of
+    # `delta` into its contribution to the aggregate ATT, and it must be the
+    # treated-cell mean rather than the mean over all rows -- the untreated
+    # zeros would otherwise dilute it.
+    mean_treated_exposure: float
     outcome_mean: float
     outcome_sd: float
 
@@ -208,6 +250,19 @@ def build_model_inputs(panel: PanelArrays) -> ModelInputs:
         outcome_sd = 1.0
     outcome_std = (panel.outcome - outcome_mean) / outcome_sd
 
+    # Periods since adoption, 0-based in the first treated period. Untreated
+    # rows are forced to 0 rather than left negative: `_model` masks them out
+    # anyway, but a large negative exposure multiplying `delta` inside the
+    # unmasked branch would still be evaluated, and keeping it at 0 makes the
+    # masked and unmasked arithmetic agree.
+    adoption_of_row = np.asarray(panel.cohort)[panel.unit_index]
+    exposure = np.where(
+        treated_mask, np.asarray(panel.period_index) - adoption_of_row, 0
+    ).astype(np.int64)
+    mean_treated_exposure = (
+        float(exposure[treated_mask].mean()) if treated_mask.any() else 0.0
+    )
+
     return ModelInputs(
         outcome_std=outcome_std,
         unit_index=panel.unit_index,
@@ -218,19 +273,40 @@ def build_model_inputs(panel: PanelArrays) -> ModelInputs:
         n_periods=panel.n_periods,
         n_cohorts=n_cohorts,
         cohort_cell_counts=cohort_cell_counts,
+        exposure=exposure,
+        mean_treated_exposure=mean_treated_exposure,
         outcome_mean=outcome_mean,
         outcome_sd=outcome_sd,
     )
 
 
 def weighted_att_draws(
-    tau_g_draws: np.ndarray, cohort_cell_counts: np.ndarray, outcome_sd: float
+    tau_g_draws: np.ndarray,
+    cohort_cell_counts: np.ndarray,
+    outcome_sd: float,
+    delta_draws: np.ndarray | None = None,
+    mean_treated_exposure: float = 0.0,
 ) -> np.ndarray:
     """One treated-cell-weighted ATT per posterior draw, on the outcome's scale.
 
     `tau_g_draws` is `(n_draws, n_cohorts)`; `cohort_cell_counts` counts
     treated (unit, period) CELLS per cohort, in the same cohort order (see
-    `ModelInputs.cohort_cell_counts`).
+    `ModelInputs.cohort_cell_counts`). `delta_draws` is the shared
+    exposure-slope posterior, `(n_draws,)`.
+
+    **The exposure term is part of the estimand, not a correction to it.**
+    The model's effect on a treated row is `tau_g + delta * exposure`, so the
+    average over treated cells is
+    `sum_g w_g * tau_g + delta * mean(exposure over treated cells)`. Both
+    terms are needed for the result to be the same quantity
+    `true_att_overall` measures. Dropping the second silently reports the
+    effect at zero exposure instead of the average effect, which on a
+    ramping scenario is a large understatement -- that omission, in the form
+    of a model with no exposure term at all, measured a -17% bias and 0/15
+    coverage on P4.
+
+    `delta_draws=None` reproduces the constant-effect arithmetic and exists
+    so the weighting logic can be tested independently of the exposure term.
 
     Weighted by treated cells, and computed *within* each draw, for two
     separate reasons that are easy to conflate.
@@ -256,7 +332,10 @@ def weighted_att_draws(
     standardised the outcome by.
     """
     weights = cohort_cell_counts / cohort_cell_counts.sum()
-    return np.asarray(tau_g_draws @ weights) * outcome_sd
+    att = np.asarray(tau_g_draws @ weights)
+    if delta_draws is not None:
+        att = att + np.asarray(delta_draws) * mean_treated_exposure
+    return att * outcome_sd
 
 
 @dataclass(frozen=True)
@@ -374,6 +453,7 @@ class HierarchicalDiD:
             time_index=inputs.time_index,
             cohort_index=inputs.cohort_index,
             treated_mask=inputs.treated_mask,
+            exposure=inputs.exposure,
             n_units=inputs.n_units,
             n_periods=inputs.n_periods,
             n_cohorts=inputs.n_cohorts,
@@ -384,7 +464,14 @@ class HierarchicalDiD:
         diverging = mcmc.get_extra_fields(group_by_chain=True)["diverging"]
 
         tau_g_draws = np.asarray(samples["tau_g"])
-        att = weighted_att_draws(tau_g_draws, inputs.cohort_cell_counts, inputs.outcome_sd)
+        delta_draws = np.asarray(samples["delta"])
+        att = weighted_att_draws(
+            tau_g_draws,
+            inputs.cohort_cell_counts,
+            inputs.outcome_sd,
+            delta_draws=delta_draws,
+            mean_treated_exposure=inputs.mean_treated_exposure,
+        )
 
         point = float(att.mean())
         lower_q, upper_q = (1 - config.ci_level) / 2, 1 - (1 - config.ci_level) / 2
@@ -472,7 +559,23 @@ class HierarchicalDiD:
                         "deviation of the treatment effect, rescaled to the "
                         "outcome's original units. Near zero means the "
                         "cohorts share essentially one effect; large means "
-                        "they genuinely differ."
+                        "they genuinely differ. With only one adoption "
+                        "cohort there is no across-cohort variation to "
+                        "identify and this reports its prior, not a finding "
+                        "about the data."
+                    ),
+                ),
+                "delta": Diagnostic(
+                    name="delta",
+                    value=float(delta_draws.mean()) * inputs.outcome_sd,
+                    unit=None,
+                    interpretation=(
+                        "Posterior mean of the shared effect growth per "
+                        "period of exposure, in the outcome's original "
+                        "units. Positive means the effect builds after "
+                        "adoption. One slope for every cohort, so it cannot "
+                        "describe cohorts whose effects grow at different "
+                        "rates, nor a non-linear ramp."
                     ),
                 ),
                 "tau_g": Diagnostic(
