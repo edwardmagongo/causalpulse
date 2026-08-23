@@ -185,11 +185,11 @@ class ModelInputs:
     n_periods: int
     n_cohorts: int
     # Treated (unit, period) CELL count per cohort code, not treated UNIT
-    # count. `SimulatedPanel.truth.true_att_overall` -- the number every
-    # recovery test scores against -- is the mean over every treated cell,
-    # which implicitly weights each cohort by units x post-periods. Weighting
-    # by units instead was measured on P4 to give 2.5028 against the
-    # registered 2.8361 (true_att_overall measures 2.8356): roughly 150 Monte
+    # count. The overall ATT the recovery tests score against is the mean over
+    # every treated cell, which implicitly weights each cohort by
+    # units x post-periods. Weighting by units instead was measured on P4 to
+    # give 2.5028 against its registered 2.8361 (the cell-mean measures
+    # 2.8356): roughly 150 Monte
     # Carlo standard errors off, reported as estimator bias when it would
     # actually be this weighting error. See `test_cohort_cell_counts_...`.
     cohort_cell_counts: np.ndarray
@@ -319,15 +319,14 @@ def weighted_att_draws(
     separate reasons that are easy to conflate.
 
     The weighting fixes the estimand. `mu_tau`, the population mean, is the
-    unweighted "typical cohort" effect. The target is
-    `SimulatedPanel.truth.true_att_overall`, which averages over every treated
-    (unit, period) cell -- so a cohort's weight is `units x post-periods`, and
-    an earlier-adopting cohort counts for more than a later one of equal size.
-    Weighting by treated units instead was measured on P4 to give 2.5028
-    against the registered 2.8361 (`true_att_overall` itself measures
-    2.8356): roughly 150 Monte Carlo standard errors off, which would surface
-    in the recovery harness as estimator bias when it is really a weighting
-    error.
+    unweighted "typical cohort" effect. The target is the overall ATT, which
+    averages over every treated (unit, period) cell -- so a cohort's weight is
+    `units x post-periods`, and an earlier-adopting cohort counts for more
+    than a later one of equal size. Weighting by treated units instead was
+    measured on P4 to give 2.5028 against its registered 2.8361 (the cell
+    mean measures 2.8356): roughly 150 Monte Carlo standard errors off, which
+    would surface in the recovery harness as estimator bias when it is really
+    a weighting error.
 
     Computing per draw fixes the interval. Averaging the draws first and
     weighting the summaries afterwards gives the same point estimate but a

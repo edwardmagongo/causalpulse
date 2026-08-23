@@ -6,7 +6,7 @@ was, for whom it differed, and how much the conclusion should be trusted.
 
 ## Status
 
-Phases 1 through 6 of the causal core are implemented.
+Phases 1 through 7 of the causal core are implemented.
 
 **Phase 1** delivered the foundations: the workspace, data contracts, statistical primitives, and
 a simulation framework whose data-generating processes carry known ground truth.
@@ -40,6 +40,13 @@ recovery harness over the same donor-pool scenarios synthetic control uses.
 CATE alongside an aggregate effect, three CATE scenarios whose per-unit ground truth is measured
 rather than declared, and subgroup discovery behind three independent guards — an omnibus
 calibration test, a minimum cell size, and Benjamini–Hochberg FDR control.
+
+**Phase 7** delivered hierarchical Bayesian difference-in-differences: one partially-pooled
+treatment effect per adoption cohort with a shared exposure trend, sampled with NUTS, reported as
+a treated-cell-weighted posterior ATT. It adds a seventh panel scenario built specifically so the
+across-cohort variance is identifiable, and it is checked three ways — against measured truth,
+against two-way fixed effects in the degenerate single-cohort case, and against Callaway–Sant'Anna
+on staggered adoption.
 
 The robustness suite and the benchmark harness are still ahead.
 
@@ -406,6 +413,98 @@ is 0.958, while against measured truth the two score 0.669 and 0.634 respectivel
 each other far more closely than either tracks truth, which is what makes this a drift test rather
 than a second, weaker recovery test. `econml` is a dev-only dependency, marked `slow`, and never
 imported outside `tests/`.
+
+## Hierarchical Bayesian DiD (Phase 7)
+
+`HierarchicalDiD` gives each adoption cohort its own treatment effect, drawn from a common
+population distribution so a noisy cohort is shrunk toward the others rather than trusted on its
+own. Non-centred throughout: with a handful of cohorts the funnel between the across-cohort scale
+and the cohort effects is severe, and a centred parameterisation diverges.
+
+### The effect grows with exposure, and leaving that out was a real bug
+
+The first version held one constant effect per cohort. That is not a harmless simplification when
+the true effect ramps after adoption. The misfit is positively correlated with calendar period —
+later periods hold more heavily-exposed units — so the time effects absorb it, and the cohorts
+treated only in late periods lose the most.
+
+Measured on P4, the ramping scenario, with the constant-only model:
+
+| cohort (adopts) | 3 | 5 | 7 |
+|---|---|---|---|
+| true effect | 3.50 | 2.50 | 1.50 |
+| estimated | 3.36 | 2.03 | 0.49 |
+
+−17% ATT bias and **0 of 15 seeds** covering truth, with R-hat and divergences clean on every
+seed. The obvious reading — shrinkage pulling the heavy cohorts toward the unweighted mean — is
+wrong, and the numbers say so: shrinkage would pull 1.50 *up* and compress the spread, whereas
+every cohort moved down and the spread widened. P3, whose effect is genuinely constant, was
+unbiased under the identical model, which is what identified the misspecification rather than the
+sampler.
+
+The effect is now `tau_g + delta * exposure` with one slope shared across cohorts, and the
+aggregate gains the matching term so it stays the same quantity the truth measures. P4's bias went
+to −0.3% and coverage to 7 of 8; P3, the case that already worked, stayed unbiased. Deliberately
+one slope, not one per cohort — cohorts growing at different rates, or non-linearly, are outside
+this model.
+
+### The headline is a treated-cell-weighted ATT, not the population mean
+
+`mu_tau` is the unweighted "typical cohort" effect. The ATT averages over treated *cells*, so a
+cohort's weight is units × post-periods and an earlier-adopting cohort counts for more. On P4 the
+distinction is worth 2.5028 against 2.8356 — about 150 Monte Carlo standard errors, which the
+recovery harness would have reported as estimator bias rather than the weighting error it is. The
+weighted average is taken *within* each posterior draw; averaging draws first gives the same point
+estimate and a wrong interval.
+
+### How many cohorts the model actually wants
+
+Partial pooling is the model's justification, so whether the across-cohort scale is estimated or
+merely inherited from its prior is not a detail. Refitting under a fourfold change in that prior's
+scale moves the posterior by **1.4% at seven cohorts** and **81% at three** (full prior-dominance
+would be 300%). So the pooling behaviour is genuinely estimated with seven cohorts and about
+half-estimated with three. The headline ATT is far less sensitive — P3's bias is −0.67% — but a
+large across-cohort scale read as evidence that cohorts differ needs enough cohorts to mean it.
+This is why Phase 7 added a seventh panel scenario rather than reusing the three-cohort ones.
+
+### What it is checked against
+
+Recovery against measured truth on six scenarios, plus two independent cross-checks:
+
+| scenario | mean bias | coverage |
+|---|---|---|
+| P1 clean 2×2 | −0.0430 | 6/8 |
+| P2 null | −0.0155 | 6/8 |
+| P3 staggered, homogeneous | −0.0067 | 7/8 |
+| P4 staggered, ramping | −0.0075 | 7/8 |
+| P5 parallel trends violated | +2.1359 | 0/8 |
+| P7 many cohorts | +0.0123 | 6/6 |
+
+P5's large bias is correct: it violates parallel trends by construction, and every
+difference-in-differences estimator here is biased on it. What matters is that it is not biased
+*quietly* — `parallel_trends` FAILs on 8 of 8 seeds, and the test asserts both halves, so the
+guard cannot rot while recovery elsewhere keeps passing.
+
+With a single cohort the hierarchy has nothing to pool over and the estimate collapses onto
+two-way fixed effects: largest difference 0.0277 over 8 seeds, with TWFE's point inside the
+credible interval every time. On staggered adoption it agrees with Callaway–Sant'Anna — intervals
+overlapping 8 of 8 on both P3 and P4, checked as overlap and magnitude rather than exact match,
+since the two solve one problem by different means.
+
+### The credible interval undercovers, and the number is recorded
+
+Pooled coverage across the five recovering scenarios is 32/38 = **0.842 against a nominal 0.95**.
+At 38 fits a true 0.95 carries a standard error of 0.035, so that gap is about three standard
+errors — more than seed noise explains. A posterior credible interval carries no frequentist
+coverage guarantee, so this is not a contradiction, and it is why `ci_basis` is `"posterior"` and
+the interval is never called a confidence interval anywhere. But it should not be read as a 95%
+frequentist interval. The harness's coverage floor is set to catch a collapse, not to police this
+gap; closing it belongs to the calibration work still ahead.
+
+R-hat also fails on a minority of seeds at the production configuration — 2 of 8 on P4, 3 of 6 on
+P7 — and the harness asserts that as a rate rather than assuming every seed is clean. Bias stays
+tight regardless of which seeds trip it, so this is diagnostic cleanliness rather than a bias
+property.
 
 ## On scikit-learn
 
