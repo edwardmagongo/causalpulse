@@ -389,6 +389,83 @@ def test_agrees_with_callaway_santanna_on_staggered_adoption(scenario: str):
     )
 
 
+def _sigma_tau_under_prior(scenario_id: str, seeds: int, scale: float) -> float:
+    """Mean posterior `sigma_tau` when its prior is `HalfNormal(scale)`."""
+    values = []
+    for seed in range(seeds):
+        simulated = _generate(scenario_id, seed)
+        result = HierarchicalDiD().fit(
+            simulated.dataset,
+            EstimatorConfig(
+                random_seed=seed,
+                ci_level=0.95,
+                options={
+                    "mcmc_config": HIER_PRODUCTION_MCMC_CONFIG,
+                    "sigma_tau_prior_scale": scale,
+                },
+            ),
+        )
+        values.append(float(result.diagnostics["sigma_tau"].value))
+    return float(np.mean(values))
+
+
+@pytest.mark.slow
+def test_sigma_tau_is_data_driven_with_many_cohorts_and_only_partly_so_with_few():
+    """Partial pooling is this model's entire justification, so whether
+    `sigma_tau` is informed by the data or by its own prior is not a detail.
+
+    A prior-driven posterior looks identical to a data-driven one from the
+    outside. The only way to tell is to change the prior and watch. Each
+    scenario is fit at `HalfNormal(0.5)` and `HalfNormal(2.0)` -- a fourfold
+    change in prior scale, and therefore in prior mean, since HalfNormal(s)
+    has mean s*sqrt(2/pi). If the posterior mean also moves fourfold it is
+    the prior talking; if it barely moves, the data is.
+
+    Measured:
+
+      scenario     scale 0.5     scale 2.0    posterior ratio
+      P3 (3 coh)      0.2023        0.3662         1.810
+      P7 (7 coh)      0.0577        0.0585         1.014
+
+    (prior mean ratio, for reference: 4.000)
+
+    P7 is decisive: quadrupling the prior moves the posterior by 1.4%, so at
+    seven cohorts `sigma_tau` is genuinely estimated. P3 is not -- at three
+    cohorts a fourfold prior change still nearly doubles the posterior, so
+    roughly half the answer is the prior. That is a real limitation of
+    hierarchical modelling at small group counts, recorded here and on the
+    estimator's own diagnostic rather than smoothed over, and it is why the
+    `sigma_tau` diagnostic's text warns against reading a large value at few
+    cohorts as a finding about the data.
+
+    Bounds. P7 asserts < 1.35, which is the substantive claim and sits far
+    below the 4.0 of full prior-dominance. P3 asserts only < 3.0 -- enough to
+    catch the posterior collapsing entirely onto its prior, but deliberately
+    NOT a floor pinning 1.81 as required behaviour: a future change that made
+    three cohorts better-identified should not fail this test.
+    """
+    p7_low = _sigma_tau_under_prior("P7", 4, 0.5)
+    p7_high = _sigma_tau_under_prior("P7", 4, 2.0)
+    p7_ratio = p7_high / p7_low
+    assert p7_ratio < 1.35, (
+        f"P7 sigma_tau posterior moved by {p7_ratio:.3f}x under a 4x prior change "
+        f"(measured 1.014) -- with seven cohorts it should be data-driven"
+    )
+
+    p3_low = _sigma_tau_under_prior("P3", 5, 0.5)
+    p3_high = _sigma_tau_under_prior("P3", 5, 2.0)
+    p3_ratio = p3_high / p3_low
+    assert p3_ratio < 3.0, (
+        f"P3 sigma_tau posterior moved by {p3_ratio:.3f}x under a 4x prior change "
+        f"(measured 1.810, full prior-dominance would be 4.000)"
+    )
+    assert p3_ratio > p7_ratio, (
+        f"three cohorts ({p3_ratio:.3f}x) should leave sigma_tau MORE "
+        f"prior-sensitive than seven ({p7_ratio:.3f}x); if this reverses, the "
+        f"relationship between group count and identification has changed"
+    )
+
+
 def test_every_scenario_this_harness_scores_is_a_registered_panel_scenario():
     # A scenario renamed or removed upstream should break loudly here rather
     # than silently drop out of this file's coverage.

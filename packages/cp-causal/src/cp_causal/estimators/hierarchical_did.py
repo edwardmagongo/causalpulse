@@ -91,6 +91,7 @@ def _model(
     n_units: int,
     n_periods: int,
     n_cohorts: int,
+    sigma_tau_prior_scale: float = 1.0,
 ) -> None:
     """One observation per (unit, period) row.
 
@@ -137,7 +138,13 @@ def _model(
     gamma = sigma_gamma * z_gamma
 
     mu_tau = numpyro.sample("mu_tau", dist.Normal(0.0, 2.5))
-    sigma_tau = numpyro.sample("sigma_tau", dist.HalfNormal(1.0))
+    # `sigma_tau_prior_scale` exists so the pooling claim can be MEASURED
+    # rather than asserted: partial pooling is this model's whole
+    # justification, and with few cohorts a `sigma_tau` posterior that is
+    # really just its prior would look identical to one the data informed.
+    # Varying this scale and watching whether the posterior follows it is the
+    # test. Default 1.0, so every other caller is unaffected.
+    sigma_tau = numpyro.sample("sigma_tau", dist.HalfNormal(sigma_tau_prior_scale))
     z_g = numpyro.sample("z_g", dist.Normal(jnp.zeros(n_cohorts), 1.0))
     tau_g = numpyro.deterministic("tau_g", mu_tau + sigma_tau * z_g)
 
@@ -415,6 +422,26 @@ class HierarchicalDiD:
     """Hierarchical Bayesian difference-in-differences: one partially-pooled
     treatment effect per adoption cohort, reported as a treated-cell-weighted
     posterior ATT.
+
+    **How many cohorts this wants, measured.** Partial pooling is the whole
+    point of the model, and the across-cohort scale `sigma_tau` is what
+    governs it. Refitting under a fourfold change in that parameter's prior
+    scale moves its posterior by 1.4% at seven cohorts and by 81% at three
+    (full prior-dominance would be 300%). So the pooling behaviour is
+    genuinely estimated with seven cohorts and only about half-estimated with
+    three; with a single cohort there is nothing across-cohort to identify and
+    the diagnostic reports its prior. The headline ATT is far less sensitive
+    than `sigma_tau` is -- P3's bias is -0.67% -- but a `sigma_tau` read as
+    evidence that cohorts differ needs enough cohorts to mean it.
+
+    **What it cannot represent.** Effects grow with exposure at ONE shared
+    rate (`delta`). Cohorts whose effects grow at different rates, or grow
+    non-linearly, are outside the model; the design document's rejected
+    cohort-by-exposure surface is where that would live.
+
+    The credible interval is a posterior interval and is never a confidence
+    interval. Its measured frequentist coverage is below nominal -- see the
+    recovery harness, which records the number.
     """
 
     name = "hierarchical_did"
@@ -442,12 +469,28 @@ class HierarchicalDiD:
             raise TypeError(
                 f"config.options['mcmc_config'] must be an MCMCConfig, got {type(mcmc_config)!r}"
             )
+        prior_scale_raw = config.options.get("sigma_tau_prior_scale", 1.0)
+        if isinstance(prior_scale_raw, bool) or not isinstance(
+            prior_scale_raw, (int, float)
+        ):
+            raise TypeError(
+                f"config.options['sigma_tau_prior_scale'] must be a positive "
+                f"number, got {type(prior_scale_raw)!r}"
+            )
+        sigma_tau_prior_scale = float(prior_scale_raw)
+        if sigma_tau_prior_scale <= 0.0:
+            raise ValueError(
+                f"config.options['sigma_tau_prior_scale'] must be positive, "
+                f"got {sigma_tau_prior_scale}"
+            )
+
         seed = 0 if config.random_seed is None else config.random_seed
 
         mcmc = run_nuts(
             _model,
             mcmc_config,
             seed,
+            sigma_tau_prior_scale=sigma_tau_prior_scale,
             outcome_std=inputs.outcome_std,
             unit_index=inputs.unit_index,
             time_index=inputs.time_index,
@@ -559,10 +602,16 @@ class HierarchicalDiD:
                         "deviation of the treatment effect, rescaled to the "
                         "outcome's original units. Near zero means the "
                         "cohorts share essentially one effect; large means "
-                        "they genuinely differ. With only one adoption "
+                        "they differ. HOW FAR THIS IS A FINDING ABOUT THE "
+                        "DATA DEPENDS ON THE COHORT COUNT. Measured by "
+                        "refitting under a fourfold change in this "
+                        "parameter's own prior scale: at seven cohorts the "
+                        "posterior moved 1.4% (data-driven), at three it "
+                        "moved 81% against the 300% of full prior-dominance, "
+                        "so roughly half of it is the prior. With a single "
                         "cohort there is no across-cohort variation to "
-                        "identify and this reports its prior, not a finding "
-                        "about the data."
+                        "identify at all and this reports the prior outright. "
+                        "Read a large value at few cohorts with that in mind."
                     ),
                 ),
                 "delta": Diagnostic(
