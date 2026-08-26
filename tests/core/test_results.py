@@ -1,7 +1,9 @@
 import numpy as np
 import pytest
 from cp_core.results import (
+    VALIDITY_SCORE_LIMITS,
     AssumptionCheck,
+    CausalValidityScore,
     CounterfactualPoint,
     EffectEstimate,
     FitMetadata,
@@ -277,3 +279,45 @@ def test_effect_estimate_subgroup_findings_defaults_to_empty():
         CausalDataset(frame=frame, schema=schema), EstimatorConfig()
     )
     assert result.subgroup_findings == ()
+
+
+def score(band: str = "MODERATE", ceiling: str = "MODERATE") -> CausalValidityScore:
+    return CausalValidityScore(
+        band=band,
+        ceiling=ceiling,
+        rationale=("Design provenance is observational.",),
+        checks=(check("PASS"),),
+    )
+
+
+def test_validity_score_rejects_an_unknown_band():
+    with pytest.raises(ValueError, match="band must be one of"):
+        score(band="EXCELLENT")
+
+
+def test_validity_score_rejects_a_band_above_its_own_ceiling():
+    # The ceiling is a cap, so this state is unreachable through the rubric.
+    # Rejecting it here means a hand-built or deserialised score cannot express
+    # the one thing section 6.2 forbids -- an observational design scoring
+    # STRONG -- however it was constructed.
+    with pytest.raises(ValueError, match="band STRONG exceeds ceiling MODERATE"):
+        score(band="STRONG", ceiling="MODERATE")
+
+
+def test_validity_score_requires_a_rationale():
+    with pytest.raises(ValueError, match="rationale must not be empty"):
+        CausalValidityScore(
+            band="MODERATE", ceiling="MODERATE", rationale=(), checks=(check("PASS"),)
+        )
+
+
+def test_validity_score_always_carries_its_stated_limits():
+    assert score().limits == VALIDITY_SCORE_LIMITS
+    assert "not a probability" in VALIDITY_SCORE_LIMITS
+
+
+def test_validity_score_carries_the_table_that_produced_it():
+    # Section 6.2 requires the band to be printed alongside its check table.
+    # Carrying the checks on the score makes that structural: there is no way
+    # to hold a band without the table, so no rendering can omit it.
+    assert score().checks == (check("PASS"),)

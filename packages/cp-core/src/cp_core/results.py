@@ -287,3 +287,53 @@ class EffectEstimate:
         if not rankable:
             return "NOT_TESTABLE" if self.assumptions else "PASS"
         return max(rankable, key=lambda a: _SEVERITY[a.status]).status
+
+
+ValidityBand = Literal["STRONG", "MODERATE", "WEAK", "INSUFFICIENT"]
+
+# Ordered, not just enumerated: the rubric composes several caps and takes the
+# lowest, and the comparison layer excludes anything below WEAK. Public so
+# those callers share one ordering rather than each defining a copy.
+BAND_ORDER: dict[str, int] = {
+    "INSUFFICIENT": 0,
+    "WEAK": 1,
+    "MODERATE": 2,
+    "STRONG": 3,
+}
+
+# Section 6.3 requires this to accompany every rendering of the score. It is a
+# constant surfaced as a property rather than a caller-supplied field so it
+# cannot be shortened, reworded, or dropped at a call site.
+VALIDITY_SCORE_LIMITS = (
+    "This band scores observable diagnostics, not truth. It is not a "
+    "probability that the effect is causal, and it cannot establish an "
+    "assumption the data are unable to test."
+)
+
+
+@dataclass(frozen=True)
+class CausalValidityScore:
+    """An ordinal band, the ceiling that capped it, and the table behind it."""
+
+    band: ValidityBand
+    ceiling: ValidityBand
+    rationale: tuple[str, ...]
+    checks: tuple[AssumptionCheck, ...]
+
+    def __post_init__(self) -> None:
+        for label, value in (("band", self.band), ("ceiling", self.ceiling)):
+            if value not in BAND_ORDER:
+                raise ValueError(
+                    f"{label} must be one of {sorted(BAND_ORDER, key=BAND_ORDER.__getitem__)}, "
+                    f"got {value!r}"
+                )
+        if BAND_ORDER[self.band] > BAND_ORDER[self.ceiling]:
+            raise ValueError(
+                f"band {self.band} exceeds ceiling {self.ceiling}; the ceiling is a cap"
+            )
+        if not self.rationale:
+            raise ValueError("rationale must not be empty; the rubric must be inspectable")
+
+    @property
+    def limits(self) -> str:
+        return VALIDITY_SCORE_LIMITS
