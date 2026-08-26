@@ -11,6 +11,7 @@ from cp_simulation.panel_components import (
     UniformAdoption,
 )
 from cp_simulation.panel_dgp import PanelDGP
+from cp_simulation.panel_scenarios import build_panel_scenario
 
 
 def build(adoption, effect, slope_sd=0.0, error_rho=0.0, scenario_id="T"):
@@ -141,3 +142,14 @@ def test_generate_rejects_a_panel_too_short_to_difference():
 
     with pytest.raises(ValueError, match="n_periods"):
         dgp.generate(n_units=20, n_periods=1, rng=np.random.default_rng(0))
+
+
+def test_generated_panel_schema_carries_the_adoption_provenance():
+    staggered = build_panel_scenario("P3").generate(
+        n_units=120, n_periods=8, rng=np.random.default_rng(0)
+    )
+    trend_selected = build_panel_scenario("P5").generate(
+        n_units=120, n_periods=8, rng=np.random.default_rng(0)
+    )
+    assert staggered.dataset.schema.assignment_provenance == "natural_experiment"
+    assert trend_selected.dataset.schema.assignment_provenance == "observational"

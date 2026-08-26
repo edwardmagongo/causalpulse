@@ -13,6 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+from cp_core.dataset import AssignmentProvenance
 
 from cp_simulation.panel_components import UnitEffects
 
@@ -47,6 +48,9 @@ class SingleUnitAdoption:
 
     def violates_parallel_trends(self) -> bool:
         return False
+
+    def provenance(self) -> AssignmentProvenance:
+        return "natural_experiment"
 
 
 @dataclass(frozen=True)

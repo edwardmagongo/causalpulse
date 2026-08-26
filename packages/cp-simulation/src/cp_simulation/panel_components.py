@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 import numpy as np
+from cp_core.dataset import AssignmentProvenance
 
 
 class UnitEffects(Protocol):
@@ -48,6 +49,18 @@ class Adoption(Protocol):
         the precedent `confounders()` set for the cross-sectional assignment
         protocol: an `isinstance` check would claim parallel trends for any
         future mechanism that violates them without matching the class.
+        """
+
+    def provenance(self) -> AssignmentProvenance:
+        """How this mechanism decides adoption timing, in the validity score's
+        terms.
+
+        Reported by the mechanism rather than inferred from its type, following
+        the precedent `confounders()` and `violates_parallel_trends()` set: an
+        `isinstance` check would claim a natural experiment for any future
+        mechanism that selects on the outcome path without matching the class,
+        and claiming that wrongly raises the validity ceiling rather than
+        lowering it.
         """
 
 
@@ -149,6 +162,9 @@ class UniformAdoption:
     def violates_parallel_trends(self) -> bool:
         return False
 
+    def provenance(self) -> AssignmentProvenance:
+        return "natural_experiment"
+
 
 @dataclass(frozen=True)
 class StaggeredAdoption:
@@ -183,6 +199,9 @@ class StaggeredAdoption:
     def violates_parallel_trends(self) -> bool:
         return False
 
+    def provenance(self) -> AssignmentProvenance:
+        return "natural_experiment"
+
 
 @dataclass(frozen=True)
 class TrendSelectedAdoption:
@@ -213,6 +232,11 @@ class TrendSelectedAdoption:
 
     def violates_parallel_trends(self) -> bool:
         return True
+
+    def provenance(self) -> AssignmentProvenance:
+        # Selects on the unit's own trend slope, which the outcome process
+        # generates. Observational even though the timing is imposed.
+        return "observational"
 
 
 @dataclass(frozen=True)
@@ -249,6 +273,12 @@ class LevelSelectedAdoption:
         # Selects on the level, not the slope. On the continuous additive scale
         # the level differences out and trends stay parallel.
         return False
+
+    def provenance(self) -> AssignmentProvenance:
+        # Selects on the unit's own baseline level. Note this is observational
+        # while `violates_parallel_trends()` is False -- the two answer
+        # different questions and are expected to disagree here.
+        return "observational"
 
 
 @dataclass(frozen=True)

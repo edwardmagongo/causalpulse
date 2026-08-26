@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass
 from typing import Protocol
 
 import numpy as np
-from cp_core.dataset import CausalDataset, CausalSchema
+from cp_core.dataset import AssignmentProvenance, CausalDataset, CausalSchema
 
 from cp_simulation._hashing import component_hash, describe_components
 from cp_simulation.components import (
@@ -34,6 +34,16 @@ class Assignment(Protocol):
     # mechanism's type instead would silently report `()` — an unconfoundedness
     # claim — for any mechanism the caller had not been taught about.
     def confounders(self, covariate_names: tuple[str, ...]) -> tuple[str, ...]: ...
+
+    def provenance(self) -> AssignmentProvenance:
+        """How this mechanism assigns treatment, in the validity score's terms.
+
+        Reported by the mechanism rather than inferred from its type, following
+        the precedent `confounders()` set: an `isinstance` check would claim
+        randomisation for any future mechanism that confounds without matching
+        the class, and claiming randomisation wrongly raises the validity
+        ceiling rather than lowering it.
+        """
 
 
 @dataclass(frozen=True)
@@ -92,6 +102,7 @@ class CrossSectionDGP:
             outcome="outcome",
             covariates=names,
             outcome_type="binary",
+            assignment_provenance=self.assignment.provenance(),
         )
         truth = GroundTruth(
             true_ate=float(cate.mean()),

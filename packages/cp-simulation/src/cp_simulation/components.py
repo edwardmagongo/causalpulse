@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
+from cp_core.dataset import AssignmentProvenance
 from scipy.special import expit, logit
 
 # Baselines are held away from 0 and 1 so that clipping p0 + tau at the unit
@@ -106,6 +107,9 @@ class RandomAssignment:
         """No covariate influences assignment, so nothing confounds."""
         return ()
 
+    def provenance(self) -> AssignmentProvenance:
+        return "randomised"
+
 
 @dataclass(frozen=True)
 class PropensityAssignment:
@@ -148,6 +152,13 @@ class PropensityAssignment:
             for name, coefficient in zip(covariate_names, self.coefficients, strict=True)
             if coefficient != 0.0
         )
+
+    def provenance(self) -> AssignmentProvenance:
+        # Mirrors `confounders()`: at zero strength the propensity is constant
+        # and assignment is independent of everything, so the design really is
+        # randomised. Disagreeing with `confounders()` about the same mechanism
+        # would put two contradictory claims in one object.
+        return "observational" if self.strength != 0.0 else "randomised"
 
 
 @dataclass(frozen=True)
@@ -196,6 +207,9 @@ class BaselineSelectionAssignment:
         if self.strength == 0.0:
             return ()
         return covariate_names
+
+    def provenance(self) -> AssignmentProvenance:
+        return "observational" if self.strength != 0.0 else "randomised"
 
 
 @dataclass(frozen=True)

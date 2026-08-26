@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 from cp_simulation.components import (
+    BaselineSelectionAssignment,
     ConstantEffect,
     HeterogeneousEffect,
     LogisticBaseline,
@@ -116,3 +117,30 @@ def test_ground_truth_is_frozen():
     )
     with pytest.raises(AttributeError):
         truth.true_ate = 0.1  # type: ignore[misc]
+
+
+def test_random_assignment_is_randomised():
+    assert RandomAssignment().provenance() == "randomised"
+
+
+def test_propensity_assignment_is_observational():
+    assert PropensityAssignment(coefficients=(0.5, 0.5)).provenance() == "observational"
+
+
+def test_propensity_assignment_at_zero_strength_is_randomised():
+    # Matches `confounders()`, which already returns () at zero strength:
+    # at strength 0 the propensity is a constant and assignment is a coin flip.
+    # The two declarations must not disagree about the same mechanism.
+    zero = PropensityAssignment(coefficients=(0.5, 0.5), strength=0.0)
+    assert zero.confounders(("x1", "x2")) == ()
+    assert zero.provenance() == "randomised"
+
+
+def test_baseline_selection_is_observational():
+    assert BaselineSelectionAssignment().provenance() == "observational"
+
+
+def test_baseline_selection_at_zero_strength_is_randomised():
+    zero = BaselineSelectionAssignment(strength=0.0)
+    assert zero.confounders(("x1", "x2")) == ()
+    assert zero.provenance() == "randomised"

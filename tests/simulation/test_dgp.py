@@ -9,6 +9,7 @@ from cp_simulation.components import (
     UnitGenerator,
 )
 from cp_simulation.dgp import CrossSectionDGP
+from cp_simulation.scenarios import build_scenario
 
 
 def build_dgp(assignment, tau: float = 0.05) -> CrossSectionDGP:
@@ -162,3 +163,10 @@ def test_generate_raises_on_negative_units():
     dgp = build_dgp(RandomAssignment())
     with pytest.raises(ValueError, match="n_units"):
         dgp.generate(n_units=-3, rng=np.random.default_rng(0))
+
+
+def test_generated_schema_carries_the_assignment_provenance():
+    randomised = build_scenario("A").generate(n_units=200, rng=np.random.default_rng(0))
+    confounded = build_scenario("D").generate(n_units=200, rng=np.random.default_rng(0))
+    assert randomised.dataset.schema.assignment_provenance == "randomised"
+    assert confounded.dataset.schema.assignment_provenance == "observational"

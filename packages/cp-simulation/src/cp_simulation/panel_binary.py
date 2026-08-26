@@ -114,6 +114,7 @@ class BinaryPanelDGP:
             outcome_type="binary",
             time="period",
             cohort="cohort",
+            assignment_provenance=self.adoption.provenance(),
         )
         return SimulatedPanel(
             dataset=CausalDataset(frame=frame, schema=schema), truth=truth

@@ -89,3 +89,7 @@ def test_level_offset_reliably_places_the_unit_outside_a_17_donor_pool():
         if alpha[0] > alpha[1:].max():
             outside += 1
     assert outside == 100
+
+
+def test_single_unit_adoption_is_a_natural_experiment():
+    assert SingleUnitAdoption(start=5).provenance() == "natural_experiment"

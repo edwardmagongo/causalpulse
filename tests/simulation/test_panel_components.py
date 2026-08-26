@@ -125,3 +125,16 @@ def test_staggered_adoption_rejects_a_period_outside_the_panel():
 
     with pytest.raises(ValueError, match="periods"):
         adoption.cohorts(np.zeros((10, 1)), np.zeros(10), 8, np.random.default_rng(0))
+
+
+def test_imposed_adoption_is_a_natural_experiment():
+    assert UniformAdoption().provenance() == "natural_experiment"
+    assert StaggeredAdoption().provenance() == "natural_experiment"
+
+
+def test_adoption_selected_on_the_outcome_path_is_observational():
+    # Both select on something the outcome process generates -- the unit's own
+    # trend slope, or its own baseline level -- which is what makes them
+    # observational regardless of whether parallel trends survives.
+    assert TrendSelectedAdoption().provenance() == "observational"
+    assert LevelSelectedAdoption().provenance() == "observational"
