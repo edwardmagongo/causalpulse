@@ -117,7 +117,7 @@ CATE_SCENARIOS: dict[str, CATEScenarioSpec] = {
             "Effect is constant (tau=0.05) across every covariate. This is "
             "the scenario the omnibus calibration test must correctly pass "
             "on -- reporting 'no reliable evidence of heterogeneity' and no "
-            "subgroups -- the guard this phase exists to prove works, not "
+            "subgroups -- the guard this phase exists to demonstrate, not "
             "just the forest's ability to find signal when it's there."
         ),
         build=lambda: CrossSectionDGP(
