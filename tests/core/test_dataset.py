@@ -242,3 +242,41 @@ def test_panel_helpers_refuse_a_cross_section():
 
     with pytest.raises(ValueError, match="not a panel"):
         _ = dataset.periods
+
+
+def test_schema_defaults_to_observational_provenance():
+    schema = CausalSchema(
+        unit="unit_id",
+        treatment="treated",
+        outcome="outcome",
+        covariates=("x1",),
+        outcome_type="continuous",
+    )
+    assert schema.assignment_provenance == "observational"
+
+
+@pytest.mark.parametrize(
+    "provenance", ["randomised", "natural_experiment", "observational"]
+)
+def test_schema_accepts_every_declared_provenance(provenance: str):
+    schema = CausalSchema(
+        unit="unit_id",
+        treatment="treated",
+        outcome="outcome",
+        covariates=("x1",),
+        outcome_type="continuous",
+        assignment_provenance=provenance,
+    )
+    assert schema.assignment_provenance == provenance
+
+
+def test_schema_rejects_an_unknown_provenance():
+    with pytest.raises(ValueError, match="assignment_provenance must be one of"):
+        CausalSchema(
+            unit="unit_id",
+            treatment="treated",
+            outcome="outcome",
+            covariates=("x1",),
+            outcome_type="continuous",
+            assignment_provenance="quasi-ish",
+        )

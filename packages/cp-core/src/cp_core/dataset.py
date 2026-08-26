@@ -11,6 +11,13 @@ import pandas as pd
 OutcomeType = Literal["binary", "continuous"]
 _VALID_OUTCOME_TYPES: tuple[str, ...] = ("binary", "continuous")
 
+AssignmentProvenance = Literal["randomised", "natural_experiment", "observational"]
+_VALID_PROVENANCE: tuple[str, ...] = (
+    "randomised",
+    "natural_experiment",
+    "observational",
+)
+
 
 @dataclass(frozen=True)
 class CausalSchema:
@@ -24,6 +31,12 @@ class CausalSchema:
     time: str | None = None
     treatment_start: object | None = None
     cohort: str | None = None
+    # How treatment came to be assigned. Not readable from the data -- it is a
+    # claim about how the data came to exist, which is exactly what the
+    # `randomised_assignment` check says cannot be tested. The default is the
+    # conservative one so an analysis that never declares its provenance can
+    # never reach the top validity band by omission.
+    assignment_provenance: AssignmentProvenance = "observational"
 
     def __post_init__(self) -> None:
         # The annotation is erased at runtime, so a schema built from a config
@@ -32,6 +45,11 @@ class CausalSchema:
             raise ValueError(
                 f"outcome_type must be one of {list(_VALID_OUTCOME_TYPES)}, "
                 f"got {self.outcome_type!r}"
+            )
+        if self.assignment_provenance not in _VALID_PROVENANCE:
+            raise ValueError(
+                f"assignment_provenance must be one of {list(_VALID_PROVENANCE)}, "
+                f"got {self.assignment_provenance!r}"
             )
 
     @property
