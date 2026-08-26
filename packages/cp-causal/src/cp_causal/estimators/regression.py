@@ -116,6 +116,7 @@ class LinRegressionAdjustment:
             assumptions=(
                 AssumptionCheck(
                     name="randomised_assignment",
+                    kind="identification",
                     status="NOT_TESTABLE",
                     statistic=None,
                     threshold=None,
@@ -132,6 +133,7 @@ class LinRegressionAdjustment:
                 ),
                 AssumptionCheck(
                     name="outcome_model_specification",
+                    kind="data_adequacy",
                     status="WARN",
                     statistic=None,
                     threshold=None,

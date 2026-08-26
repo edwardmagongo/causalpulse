@@ -272,6 +272,7 @@ def calibration_test(fit: ForestFit, alpha: float = 0.05) -> AssumptionCheck:
 
     return AssumptionCheck(
         name="calibration_test",
+        kind="data_adequacy",
         status="PASS" if detected else "WARN",
         statistic=t_statistic,
         threshold=float(norm.ppf(1 - alpha)),
@@ -301,6 +302,7 @@ def _no_evidence(alpha: float, reason: str) -> AssumptionCheck:
     # for a quantity that was never estimated.
     return AssumptionCheck(
         name="calibration_test",
+        kind="data_adequacy",
         status="WARN",
         statistic=None,
         threshold=float(norm.ppf(1 - alpha)),

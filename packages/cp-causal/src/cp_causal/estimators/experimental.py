@@ -108,6 +108,7 @@ class DifferenceInMeans:
             assumptions=(
                 AssumptionCheck(
                     name="randomised_assignment",
+                    kind="identification",
                     status="NOT_TESTABLE",
                     statistic=None,
                     threshold=None,

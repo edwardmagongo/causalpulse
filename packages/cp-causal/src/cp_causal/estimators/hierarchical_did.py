@@ -536,6 +536,7 @@ class HierarchicalDiD:
         if leads.nearest_coefficient is None or leads.nearest_standard_error is None:
             no_anticipation: AssumptionCheck = AssumptionCheck(
                 name="no_anticipation",
+                kind="identification",
                 status="NOT_TESTABLE",
                 statistic=None,
                 threshold=None,

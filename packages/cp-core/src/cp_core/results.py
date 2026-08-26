@@ -22,11 +22,19 @@ import numpy as np
 from cp_core.values import Diagnostic, Interval
 
 AssumptionStatus = Literal["PASS", "WARN", "FAIL", "NOT_TESTABLE"]
+AssumptionKind = Literal["identification", "estimation", "data_adequacy"]
 Estimand = Literal["ATE", "ATT", "CATE"]
 CIBasis = Literal["analytic", "bootstrap", "permutation", "posterior"]
 EffectScale = Literal["absolute", "percentage_point", "log_ratio"]
 
 _VALID_STATUSES: tuple[str, ...] = ("PASS", "WARN", "FAIL", "NOT_TESTABLE")
+# What a failure of this check would mean. `estimation` is reserved for checks
+# that say the computation itself did not succeed -- an unconverged sampler
+# produces no usable estimate, whereas a violated identifying assumption
+# produces a usable number that must not be read causally. The validity rubric
+# treats those two failures differently, and it can only do so if the check
+# that knows the answer is the thing that declares it.
+_VALID_KINDS: tuple[str, ...] = ("identification", "estimation", "data_adequacy")
 _VALID_ESTIMANDS: tuple[str, ...] = ("ATE", "ATT", "CATE")
 _VALID_BASES: tuple[str, ...] = ("analytic", "bootstrap", "permutation", "posterior")
 _VALID_SCALES: tuple[str, ...] = ("absolute", "percentage_point", "log_ratio")
@@ -50,6 +58,7 @@ class AssumptionCheck:
     """
 
     name: str
+    kind: AssumptionKind
     status: AssumptionStatus
     statistic: float | None
     threshold: float | None
@@ -57,6 +66,10 @@ class AssumptionCheck:
     remedy: str | None
 
     def __post_init__(self) -> None:
+        if self.kind not in _VALID_KINDS:
+            raise ValueError(
+                f"kind must be one of {list(_VALID_KINDS)}, got {self.kind!r}"
+            )
         if self.status not in _VALID_STATUSES:
             raise ValueError(
                 f"status must be one of {list(_VALID_STATUSES)}, got {self.status!r}"

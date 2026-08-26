@@ -9,9 +9,10 @@ from cp_core.results import (
 from cp_core.values import Interval
 
 
-def check(status: str, name: str = "overlap") -> AssumptionCheck:
+def check(status: str, name: str = "overlap", kind: str = "identification") -> AssumptionCheck:
     return AssumptionCheck(
         name=name,
+        kind=kind,
         status=status,
         statistic=0.02,
         threshold=0.1,
@@ -56,6 +57,16 @@ def test_not_testable_is_a_permitted_status() -> None:
     # Unconfoundedness is not testable from data. The system must be able to
     # say so rather than implying a balance table proved it.
     assert check("NOT_TESTABLE").status == "NOT_TESTABLE"
+
+
+def test_assumption_check_rejects_an_unknown_kind():
+    with pytest.raises(ValueError, match="kind must be one of"):
+        check("PASS", kind="vibes")
+
+
+@pytest.mark.parametrize("kind", ["identification", "estimation", "data_adequacy"])
+def test_assumption_check_accepts_every_declared_kind(kind: str):
+    assert check("PASS", kind=kind).kind == kind
 
 
 def test_fit_metadata_captures_environment() -> None:

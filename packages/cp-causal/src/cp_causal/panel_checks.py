@@ -152,6 +152,7 @@ def parallel_trends_check(
     if lead_coefficients.size == 0:
         return AssumptionCheck(
             name="parallel_trends",
+            kind="identification",
             status="NOT_TESTABLE",
             statistic=None,
             threshold=None,
@@ -173,6 +174,7 @@ def parallel_trends_check(
 
     return AssumptionCheck(
         name="parallel_trends",
+        kind="identification",
         status="FAIL" if rejected else "PASS",
         statistic=statistic,
         threshold=float(stats.chi2.ppf(1 - alpha, degrees)),
@@ -232,6 +234,7 @@ def no_anticipation_check(
 
     return AssumptionCheck(
         name="no_anticipation",
+        kind="identification",
         status="FAIL" if rejected else "PASS",
         statistic=coefficient,
         threshold=None,
@@ -264,6 +267,7 @@ def absorbing_treatment_check(dataset: CausalDataset) -> AssumptionCheck:
     absorbing = dataset.treatment_is_absorbing
     return AssumptionCheck(
         name="absorbing_treatment",
+        kind="data_adequacy",
         status="PASS" if absorbing else "FAIL",
         statistic=None,
         threshold=None,
@@ -295,6 +299,7 @@ def sufficient_pre_periods_check(panel: PanelArrays, minimum: int) -> Assumption
 
     return AssumptionCheck(
         name="sufficient_pre_periods",
+        kind="data_adequacy",
         status="PASS" if ok else "FAIL",
         statistic=float(observed),
         threshold=float(minimum),
@@ -321,6 +326,7 @@ def pre_treatment_fit_check(
     ok = ratio <= threshold
     return AssumptionCheck(
         name="pre_treatment_fit",
+        kind="data_adequacy",
         status="PASS" if ok else "FAIL",
         statistic=ratio,
         threshold=threshold,
@@ -351,6 +357,7 @@ def convex_hull_check(treated_pre_mean: float, donor_pre_means: np.ndarray) -> A
     inside = lower <= treated_pre_mean <= upper
     return AssumptionCheck(
         name="convex_hull",
+        kind="identification",
         status="PASS" if inside else "FAIL",
         statistic=treated_pre_mean,
         threshold=None,
@@ -408,6 +415,7 @@ def donor_contamination_check(
     flagged = worst > z_threshold
     return AssumptionCheck(
         name="donor_contamination",
+        kind="identification",
         status="FAIL" if flagged else "PASS",
         statistic=worst,
         threshold=z_threshold,
@@ -443,6 +451,7 @@ def no_concurrent_intervention_check() -> AssumptionCheck:
     """
     return AssumptionCheck(
         name="no_concurrent_intervention",
+        kind="identification",
         status="NOT_TESTABLE",
         statistic=None,
         threshold=None,

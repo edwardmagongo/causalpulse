@@ -231,6 +231,7 @@ class EventStudy:
         else:
             no_anticipation = AssumptionCheck(
                 name="no_anticipation",
+                kind="identification",
                 status="NOT_TESTABLE",
                 statistic=None,
                 threshold=None,

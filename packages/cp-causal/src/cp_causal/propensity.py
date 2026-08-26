@@ -148,6 +148,7 @@ def overlap_checks(
     return (
         AssumptionCheck(
             name="positivity",
+            kind="identification",
             status=positivity_status,
             statistic=extreme,
             threshold=0.01,
@@ -165,6 +166,7 @@ def overlap_checks(
         ),
         AssumptionCheck(
             name="covariate_balance",
+            kind="data_adequacy",
             status=balance_status,
             statistic=worst_smd,
             threshold=BALANCE_THRESHOLD,
@@ -177,6 +179,7 @@ def overlap_checks(
         ),
         AssumptionCheck(
             name="unconfoundedness",
+            kind="identification",
             status="NOT_TESTABLE",
             statistic=None,
             threshold=None,

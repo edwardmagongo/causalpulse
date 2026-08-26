@@ -36,6 +36,7 @@ def r_hat_check(samples: Mapping[str, np.ndarray], threshold: float = 1.01) -> A
     ok = worst <= threshold
     return AssumptionCheck(
         name="r_hat",
+        kind="estimation",
         status="PASS" if ok else "FAIL",
         statistic=worst,
         threshold=threshold,
@@ -82,6 +83,7 @@ def effective_sample_size_check(
     ok = worst >= threshold
     return AssumptionCheck(
         name="effective_sample_size",
+        kind="estimation",
         status="PASS" if ok else "FAIL",
         statistic=worst,
         threshold=threshold,
@@ -118,6 +120,7 @@ def divergent_transitions_check(
     ok = rate <= threshold
     return AssumptionCheck(
         name="divergent_transitions",
+        kind="estimation",
         status="PASS" if ok else "FAIL",
         statistic=rate,
         threshold=threshold,
