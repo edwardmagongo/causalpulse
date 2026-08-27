@@ -92,10 +92,10 @@ def _is_negated(words: list[str], index: int) -> bool:
 
     Scoped to the clause rather than the whole sentence because the corpus
     showed sentence scope suppressing a firing it had no business suppressing.
-    `cp_simulation.cate_scenarios` described the NULL scenario as "...the
-    omnibus calibration test must correctly pass on -- reporting 'no reliable
-    evidence of heterogeneity' and no subgroups -- the guard this phase exists
-    to prove works": two `no` cues, both inside a parenthetical aside two
+    The CATE-scenario registry's NULL description read "...the omnibus
+    calibration test must correctly pass on -- reporting 'no reliable evidence
+    of heterogeneity' and no subgroups -- the guard this phase exists to
+    prove works": two `no` cues, both inside a parenthetical aside two
     clauses upstream, were silently licensing "prove". Clause scope was
     measured across the whole corpus before being adopted -- it changed exactly
     one verdict, that one, and the text was fixed rather than the rule relaxed.
