@@ -48,7 +48,14 @@ across-cohort variance is identifiable, and it is checked three ways — against
 against two-way fixed effects in the degenerate single-cohort case, and against Callaway–Sant'Anna
 on staggered adoption.
 
-The robustness suite and the benchmark harness are still ahead.
+**Phase 8** delivered validity scoring and cross-method agreement: an ordinal Causal Validity
+Score derived from an estimate's own assumption-check table and its design provenance, a
+causal-language lint that checks the system never asserts more certainty than its own diagnostics
+support, and a comparison layer that reports several methods' agreement without ever pooling their
+estimates into one number.
+
+The sensitivity suite, the benchmark harness, and the CLI, figures, and evidence report are still
+ahead.
 
 ## Packages
 
@@ -505,6 +512,110 @@ R-hat also fails on a minority of seeds at the production configuration — 2 of
 P7 — and the harness asserts that as a rate rather than assuming every seed is clean. Bias stays
 tight regardless of which seeds trip it, so this is diagnostic cleanliness rather than a bias
 property.
+
+## Validity scoring and cross-method agreement (Phase 8)
+
+Every estimator returns its own table of assumption checks. Phase 8 turns that table into one
+ordinal band — `STRONG` / `MODERATE` / `WEAK` / `INSUFFICIENT` — and adds a layer that compares
+several fitted methods without collapsing them into one number.
+
+### What the band is and is not
+
+> This band scores observable diagnostics, not truth. It is not a probability that the effect is
+> causal, and it cannot establish an assumption the data are unable to test.
+
+That sentence — `VALIDITY_SCORE_LIMITS` — is carried on every `CausalValidityScore` as a property,
+not a field a caller can omit or reword.
+
+The band is capped by a **design-based ceiling** before any check is read: a randomised or
+natural-experiment design can reach `STRONG`, an observational design cannot reach past
+`MODERATE` no matter how clean its diagnostics are. Clean diagnostics on observational data mean
+the checks that *can* run all passed, not that the untestable ones did too. Within that ceiling,
+an `estimation`-kind failure (an unconverged sampler, for instance) drops the band straight to
+`INSUFFICIENT` regardless of design — that failure means no usable number exists, which the design
+ceiling has nothing to say about. An `identification`- or `data_adequacy`-kind failure caps the
+band at `WEAK`; a warning of either kind drops it one step below the ceiling. The lowest cap wins
+when several apply — a fit carrying both a `FAIL` and a `WARN` lands at `WEAK`, not
+`INSUFFICIENT`, because the caps compose by minimum rather than chaining.
+
+### Why provenance is declared, not inferred
+
+The ceiling reads `CausalSchema.assignment_provenance` — `randomised`, `natural_experiment`, or
+`observational` — a fact about how the data came to exist, not something derivable from which
+estimator fit it. `difference_in_means` *assumes* randomisation; it does not establish it, so
+reading the ceiling off the estimator would let any observational dataset claim a randomised
+ceiling simply by being fit with the wrong method. The field defaults to `observational`, so
+omitting it caps the band rather than raising it. Every simulation component declares its own
+provenance the same way `confounders()` already does — as a fact about the mechanism, never
+inferred from its type — so `PropensityAssignment` and `BaselineSelectionAssignment` correctly
+report `randomised` at zero confounding strength and `observational` above it, agreeing with what
+`confounders()` already says about the same mechanism.
+
+### Why `NOT_TESTABLE` does not subtract
+
+An assumption the data cannot test — unconfoundedness under observational assignment, for
+instance — is named in the score's rationale but does not move the band on its own. The design
+ceiling already prices that in: an observational design is capped at `MODERATE` precisely because
+some of its identifying assumptions cannot be tested. Subtracting for `NOT_TESTABLE` on top of
+that ceiling would count the same fact twice and read every honest observational analysis as
+broken.
+
+### The comparison layer does not average
+
+`compare()` takes several fitted estimates of the same quantity and reports their spread, which
+intervals overlap, and where their assumptions diverge — it never produces a pooled point
+estimate. `MethodComparison` carries no `combined`/`pooled`/`mean` field; there is no number to
+average even by accident. The methods share the same data and are not independent, so a pooled
+estimate would have no defensible interpretation and a meta-analytic heterogeneity test would be
+invalid on it. `compare()` refuses a mixed estimand, a mixed scale, fewer than two estimates, and
+duplicate method names — comparing an ATE to an ATT, or a percentage-point effect to a log ratio,
+is not two answers to one question. A method the validity score calls `INSUFFICIENT` is excluded
+from the agreement verdict (its number is not usable, so letting it sit far from the others would
+report a disagreement between one estimate and one non-estimate) but is still named in the
+verdict text. When methods disagree, `assumption_diff` — which assumption each method relies on,
+and what it found — is the output that matters; the interval spread alone does not say why.
+
+### What the discrimination harness measured
+
+The claim that the band tracks reliability is empirical, not just a property of the rubric's
+rules, so it is measured against known truth rather than assumed. Across 20 seeds over every
+cross-sectional, panel, and donor-pool scenario (1000 fits total, MCMC estimators excluded — their
+bands come from convergence diagnostics, a different question from identification):
+
+| band | fits |
+|---|---|
+| `STRONG` | 554 |
+| `MODERATE` | 269 |
+| `WEAK` | 177 |
+| `INSUFFICIENT` | 0 (structurally absent here — needs an `estimation`-kind failure, which only the excluded MCMC convergence checks can produce) |
+
+| bucket | n | coverage | MCSE |
+|---|---|---|---|
+| `MODERATE` or better | 823 | 0.8238 | 0.0133 |
+| `WEAK` or worse | 177 | 0.6441 | 0.0360 |
+
+The difference is 0.1797 against a combined MCSE of 0.0384 — the band-MODERATE-or-better bucket
+covers truth about 18 percentage points more often, 2.3 times the asserted 2-MCSE floor. An
+earlier attempt at 8 seeds, chosen first for runtime, measured a difference of 0.1120 against a
+floor of 0.1228 — a **failing** margin, because the `WEAK`-or-worse bucket thins to 71 fits and its
+MCSE grows accordingly. That result was not patched by loosening the assertion or picking a
+seed count that happens to pass; the harness re-measured at 20 seeds, the count it actually
+asserts at, and that is the number above.
+
+**TWFE on P4 reads `STRONG`, its highest possible band, on the estimate this project's own Phase 3
+section documents as off by −0.9946 against a true ATT of 2.8361 — 88.8 Monte Carlo standard
+errors from zero, a 35% error.** This was pre-registered as the harness's most likely failure mode
+before it was run: P4's staggered adoption with a ramping effect gives already-treated units
+negative weight as controls, which is exactly what the Goodman–Bacon decomposition exists to
+expose, and no assumption check in this phase tests for it. `parallel_trends` passes because
+pre-treatment trends genuinely are parallel on P4 — the bias is a within-estimator weighting
+artifact, not a violated identifying assumption. Because P4's adoption is imposed rather than
+selected on the outcome, its design provenance is `natural_experiment`, whose ceiling is `STRONG`
+outright — higher than the `MODERATE` the harness's own pre-registration expected, since nothing
+here caps an unconfounded, badly-weighted estimate below the design ceiling. The validity score
+is a check on observable diagnostics, exactly as `VALIDITY_SCORE_LIMITS` states; it is not a
+check on estimator-specific weighting behaviour that only a decomposition like Goodman–Bacon can
+see, and this is the sharpest concrete case of that limit found so far.
 
 ## On scikit-learn
 
