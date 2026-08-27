@@ -5,7 +5,7 @@ from cp_causal.validity import score_validity
 from cp_core.language import causal_language_lint
 from cp_core.results import BAND_ORDER, AssumptionCheck, EffectEstimate, FitMetadata
 from cp_core.values import Interval
-from hypothesis import given
+from hypothesis import given, settings
 from hypothesis import strategies as st
 
 KINDS = ("identification", "estimation", "data_adequacy")
@@ -124,6 +124,16 @@ def test_every_rationale_line_passes_the_causal_language_lint():
         assert causal_language_lint(line) == (), line
 
 
+# Hypothesis's default 200ms-per-example deadline exists to catch accidentally
+# quadratic code, not to be a timing SLA -- and score_validity here does none
+# of that; it's a handful of dict lookups and a min() over a short tuple.
+# Disabled rather than merely raised because the flakiness isn't proportional:
+# it comes from OS-level scheduling jitter deep inside this repo's full test
+# run (hundreds of JAX/numpyro MCMC fits ahead of this test in the same
+# process), not from this property's own execution time -- confirmed by
+# reproducing the failure only inside a full `make check` run and never once
+# across repeated isolated runs of this file alone.
+@settings(deadline=None)
 @given(
     provenance=st.sampled_from(PROVENANCES),
     kinds=st.lists(st.sampled_from(KINDS), min_size=1, max_size=6),
