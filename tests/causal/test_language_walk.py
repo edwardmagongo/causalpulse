@@ -18,6 +18,7 @@ from cp_causal.estimators.bsts import FAST_MCMC_CONFIG
 from cp_causal.estimators.hierarchical_did import HIER_FAST_MCMC_CONFIG
 from cp_causal.registry import all_estimators
 from cp_causal.router import eligible_estimators
+from cp_causal.sensitivity import sensitivity_report
 from cp_causal.validity import score_validity
 from cp_core.language import causal_language_lint
 from cp_core.values import EstimatorConfig
@@ -93,10 +94,47 @@ def _fit_everything():
             estimate = estimator.fit(dataset, _config_for(name))
             fitted[name] = (
                 label,
+                dataset,
                 estimate,
                 score_validity(estimate, provenance=dataset.schema.assignment_provenance),
             )
     return fitted
+
+
+def _report_texts(dataset, name, estimate) -> list[str]:
+    """Every optional string a SensitivityReport carries, for one real fit.
+
+    `n_permutations` and `n_placebo_units` are kept small -- like the rest of
+    this walk, the point is reaching every reason string a report can
+    produce, not measuring where a p-value lands. `outcome_sd` is the
+    dataset's own outcome standard deviation: several estimators here report
+    on an absolute scale with no counterfactual point for `e_value` to read a
+    ratio from directly (twfe, event_study, hierarchical_did, the donor-pool
+    pair), and without an `outcome_sd`, `sensitivity_report` would raise
+    before reaching the prose this walk exists to check.
+    """
+    outcome_sd = float(dataset.frame[dataset.schema.outcome].std())
+    report = sensitivity_report(
+        dataset,
+        name,
+        estimate,
+        _config_for(name),
+        outcome_sd=outcome_sd,
+        n_permutations=20,
+        n_placebo_units=3,
+        seed=1,
+    )
+    falsification = report.falsification
+    optional_texts = (
+        report.confounding.e_value.approximation_note,
+        report.confounding.cinelli_hazlett_reason,
+        report.specification_curve_reason,
+        falsification.placebo_dates_reason,
+        falsification.placebo_units_reason,
+        falsification.leave_one_donor_out_reason,
+        falsification.randomization_inference_reason,
+    )
+    return [text for text in optional_texts if text is not None]
 
 
 @pytest.mark.slow
@@ -116,8 +154,9 @@ def test_every_registered_estimator_is_covered_by_the_language_walk():
 @pytest.mark.slow
 def test_no_text_a_real_fit_produces_makes_an_unqualified_causal_claim():
     offences = []
-    for name, (label, estimate, score) in sorted(_fit_everything().items()):
-        for text in _texts(estimate, score):
+    for name, (label, dataset, estimate, score) in sorted(_fit_everything().items()):
+        texts = _texts(estimate, score) + _report_texts(dataset, name, estimate)
+        for text in texts:
             for violation in causal_language_lint(text):
                 offences.append(f"{name} on {label}: {violation.term} in {violation.sentence!r}")
     assert offences == [], "\n".join(offences)

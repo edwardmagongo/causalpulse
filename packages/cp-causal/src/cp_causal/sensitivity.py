@@ -17,11 +17,13 @@ import numpy as np
 from cp_core.dataset import CausalDataset
 from cp_core.results import (
     CinelliHazlettResult,
+    ConfoundingSensitivity,
     CounterfactualPoint,
     EffectEstimate,
     EValueResult,
     FalsificationResult,
     PlaceboTestResult,
+    SensitivityReport,
     SpecificationCurve,
     SpecificationPoint,
 )
@@ -766,4 +768,88 @@ def falsify(
         leave_one_donor_out_reason=leave_one_donor_out_reason,
         randomization_inference=randomization,
         randomization_inference_reason=randomization_reason,
+    )
+
+
+# Paired with cinelli_hazlett's own `None` returns inside sensitivity_report,
+# below -- cinelli_hazlett itself stays a pure "does this apply" function that
+# reports nothing about why, and the report is the one place that turns the
+# absence into a stated reason. `event_study` gets its own wording because its
+# exclusion is a modelling fact (its point is a mean of several horizon
+# coefficients, not one coefficient to bound), not a "this estimator is not
+# OLS" fact.
+_NOT_OLS_REASON = (
+    "cinelli_hazlett bounds the t-statistic of a single OLS treatment "
+    "coefficient; {name} is not fitted by least squares against one such "
+    "coefficient, so there is no coefficient for the bound to attach to."
+)
+
+_EVENT_STUDY_REASON = (
+    "cinelli_hazlett bounds a single OLS treatment coefficient, and "
+    "event_study's reported point is the mean of several horizon "
+    "coefficients rather than one -- bounding a linear combination's "
+    "t-statistic would still compute, but the result would not mean what "
+    "this method's derivation assumes it means."
+)
+
+
+def sensitivity_report(
+    dataset: CausalDataset,
+    estimator_name: str,
+    estimate: EffectEstimate,
+    config: EstimatorConfig,
+    *,
+    outcome_sd: float | None = None,
+    n_permutations: int = 500,
+    n_placebo_units: int = 20,
+    seed: int = 0,
+) -> SensitivityReport:
+    """Everything this module can say about how robust one finding is.
+
+    Three independent lines of attack under one type, with a stated reason
+    wherever a technique does not apply. None of them is a test of whether
+    the effect is real: a clean sensitivity report is consistent with an
+    unmeasured confounder nobody thought to look for, and the report says so
+    rather than implying otherwise.
+    """
+    bound = cinelli_hazlett(dataset, estimator_name, config)
+    confounding = ConfoundingSensitivity(
+        e_value=e_value(estimate, outcome_sd=outcome_sd),
+        cinelli_hazlett=bound,
+        cinelli_hazlett_reason=None
+        if bound is not None
+        else (
+            _EVENT_STUDY_REASON
+            if estimator_name == "event_study"
+            else _NOT_OLS_REASON.format(name=estimator_name)
+        ),
+    )
+
+    curve: SpecificationCurve | None = None
+    curve_reason: str | None = None
+    try:
+        curve = specification_curve(dataset, estimator_name, config)
+    except ValueError as error:
+        # A direct caller should get the exception -- "not built for this
+        # estimator yet" is worth catching immediately. Inside a report the
+        # same fact is an absence with a reason, which is what the contract
+        # is shaped for. `max_specifications` is never overridden on this
+        # path, so the only ValueError specification_curve can raise here is
+        # the unsupported-estimator refusal -- not the separate
+        # max_specifications-must-be-positive check it also raises for a
+        # direct caller who passes a bad value for that argument.
+        curve_reason = str(error)
+
+    return SensitivityReport(
+        confounding=confounding,
+        specification_curve=curve,
+        specification_curve_reason=curve_reason,
+        falsification=falsify(
+            dataset,
+            estimator_name,
+            config,
+            n_permutations=n_permutations,
+            n_placebo_units=n_placebo_units,
+            seed=seed,
+        ),
     )

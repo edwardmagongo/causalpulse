@@ -201,3 +201,46 @@ def test_randomization_inference_refuses_a_panel():
 def test_an_unknown_estimator_name_is_refused():
     with pytest.raises(KeyError):
         falsify(cross_section(), "lin_regresion", FAST, n_permutations=5)
+
+
+def test_a_report_carries_all_three_lines_of_attack_for_a_supported_estimator():
+    from cp_causal.registry import all_estimators
+    from cp_causal.sensitivity import sensitivity_report
+
+    dataset = cross_section()
+    estimate = all_estimators()["lin_regression"]().fit(dataset, FAST)
+    report = sensitivity_report(
+        dataset, "lin_regression", estimate, FAST, n_permutations=20
+    )
+    assert report.confounding.e_value.e_value >= 1.0
+    assert report.confounding.cinelli_hazlett is not None
+    assert report.specification_curve is not None
+    assert report.falsification.randomization_inference is not None
+
+
+def test_an_unsupported_curve_becomes_a_stated_absence_not_an_exception():
+    # specification_curve raises for a direct caller, which is right. Inside a
+    # report the same fact is a stated absence, and this is the one place that
+    # translation happens.
+    from cp_causal.registry import all_estimators
+    from cp_causal.sensitivity import sensitivity_report
+
+    dataset = cross_section()
+    estimate = all_estimators()["difference_in_means"]().fit(dataset, FAST)
+    report = sensitivity_report(
+        dataset, "difference_in_means", estimate, FAST, n_permutations=20
+    )
+    assert report.specification_curve is None
+    assert "difference_in_means" in report.specification_curve_reason
+
+
+def test_a_non_ols_estimator_gets_an_e_value_but_no_cinelli_hazlett():
+    from cp_causal.registry import all_estimators
+    from cp_causal.sensitivity import sensitivity_report
+
+    dataset = cross_section()
+    estimate = all_estimators()["ipw"]().fit(dataset, FAST)
+    report = sensitivity_report(dataset, "ipw", estimate, FAST, n_permutations=20)
+    assert report.confounding.cinelli_hazlett is None
+    assert report.confounding.cinelli_hazlett_reason
+    assert report.confounding.e_value.e_value >= 1.0
