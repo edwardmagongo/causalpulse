@@ -134,7 +134,7 @@ class LinRegressionAdjustment:
                 AssumptionCheck(
                     name="outcome_model_specification",
                     kind="data_adequacy",
-                    status="WARN",
+                    status="NOT_TESTABLE",
                     statistic=None,
                     threshold=None,
                     interpretation=(
