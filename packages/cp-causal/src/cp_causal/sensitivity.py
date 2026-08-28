@@ -802,7 +802,7 @@ _EVENT_STUDY_REASON = (
 _DEGENERATE_OLS_FIT_REASON = (
     "{name} is fitted by least squares against a single treatment "
     "coefficient, so cinelli_hazlett normally applies to it, but this "
-    "particular refit did not yield a usable coefficient standard error, so "
+    "particular refit could not compute a usable coefficient standard error, so "
     "the bound could not be computed."
 )
 
