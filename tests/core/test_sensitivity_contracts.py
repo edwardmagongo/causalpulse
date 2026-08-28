@@ -150,3 +150,246 @@ def test_placebo_test_result_holds_an_array_without_raising_on_equality():
     # on the ambiguous truth value of an array.
     assert first != second
     assert first == first
+
+
+def a_confounding_sensitivity() -> ConfoundingSensitivity:
+    return ConfoundingSensitivity(e_value=an_e_value(), cinelli_hazlett=None,
+                                  cinelli_hazlett_reason="not applicable")
+
+
+def test_falsification_result_fully_populated_constructs():
+    # All four results present, all four reasons None. This exercises the
+    # "present value with reason=None" path of all four _require_reason calls.
+    FalsificationResult(
+        placebo_dates=a_placebo(),
+        placebo_dates_reason=None,
+        placebo_units=a_placebo(),
+        placebo_units_reason=None,
+        leave_one_donor_out=(0.1, 0.2),
+        leave_one_donor_out_reason=None,
+        randomization_inference=a_placebo(),
+        randomization_inference_reason=None,
+    )
+
+
+def test_falsification_result_fully_absent_constructs():
+    # All four results None, all four reasons non-empty. This exercises the
+    # "absent value with non-empty reason" path of all four _require_reason calls.
+    FalsificationResult(
+        placebo_dates=None,
+        placebo_dates_reason="not applicable",
+        placebo_units=None,
+        placebo_units_reason="not applicable",
+        leave_one_donor_out=None,
+        leave_one_donor_out_reason="not applicable",
+        randomization_inference=None,
+        randomization_inference_reason="not applicable",
+    )
+
+
+def test_falsification_result_placebo_dates_absent_without_reason_raises() -> None:
+    # Omitting the reason on an absent placebo_dates raises ValueError.
+    with pytest.raises(ValueError, match="placebo_dates_reason"):
+        FalsificationResult(
+            placebo_dates=None,
+            placebo_dates_reason=None,
+            placebo_units=None,
+            placebo_units_reason="not applicable",
+            leave_one_donor_out=None,
+            leave_one_donor_out_reason="not applicable",
+            randomization_inference=None,
+            randomization_inference_reason="not applicable",
+        )
+
+
+def test_falsification_result_placebo_dates_present_with_reason_raises() -> None:
+    # Supplying a reason alongside present placebo_dates raises ValueError.
+    with pytest.raises(ValueError, match="placebo_dates_reason"):
+        FalsificationResult(
+            placebo_dates=a_placebo(),
+            placebo_dates_reason="some reason",
+            placebo_units=None,
+            placebo_units_reason="not applicable",
+            leave_one_donor_out=None,
+            leave_one_donor_out_reason="not applicable",
+            randomization_inference=None,
+            randomization_inference_reason="not applicable",
+        )
+
+
+def test_falsification_result_placebo_units_absent_without_reason_raises() -> None:
+    # Omitting the reason on an absent placebo_units raises ValueError.
+    with pytest.raises(ValueError, match="placebo_units_reason"):
+        FalsificationResult(
+            placebo_dates=None,
+            placebo_dates_reason="not applicable",
+            placebo_units=None,
+            placebo_units_reason=None,
+            leave_one_donor_out=None,
+            leave_one_donor_out_reason="not applicable",
+            randomization_inference=None,
+            randomization_inference_reason="not applicable",
+        )
+
+
+def test_falsification_result_placebo_units_present_with_reason_raises() -> None:
+    # Supplying a reason alongside present placebo_units raises ValueError.
+    with pytest.raises(ValueError, match="placebo_units_reason"):
+        FalsificationResult(
+            placebo_dates=None,
+            placebo_dates_reason="not applicable",
+            placebo_units=a_placebo(),
+            placebo_units_reason="some reason",
+            leave_one_donor_out=None,
+            leave_one_donor_out_reason="not applicable",
+            randomization_inference=None,
+            randomization_inference_reason="not applicable",
+        )
+
+
+def test_falsification_result_leave_one_donor_out_absent_without_reason_raises() -> None:
+    # Omitting the reason on an absent leave_one_donor_out raises ValueError.
+    with pytest.raises(ValueError, match="leave_one_donor_out_reason"):
+        FalsificationResult(
+            placebo_dates=None,
+            placebo_dates_reason="not applicable",
+            placebo_units=None,
+            placebo_units_reason="not applicable",
+            leave_one_donor_out=None,
+            leave_one_donor_out_reason=None,
+            randomization_inference=None,
+            randomization_inference_reason="not applicable",
+        )
+
+
+def test_falsification_result_leave_one_donor_out_present_with_reason_raises() -> None:
+    # Supplying a reason alongside present leave_one_donor_out raises ValueError.
+    with pytest.raises(ValueError, match="leave_one_donor_out_reason"):
+        FalsificationResult(
+            placebo_dates=None,
+            placebo_dates_reason="not applicable",
+            placebo_units=None,
+            placebo_units_reason="not applicable",
+            leave_one_donor_out=(0.1, 0.2),
+            leave_one_donor_out_reason="some reason",
+            randomization_inference=None,
+            randomization_inference_reason="not applicable",
+        )
+
+
+def test_falsification_result_randomization_inference_absent_without_reason_raises() -> None:
+    # Omitting the reason on an absent randomization_inference raises ValueError.
+    with pytest.raises(ValueError, match="randomization_inference_reason"):
+        FalsificationResult(
+            placebo_dates=None,
+            placebo_dates_reason="not applicable",
+            placebo_units=None,
+            placebo_units_reason="not applicable",
+            leave_one_donor_out=None,
+            leave_one_donor_out_reason="not applicable",
+            randomization_inference=None,
+            randomization_inference_reason=None,
+        )
+
+
+def test_falsification_result_randomization_inference_present_with_reason_raises() -> None:
+    # Supplying a reason alongside present randomization_inference raises ValueError.
+    with pytest.raises(ValueError, match="randomization_inference_reason"):
+        FalsificationResult(
+            placebo_dates=None,
+            placebo_dates_reason="not applicable",
+            placebo_units=None,
+            placebo_units_reason="not applicable",
+            leave_one_donor_out=None,
+            leave_one_donor_out_reason="not applicable",
+            randomization_inference=a_placebo(),
+            randomization_inference_reason="some reason",
+        )
+
+
+def test_sensitivity_report_with_specification_curve_constructs():
+    # specification_curve present, reason None.
+    spec_point = SpecificationPoint(
+        specification={"covariates": ()}, point=0.1, ci=Interval(lower=0.0, upper=0.2)
+    )
+    SensitivityReport(
+        confounding=a_confounding_sensitivity(),
+        specification_curve=SpecificationCurve(
+            specifications=(spec_point,), original_index=0, capped=False
+        ),
+        specification_curve_reason=None,
+        falsification=FalsificationResult(
+            placebo_dates=None,
+            placebo_dates_reason="not applicable",
+            placebo_units=None,
+            placebo_units_reason="not applicable",
+            leave_one_donor_out=None,
+            leave_one_donor_out_reason="not applicable",
+            randomization_inference=None,
+            randomization_inference_reason="not applicable",
+        ),
+    )
+
+
+def test_sensitivity_report_without_specification_curve_constructs():
+    # specification_curve None, reason non-empty.
+    SensitivityReport(
+        confounding=a_confounding_sensitivity(),
+        specification_curve=None,
+        specification_curve_reason="not applicable",
+        falsification=FalsificationResult(
+            placebo_dates=None,
+            placebo_dates_reason="not applicable",
+            placebo_units=None,
+            placebo_units_reason="not applicable",
+            leave_one_donor_out=None,
+            leave_one_donor_out_reason="not applicable",
+            randomization_inference=None,
+            randomization_inference_reason="not applicable",
+        ),
+    )
+
+
+def test_sensitivity_report_absent_curve_without_reason_raises() -> None:
+    # specification_curve None but reason is None -> should raise.
+    with pytest.raises(ValueError, match="specification_curve_reason"):
+        SensitivityReport(
+            confounding=a_confounding_sensitivity(),
+            specification_curve=None,
+            specification_curve_reason=None,
+            falsification=FalsificationResult(
+                placebo_dates=None,
+                placebo_dates_reason="not applicable",
+                placebo_units=None,
+                placebo_units_reason="not applicable",
+                leave_one_donor_out=None,
+                leave_one_donor_out_reason="not applicable",
+                randomization_inference=None,
+                randomization_inference_reason="not applicable",
+            ),
+        )
+
+
+def test_sensitivity_report_present_curve_with_reason_raises() -> None:
+    # specification_curve present but reason is non-None -> should raise.
+    spec_point = SpecificationPoint(
+        specification={"covariates": ()}, point=0.1, ci=Interval(lower=0.0, upper=0.2)
+    )
+    with pytest.raises(ValueError, match="specification_curve_reason"):
+        SensitivityReport(
+            confounding=a_confounding_sensitivity(),
+            specification_curve=SpecificationCurve(
+                specifications=(spec_point,), original_index=0, capped=False
+            ),
+            specification_curve_reason="some reason",
+            falsification=FalsificationResult(
+                placebo_dates=None,
+                placebo_dates_reason="not applicable",
+                placebo_units=None,
+                placebo_units_reason="not applicable",
+                leave_one_donor_out=None,
+                leave_one_donor_out_reason="not applicable",
+                randomization_inference=None,
+                randomization_inference_reason="not applicable",
+            ),
+        )
