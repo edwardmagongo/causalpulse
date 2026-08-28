@@ -249,5 +249,10 @@ def test_verdict_passes_the_causal_language_lint():
             estimate("twfe", 2.0, (1.8, 2.2), check("parallel_trends")),
             estimate("aipw", 9.0, (8.5, 9.5), check("positivity")),
         )),
+        compare(*scored(
+            estimate("twfe", 2.0, (1.8, 2.2), check("parallel_trends")),
+            estimate("callaway_santanna", 5.0, (4.5, 5.5), check("parallel_trends")),
+            estimate("did_2x2", 9.0, (8.5, 9.5), check("parallel_trends")),
+        )),
     ):
         assert causal_language_lint(result.verdict) == (), result.verdict

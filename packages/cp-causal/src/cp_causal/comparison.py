@@ -163,8 +163,7 @@ def _verdict(
     return (
         f"The {len(usable)} methods scored WEAK or better do not all overlap, so they "
         "are not mutually consistent under their own assumptions. "
-        f"{divergence_note}"
-        f"{spread}{note}"
+        f"{divergence_note}{spread}{note}"
     )
 
 
