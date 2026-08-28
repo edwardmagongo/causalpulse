@@ -792,6 +792,20 @@ _EVENT_STUDY_REASON = (
     "this method's derivation assumes it means."
 )
 
+# cinelli_hazlett also returns None for an estimator that IS in
+# OLS_SENSITIVITY_ESTIMATORS, when its own refit is numerically degenerate
+# (too few residual degrees of freedom, or a zero coefficient standard
+# error). That is a different fact from "not OLS-fitted" and _NOT_OLS_REASON
+# would misstate it, so it gets its own wording. Deliberately silent on
+# which of the two degeneracy conditions fired -- cinelli_hazlett's contract
+# does not say, and restructuring it to say is out of scope here.
+_DEGENERATE_OLS_FIT_REASON = (
+    "{name} is fitted by least squares against a single treatment "
+    "coefficient, so cinelli_hazlett normally applies to it, but this "
+    "particular refit did not yield a usable coefficient standard error, so "
+    "the bound could not be computed."
+)
+
 
 def sensitivity_report(
     dataset: CausalDataset,
@@ -813,32 +827,40 @@ def sensitivity_report(
     rather than implying otherwise.
     """
     bound = cinelli_hazlett(dataset, estimator_name, config)
+    if bound is not None:
+        cinelli_hazlett_reason = None
+    elif estimator_name == "event_study":
+        cinelli_hazlett_reason = _EVENT_STUDY_REASON
+    elif estimator_name in OLS_SENSITIVITY_ESTIMATORS:
+        # In the OLS set, yet still None: the refit itself was degenerate
+        # (see _DEGENERATE_OLS_FIT_REASON), not "this estimator doesn't
+        # apply".
+        cinelli_hazlett_reason = _DEGENERATE_OLS_FIT_REASON.format(name=estimator_name)
+    else:
+        cinelli_hazlett_reason = _NOT_OLS_REASON.format(name=estimator_name)
     confounding = ConfoundingSensitivity(
         e_value=e_value(estimate, outcome_sd=outcome_sd),
         cinelli_hazlett=bound,
-        cinelli_hazlett_reason=None
-        if bound is not None
-        else (
-            _EVENT_STUDY_REASON
-            if estimator_name == "event_study"
-            else _NOT_OLS_REASON.format(name=estimator_name)
-        ),
+        cinelli_hazlett_reason=cinelli_hazlett_reason,
     )
 
     curve: SpecificationCurve | None = None
     curve_reason: str | None = None
-    try:
+    if estimator_name in CURVE_ESTIMATORS:
+        # Called directly, not inside a try/except: specification_curve can
+        # also raise ValueError for a *supported* estimator whose base
+        # specification cannot be fitted on the dataset as declared, and
+        # estimator_class().fit() can raise ValueError from inside a
+        # candidate refit (e.g. aipw's cross-fitting-fold-too-small guard).
+        # Both are genuine failures, not "this estimator is out of scope",
+        # so they must propagate rather than be relabelled as an absence.
+        # Checking membership up front means the only case handled here is
+        # the one this report is actually about.
         curve = specification_curve(dataset, estimator_name, config)
-    except ValueError as error:
-        # A direct caller should get the exception -- "not built for this
-        # estimator yet" is worth catching immediately. Inside a report the
-        # same fact is an absence with a reason, which is what the contract
-        # is shaped for. `max_specifications` is never overridden on this
-        # path, so the only ValueError specification_curve can raise here is
-        # the unsupported-estimator refusal -- not the separate
-        # max_specifications-must-be-positive check it also raises for a
-        # direct caller who passes a bad value for that argument.
-        curve_reason = str(error)
+    else:
+        curve_reason = _UNSUPPORTED_CURVE_REASON.format(
+            supported=sorted(CURVE_ESTIMATORS), name=estimator_name
+        )
 
     return SensitivityReport(
         confounding=confounding,

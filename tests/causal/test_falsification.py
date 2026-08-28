@@ -244,3 +244,59 @@ def test_a_non_ols_estimator_gets_an_e_value_but_no_cinelli_hazlett():
     assert report.confounding.cinelli_hazlett is None
     assert report.confounding.cinelli_hazlett_reason
     assert report.confounding.e_value.e_value >= 1.0
+
+
+def test_a_supported_estimators_curve_failure_propagates_not_absorbed(monkeypatch):
+    # sensitivity_report must not relabel a genuine failure from inside a real
+    # curve computation as "this estimator is unsupported". specification_curve
+    # can raise ValueError for a *supported* estimator too -- e.g. when the
+    # base specification cannot be fitted on the dataset as declared, or from
+    # inside a candidate refit (aipw's cross-fitting-fold-too-small guard).
+    # Arranging either through a real dataset would be a contrived fixture in
+    # its own right, so the failure is forced directly by monkeypatching
+    # specification_curve in cp_causal.sensitivity's own module namespace --
+    # the only name sensitivity_report calls.
+    import cp_causal.sensitivity as sensitivity_module
+    from cp_causal.registry import all_estimators
+    from cp_causal.sensitivity import sensitivity_report
+
+    def _boom(*args, **kwargs):
+        raise ValueError(
+            "cross-fitting produced a fold with too few units in one arm"
+        )
+
+    monkeypatch.setattr(sensitivity_module, "specification_curve", _boom)
+
+    dataset = cross_section()
+    estimate = all_estimators()["lin_regression"]().fit(dataset, FAST)
+    with pytest.raises(ValueError, match="cross-fitting"):
+        sensitivity_report(
+            dataset, "lin_regression", estimate, FAST, n_permutations=20
+        )
+
+
+def test_a_degenerate_ols_refit_is_not_reported_as_not_ols_fitted(monkeypatch):
+    # cinelli_hazlett returns None for an estimator that IS in
+    # OLS_SENSITIVITY_ESTIMATORS when its own refit is numerically degenerate
+    # (df < 1, or a zero coefficient standard error) -- a different fact from
+    # "this estimator isn't OLS-fitted", which is what _NOT_OLS_REASON would
+    # wrongly claim. Forcing that degeneracy through a real dataset would need
+    # a contrived fixture (e.g. an n=2 sample), so it's forced directly by
+    # monkeypatching cinelli_hazlett in cp_causal.sensitivity's own module
+    # namespace -- the only name sensitivity_report calls.
+    import cp_causal.sensitivity as sensitivity_module
+    from cp_causal.registry import all_estimators
+    from cp_causal.sensitivity import sensitivity_report
+
+    monkeypatch.setattr(sensitivity_module, "cinelli_hazlett", lambda *a, **k: None)
+
+    dataset = cross_section()
+    estimate = all_estimators()["lin_regression"]().fit(dataset, FAST)
+    report = sensitivity_report(
+        dataset, "lin_regression", estimate, FAST, n_permutations=20
+    )
+    assert report.confounding.cinelli_hazlett is None
+    reason = report.confounding.cinelli_hazlett_reason
+    assert reason is not None
+    assert "lin_regression" in reason
+    assert "not fitted by least squares" not in reason
