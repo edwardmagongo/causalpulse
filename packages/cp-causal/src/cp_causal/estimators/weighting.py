@@ -23,6 +23,7 @@ from cp_causal.propensity import (
     effective_sample_size,
     fit_propensity,
     overlap_checks,
+    resolve_trim,
     standardised_mean_differences,
 )
 from cp_causal.registry import register
@@ -56,8 +57,9 @@ class InverseProbabilityWeighting:
         started = time.perf_counter()
         covariates, treatment, outcome = arrays(dataset)
 
+        trim = resolve_trim(config.options)
         # No cross-fitting here, so no fold randomness and no rng is needed.
-        fitted = fit_propensity(covariates, treatment)
+        fitted = fit_propensity(covariates, treatment, trim=trim)
         weights = np.where(
             treatment == 1, 1.0 / fitted.scores, 1.0 / (1.0 - fitted.scores)
         )
@@ -98,7 +100,7 @@ class InverseProbabilityWeighting:
             w = treatment[indices]
             if w.sum() < 10 or (1 - w).sum() < 10:
                 return float("nan")
-            resampled = fit_propensity(covariates[indices], w)
+            resampled = fit_propensity(covariates[indices], w, trim=trim)
             rw = np.where(w == 1, 1.0 / resampled.scores, 1.0 / (1.0 - resampled.scores))
             y = outcome[indices]
             return _hajek_arm_mean(y, rw, w == 1) - _hajek_arm_mean(y, rw, w == 0)

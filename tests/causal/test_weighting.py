@@ -1,6 +1,8 @@
 import numpy as np
 import pytest
 from cp_causal.estimators.weighting import InverseProbabilityWeighting
+from cp_causal.propensity import POSITIVITY_THRESHOLD
+from cp_core.dataset import CausalDataset
 from cp_core.values import EstimatorConfig
 from cp_simulation.oracle import naive_difference_in_means
 from cp_simulation.scenarios import build_scenario
@@ -122,3 +124,45 @@ def test_analytic_standard_error_agrees_with_the_bootstrap():
 
 def test_requires_covariates():
     assert InverseProbabilityWeighting().requirements.needs_covariates is True
+
+
+def poor_overlap() -> CausalDataset:
+    """Scenario G at a fixed seed: overlap is bad by construction, so the
+    trimming threshold has something to bite on."""
+    return build_scenario("G").generate(n_units=1500, rng=np.random.default_rng(0)).dataset
+
+
+def test_ipw_reads_a_trim_threshold_from_options():
+    dataset = poor_overlap()
+    loose = InverseProbabilityWeighting().fit(
+        dataset, config(bootstrap_reps=25, options={"trim": 0.001})
+    )
+    tight = InverseProbabilityWeighting().fit(
+        dataset, config(bootstrap_reps=25, options={"trim": 0.10})
+    )
+    # Measured on this exact frame: 0 units clipped at trim=0.001 against 137
+    # at trim=0.10, with the propensity scores spanning 0.0042 to 0.983. A
+    # tighter clip must bind on strictly more units; equality would mean the
+    # option is being ignored, which is exactly what both estimators did
+    # before it was wired through.
+    assert tight.diagnostics["n_trimmed"].value > loose.diagnostics["n_trimmed"].value
+
+
+def test_ipw_defaults_to_the_positivity_threshold():
+    dataset = poor_overlap()
+    default = InverseProbabilityWeighting().fit(dataset, config(bootstrap_reps=25))
+    explicit = InverseProbabilityWeighting().fit(
+        dataset, config(bootstrap_reps=25, options={"trim": POSITIVITY_THRESHOLD})
+    )
+    assert default.point == pytest.approx(explicit.point)
+
+
+@pytest.mark.parametrize("bad", [-0.1, 0.5, 0.9, "0.01"])
+def test_ipw_refuses_an_unusable_trim(bad):
+    dataset = build_scenario("A").generate(
+        n_units=400, rng=np.random.default_rng(0)
+    ).dataset
+    with pytest.raises((ValueError, TypeError), match="trim"):
+        InverseProbabilityWeighting().fit(
+            dataset, config(bootstrap_reps=25, options={"trim": bad})
+        )

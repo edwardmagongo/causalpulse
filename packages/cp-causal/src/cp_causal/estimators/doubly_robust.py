@@ -31,6 +31,7 @@ from cp_causal.propensity import (
     PropensityFit,
     fit_propensity,
     overlap_checks,
+    resolve_trim,
     standardised_mean_differences,
 )
 from cp_causal.registry import register
@@ -139,6 +140,9 @@ class AugmentedIPW:
       model only.
     - `"outcome_covariates"`: a tuple of column names for the outcome
       regression only.
+    - `"trim"`: the propensity-clipping threshold, in `[0, 0.5)`, defaulting
+      to `POSITIVITY_THRESHOLD`. Read through the same `resolve_trim` that
+      `InverseProbabilityWeighting` uses, so the two clip identically.
 
     Each supplied name must be a column present in the frame and must not be
     one of the schema's role columns (`unit`, `treatment`, `outcome`, `time`,
@@ -169,6 +173,7 @@ class AugmentedIPW:
         started = time.perf_counter()
         _, treatment, outcome = arrays(dataset)
         covariates, outcome_covariates = _resolve_nuisance_covariates(dataset, config)
+        trim = resolve_trim(config.options)
         seed = 0 if config.random_seed is None else config.random_seed
         # One generator derived from the config's seed at the estimator boundary,
         # then threaded down. Helpers never seed their own generator, so every
@@ -177,7 +182,7 @@ class AugmentedIPW:
         rng = np.random.default_rng(np.random.SeedSequence(seed))
 
         scores, fitted = self._scores(
-            covariates, outcome_covariates, treatment, outcome, rng
+            covariates, outcome_covariates, treatment, outcome, rng, trim
         )
         point = float(scores.mean())
         # The influence function is the per-unit score itself, so its spread is
@@ -197,6 +202,7 @@ class AugmentedIPW:
                 w,
                 outcome[indices],
                 rng,
+                trim,
             )
             return float(replicate_scores.mean())
 
@@ -264,6 +270,7 @@ class AugmentedIPW:
         treatment: np.ndarray,
         outcome: np.ndarray,
         rng: np.random.Generator,
+        trim: float,
     ) -> tuple[np.ndarray, PropensityFit]:
         """Per-unit AIPW scores; their mean is the estimate.
 
@@ -273,13 +280,22 @@ class AugmentedIPW:
         (both equal to `schema.covariates`) unless `config.options` overrode
         one of them.
 
+        `trim` is resolved once in `fit` and passed down rather than re-read
+        here, so the main fit and every bootstrap replicate clip at the same
+        threshold; re-reading it per replicate would be the same value by
+        construction, but only by construction.
+
         The propensity fit is cross-fitted through `fit_propensity` itself
         (reused rather than reimplemented) and returned alongside the scores
         so the caller can build diagnostics from the same out-of-fold scores
         the estimate was built on, without a second, in-sample fit.
         """
         fitted = fit_propensity(
-            covariates, treatment, cross_fit_folds=self.cross_fit_folds, rng=rng
+            covariates,
+            treatment,
+            cross_fit_folds=self.cross_fit_folds,
+            rng=rng,
+            trim=trim,
         )
         mu_treated, mu_control = _cross_fitted_outcome_models(
             outcome_covariates, treatment, outcome, self.cross_fit_folds, rng

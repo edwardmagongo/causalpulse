@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 from cp_causal.estimators.doubly_robust import AugmentedIPW
 from cp_causal.estimators.weighting import InverseProbabilityWeighting
+from cp_causal.propensity import POSITIVITY_THRESHOLD
 from cp_core.dataset import CausalDataset, CausalSchema
 from cp_core.values import EstimatorConfig
 from cp_simulation.scenarios import build_scenario
@@ -150,3 +151,41 @@ def test_rejects_a_bare_string_for_a_covariates_option():
         AugmentedIPW().fit(
             full(0), config(options={"propensity_covariates": "x1"})
         )
+
+
+def poor_overlap() -> CausalDataset:
+    """Scenario G at a fixed seed: overlap is bad by construction, so the
+    trimming threshold has something to bite on."""
+    return build_scenario("G").generate(n_units=1500, rng=np.random.default_rng(0)).dataset
+
+
+def test_aipw_reads_a_trim_threshold_from_options():
+    dataset = poor_overlap()
+    loose = AugmentedIPW().fit(dataset, config(bootstrap_reps=25, options={"trim": 0.001}))
+    tight = AugmentedIPW().fit(dataset, config(bootstrap_reps=25, options={"trim": 0.10}))
+    # AIPW reports no `n_trimmed` diagnostic, so unlike the IPW case the
+    # observable evidence that the option was read is the estimate itself
+    # moving. These two configs differ in nothing but `trim` and share a
+    # seed, so the cross-fitting folds are identical; before the option was
+    # wired through they returned bit-identical points (measured: both
+    # 0.043878450040). Any difference means the clip reached the propensity
+    # scores the AIPW score divides by.
+    assert loose.point != tight.point
+
+
+def test_aipw_defaults_to_the_positivity_threshold():
+    dataset = poor_overlap()
+    default = AugmentedIPW().fit(dataset, config(bootstrap_reps=25))
+    explicit = AugmentedIPW().fit(
+        dataset, config(bootstrap_reps=25, options={"trim": POSITIVITY_THRESHOLD})
+    )
+    assert default.point == pytest.approx(explicit.point)
+
+
+@pytest.mark.parametrize("bad", [-0.1, 0.5, 0.9, "0.01"])
+def test_aipw_refuses_an_unusable_trim(bad):
+    dataset = build_scenario("A").generate(
+        n_units=400, rng=np.random.default_rng(0)
+    ).dataset
+    with pytest.raises((ValueError, TypeError), match="trim"):
+        AugmentedIPW().fit(dataset, config(bootstrap_reps=25, options={"trim": bad}))

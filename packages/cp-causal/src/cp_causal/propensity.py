@@ -7,6 +7,7 @@ those are what the conclusion actually rests on.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import numpy as np
@@ -26,6 +27,31 @@ class PropensityFit:
     scores: np.ndarray
     trim_bounds: tuple[float, float]
     trimmed_mask: np.ndarray
+
+
+def resolve_trim(options: Mapping[str, object]) -> float:
+    """Read a propensity-clipping threshold from an estimator's options.
+
+    Shared by the two propensity-based estimators rather than written twice:
+    the specification curve varies this axis across both, and two readers
+    would be free to validate it differently.
+
+    Bounded below 0.5 because clipping at or above it would collapse every
+    score onto a single value and turn the weights into a constant.
+    """
+    raw = options.get("trim", POSITIVITY_THRESHOLD)
+    # `bool` is a subclass of `int`, and `True` would otherwise silently
+    # resolve to a trim of 1.0 -- which the range check below would reject,
+    # but with an error naming a number the caller never wrote.
+    if isinstance(raw, bool) or not isinstance(raw, int | float):
+        raise TypeError(f"options['trim'] must be a number, got {type(raw).__name__}")
+    trim = float(raw)
+    if not 0.0 <= trim < 0.5:
+        raise ValueError(
+            f"options['trim'] must lie in [0, 0.5), got {trim}; at or above 0.5 "
+            "every propensity score clips to one value and the weights go flat"
+        )
+    return trim
 
 
 def fit_propensity(
