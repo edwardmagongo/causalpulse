@@ -560,6 +560,16 @@ some of its identifying assumptions cannot be tested. Subtracting for `NOT_TESTA
 that ceiling would count the same fact twice and read every honest observational analysis as
 broken.
 
+`lin_regression`'s `outcome_model_specification` check was originally shipped as an unconditional
+`WARN` — a static caveat ("the adjustment is linear in the supplied covariates") that fires on
+every fit regardless of the data, because nothing about it is computed from the fit. Since the
+rubric drops the band one step for any `WARN`, this scored `lin_regression` strictly below
+`difference_in_means` on identical randomised data, purely for shipping an honest caveat the
+simpler estimator has no check for at all. Reclassified to `NOT_TESTABLE` — its correct status, by
+the same test every other check here is held to: nothing tests whether the linear form is right
+for this particular fit, so `WARN` was reporting a diagnostic result that was never actually
+computed.
+
 ### The comparison layer does not average
 
 `compare()` takes several fitted estimates of the same quantity and reports their spread, which
@@ -584,23 +594,30 @@ bands come from convergence diagnostics, a different question from identificatio
 
 | band | fits |
 |---|---|
-| `STRONG` | 554 |
-| `MODERATE` | 269 |
-| `WEAK` | 177 |
+| `STRONG` | 634 |
+| `MODERATE` | 229 |
+| `WEAK` | 137 |
 | `INSUFFICIENT` | 0 (structurally absent here — needs an `estimation`-kind failure, which only the excluded MCMC convergence checks can produce) |
 
 | bucket | n | coverage | MCSE |
 |---|---|---|---|
-| `MODERATE` or better | 823 | 0.8238 | 0.0133 |
-| `WEAK` or worse | 177 | 0.6441 | 0.0360 |
+| `MODERATE` or better | 863 | 0.8262 | 0.0129 |
+| `WEAK` or worse | 137 | 0.5766 | 0.0422 |
 
-The difference is 0.1797 against a combined MCSE of 0.0384 — the band-MODERATE-or-better bucket
-covers truth about 18 percentage points more often, 2.3 times the asserted 2-MCSE floor. An
+The difference is 0.2496 against a combined MCSE of 0.0441 — the band-MODERATE-or-better bucket
+covers truth about 25 percentage points more often, 2.8 times the asserted 2-MCSE floor. An
 earlier attempt at 8 seeds, chosen first for runtime, measured a difference of 0.1120 against a
 floor of 0.1228 — a **failing** margin, because the `WEAK`-or-worse bucket thins to 71 fits and its
 MCSE grows accordingly. That result was not patched by loosening the assertion or picking a
 seed count that happens to pass; the harness re-measured at 20 seeds, the count it actually
 asserts at, and that is the number above.
+
+Re-measured again after the `outcome_model_specification` reclassification above: 120 of 1000
+fits moved, all of them `lin_regression`'s own runs (80 MODERATE→STRONG on randomised scenarios,
+40 WEAK→MODERATE on observational ones). Headroom rose rather than fell — the 40 rows crossing the
+`MODERATE`+/`WEAK`- boundary had their own coverage at 0.875, derived directly from the two
+measured `WEAK`-or-worse counts (`(0.6441×177 − 0.5766×137) / 40 = 0.875` exactly) — which is why
+the numbers above differ from an earlier measurement of this same harness.
 
 **TWFE on P4 reads `STRONG`, its highest possible band, on the estimate this project's own Phase 3
 section documents as off by −0.9946 against a true ATT of 2.8361 — 88.8 Monte Carlo standard
