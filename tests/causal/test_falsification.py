@@ -81,6 +81,32 @@ def test_a_donor_pool_estimator_gets_placebo_units_and_leave_one_donor_out():
     assert result.randomization_inference is None
 
 
+def test_a_donor_pool_real_effect_matches_the_estimators_own_ridge_fallback_point():
+    # S3 is this repo's own convex-hull-violation scenario: SyntheticControl.fit()
+    # switches to the ridge-augmented weight form, and its reported point comes
+    # from that form, not the plain simplex fit. An earlier version of falsify()
+    # read `real_effect` from `PlaceboRuns.point_estimates[0]`, which is always
+    # simplex-based (it exists to build the placebo null distribution, not to
+    # report the headline number) -- on S3 that reported a sign-flipped point
+    # about 2.5x off from what the estimator itself actually returns. Caught by
+    # Task 7's review reproducing exactly this mismatch.
+    from cp_causal.estimators.synthetic_control import SyntheticControl
+
+    dataset = donor_panel("S3")
+    fitted = SyntheticControl().fit(dataset, FAST)
+    result = falsify(dataset, "synthetic_control", FAST)
+
+    assert result.placebo_units is not None
+    assert result.placebo_units.real_effect == pytest.approx(fitted.point)
+    # Every per-donor leave-one-out estimate should sit near the real,
+    # ridge-based point -- not near a value computed from the wrong weight
+    # form, which the pre-fix code produced (an outlier an order of
+    # magnitude off from every other value).
+    assert result.leave_one_donor_out is not None
+    for estimate in result.leave_one_donor_out:
+        assert estimate == pytest.approx(fitted.point, abs=0.5)
+
+
 def test_a_panel_too_small_for_a_placebo_group_says_so_rather_than_raising():
     # The placebo group is drawn from the never-treated pool and the units it
     # leaves behind are its controls, so it is roughly half the real treated

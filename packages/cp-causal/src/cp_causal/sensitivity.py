@@ -34,10 +34,10 @@ from cp_causal._support import arrays
 from cp_causal.estimators.did import twfe_design, two_by_two_design
 from cp_causal.estimators.regression import lin_design
 from cp_causal.estimators.synthetic_control import (
+    fit_donor_pool_point,
     leave_one_donor_out_points,
     permutation_p_value,
     placebo_runs,
-    solve_donor_weights,
 )
 from cp_causal.panel_checks import placebo_leads
 from cp_causal.propensity import POSITIVITY_THRESHOLD, resolve_trim
@@ -711,22 +711,29 @@ def falsify(
         treated_series, donor_series, pre_mask = donor_matrix(panel)
         post_mask = ~pre_mask
         runs = placebo_runs(treated_series, donor_series, pre_mask, post_mask)
-        # Index 0 is the real treated unit; see `PlaceboRuns`.
+        # `runs.point_estimates` (including index 0, the real treated unit)
+        # is always simplex-based -- see `PlaceboRuns`: it exists to build
+        # the null/reference distribution the simplex fit is judged against,
+        # not to report the headline number. The real point, and the weight
+        # form leave-one-donor-out must match, come from
+        # `fit_donor_pool_point` instead, which is convex-hull-aware exactly
+        # the way `SyntheticControl.fit()` itself is. Using
+        # `runs.point_estimates[0]` unconditionally here previously reported
+        # a sign-flipped, ~2.5x-off number whenever the convex-hull check
+        # failed -- caught by Task 7's review reproducing it against S3.
+        donor_fit = fit_donor_pool_point(treated_series, donor_series, pre_mask, post_mask)
         placebo_units = PlaceboTestResult(
             placebo_effects=runs.point_estimates[1:],
-            real_effect=float(runs.point_estimates[0]),
+            real_effect=donor_fit.point,
             p_value=permutation_p_value(runs.rmspe_ratios),
-        )
-        weights = solve_donor_weights(
-            treated_series[pre_mask], donor_series[:, pre_mask]
         )
         _, leave_one_donor_out = leave_one_donor_out_points(
             treated_series,
             donor_series,
             pre_mask,
             post_mask,
-            reference_weights=weights,
-            use_ridge=False,
+            reference_weights=donor_fit.reference_weights,
+            use_ridge=donor_fit.use_ridge,
         )
     else:
         leave_one_donor_out_reason = _NO_DONOR_POOL_REASON.format(name=estimator_name)

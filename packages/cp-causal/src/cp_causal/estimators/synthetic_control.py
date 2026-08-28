@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 import numpy as np
 from cp_core.dataset import CausalDataset
-from cp_core.results import CounterfactualPath, EffectEstimate, FitMetadata
+from cp_core.results import AssumptionCheck, CounterfactualPath, EffectEstimate, FitMetadata
 from cp_core.values import Diagnostic, EstimatorConfig, Interval
 from scipy.optimize import minimize
 
@@ -93,6 +93,80 @@ def ridge_augmented_weights(
     ridge[0, 0] = 0.0  # never shrink the intercept
     beta = np.linalg.solve(gram + ridge, design.T @ treated_pre)
     return float(beta[0]), np.asarray(beta[1:])
+
+
+@dataclass(frozen=True, eq=False)
+class DonorPoolPoint:
+    """The point estimate `SyntheticControl.fit()` actually reports, and the
+    weight form it came from.
+
+    Separate from `PlaceboRuns`, whose per-unit point estimates (including
+    the real treated unit's, at index 0) are always simplex-based -- they
+    exist to build the null/reference distribution the simplex fit is judged
+    against, not to report the headline number. When `convex_hull_check`
+    fails, `fit()`'s own reported point switches to the ridge-augmented form,
+    and any caller building on top of the real fit (leave-one-donor-out, a
+    falsification report) must switch with it or it silently reports a
+    number the estimator itself never produced -- the exact "wrong estimator
+    form" bug this project already caught and fixed once, in
+    `leave_one_donor_out_points`'s own history.
+
+    `weights` is always the plain simplex weights, reported to the caller as
+    a diagnostic regardless of which form actually produced `point` --
+    `reference_weights` is whichever form (simplex or ridge coefficients)
+    did.
+    """
+
+    point: float
+    synthetic: np.ndarray
+    synthetic_simplex: np.ndarray
+    weights: np.ndarray
+    reference_weights: np.ndarray
+    use_ridge: bool
+    convex_hull: AssumptionCheck
+
+
+def fit_donor_pool_point(
+    treated_series: np.ndarray,
+    donor_series: np.ndarray,
+    pre_mask: np.ndarray,
+    post_mask: np.ndarray,
+) -> DonorPoolPoint:
+    """The convex-hull-aware point estimate `SyntheticControl.fit()` reports.
+
+    Shared with `sensitivity.falsify()` so a caller building on top of this
+    estimator sees the same point, from the same weight form, `fit()` itself
+    would report -- rather than a second, independent copy of this decision
+    that could silently drift from it.
+    """
+    weights = solve_donor_weights(treated_series[pre_mask], donor_series[:, pre_mask])
+    synthetic_simplex = weights @ donor_series
+
+    treated_pre_mean = float(treated_series[pre_mask].mean())
+    donor_pre_means = donor_series[:, pre_mask].mean(axis=1)
+    convex_hull = convex_hull_check(treated_pre_mean, donor_pre_means)
+    use_ridge = convex_hull.status == "FAIL"
+
+    if use_ridge:
+        intercept, coefficients = ridge_augmented_weights(
+            treated_series[pre_mask], donor_series[:, pre_mask]
+        )
+        synthetic = intercept + coefficients @ donor_series
+        reference_weights = coefficients
+    else:
+        synthetic = synthetic_simplex
+        reference_weights = weights
+
+    point = float(np.mean(treated_series[post_mask] - synthetic[post_mask]))
+    return DonorPoolPoint(
+        point=point,
+        synthetic=synthetic,
+        synthetic_simplex=synthetic_simplex,
+        weights=weights,
+        reference_weights=reference_weights,
+        use_ridge=use_ridge,
+        convex_hull=convex_hull,
+    )
 
 
 @dataclass(frozen=True, eq=False)
@@ -279,25 +353,15 @@ class SyntheticControl:
         runs = placebo_runs(treated_series, donor_series, pre_mask, post_mask)
         p_value = permutation_p_value(runs.rmspe_ratios)
 
-        weights = solve_donor_weights(treated_series[pre_mask], donor_series[:, pre_mask])
-        synthetic_simplex = weights @ donor_series
+        donor_fit = fit_donor_pool_point(treated_series, donor_series, pre_mask, post_mask)
+        point = donor_fit.point
+        synthetic = donor_fit.synthetic
+        synthetic_simplex = donor_fit.synthetic_simplex
+        weights = donor_fit.weights
+        reference_weights = donor_fit.reference_weights
+        use_ridge = donor_fit.use_ridge
+        convex_hull = donor_fit.convex_hull
 
-        treated_pre_mean = float(treated_series[pre_mask].mean())
-        donor_pre_means = donor_series[:, pre_mask].mean(axis=1)
-        convex_hull = convex_hull_check(treated_pre_mean, donor_pre_means)
-
-        use_ridge = convex_hull.status == "FAIL"
-        if use_ridge:
-            intercept, coefficients = ridge_augmented_weights(
-                treated_series[pre_mask], donor_series[:, pre_mask]
-            )
-            synthetic = intercept + coefficients @ donor_series
-            reference_weights = coefficients
-        else:
-            synthetic = synthetic_simplex
-            reference_weights = weights
-
-        point = float(np.mean(treated_series[post_mask] - synthetic[post_mask]))
         pointwise_effect = treated_series - synthetic
         # Measured from the *simplex* fit always, regardless of which form
         # produced `synthetic` above. `pre_treatment_fit_check`'s threshold
