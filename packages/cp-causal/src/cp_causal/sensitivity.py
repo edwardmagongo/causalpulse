@@ -20,6 +20,8 @@ from cp_core.results import (
     CounterfactualPoint,
     EffectEstimate,
     EValueResult,
+    FalsificationResult,
+    PlaceboTestResult,
     SpecificationCurve,
     SpecificationPoint,
 )
@@ -27,10 +29,17 @@ from cp_core.values import EstimatorConfig
 from cp_statistics.covariance import OLSFit, ols_fit
 from scipy import stats
 
-from cp_causal._panel import panel_arrays
+from cp_causal._panel import MIN_UNITS_PER_ARM, donor_matrix, panel_arrays
 from cp_causal._support import arrays
 from cp_causal.estimators.did import twfe_design, two_by_two_design
 from cp_causal.estimators.regression import lin_design
+from cp_causal.estimators.synthetic_control import (
+    leave_one_donor_out_points,
+    permutation_p_value,
+    placebo_runs,
+    solve_donor_weights,
+)
+from cp_causal.panel_checks import placebo_leads
 from cp_causal.propensity import POSITIVITY_THRESHOLD, resolve_trim
 from cp_causal.registry import all_estimators, get_estimator
 
@@ -435,4 +444,319 @@ def specification_curve(
         specifications=tuple(points),
         original_index=candidates.index(base),
         capped=capped,
+    )
+
+
+_NO_PRE_PERIODS_REASON = (
+    "A cross-section has no pre-treatment periods, so there is no earlier date "
+    "to run a placebo treatment at."
+)
+_TOO_FEW_PRE_PERIODS_REASON = (
+    "No cohort has two pre-treatment periods to compare, so the placebo-date "
+    "cells cannot be formed. Reported as untested rather than as a pass."
+)
+_DONOR_POOL_PLACEBO_DATES_REASON = (
+    "A donor pool has exactly one treated unit, and the placebo-date cells are "
+    "built from a within-group variance needing at least two units on each "
+    "side, so not one cell can be formed however long the pre-period is. This "
+    "is not a claim that the design has no pre-treatment periods -- it usually "
+    "has many. The in-time placebo the synthetic-control estimator reports as "
+    "a diagnostic is the technique that fits this family."
+)
+_CROSS_SECTION_PLACEBO_UNITS_REASON = (
+    "On a cross-section every row is a unit and roughly half of them are "
+    "treated, so relabelling one control row is not a placebo of the same "
+    "design as the analysis. Deferred rather than approximated."
+)
+_NO_DONOR_POOL_REASON = (
+    "Leave-one-donor-out needs a donor pool, and {name} does not build one: "
+    "it draws on every control unit at once rather than weighting a few."
+)
+_TOO_FEW_NEVER_TREATED_REASON = (
+    "This panel's never-treated pool cannot be split into a placebo treated "
+    "group and a placebo control group that both clear the minimum arm size, "
+    "so there is no placebo of the same design to run."
+)
+_PLACEBO_ROUNDS_ALL_FAILED_REASON = (
+    "Every placebo round was drawn but none could be fitted: at this panel's "
+    "size the placebo group is small enough that the estimator's own bootstrap "
+    "degenerates on most resamples. Reported as untested rather than as a pass."
+)
+_PANEL_RI_REASON = (
+    "Randomization inference here permutes the treatment column, which on a "
+    "panel would break the unit and period structure and the absorbing "
+    "adoption pattern. A correct panel version permutes adoption at the unit "
+    "level, which is different machinery and is not built yet."
+)
+
+
+def _family(estimator_name: str) -> str:
+    """Which data shape an estimator declares it needs.
+
+    Read off `Requirements` rather than a hardcoded name list, so a new
+    estimator routes correctly without this module being edited. Phase 6
+    already found one exact-set assertion that a newly registered estimator
+    silently broke.
+    """
+    requirements = get_estimator(estimator_name).requirements
+    if not requirements.needs_panel:
+        return "cross_section"
+    if requirements.max_treated_units == 1:
+        return "donor_pool"
+    return "panel"
+
+
+def _rank_p_value(real_effect: float, placebo_effects: np.ndarray) -> float:
+    """Two-sided rank p-value, reusing Phase 4's construction exactly.
+
+    `permutation_p_value` ranks index 0 against the whole array, counting the
+    real value itself -- so the smallest achievable p-value is 1/(n+1), which
+    is what makes it honest at small permutation counts. Prepending the real
+    effect and taking absolute values is the whole adaptation; no second
+    formula for the same idea.
+    """
+    stacked = np.concatenate([[abs(real_effect)], np.abs(placebo_effects)])
+    return permutation_p_value(stacked)
+
+
+def randomization_inference(
+    dataset: CausalDataset,
+    estimator_name: str,
+    config: EstimatorConfig,
+    *,
+    n_permutations: int = 500,
+    seed: int = 0,
+) -> PlaceboTestResult:
+    """Refit under many random reassignments of treatment.
+
+    Under a true null the real estimate is one unremarkable draw from the
+    permutation distribution; under a real effect it sits in the tail. The
+    p-value is the real estimate's rank, not a normal approximation, so it
+    stays valid at small samples where a Wald interval would not.
+
+    Cross-sections only -- see `_PANEL_RI_REASON`.
+    """
+    if dataset.schema.is_panel:
+        raise ValueError(_PANEL_RI_REASON)
+    estimator_class = get_estimator(estimator_name)
+    real = estimator_class().fit(dataset, config).point
+
+    rng = np.random.default_rng(np.random.SeedSequence(seed))
+    treatment = dataset.frame[dataset.schema.treatment].to_numpy()
+    effects = np.empty(n_permutations)
+    for index in range(n_permutations):
+        frame = dataset.frame.copy()
+        frame[dataset.schema.treatment] = rng.permutation(treatment)
+        permuted = CausalDataset(frame=frame, schema=dataset.schema)
+        effects[index] = estimator_class().fit(permuted, config).point
+
+    return PlaceboTestResult(
+        placebo_effects=effects,
+        real_effect=real,
+        p_value=_rank_p_value(real, effects),
+    )
+
+
+def _panel_placebo_units(
+    dataset: CausalDataset,
+    estimator_name: str,
+    config: EstimatorConfig,
+    n_placebo_units: int,
+    seed: int,
+) -> tuple[PlaceboTestResult | None, str | None]:
+    """Relabel never-treated units as treated, refit, and see what turns up.
+
+    The genuinely treated units are REMOVED from each placebo frame, not left
+    in. Leaving them in would let the real effect leak into the comparison the
+    placebo exists to null out.
+
+    Returns the result paired with `None`, or `None` paired with the reason it
+    could not be run -- the three ways it can decline are different facts about
+    the data and a single blanket reason would misreport two of them.
+    """
+    schema = dataset.schema
+    panel = panel_arrays(dataset)
+    adoption = panel.adoption_periods
+    if not adoption:
+        return None, _TOO_FEW_PRE_PERIODS_REASON
+    if panel.n_never_treated_units < 2 * MIN_UNITS_PER_ARM:
+        return None, _TOO_FEW_NEVER_TREATED_REASON
+
+    estimator_class = get_estimator(estimator_name)
+    real = estimator_class().fit(dataset, config).point
+    never_treated = panel.units[panel.cohort == 0]
+    # The placebo group is drawn only from never-treated units, and the units
+    # it does not take have to remain as its controls -- so it cannot simply
+    # match the real treated group's size. Measured across all seven panel
+    # scenarios in this repo, the never-treated pool is never more than about
+    # half the units (P1/P2: 31 never against 29 treated; P3-P5, P7: 45-48
+    # against 72-75), so a placebo group sized to the real one would consume
+    # the entire pool and leave no controls. An earlier version required
+    # `n_never_treated >= 2 * n_treated` before running at all, which no
+    # scenario in this project satisfies -- the technique would have been dead
+    # code that always reported itself absent.
+    #
+    # Splitting the pool in half is what makes it run. The consequence, worth
+    # stating because it is not free: on these scenarios the placebo group is
+    # roughly half the size of the real treated group, so each placebo
+    # estimate is noisier than the real one and the placebo distribution is
+    # wider than the estimator's own sampling distribution. That biases the
+    # rank p-value toward the null -- it is harder, not easier, for a placebo
+    # to look as extreme as the real effect. Conservative is the safe
+    # direction for a falsification test, but it is a real limit on power.
+    n_fake = min(panel.n_treated_units, panel.n_never_treated_units // 2)
+    if n_fake < MIN_UNITS_PER_ARM:
+        return None, _TOO_FEW_NEVER_TREATED_REASON
+    start = adoption[0]
+    # `panel_arrays` above raises on a schema carrying no time column, so this
+    # is unreachable; it is here to narrow the type for the checker rather
+    # than to handle a case that can occur.
+    time_column = schema.time
+    if time_column is None:
+        return None, _TOO_FEW_PRE_PERIODS_REASON
+
+    rng = np.random.default_rng(np.random.SeedSequence(seed))
+    effects: list[float] = []
+    for _ in range(n_placebo_units):
+        fake = rng.choice(never_treated, size=n_fake, replace=False)
+        frame = dataset.frame[dataset.frame[schema.unit].isin(never_treated)].copy()
+        placebo_treated = (
+            frame[schema.unit].isin(fake) & (frame[time_column] >= start)
+        ).astype(int)
+        frame[schema.treatment] = placebo_treated
+        if schema.cohort is not None:
+            # `cohort_by_unit` derives cohorts from the treatment column, so
+            # nothing reads this today -- but leaving the original column in
+            # place would have it assert every placebo unit is never-treated
+            # while the treatment column says otherwise, and a frame that
+            # contradicts itself is one refactor away from being believed.
+            frame[schema.cohort] = np.where(frame[schema.unit].isin(fake), start, 0)
+        candidate = CausalDataset(frame=frame.reset_index(drop=True), schema=schema)
+        if estimator_class.requirements.unmet(candidate):
+            continue
+        try:
+            effects.append(float(estimator_class().fit(candidate, config).point))
+        except ValueError:
+            # A placebo group is half the never-treated pool, so on a small
+            # panel it can clear `Requirements` and still be too small for the
+            # estimator's own bootstrap, which refuses once more than half its
+            # replicates come back degenerate. Measured on P1: this fires at
+            # n_units=60 (15 placebo-treated against 16 controls) and stops by
+            # n_units=100 (25 against 25). Skipping the round matches how an
+            # unfittable candidate is already handled one line above; if every
+            # round fails, the caller gets a stated absence rather than this
+            # exception surfacing from three frames down.
+            continue
+
+    if not effects:
+        return None, _PLACEBO_ROUNDS_ALL_FAILED_REASON
+    array = np.asarray(effects)
+    result = PlaceboTestResult(
+        placebo_effects=array, real_effect=real, p_value=_rank_p_value(real, array)
+    )
+    return result, None
+
+
+def falsify(
+    dataset: CausalDataset,
+    estimator_name: str,
+    config: EstimatorConfig,
+    *,
+    n_permutations: int = 500,
+    n_placebo_units: int = 20,
+    seed: int = 0,
+) -> FalsificationResult:
+    """Four tests a spurious finding should fail, each routed to the estimator
+    family it is defined for.
+
+    Expensive on the MCMC estimators: a panel placebo round is a full refit,
+    which for `bsts` and `hierarchical_did` means a full NUTS run.
+    `n_placebo_units` defaults to 20 for that reason, and a caller running
+    those estimators should lower it deliberately rather than discover the
+    cost.
+    """
+    get_estimator(estimator_name)
+    family = _family(estimator_name)
+
+    placebo_dates: PlaceboTestResult | None = None
+    placebo_dates_reason: str | None = None
+    if family == "cross_section":
+        placebo_dates_reason = _NO_PRE_PERIODS_REASON
+    elif family == "donor_pool":
+        # Routed by family rather than discovered by running `placebo_leads`
+        # and reporting whatever it returns. It returns empty here for every
+        # donor pool -- `group_change` yields nan below two units per group --
+        # and the empty-result reason would then claim the pre-period was too
+        # short, which on S1 (16 usable pre-periods) is simply false.
+        placebo_dates_reason = _DONOR_POOL_PLACEBO_DATES_REASON
+    else:
+        panel = panel_arrays(dataset)
+        _, coefficients, _ = placebo_leads(panel, "never_treated")
+        if coefficients.size == 0:
+            placebo_dates_reason = _TOO_FEW_PRE_PERIODS_REASON
+        else:
+            real = get_estimator(estimator_name)().fit(dataset, config).point
+            placebo_dates = PlaceboTestResult(
+                placebo_effects=coefficients,
+                real_effect=real,
+                p_value=_rank_p_value(real, coefficients),
+            )
+
+    placebo_units: PlaceboTestResult | None = None
+    placebo_units_reason: str | None = None
+    leave_one_donor_out: tuple[float, ...] | None = None
+    leave_one_donor_out_reason: str | None = None
+    if family == "donor_pool":
+        panel = panel_arrays(dataset)
+        treated_series, donor_series, pre_mask = donor_matrix(panel)
+        post_mask = ~pre_mask
+        runs = placebo_runs(treated_series, donor_series, pre_mask, post_mask)
+        # Index 0 is the real treated unit; see `PlaceboRuns`.
+        placebo_units = PlaceboTestResult(
+            placebo_effects=runs.point_estimates[1:],
+            real_effect=float(runs.point_estimates[0]),
+            p_value=permutation_p_value(runs.rmspe_ratios),
+        )
+        weights = solve_donor_weights(
+            treated_series[pre_mask], donor_series[:, pre_mask]
+        )
+        _, leave_one_donor_out = leave_one_donor_out_points(
+            treated_series,
+            donor_series,
+            pre_mask,
+            post_mask,
+            reference_weights=weights,
+            use_ridge=False,
+        )
+    else:
+        leave_one_donor_out_reason = _NO_DONOR_POOL_REASON.format(name=estimator_name)
+        if family == "cross_section":
+            placebo_units_reason = _CROSS_SECTION_PLACEBO_UNITS_REASON
+        else:
+            placebo_units, placebo_units_reason = _panel_placebo_units(
+                dataset, estimator_name, config, n_placebo_units, seed
+            )
+
+    randomization: PlaceboTestResult | None = None
+    randomization_reason: str | None = None
+    if family == "cross_section":
+        randomization = randomization_inference(
+            dataset,
+            estimator_name,
+            config,
+            n_permutations=n_permutations,
+            seed=seed,
+        )
+    else:
+        randomization_reason = _PANEL_RI_REASON
+
+    return FalsificationResult(
+        placebo_dates=placebo_dates,
+        placebo_dates_reason=placebo_dates_reason,
+        placebo_units=placebo_units,
+        placebo_units_reason=placebo_units_reason,
+        leave_one_donor_out=leave_one_donor_out,
+        leave_one_donor_out_reason=leave_one_donor_out_reason,
+        randomization_inference=randomization,
+        randomization_inference_reason=randomization_reason,
     )
