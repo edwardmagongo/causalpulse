@@ -244,6 +244,12 @@ class AugmentedIPW:
                     unit=None,
                     interpretation="Spread of the per-unit influence-function scores.",
                 ),
+                "n_trimmed": Diagnostic(
+                    name="n_trimmed",
+                    value=float(fitted.trimmed_mask.sum()),
+                    unit="units",
+                    interpretation="Units whose propensity score was clipped to the trim bounds.",
+                ),
                 "bootstrap_degenerate_replicates": degeneracy_diagnostic(
                     bootstrap_result.n_degenerate, min_arm_size=25
                 ),

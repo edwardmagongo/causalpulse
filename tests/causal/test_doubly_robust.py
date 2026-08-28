@@ -163,13 +163,19 @@ def test_aipw_reads_a_trim_threshold_from_options():
     dataset = poor_overlap()
     loose = AugmentedIPW().fit(dataset, config(bootstrap_reps=25, options={"trim": 0.001}))
     tight = AugmentedIPW().fit(dataset, config(bootstrap_reps=25, options={"trim": 0.10}))
-    # AIPW reports no `n_trimmed` diagnostic, so unlike the IPW case the
-    # observable evidence that the option was read is the estimate itself
-    # moving. These two configs differ in nothing but `trim` and share a
-    # seed, so the cross-fitting folds are identical; before the option was
+    # Measured on this exact frame, through AIPW's own cross-fitted
+    # propensity model: 0 units clipped at trim=0.001 against 134 at
+    # trim=0.10 (41 at 0.05). These counts differ slightly from the IPW
+    # counterpart's 0/39/137 because AIPW reads out-of-fold scores from a
+    # 5-fold cross-fit rather than a single in-sample fit. A tighter clip
+    # must bind on strictly more units; equality would mean the option is
+    # being ignored.
+    assert tight.diagnostics["n_trimmed"].value > loose.diagnostics["n_trimmed"].value
+    # AIPW divides by `e` and `1 - e` directly, so the clip must also reach
+    # the estimate. These two configs differ in nothing but `trim` and share
+    # a seed, so the cross-fitting folds are identical; before the option was
     # wired through they returned bit-identical points (measured: both
-    # 0.043878450040). Any difference means the clip reached the propensity
-    # scores the AIPW score divides by.
+    # 0.043878450040).
     assert loose.point != tight.point
 
 
