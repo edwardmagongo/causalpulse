@@ -8,6 +8,7 @@ reason fails this file rather than shipping as a silent gap.
 """
 
 import dataclasses
+from collections.abc import Callable
 
 import numpy as np
 import pytest
@@ -187,124 +188,58 @@ def test_falsification_result_fully_absent_constructs():
     )
 
 
-def test_falsification_result_placebo_dates_absent_without_reason_raises() -> None:
-    # Omitting the reason on an absent placebo_dates raises ValueError.
-    with pytest.raises(ValueError, match="placebo_dates_reason"):
-        FalsificationResult(
-            placebo_dates=None,
-            placebo_dates_reason=None,
-            placebo_units=None,
-            placebo_units_reason="not applicable",
-            leave_one_donor_out=None,
-            leave_one_donor_out_reason="not applicable",
-            randomization_inference=None,
-            randomization_inference_reason="not applicable",
-        )
+# Every FalsificationResult slot, paired with a factory for its "present"
+# value. leave_one_donor_out is a bare tuple, not a dataclass, so it gets a
+# lambda rather than a_placebo; note an empty tuple is falsy but is NOT the
+# same as absent (None), so the factory must return a non-empty one.
+_FALSIFICATION_SLOTS: tuple[tuple[str, Callable[[], object]], ...] = (
+    ("placebo_dates", a_placebo),
+    ("placebo_units", a_placebo),
+    ("leave_one_donor_out", lambda: (0.1, 0.2)),
+    ("randomization_inference", a_placebo),
+)
+_FALSIFICATION_SLOT_IDS = [slot for slot, _ in _FALSIFICATION_SLOTS]
 
 
-def test_falsification_result_placebo_dates_present_with_reason_raises() -> None:
-    # Supplying a reason alongside present placebo_dates raises ValueError.
-    with pytest.raises(ValueError, match="placebo_dates_reason"):
-        FalsificationResult(
-            placebo_dates=a_placebo(),
-            placebo_dates_reason="some reason",
-            placebo_units=None,
-            placebo_units_reason="not applicable",
-            leave_one_donor_out=None,
-            leave_one_donor_out_reason="not applicable",
-            randomization_inference=None,
-            randomization_inference_reason="not applicable",
-        )
+def _absent_falsification_kwargs() -> dict[str, object]:
+    # Every slot absent with a valid reason: the baseline each parametrized
+    # case perturbs at exactly one slot, so __post_init__'s sequential checks
+    # can only raise on the slot under test.
+    kwargs: dict[str, object] = {}
+    for slot, _ in _FALSIFICATION_SLOTS:
+        kwargs[slot] = None
+        kwargs[f"{slot}_reason"] = "not applicable"
+    return kwargs
 
 
-def test_falsification_result_placebo_units_absent_without_reason_raises() -> None:
-    # Omitting the reason on an absent placebo_units raises ValueError.
-    with pytest.raises(ValueError, match="placebo_units_reason"):
-        FalsificationResult(
-            placebo_dates=None,
-            placebo_dates_reason="not applicable",
-            placebo_units=None,
-            placebo_units_reason=None,
-            leave_one_donor_out=None,
-            leave_one_donor_out_reason="not applicable",
-            randomization_inference=None,
-            randomization_inference_reason="not applicable",
-        )
+@pytest.mark.parametrize(
+    ("slot", "make_present"), _FALSIFICATION_SLOTS, ids=_FALSIFICATION_SLOT_IDS
+)
+def test_falsification_result_slot_absent_without_reason_raises(
+    slot: str, make_present: Callable[[], object]
+):
+    # Omitting the reason on an absent slot raises ValueError naming that
+    # slot's own reason field, not a generic message -- this is what makes a
+    # swapped-field-name bug in __post_init__ actually fail the test.
+    kwargs = _absent_falsification_kwargs()
+    kwargs[f"{slot}_reason"] = None
+    with pytest.raises(ValueError, match=f"{slot}_reason"):
+        FalsificationResult(**kwargs)
 
 
-def test_falsification_result_placebo_units_present_with_reason_raises() -> None:
-    # Supplying a reason alongside present placebo_units raises ValueError.
-    with pytest.raises(ValueError, match="placebo_units_reason"):
-        FalsificationResult(
-            placebo_dates=None,
-            placebo_dates_reason="not applicable",
-            placebo_units=a_placebo(),
-            placebo_units_reason="some reason",
-            leave_one_donor_out=None,
-            leave_one_donor_out_reason="not applicable",
-            randomization_inference=None,
-            randomization_inference_reason="not applicable",
-        )
-
-
-def test_falsification_result_leave_one_donor_out_absent_without_reason_raises() -> None:
-    # Omitting the reason on an absent leave_one_donor_out raises ValueError.
-    with pytest.raises(ValueError, match="leave_one_donor_out_reason"):
-        FalsificationResult(
-            placebo_dates=None,
-            placebo_dates_reason="not applicable",
-            placebo_units=None,
-            placebo_units_reason="not applicable",
-            leave_one_donor_out=None,
-            leave_one_donor_out_reason=None,
-            randomization_inference=None,
-            randomization_inference_reason="not applicable",
-        )
-
-
-def test_falsification_result_leave_one_donor_out_present_with_reason_raises() -> None:
-    # Supplying a reason alongside present leave_one_donor_out raises ValueError.
-    with pytest.raises(ValueError, match="leave_one_donor_out_reason"):
-        FalsificationResult(
-            placebo_dates=None,
-            placebo_dates_reason="not applicable",
-            placebo_units=None,
-            placebo_units_reason="not applicable",
-            leave_one_donor_out=(0.1, 0.2),
-            leave_one_donor_out_reason="some reason",
-            randomization_inference=None,
-            randomization_inference_reason="not applicable",
-        )
-
-
-def test_falsification_result_randomization_inference_absent_without_reason_raises() -> None:
-    # Omitting the reason on an absent randomization_inference raises ValueError.
-    with pytest.raises(ValueError, match="randomization_inference_reason"):
-        FalsificationResult(
-            placebo_dates=None,
-            placebo_dates_reason="not applicable",
-            placebo_units=None,
-            placebo_units_reason="not applicable",
-            leave_one_donor_out=None,
-            leave_one_donor_out_reason="not applicable",
-            randomization_inference=None,
-            randomization_inference_reason=None,
-        )
-
-
-def test_falsification_result_randomization_inference_present_with_reason_raises() -> None:
-    # Supplying a reason alongside present randomization_inference raises ValueError.
-    with pytest.raises(ValueError, match="randomization_inference_reason"):
-        FalsificationResult(
-            placebo_dates=None,
-            placebo_dates_reason="not applicable",
-            placebo_units=None,
-            placebo_units_reason="not applicable",
-            leave_one_donor_out=None,
-            leave_one_donor_out_reason="not applicable",
-            randomization_inference=a_placebo(),
-            randomization_inference_reason="some reason",
-        )
+@pytest.mark.parametrize(
+    ("slot", "make_present"), _FALSIFICATION_SLOTS, ids=_FALSIFICATION_SLOT_IDS
+)
+def test_falsification_result_slot_present_with_reason_raises(
+    slot: str, make_present: Callable[[], object]
+):
+    # Supplying a reason alongside a present slot raises ValueError naming
+    # that slot's own reason field, not a generic message.
+    kwargs = _absent_falsification_kwargs()
+    kwargs[slot] = make_present()
+    kwargs[f"{slot}_reason"] = "some reason"
+    with pytest.raises(ValueError, match=f"{slot}_reason"):
+        FalsificationResult(**kwargs)
 
 
 def test_sensitivity_report_with_specification_curve_constructs():
@@ -350,7 +285,7 @@ def test_sensitivity_report_without_specification_curve_constructs():
     )
 
 
-def test_sensitivity_report_absent_curve_without_reason_raises() -> None:
+def test_sensitivity_report_absent_curve_without_reason_raises():
     # specification_curve None but reason is None -> should raise.
     with pytest.raises(ValueError, match="specification_curve_reason"):
         SensitivityReport(
@@ -370,7 +305,7 @@ def test_sensitivity_report_absent_curve_without_reason_raises() -> None:
         )
 
 
-def test_sensitivity_report_present_curve_with_reason_raises() -> None:
+def test_sensitivity_report_present_curve_with_reason_raises():
     # specification_curve present but reason is non-None -> should raise.
     spec_point = SpecificationPoint(
         specification={"covariates": ()}, point=0.1, ci=Interval(lower=0.0, upper=0.2)
