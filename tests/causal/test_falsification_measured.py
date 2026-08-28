@@ -40,6 +40,24 @@ what was actually measured instead of the pre-registered "near 1.0".
 
 Leave-one-donor-out spread on S1 (clean donor scenario), 20 seeds: mean 0.2984
 (MCSE 0.0494), min 0.0651, max 1.0137.
+
+A note on the power of the true-effect bracket test below: with SEEDS=20, a
+share of seeds is really a count out of 20, so the floor (>= 0.10) is a
+break-even of 2-out-of-20 seeds landing at p<=0.05. That gives this bracket
+limited power to catch a moderate regression in a single run. Under
+Binomial(20, p), if the true detection rate degraded from the measured 0.30
+down to 0.10, P(X>=2) ~= 0.61 -- the test would still pass about 61% of the
+time even after that much power loss. If it collapsed further to ~0.05
+(chance level, the same rate the null direction measures), P(X>=2) ~= 0.26 --
+roughly one run in four would still pass. The ceiling added below catches a
+rate that has drifted toward certainty, and repeated runs would eventually
+show a floor failure if the collapse were severe or persistent, but this
+test does not establish that a single run would reliably catch a moderate
+regression at n=20 seeds: that would take more seeds, and this file
+deliberately does not raise SEEDS because doing so would change the protocol
+every other threshold here was measured under. The limitation is recorded
+here rather than papered over by a test that implies more assurance than a
+20-seed protocol can back up.
 """
 
 import numpy as np
@@ -78,9 +96,17 @@ def test_a_true_effect_is_detected_above_chance_but_not_near_certainty():
     # did not hold (see module docstring for why -- real, modest power at
     # this effect/noise ratio, not a broken permutation). Floor set with
     # headroom below the measured mean: 0.300 - 2*MCSE = 0.300 - 0.204 =
-    # 0.096, rounded down to 0.10.
+    # 0.096, rounded up to 0.10 (conservative: raises the floor above the raw
+    # two-MCSE bound). Ceiling set with headroom above the measured mean,
+    # matching the test's own name ("not near certainty"): 0.300 + 2*MCSE =
+    # 0.300 + 0.204 = 0.504, rounded down to 0.50 (conservative: tightens the
+    # ceiling below the raw two-MCSE bound so a drift toward certainty is
+    # caught rather than waved through). See the module docstring for this
+    # bracket's power limitation at SEEDS=20.
     values = p_values("A", "lin_regression")
-    assert float(np.mean(values <= 0.05)) >= 0.10
+    rate = float(np.mean(values <= 0.05))
+    assert rate >= 0.10
+    assert rate <= 0.50
 
 
 def test_a_true_null_does_not_land_in_the_tail():
