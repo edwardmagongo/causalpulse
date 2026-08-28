@@ -10,6 +10,8 @@ reader taking one clean answer as the whole picture.
 from __future__ import annotations
 
 import math
+from dataclasses import replace
+from itertools import combinations
 
 import numpy as np
 from cp_core.dataset import CausalDataset
@@ -18,6 +20,8 @@ from cp_core.results import (
     CounterfactualPoint,
     EffectEstimate,
     EValueResult,
+    SpecificationCurve,
+    SpecificationPoint,
 )
 from cp_core.values import EstimatorConfig
 from cp_statistics.covariance import OLSFit, ols_fit
@@ -27,7 +31,8 @@ from cp_causal._panel import panel_arrays
 from cp_causal._support import arrays
 from cp_causal.estimators.did import twfe_design, two_by_two_design
 from cp_causal.estimators.regression import lin_design
-from cp_causal.registry import get_estimator
+from cp_causal.propensity import POSITIVITY_THRESHOLD, resolve_trim
+from cp_causal.registry import all_estimators, get_estimator
 
 # Chinn (2000)'s conversion from a standardised mean difference to an
 # approximate log odds ratio is `log(OR) ~= 1.81 * d`; VanderWeele's E-value
@@ -255,4 +260,179 @@ def cinelli_hazlett(
         robustness_value_alpha=rv_alpha,
         partial_r2_treatment_outcome=partial_r2,
         degrees_of_freedom=df,
+    )
+
+
+# The cross-sectional estimators whose answer actually moves with an analyst's
+# discretionary choices. `difference_in_means` is excluded because it never
+# reads covariates -- measured during planning, it returns a bit-identical
+# point for every subset, so its curve would be N copies of one number, which
+# reads as robustness rather than as an inapplicable analysis. `causal_forest`
+# is excluded on cost: 4.56s per fit against lin_regression's 0.02s.
+CURVE_ESTIMATORS: frozenset[str] = frozenset({"lin_regression", "ipw", "aipw"})
+
+# Running upward from POSITIVITY_THRESHOLD rather than straddling it. The
+# obvious choice, (0.005, 0.01, 0.02), was measured and rejected: it clips
+# zero rows at all three values on scenarios A and D, so it added two exact
+# duplicates per specification rather than two alternative analyses, and a
+# curve of 18 points that is really 6 reads as robustness it has not earned.
+# These values clip 0/3/18 of scenario D's 600 rows and 2/16/51 of scenario
+# G's. They still clip nothing on randomised scenario A, whose propensity
+# scores span 0.40 to 0.54 -- that is the correct answer there, not a gap:
+# under near-perfect overlap there is genuinely nothing for a trim to remove.
+TRIM_AXIS: tuple[float, ...] = (POSITIVITY_THRESHOLD, 0.05, 0.10)
+
+_PROPENSITY_CURVE_ESTIMATORS: frozenset[str] = frozenset({"ipw", "aipw"})
+
+_UNSUPPORTED_CURVE_REASON = (
+    "specification_curve is built for {supported} this phase; {name} is not "
+    "one of them. This is a scope limit, not a statement that the analysis "
+    "would be meaningless -- see the phase 9 design note."
+)
+
+
+def _high_leverage_rows(dataset: CausalDataset) -> np.ndarray:
+    """Boolean mask of rows the outlier axis excludes.
+
+    Computed once, from the FULL declared covariate set, so the same rows are
+    dropped at every point on the curve. A per-subset rule would move two
+    things at once and the axis would no longer isolate the outlier choice.
+
+    `leverage > 2k/n` is the conventional rule of thumb; `OLSFit.leverage` is
+    already computed by `ols_fit`, so this costs one extra fit per curve.
+    """
+    covariates, treatment, outcome = arrays(dataset)
+    design = np.column_stack([np.ones(treatment.size), treatment, covariates])
+    fit = ols_fit(design, outcome)
+    return np.asarray(fit.leverage > 2.0 * fit.k / fit.n)
+
+
+def _subset_dataset(
+    dataset: CausalDataset, covariates: tuple[str, ...], drop: np.ndarray | None
+) -> CausalDataset:
+    frame = (
+        dataset.frame
+        if drop is None
+        else dataset.frame.loc[~drop].reset_index(drop=True)
+    )
+    return CausalDataset(
+        frame=frame, schema=replace(dataset.schema, covariates=covariates)
+    )
+
+
+def specification_curve(
+    dataset: CausalDataset,
+    estimator_name: str,
+    base_config: EstimatorConfig,
+    *,
+    max_specifications: int = 256,
+) -> SpecificationCurve:
+    """Refit the same question under every combination of the discretionary
+    choices an analyst could defensibly have made differently.
+
+    Every point is a genuine refit through the registry, not an approximation.
+    `original_index` identifies the analysis as actually run, so a reader can
+    see where the reported result sits inside its own curve rather than
+    treating every point as equally the answer.
+
+    Raises `ValueError` for an estimator outside `CURVE_ESTIMATORS` -- an
+    explicit refusal rather than an empty curve, because "not built for this
+    estimator yet" is a fact a caller should catch immediately.
+    """
+    if max_specifications < 1:
+        raise ValueError(
+            f"max_specifications must be positive, got {max_specifications}"
+        )
+    estimator_class = all_estimators().get(estimator_name)
+    if estimator_class is None:
+        raise KeyError(
+            f"unknown estimator {estimator_name!r}; available: {sorted(all_estimators())}"
+        )
+    if estimator_name not in CURVE_ESTIMATORS:
+        raise ValueError(
+            _UNSUPPORTED_CURVE_REASON.format(
+                supported=sorted(CURVE_ESTIMATORS), name=estimator_name
+            )
+        )
+
+    declared = dataset.schema.covariates
+    subsets = [
+        tuple(subset)
+        for size in range(len(declared) + 1)
+        for subset in combinations(declared, size)
+    ]
+    base_trim = resolve_trim(base_config.options)
+    # The caller's own trim is always on the axis. Without this a caller who
+    # passed options={"trim": 0.03} would have a base specification that is not
+    # among its own candidates, and the curve could not locate the analysis as
+    # actually run.
+    trims = (
+        tuple(dict.fromkeys((*TRIM_AXIS, base_trim)))
+        if estimator_name in _PROPENSITY_CURVE_ESTIMATORS
+        else (base_trim,)
+    )
+    high_leverage = _high_leverage_rows(dataset)
+    base = (declared, False, base_trim)
+
+    candidates = [
+        (subset, excluded, trim)
+        for subset in subsets
+        for excluded in (False, True)
+        for trim in trims
+    ]
+    # Only keep specifications the estimator itself would accept. The empty
+    # covariate subset is the case this exists for: `fit_propensity` raises on
+    # it, and `Requirements.unmet` already knows that, so the rule lives in one
+    # place rather than being restated here.
+    requirements = estimator_class.requirements
+    candidates = [
+        candidate
+        for candidate in candidates
+        if not requirements.unmet(
+            _subset_dataset(
+                dataset, candidate[0], high_leverage if candidate[1] else None
+            )
+        )
+    ]
+    if base not in candidates:
+        raise ValueError(
+            f"{estimator_name} cannot be fitted on the dataset as declared, so "
+            "it has no specification curve to sit inside"
+        )
+
+    capped = len(candidates) > max_specifications
+    if capped:
+        kept = candidates[:max_specifications]
+        # The analysis as actually run must survive truncation: a curve that
+        # dropped it would fail SpecificationCurve's own invariant, and would
+        # be unreadable even if it did not.
+        if base not in kept:
+            kept[-1] = base
+        candidates = kept
+
+    points: list[SpecificationPoint] = []
+    for covariates, excluded, trim in candidates:
+        config = replace(
+            base_config, options={**dict(base_config.options), "trim": trim}
+        )
+        subset = _subset_dataset(
+            dataset, covariates, high_leverage if excluded else None
+        )
+        estimate = estimator_class().fit(subset, config)
+        points.append(
+            SpecificationPoint(
+                specification={
+                    "covariates": covariates,
+                    "outliers_excluded": excluded,
+                    "trim": trim,
+                },
+                point=estimate.point,
+                ci=estimate.ci,
+            )
+        )
+
+    return SpecificationCurve(
+        specifications=tuple(points),
+        original_index=candidates.index(base),
+        capped=capped,
     )
