@@ -12,6 +12,16 @@ KINDS = ("identification", "estimation", "data_adequacy")
 STATUSES = ("PASS", "WARN", "FAIL", "NOT_TESTABLE")
 PROVENANCES = ("randomised", "natural_experiment", "observational")
 
+# Captured once at import time and reused by every `estimate()` call below.
+# `FitMetadata.capture` forks a `git rev-parse HEAD` subprocess and does
+# several `importlib.metadata.version()` lookups (~13ms combined), and this
+# module's property test alone builds two `EffectEstimate`s per Hypothesis
+# example. None of these tests inspect `fit_metadata`, so a single shared
+# instance is equivalent and removes real, repeated subprocess/IO cost.
+_FIT_METADATA = FitMetadata.capture(
+    estimator="twfe", config_hash="abc", runtime_seconds=0.1, random_seed=0
+)
+
 
 def check(kind: str, status: str, name: str = "parallel_trends") -> AssumptionCheck:
     return AssumptionCheck(
@@ -41,9 +51,7 @@ def estimate(*checks: AssumptionCheck) -> EffectEstimate:
         diagnostics={},
         assumptions=checks,
         counterfactual=None,
-        fit_metadata=FitMetadata.capture(
-            estimator="twfe", config_hash="abc", runtime_seconds=0.1, random_seed=0
-        ),
+        fit_metadata=_FIT_METADATA,
     )
 
 
@@ -126,13 +134,17 @@ def test_every_rationale_line_passes_the_causal_language_lint():
 
 # Hypothesis's default 200ms-per-example deadline exists to catch accidentally
 # quadratic code, not to be a timing SLA -- and score_validity here does none
-# of that; it's a handful of dict lookups and a min() over a short tuple.
-# Disabled rather than merely raised because the flakiness isn't proportional:
-# it comes from OS-level scheduling jitter deep inside this repo's full test
-# run (hundreds of JAX/numpyro MCMC fits ahead of this test in the same
-# process), not from this property's own execution time -- confirmed by
-# reproducing the failure only inside a full `make check` run and never once
-# across repeated isolated runs of this file alone.
+# of that; it's a handful of dict lookups and a min() over a short tuple. The
+# flakiness this guards against was never about score_validity's own speed
+# (measured at ~0.0013ms) or JAX/numpyro thread-pool jitter -- it was every
+# `estimate()` call in this file constructing a fresh `EffectEstimate` via
+# `FitMetadata.capture()`, which forks a `git rev-parse HEAD` subprocess and
+# does several `importlib.metadata.version()` lookups (~13ms combined) on
+# every call, and this property builds two `EffectEstimate`s per example.
+# That real subprocess/IO cost is now eliminated by the shared
+# `_FIT_METADATA` module constant above, but the deadline stays off: wall
+# clock was never a meaningful thing to assert about this correctness
+# property, so there is nothing to gain by re-enabling it.
 @settings(deadline=None)
 @given(
     provenance=st.sampled_from(PROVENANCES),

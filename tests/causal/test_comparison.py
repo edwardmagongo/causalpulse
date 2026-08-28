@@ -8,6 +8,17 @@ from cp_core.language import causal_language_lint
 from cp_core.results import AssumptionCheck, EffectEstimate, FitMetadata
 from cp_core.values import Interval
 
+# Captured once at import time and reused by every `estimate()` call below.
+# `FitMetadata.capture` forks a `git rev-parse HEAD` subprocess and does
+# several `importlib.metadata.version()` lookups (~13ms combined) on every
+# call. Nothing in this file inspects `fit_metadata` (it is required plumbing
+# for the `EffectEstimate` constructor, not something `compare()` or any
+# assertion here reads), so a single shared instance is equivalent and
+# removes real, repeated subprocess/IO cost across this file's tests.
+_FIT_METADATA = FitMetadata.capture(
+    estimator="twfe", config_hash="abc", runtime_seconds=0.1, random_seed=0
+)
+
 
 def check(name: str, kind: str = "identification", status: str = "PASS") -> AssumptionCheck:
     return AssumptionCheck(
@@ -45,9 +56,7 @@ def estimate(
         diagnostics={},
         assumptions=checks,
         counterfactual=None,
-        fit_metadata=FitMetadata.capture(
-            estimator=method, config_hash="abc", runtime_seconds=0.1, random_seed=0
-        ),
+        fit_metadata=_FIT_METADATA,
     )
 
 
@@ -203,6 +212,23 @@ def test_excluded_method_point_still_counted_in_the_descriptive_spread():
     )
     result = compare(*scored(usable_a, usable_b, broken))
     assert result.point_range == (2.0, 9.0)
+
+
+def test_divergent_verdict_with_no_assumption_differences_does_not_point_at_an_empty_diff():
+    # All three methods carry the identical check, so assumption_diff is empty
+    # even though the intervals themselves are divergent. The verdict must not
+    # tell the reader to "read assumption_diff" for insight an empty tuple
+    # cannot contain.
+    result = compare(*scored(
+        estimate("twfe", 2.0, (1.8, 2.2), check("parallel_trends")),
+        estimate("callaway_santanna", 5.0, (4.5, 5.5), check("parallel_trends")),
+        estimate("did_2x2", 9.0, (8.5, 9.5), check("parallel_trends")),
+    ))
+    assert result.agreement == "divergent"
+    assert result.assumption_diff == ()
+    assert "0 assumption(s) differ" not in result.verdict
+    assert "read assumption_diff" not in result.verdict
+    assert "not mutually consistent" in result.verdict
 
 
 def test_verdict_records_the_interval_bases_it_mixed():
