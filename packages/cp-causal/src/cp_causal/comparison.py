@@ -153,11 +153,17 @@ def _verdict(
             f"method's own assumptions. Highest validity band: {estimates[best].method} "
             f"at {scores[best].band}. {spread}{note}"
         )
+    divergence_note = (
+        f"{n_divergences} assumption(s) differ across methods; read assumption_diff "
+        "rather than treating the spread as uncertainty. "
+        if n_divergences > 0
+        else "No assumption checks differ across these methods, so the disagreement's "
+        "source is not visible in assumption_diff. "
+    )
     return (
         f"The {len(usable)} methods scored WEAK or better do not all overlap, so they "
         "are not mutually consistent under their own assumptions. "
-        f"{n_divergences} assumption(s) differ across methods; read assumption_diff "
-        "rather than treating the spread as uncertainty. "
+        f"{divergence_note}"
         f"{spread}{note}"
     )
 
