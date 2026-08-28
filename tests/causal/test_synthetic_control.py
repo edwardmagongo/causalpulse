@@ -10,6 +10,8 @@ import numpy as np
 import pytest
 from cp_causal.estimators.synthetic_control import (
     SyntheticControl,
+    _leave_one_donor_out_max_swing,
+    leave_one_donor_out_points,
     permutation_p_value,
     placebo_runs,
     ridge_augmented_weights,
@@ -227,3 +229,44 @@ def test_sufficient_pre_periods_fails_on_s5():
     result = SyntheticControl().fit(_generate("S5").dataset, CONFIG)
     status = {c.name: c.status for c in result.assumptions}
     assert status["sufficient_pre_periods"] == "FAIL"
+
+
+def test_the_max_swing_is_the_widest_gap_among_the_per_donor_estimates():
+    """The extracted per-donor loop and the max-swing summary agree.
+
+    The guard on the extraction: if these two ever disagree, one of them is
+    computing a different leave-one-out than the other.
+    """
+    rng = np.random.default_rng(0)
+    n_periods = 20
+    donor_series = rng.normal(size=(8, n_periods)).cumsum(axis=1)
+    treated_series = donor_series.mean(axis=0) + rng.normal(scale=0.1, size=n_periods)
+    pre_mask = np.arange(n_periods) < 14
+    post_mask = ~pre_mask
+
+    weights = solve_donor_weights(treated_series[pre_mask], donor_series[:, pre_mask])
+    synthetic = weights @ donor_series
+    full_point = float(np.mean(treated_series[post_mask] - synthetic[post_mask]))
+
+    donors, points = leave_one_donor_out_points(
+        treated_series,
+        donor_series,
+        pre_mask,
+        post_mask,
+        reference_weights=weights,
+        use_ridge=False,
+    )
+    swing = _leave_one_donor_out_max_swing(
+        treated_series,
+        donor_series,
+        pre_mask,
+        post_mask,
+        full_point,
+        reference_weights=weights,
+        use_ridge=False,
+    )
+    expected = max((abs(p - full_point) for p in points), default=0.0)
+    assert swing == pytest.approx(expected)
+    # One estimate per influential donor, and each names the donor it dropped.
+    assert len(donors) == len(points)
+    assert all(0 <= d < donor_series.shape[0] for d in donors)

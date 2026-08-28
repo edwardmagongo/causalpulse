@@ -173,6 +173,54 @@ def _in_time_placebo(
     return float(np.mean(treated_series[fake_post] - synthetic[fake_post]))
 
 
+def leave_one_donor_out_points(
+    treated_series: np.ndarray,
+    donor_series: np.ndarray,
+    pre_mask: np.ndarray,
+    post_mask: np.ndarray,
+    reference_weights: np.ndarray,
+    use_ridge: bool,
+    weight_threshold: float = 0.05,
+) -> tuple[tuple[int, ...], tuple[float, ...]]:
+    """Point estimate with each influential donor excluded in turn.
+
+    Only donors actually carrying non-trivial weight are worth re-fitting
+    without -- dropping a zero-weight donor cannot move the estimate.
+    `reference_weights` identifies which donors count as influential, and
+    `use_ridge` picks which estimator form each leave-one-out refit uses --
+    both must match whichever form produced the reported point (simplex
+    weights, or the ridge-augmented fallback's donor coefficients). An
+    earlier version always refit with plain simplex weights regardless of
+    which form the reported point actually came from, so on a convex-hull
+    violation the "swing" it reported was mostly the gap between the two
+    estimator forms, not genuine donor influence -- caught by the final
+    whole-branch review, not by any task-scoped test, because nothing
+    exercised this diagnostic through `fit()` on a convex-hull-violation
+    scenario.
+
+    Returns the influential donor indices alongside their estimates, so a
+    caller reporting the estimates can say which donor each one dropped.
+    """
+    influential = np.flatnonzero(np.abs(reference_weights) > weight_threshold)
+    points: list[float] = []
+    for donor_index in influential:
+        remaining = np.delete(donor_series, donor_index, axis=0)
+        if use_ridge:
+            intercept, coefficients = ridge_augmented_weights(
+                treated_series[pre_mask], remaining[:, pre_mask]
+            )
+            loo_synthetic = intercept + coefficients @ remaining
+        else:
+            loo_weights = solve_donor_weights(
+                treated_series[pre_mask], remaining[:, pre_mask]
+            )
+            loo_synthetic = loo_weights @ remaining
+        points.append(
+            float(np.mean(treated_series[post_mask] - loo_synthetic[post_mask]))
+        )
+    return tuple(int(index) for index in influential), tuple(points)
+
+
 def _leave_one_donor_out_max_swing(
     treated_series: np.ndarray,
     donor_series: np.ndarray,
@@ -185,38 +233,19 @@ def _leave_one_donor_out_max_swing(
 ) -> float:
     """Largest change in the point estimate from dropping one influential donor.
 
-    Only donors actually carrying non-trivial weight are worth re-fitting
-    without -- dropping a zero-weight donor cannot move the estimate.
-    `reference_weights` identifies which donors count as influential, and
-    `use_ridge` picks which estimator form each leave-one-out refit uses --
-    both must match whichever form produced `full_point` (simplex weights,
-    or the ridge-augmented fallback's donor coefficients). An earlier
-    version always refit with plain simplex weights regardless of which
-    form the reported point actually came from, so on a convex-hull
-    violation the "swing" it reported was mostly the gap between the two
-    estimator forms, not genuine donor influence -- caught by the final
-    whole-branch review, not by any task-scoped test, because nothing
-    exercised this diagnostic through `fit()` on a convex-hull-violation
-    scenario.
+    A summary of `leave_one_donor_out_points`, which does the refitting. The
+    diagnostic reports this one number; `falsify` reports the whole set.
     """
-    influential = np.flatnonzero(np.abs(reference_weights) > weight_threshold)
-    if influential.size == 0:
-        return 0.0
-    max_swing = 0.0
-    for donor_index in influential:
-        remaining = np.delete(donor_series, donor_index, axis=0)
-        if use_ridge:
-            intercept, coefficients = ridge_augmented_weights(
-                treated_series[pre_mask], remaining[:, pre_mask]
-            )
-            loo_synthetic = intercept + coefficients @ remaining
-        else:
-            loo_weights = solve_donor_weights(treated_series[pre_mask], remaining[:, pre_mask])
-            loo_synthetic = loo_weights @ remaining
-        loo_point = float(np.mean(treated_series[post_mask] - loo_synthetic[post_mask]))
-        max_swing = max(max_swing, abs(loo_point - full_point))
-    return max_swing
-
+    _, points = leave_one_donor_out_points(
+        treated_series,
+        donor_series,
+        pre_mask,
+        post_mask,
+        reference_weights,
+        use_ridge,
+        weight_threshold,
+    )
+    return max((abs(point - full_point) for point in points), default=0.0)
 
 
 @register
