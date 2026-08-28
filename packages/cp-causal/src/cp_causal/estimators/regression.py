@@ -28,8 +28,13 @@ from cp_causal.base import Requirements
 from cp_causal.registry import register
 
 
-def _design(covariates: np.ndarray, treatment: np.ndarray) -> np.ndarray:
+def lin_design(covariates: np.ndarray, treatment: np.ndarray) -> np.ndarray:
     """Lin's design: intercept, treatment, centred covariates, interactions.
+
+    Public because `cp_causal.sensitivity` refits this exact design to bound
+    omitted-variable bias. A private copy there would be a second definition
+    of the same matrix, free to drift from this one -- the failure Phase 7
+    found when two estimators had each written out the same placebo formula.
 
     Centring is what makes the treatment coefficient the ATE. Without it the
     coefficient is the effect at X = 0, which is both a different quantity and
@@ -59,7 +64,7 @@ class LinRegressionAdjustment:
         started = time.perf_counter()
         covariates, treatment, outcome = arrays(dataset)
 
-        fit = ols_fit(_design(covariates, treatment), outcome)
+        fit = ols_fit(lin_design(covariates, treatment), outcome)
         # HC2 rather than HC1: it divides by the leverage complement, which
         # behaves better when a few observations are influential.
         covariance = robust_covariance(fit, kind="HC2")
@@ -74,7 +79,7 @@ class LinRegressionAdjustment:
             w = treatment[indices]
             if w.sum() < 2 or (1 - w).sum() < 2:
                 return float("nan")
-            resampled = ols_fit(_design(covariates[indices], w), outcome[indices])
+            resampled = ols_fit(lin_design(covariates[indices], w), outcome[indices])
             return float(resampled.beta[1])
 
         bootstrap_result = bootstrap_effect(point_from, outcome.size, config)

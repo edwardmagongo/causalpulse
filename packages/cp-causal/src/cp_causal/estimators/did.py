@@ -41,8 +41,12 @@ from cp_causal.panel_checks import (
 from cp_causal.registry import register
 
 
-def _two_by_two_design(panel: PanelArrays, start: int) -> np.ndarray:
+def two_by_two_design(panel: PanelArrays, start: int) -> np.ndarray:
     """Intercept, ever-treated, post, and their interaction.
+
+    Public because `cp_causal.sensitivity` refits this exact design to bound
+    omitted-variable bias. A private copy there would be a second definition
+    of the same matrix, free to drift from this one.
 
     The interaction coefficient is the DiD estimate. Computed through the
     saturated regression rather than a four-means formula so the standard error
@@ -80,7 +84,7 @@ class DifferenceInDifferences:
             )
         start = adoption[0]
 
-        design = _two_by_two_design(panel, start)
+        design = two_by_two_design(panel, start)
         fit = ols_fit(design, panel.outcome)
         clusters = panel.unit_index
         covariance = cluster_robust_covariance(fit, clusters)
@@ -108,7 +112,7 @@ class DifferenceInDifferences:
                 periods=panel.periods,
                 cohort=panel.cohort,
             )
-            resampled = ols_fit(_two_by_two_design(sub, start), sub.outcome)
+            resampled = ols_fit(two_by_two_design(sub, start), sub.outcome)
             return float(resampled.beta[3])
 
         bootstrap_result = bootstrap_panel_effect(point_from, panel, config)
