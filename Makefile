@@ -16,10 +16,10 @@ imports:
 	uv run lint-imports
 
 test:
-	uv run pytest -v
+	uv run pytest -v -n auto
 
 test-fast:
-	uv run pytest -v -m "not slow"
+	uv run pytest -v -m "not slow" -n auto
 
 cov:
 	uv run pytest --cov=packages --cov-report=term-missing

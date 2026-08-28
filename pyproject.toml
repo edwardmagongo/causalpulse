@@ -27,6 +27,7 @@ dev = [
     "pysyncon>=1.5",
     "scipy-stubs>=1.18.0.1",
     "statsmodels>=0.14",
+    "pytest-xdist>=3.8.0",
 ]
 
 [tool.pytest.ini_options]
