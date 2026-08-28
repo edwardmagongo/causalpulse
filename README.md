@@ -634,6 +634,154 @@ is a check on observable diagnostics, exactly as `VALIDITY_SCORE_LIMITS` states;
 check on estimator-specific weighting behaviour that only a decomposition like Goodman–Bacon can
 see, and this is the sharpest concrete case of that limit found so far.
 
+## Sensitivity: confounding, specification, falsification (Phase 9)
+
+Three independent lines of attack on one finding, reported under a single `SensitivityReport`:
+how strong an unmeasured confounder would have to be, whether the answer survives the analyst's
+discretionary choices, and whether the finding fails tests it should fail if it were spurious.
+They are independent on purpose. A clean confounding bound says nothing about whether the estimate
+moves under a different covariate set, and neither says anything about whether a placebo period
+looks the same. Reporting all three under one type is what stops a reader taking one clean answer
+as the whole picture.
+
+### Every absence names its reason
+
+Each optional slot is paired with a `_reason` sibling, and the pairing is enforced at construction
+rather than documented: a value present with a reason attached is refused just as firmly as a value
+absent with none. An absence with no stated reason is the exact shape that let an unregistered
+estimator ship silently in Phase 5, and every phase since has paid for closing that gap one place
+at a time. `falsify` returns four techniques, each independently absent-able with its own reason,
+because each is defined for a different family of estimator.
+
+### The E-value's ratio is exact where the data carry one, approximated where they do not
+
+`approximated` is a structural field, not prose a renderer could drop, because an approximated
+E-value read as though it were the exact ratio-scale quantity is this phase's leading misuse risk.
+
+| `estimate.scale` | ratio used | `approximated` |
+|---|---|---|
+| `log_ratio` | `exp(point)` — the estimate already is a log ratio | `False` |
+| `percentage_point` with a `CounterfactualPoint` | `observed_mean / predicted_absent_treatment` | `False` |
+| `absolute`, or `percentage_point` with no counterfactual | `exp(0.91 × effect / outcome_sd)` | `True` |
+
+The second row is why every cross-sectional scenario here gets an exact answer rather than a
+converted one: their outcomes are binary, and the arm means the estimators already report give a
+genuine risk ratio. Approximating a quantity that is exactly available would have been strictly
+worse.
+
+The `0.91` in the third row is load-bearing. It is the Chinn (2000) standardised-effect conversion
+as used in VanderWeele–Ding's E-value guidance; plain `exp(d)` is a different and larger quantity,
+and using it would overstate every E-value computed on that path. The conversion also assumes an
+approximately normal, non-rare outcome — the *opposite* assumption from the rare-outcome derivation
+the classical E-value is stated under — and `approximation_note` says so rather than leaving it
+implicit.
+
+### Cinelli–Hazlett covers four estimators, not five
+
+`lin_regression`, `difference_in_means`, `did_2x2` and `twfe`. **`event_study` is deliberately
+excluded**: its reported point is the mean of its post-treatment horizon coefficients, not one
+coefficient, so the partial-R² quantity these bounds are read through has no single regressor to
+attach to. The robustness value would still evaluate on that linear combination's t-statistic, but
+shipping a number whose interpretation does not hold is worse than a stated absence.
+
+Each bound refits the design the named estimator itself fitted, through that estimator's own design
+function rather than a rebuilt copy — the failure Phase 7 found when two estimators had each
+written out the same placebo formula. `difference_in_means` is the one exception, since it computes
+a Welch t-test and has no design function; OLS on `[1, treatment]` is the same estimand written as
+a regression, and a test pins the reconstructed coefficient against what the estimator actually
+reports for all four.
+
+**The t-statistic is the ordinary-least-squares one, and on `twfe` and `did_2x2` that ignores
+clustering.** Those estimators report cluster-robust standard errors, but these bounds are derived
+under homoskedastic OLS, so a clustered t-statistic would produce a number matching no quantity in
+the derivation. The bound is correspondingly optimistic where clustering matters.
+
+### The specification curve is three estimators wide, and the empty covariate subset never survives
+
+`lin_regression`, `ipw` and `aipw`. `difference_in_means` refuses because it never reads covariates
+— measured, it returns a bit-identical point for every subset, so its curve would be N copies of
+one number, which reads as robustness rather than as an inapplicable analysis. `causal_forest`
+refuses on cost: 4.56s per fit against `lin_regression`'s 0.02s. Both raise rather than returning
+an empty curve, because "not built for this estimator yet" is a fact a direct caller should catch
+immediately.
+
+Candidate specifications are filtered through each estimator's own `Requirements.unmet()` rather
+than a hard-coded rule, which is what drops the empty covariate subset: all three declare
+`needs_covariates`, so the "full power set" the design called for is in practice every *non-empty*
+subset. On the two-covariate cross-sectional scenarios that gives **6** specifications for
+`lin_regression` (3 subsets × 2 outlier rules) and **18** for `ipw` and `aipw` (× 3 trim values).
+The 256-specification cap cannot bind on any scenario in this repository — it is reachable only at
+seven or more covariates — so it is exercised against a synthetic wide frame instead.
+
+The trimming axis ships as `(0.01, 0.05, 0.10)`, running upward from `POSITIVITY_THRESHOLD` rather
+than straddling it. The straddling version this phase's plan proposed, `(0.005, 0.01, 0.02)`, was
+measured to clip zero rows on two real scenarios — an axis that moves nothing is not an axis, and
+that was caught by measurement rather than asserted.
+
+Leverage is computed once, from the full declared covariate set, so the outlier axis excludes the
+same rows at every point. A per-subset rule would move two things at once and the axis would no
+longer isolate the choice it names.
+
+### Rosenbaum bounds are an intentional omission
+
+They are built for matching estimators, and this codebase has none — propensity weighting,
+regression, AIPW and causal forest, but no nearest-neighbour matching. Force-fitting an adapted
+version would be a research judgment call rather than a mechanical port, so it is not attempted.
+Recorded here as a decision, not left as a silent gap.
+
+### Randomization inference detects a real effect 30% of the time, and that is recorded
+
+Section 7.1's design pre-registered the expectation in both directions before the harness was run:
+on a genuinely null scenario the real estimate should sit unremarkably inside the permutation
+distribution, and on a scenario with a strong true effect it should sit in the tail, "near 1.0".
+Measured over 20 seeds × 200 permutations at `n_units=800` on `lin_regression`:
+
+| scenario | true effect | share of seeds at `p ≤ 0.05` | MCSE |
+|---|---|---|---|
+| B (null) | 0.0 | **0.050** | 0.049 |
+| A (effect) | 0.05 | **0.300** | 0.102 |
+
+**The null direction held almost exactly on nominal. The effect direction did not hold**, and it is
+recorded rather than patched — the treatment Phase 6 gave TWFE-on-P4 and Phase 7 gave its
+credible-interval undercoverage.
+
+It is not a broken permutation, and the null row is the evidence: a permutation correlated with the
+outcome would inflate the false-positive rate, and this one lands on 0.050 against a nominal 0.05.
+It is real, modest power. Scenario A's effect of 0.05 sits at about 1.56 times the permutation
+null's own spread (SD ≈ 0.032) at this sample size, and standard power arithmetic for a two-sided
+test at α = 0.05 predicts P(Z > 1.96 − 1.56) ≈ 0.345 — consistent with the measured 0.300 well
+inside its MCSE. The test was renamed for what it found and now brackets the rate from both sides
+(0.10 ≤ rate ≤ 0.50) rather than asserting the pre-registered claim.
+
+**The 20-seed protocol has limited power to catch a regression, and that limit is stated rather
+than implied away.** At 20 seeds, an estimator whose true detection rate collapsed from 0.30 to
+0.10 would still pass this test about 61% of the time, and one that fell to chance level (0.05)
+about 26% of the time. Raising the seed count is what would fix that; it was not raised here
+because every other threshold in the harness was measured under this protocol, and re-measuring
+one number at a different protocol than its neighbours is this project's most frequently repeated
+defect.
+
+Leave-one-donor-out on the clean donor scenario S1, same 20 seeds: mean spread **0.2984** (MCSE
+0.0494), max 1.0137 — a clean estimate should not hinge on any single donor, and the harness
+asserts a ceiling of 0.40 on the mean.
+
+### What is deferred, and why
+
+- **Negative-control outcomes.** A genuine negative control needs an outcome column provably
+  unaffected by treatment by construction. Improvising one from an existing covariate was
+  considered and rejected: testing against a covariate is not testing against an outcome, and the
+  difference matters for what the check can honestly claim.
+- **Missing data** and **treatment misclassification.** Both need the sensitivity check validated
+  against *measured* ground truth, and no component generates missing values or misclassifies
+  treatment while keeping the true version recoverable for scoring. That is new data-generating
+  work of the same shape as Phase 4's donor pool.
+- **Panel randomization inference.** Permuting the treatment column on a panel would break the unit
+  and period structure and the absorbing-adoption pattern. A correct version permutes adoption at
+  the unit level, which is different machinery.
+- **Panel and donor-pool specification-curve axes** — time windows, control-group definitions,
+  donor-set variants — matching how every prior phase shipped one estimator family's version of a
+  capability before generalising.
+
 ## On scikit-learn
 
 scikit-learn fits nuisance models only — the propensity model and the outcome regressions, which
