@@ -337,3 +337,211 @@ class CausalValidityScore:
     @property
     def limits(self) -> str:
         return VALIDITY_SCORE_LIMITS
+
+
+def _require_reason(value: object | None, reason: str | None, slot: str) -> None:
+    """Exclusive-or between a result slot and the reason it is absent.
+
+    An absence with no stated reason is exactly the shape that let an
+    unregistered estimator ship silently in Phase 5, and a reason sitting
+    next to a real result is a stale reason a reader cannot adjudicate. Both
+    directions are refused here rather than left to a docstring, because a
+    docstring cannot fail a build.
+    """
+    if value is None and not reason:
+        raise ValueError(
+            f"{slot} is absent, so {slot}_reason must say why; got {reason!r}"
+        )
+    if value is not None and reason is not None:
+        raise ValueError(
+            f"{slot} is present, so {slot}_reason must be None; got {reason!r}"
+        )
+
+
+@dataclass(frozen=True)
+class EValueResult:
+    """How strong an unmeasured confounder would have to be to explain a finding.
+
+    `approximated` is True only when the risk ratio came from the
+    standardised-effect conversion rather than from a ratio the data already
+    carry. It is a structural field rather than prose so a renderer cannot
+    drop it: an approximated E-value read as if it were the exact ratio-scale
+    quantity is the misuse this field exists to make visible.
+    """
+
+    e_value: float
+    e_value_ci_bound: float
+    approximated: bool
+    approximation_note: str | None
+
+    def __post_init__(self) -> None:
+        # E = RR + sqrt(RR*(RR-1)) on RR >= 1 is at least 1 by construction.
+        # Below it means the conversion or the formula is wrong, not that the
+        # finding is unusually fragile.
+        if self.e_value < 1.0:
+            raise ValueError(f"e_value must be at least 1, got {self.e_value}")
+        if self.e_value_ci_bound < 1.0:
+            raise ValueError(
+                f"e_value_ci_bound must be at least 1, got {self.e_value_ci_bound}"
+            )
+        if self.approximated and not self.approximation_note:
+            raise ValueError(
+                "approximated=True requires an approximation_note stating the "
+                "conversion and what it assumes"
+            )
+
+
+@dataclass(frozen=True)
+class CinelliHazlettResult:
+    """Omitted-variable bias bounds for one OLS coefficient.
+
+    `robustness_value` is the share of residual variation a confounder would
+    have to explain in *both* treatment and outcome to bring the estimate to
+    zero; `robustness_value_alpha` is the weaker bar of merely making it
+    statistically indistinguishable from zero. `degrees_of_freedom` is
+    carried so both are reproducible by hand from the reported t-statistic.
+    """
+
+    robustness_value: float
+    robustness_value_alpha: float
+    partial_r2_treatment_outcome: float
+    degrees_of_freedom: int
+
+    def __post_init__(self) -> None:
+        for label, value in (
+            ("robustness_value", self.robustness_value),
+            ("robustness_value_alpha", self.robustness_value_alpha),
+            ("partial_r2_treatment_outcome", self.partial_r2_treatment_outcome),
+        ):
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(f"{label} must lie in [0, 1], got {value}")
+        if self.degrees_of_freedom < 1:
+            raise ValueError(
+                f"degrees_of_freedom must be positive, got {self.degrees_of_freedom}"
+            )
+
+
+@dataclass(frozen=True)
+class ConfoundingSensitivity:
+    """The two confounding-sensitivity checks for one estimate, side by side.
+
+    `cinelli_hazlett` is `None` on non-OLS estimators it does not apply to;
+    the paired reason is what keeps that absence from reading as an
+    unregistered check rather than a deliberate scope limit.
+    """
+
+    e_value: EValueResult
+    cinelli_hazlett: CinelliHazlettResult | None
+    cinelli_hazlett_reason: str | None
+
+    def __post_init__(self) -> None:
+        _require_reason(
+            self.cinelli_hazlett, self.cinelli_hazlett_reason, "cinelli_hazlett"
+        )
+
+
+@dataclass(frozen=True, eq=False)
+class SpecificationPoint:
+    """One refit, and the knobs that produced it.
+
+    `eq=False` because `specification` is a Mapping: `frozen=True` with the
+    default `eq=True` generates a `__hash__` over every field, and hashing a
+    dict raises. Same reason as `FitMetadata`.
+    """
+
+    specification: Mapping[str, object]
+    point: float
+    ci: Interval
+
+
+@dataclass(frozen=True)
+class SpecificationCurve:
+    """Every refit tried under alternative reasonable specifications.
+
+    `original_index` points back at the specification actually reported
+    elsewhere, so the curve can be rendered with that point highlighted
+    rather than lost among peers; `capped` records whether the search space
+    was truncated before every combination was tried.
+    """
+
+    specifications: tuple[SpecificationPoint, ...]
+    original_index: int
+    capped: bool
+
+    def __post_init__(self) -> None:
+        if not self.specifications:
+            raise ValueError("a specification curve must hold at least one refit")
+        if not 0 <= self.original_index < len(self.specifications):
+            raise ValueError(
+                f"original_index {self.original_index} is outside the "
+                f"{len(self.specifications)} specifications; the analysis as run "
+                "must appear in its own curve"
+            )
+
+
+@dataclass(frozen=True, eq=False)
+class PlaceboTestResult:
+    """A real effect against a distribution of effects that should be null.
+
+    `eq=False` because `placebo_effects` is an ndarray and a generated
+    `__eq__` would raise on the ambiguous truth value of an array.
+    """
+
+    placebo_effects: np.ndarray
+    real_effect: float
+    p_value: float
+
+    def __post_init__(self) -> None:
+        if not 0.0 <= self.p_value <= 1.0:
+            raise ValueError(f"p_value must be in [0, 1], got {self.p_value}")
+
+
+@dataclass(frozen=True)
+class FalsificationResult:
+    """Four independent placebo-style checks, each optional with a stated reason.
+
+    None of the four applies to every estimator or every dataset shape (a
+    single-donor synthetic control has no leave-one-donor-out set to compute,
+    for instance), so each carries its own reason rather than one blanket
+    field that cannot say which check was skipped or why.
+    """
+
+    placebo_dates: PlaceboTestResult | None
+    placebo_dates_reason: str | None
+    placebo_units: PlaceboTestResult | None
+    placebo_units_reason: str | None
+    leave_one_donor_out: tuple[float, ...] | None
+    leave_one_donor_out_reason: str | None
+    randomization_inference: PlaceboTestResult | None
+    randomization_inference_reason: str | None
+
+    def __post_init__(self) -> None:
+        _require_reason(self.placebo_dates, self.placebo_dates_reason, "placebo_dates")
+        _require_reason(self.placebo_units, self.placebo_units_reason, "placebo_units")
+        _require_reason(
+            self.leave_one_donor_out,
+            self.leave_one_donor_out_reason,
+            "leave_one_donor_out",
+        )
+        _require_reason(
+            self.randomization_inference,
+            self.randomization_inference_reason,
+            "randomization_inference",
+        )
+
+
+@dataclass(frozen=True)
+class SensitivityReport:
+    """How robust one finding is, across three independent lines of attack."""
+
+    confounding: ConfoundingSensitivity
+    specification_curve: SpecificationCurve | None
+    specification_curve_reason: str | None
+    falsification: FalsificationResult
+
+    def __post_init__(self) -> None:
+        _require_reason(
+            self.specification_curve,
+            self.specification_curve_reason,
+            "specification_curve",
+        )
