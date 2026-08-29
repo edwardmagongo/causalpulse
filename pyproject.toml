@@ -33,7 +33,16 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-    "slow: reference-parity tests against external libraries; run nightly",
+    # Broader than the name's original scope, and worth stating accurately:
+    # this marker now carries three kinds of cost -- reference parity against
+    # external libraries, measured-rate protocols that need many seeds to mean
+    # anything, and assertions that need a real MCMC posterior rather than a
+    # shape-exercising one. What they share is that no cheaper version tests
+    # the same claim, so they are excluded rather than weakened.
+    #
+    # Excluded by `make test-fast` only. `make test` and `make check` still run
+    # them, which is deliberate: the full gate should not have a blind spot.
+    "slow: reference parity, measured-rate protocols, and MCMC-cost tests; skipped by test-fast",
 ]
 # Warnings are failures. A numpy overflow in a hand-rolled sigmoid reached the
 # suite silently once and was only caught by running with -W error; the standard

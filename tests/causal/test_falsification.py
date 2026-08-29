@@ -5,6 +5,21 @@ estimator family, and that every absence carries a reason. Where the p-value
 actually lands is an empirical claim measured in test_falsification_measured.py
 under a protocol that can support it. Asserting a p-value here, on 20
 permutations of one seed, would be measuring the rate from a single instance.
+
+A subset is marked `slow`, which in this repo means `make test-fast` skips it
+while `make test` and `make check` still run it. The subset is the bsts
+assertions that need real posteriors: bsts fills `placebo_dates` from its own
+in-time placebo sweep, a NUTS run per window, and no cheaper stand-in tests
+what those assertions are for -- that the numbers reported under the bsts name
+are bsts's own.
+
+What `test-fast` keeps is deliberately not a reduced version of the contract.
+Every routing and shape assertion in this file is made on synthetic_control,
+which fits no posterior, and the bsts paths that sample nothing stay unmarked:
+family membership, the window arithmetic, and S5 declining without a fit. Only
+the assertions that are meaningless without a real posterior move. Measured:
+28 tests in 8.3s with the subset skipped, 31 in 45s with it. See
+`MCMC_DONOR_POOL` below.
 """
 
 import dataclasses
@@ -189,6 +204,26 @@ DONOR_POOL_CONFIGS = {
 # measures nothing.
 BSTS_PLACEBO_DATES = 3
 
+# Which donor-pool estimators pay a posterior refit per falsification, and so
+# belong behind `slow` rather than in the default run. Derived from
+# DONOR_POOL_CONFIGS below rather than hardcoded into each parametrize, so a
+# third donor-pool estimator is routed here by editing one line.
+#
+# What the default run keeps: every routing and shape contract in this file is
+# still asserted on synthetic_control, which fits no posterior, and the three
+# bsts tests that fit no posterior either -- the family membership, the window
+# arithmetic, and S5's decline-without-sampling -- stay unmarked. What moves to
+# nightly is only the assertions that need real bsts posteriors to mean
+# anything.
+MCMC_DONOR_POOL = frozenset({"bsts"})
+
+DONOR_POOL_PARAMS = [
+    pytest.param(name, marks=pytest.mark.slow)
+    if name in MCMC_DONOR_POOL
+    else pytest.param(name)
+    for name in sorted(DONOR_POOL_CONFIGS)
+]
+
 
 @functools.cache
 def donor_pool_falsification(estimator_name):
@@ -220,7 +255,7 @@ def test_the_donor_pool_family_is_exactly_these_two():
     assert donor_pool == {"bsts", "synthetic_control"}
 
 
-@pytest.mark.parametrize("estimator_name", sorted(DONOR_POOL_CONFIGS))
+@pytest.mark.parametrize("estimator_name", DONOR_POOL_PARAMS)
 def test_a_donor_pool_result_belongs_to_the_estimator_it_is_reported_under(
     estimator_name,
 ):
@@ -250,6 +285,7 @@ def test_a_donor_pool_result_belongs_to_the_estimator_it_is_reported_under(
         assert result.placebo_dates.real_effect == pytest.approx(own_point)
 
 
+@pytest.mark.slow
 def test_bsts_does_not_borrow_synthetic_controls_donor_pool_results():
     bsts_point = donor_pool_own_point("bsts")
     synthetic_point = donor_pool_own_point("synthetic_control")
@@ -602,6 +638,7 @@ def test_a_panel_with_no_treated_units_names_its_own_condition():
     assert "placebo-date" not in reason
 
 
+@pytest.mark.slow
 def test_the_bsts_placebo_dates_come_from_bsts_own_posterior():
     # The discriminating test for this slot, and the counterpart of
     # `test_the_in_time_placebo_distribution_uses_the_same_form_as_the_real
