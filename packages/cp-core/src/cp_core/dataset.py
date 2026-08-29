@@ -37,6 +37,12 @@ class CausalSchema:
     # conservative one so an analysis that never declares its provenance can
     # never reach the top validity band by omission.
     assignment_provenance: AssignmentProvenance = "observational"
+    # A second outcome that treatment does not affect, used to detect residual
+    # confounding. Declared rather than inferred, exactly like
+    # `assignment_provenance`: which column is a negative control is a claim
+    # about how the data came to exist, and no diagnostic computed from the
+    # values can settle it.
+    negative_control_outcome: str | None = None
 
     def __post_init__(self) -> None:
         # The annotation is erased at runtime, so a schema built from a config
@@ -51,6 +57,18 @@ class CausalSchema:
                 f"assignment_provenance must be one of {list(_VALID_PROVENANCE)}, "
                 f"got {self.assignment_provenance!r}"
             )
+        if self.negative_control_outcome is not None:
+            if self.negative_control_outcome == self.outcome:
+                raise ValueError(
+                    "negative_control_outcome must differ from outcome; a column "
+                    "compared against itself would always read as clean"
+                )
+            if self.negative_control_outcome in self.covariates:
+                raise ValueError(
+                    f"negative_control_outcome {self.negative_control_outcome!r} is "
+                    "also a covariate; it is downstream of treatment's confounders, "
+                    "and adjusting for it would not be the same analysis"
+                )
 
     @property
     def is_panel(self) -> bool:
@@ -63,6 +81,8 @@ class CausalSchema:
             columns.append(self.time)
         if self.cohort is not None:
             columns.append(self.cohort)
+        if self.negative_control_outcome is not None:
+            columns.append(self.negative_control_outcome)
         return tuple(columns)
 
 
