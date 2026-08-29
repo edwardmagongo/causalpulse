@@ -11,6 +11,7 @@ import dataclasses
 
 import numpy as np
 import pytest
+from cp_causal._panel import donor_matrix, panel_arrays
 from cp_causal.estimators.bsts import FAST_MCMC_CONFIG
 from cp_causal.registry import all_estimators
 from cp_causal.sensitivity import falsify, randomization_inference
@@ -108,6 +109,65 @@ def test_a_donor_pool_real_effect_matches_the_estimators_own_ridge_fallback_poin
     assert result.leave_one_donor_out is not None
     for estimate in result.leave_one_donor_out:
         assert estimate == pytest.approx(fitted.point, abs=0.5)
+
+
+def test_a_donor_pool_placebo_distribution_uses_the_same_form_as_the_real_effect():
+    # The discriminating assertion: reconstruct every placebo unit's effect
+    # through `fit_donor_pool_point` -- the same function the real effect goes
+    # through -- and demand exact equality with what falsify reported.
+    #
+    # It discriminates because the two estimator forms agree exactly on the
+    # 15 of 17 S3 donors whose own hull check passes. A distribution-level
+    # assertion (mean, sd, a tolerance band) can therefore pass while the
+    # slot still mixes forms. This one fails on the units where the forms
+    # differ, which is the whole content of the finding: before the fix,
+    # `placebo_effects` came from `placebo_runs`, uniformly simplex, and
+    # donor 14 was reported at -1.96713 where its own hull-aware fit gives
+    # -0.85951.
+    from cp_causal.estimators.synthetic_control import fit_donor_pool_point
+
+    dataset = donor_panel("S3")
+    result = falsify(dataset, "synthetic_control", FAST)
+    assert result.placebo_units is not None
+    reported = np.asarray(result.placebo_units.placebo_effects)
+
+    treated, donors, pre = donor_matrix(panel_arrays(dataset))
+    post = ~pre
+    assert reported.size == donors.shape[0]
+
+    ridge_units = 0
+    for index in range(donors.shape[0]):
+        own_fit = fit_donor_pool_point(
+            donors[index], np.delete(donors, index, axis=0), pre, post
+        )
+        assert reported[index] == own_fit.point
+        ridge_units += int(own_fit.use_ridge)
+
+    # Without this the test above is vacuous: if no placebo unit ever took
+    # the ridge path on S3, hull-aware and simplex would coincide everywhere
+    # and the assertion would hold for the wrong reason.
+    assert ridge_units > 0
+
+    # And the real effect is index 0 of that same swap, not a separately
+    # derived number.
+    real_fit = fit_donor_pool_point(treated, donors, pre, post)
+    assert real_fit.use_ridge
+    assert result.placebo_units.real_effect == real_fit.point
+
+
+def test_the_donor_pool_p_value_stays_the_rmspe_ratio_rank():
+    # Making the effects hull-aware deliberately did not touch inference.
+    # Abadie's statistic is the post-to-pre RMSPE ratio's rank over the
+    # simplex placebo runs, and `placebo_runs` still supplies it.
+    from cp_causal.estimators.synthetic_control import permutation_p_value, placebo_runs
+
+    dataset = donor_panel("S3")
+    result = falsify(dataset, "synthetic_control", FAST)
+    treated, donors, pre = donor_matrix(panel_arrays(dataset))
+    runs = placebo_runs(treated, donors, pre, ~pre)
+
+    assert result.placebo_units is not None
+    assert result.placebo_units.p_value == permutation_p_value(runs.rmspe_ratios)
 
 
 # bsts declares `max_treated_units == 1` exactly as synthetic_control does, so

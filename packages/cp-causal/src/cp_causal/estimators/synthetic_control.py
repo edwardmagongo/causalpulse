@@ -9,6 +9,7 @@ to when `convex_hull_check` fails.
 from __future__ import annotations
 
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 import numpy as np
@@ -189,6 +190,24 @@ class PlaceboRuns:
     rmspe_ratios: np.ndarray
 
 
+def _unit_swaps(
+    treated_series: np.ndarray, donor_series: np.ndarray
+) -> Iterator[tuple[np.ndarray, np.ndarray]]:
+    """Each unit in turn as the "treated" one, with the rest as its donor pool.
+
+    Index 0 is the real treated unit against the full donor pool; index
+    `i > 0` is donor `i - 1` against the other donors. The single definition
+    of that convention: `placebo_runs` and `hull_aware_placebo_runs` both
+    iterate this, so the two cannot disagree about which unit sits at which
+    index or which donors it is allowed to borrow from. Writing the swap out
+    a second time is how a caller ends up ranking one procedure's real unit
+    against another procedure's placebo units.
+    """
+    yield treated_series, donor_series
+    for index in range(donor_series.shape[0]):
+        yield donor_series[index], np.delete(donor_series, index, axis=0)
+
+
 def placebo_runs(
     treated_series: np.ndarray,
     donor_series: np.ndarray,
@@ -198,12 +217,7 @@ def placebo_runs(
     n_donors = donor_series.shape[0]
     points = np.empty(n_donors + 1)
     ratios = np.empty(n_donors + 1)
-    for index in range(n_donors + 1):
-        if index == 0:
-            unit_series, pool = treated_series, donor_series
-        else:
-            unit_series = donor_series[index - 1]
-            pool = np.delete(donor_series, index - 1, axis=0)
+    for index, (unit_series, pool) in enumerate(_unit_swaps(treated_series, donor_series)):
         weights = solve_donor_weights(unit_series[pre_mask], pool[:, pre_mask])
         synthetic = weights @ pool
         points[index] = float(np.mean(unit_series[post_mask] - synthetic[post_mask]))
@@ -211,6 +225,55 @@ def placebo_runs(
         post_rmspe = float(np.sqrt(np.mean((unit_series[post_mask] - synthetic[post_mask]) ** 2)))
         ratios[index] = post_rmspe / pre_rmspe if pre_rmspe > 0 else float("inf")
     return PlaceboRuns(point_estimates=points, rmspe_ratios=ratios)
+
+
+@dataclass(frozen=True, eq=False)
+class HullAwarePlacebos:
+    """The same unit swap as `PlaceboRuns`, refitted the way `fit()` reports.
+
+    Every entry -- the real treated unit at index 0, then each donor playing
+    "treated" in turn -- comes from `fit_donor_pool_point`, so each unit runs
+    its own convex-hull check against its own pool and takes the ridge-
+    augmented fallback on its own terms. That makes index 0 identical to the
+    `fit_donor_pool_point` call `SyntheticControl.fit` and
+    `sensitivity.falsify` already make on the real unit, and makes
+    `point_estimates[1:]` a distribution the reported point is one draw from
+    in the same estimator form rather than a different one.
+
+    Distinct from `PlaceboRuns`, which stays uniformly simplex-based: its
+    ratios are Abadie's permutation statistic and its points back the
+    confidence interval, and both are calibrated against the simplex fit.
+    This type is for the falsification report's placebo-effect distribution
+    only.
+
+    `used_ridge` records which units took the fallback, so a caller can say
+    how much of the distribution the hull check actually moved.
+    """
+
+    point_estimates: np.ndarray
+    used_ridge: np.ndarray
+
+
+def hull_aware_placebo_runs(
+    treated_series: np.ndarray,
+    donor_series: np.ndarray,
+    pre_mask: np.ndarray,
+    post_mask: np.ndarray,
+) -> HullAwarePlacebos:
+    """`placebo_runs`' unit swap, with each unit fitted as `fit()` would fit it.
+
+    Costs one extra convex-hull check per unit over `placebo_runs`, plus a
+    ridge solve for each unit that fails it. Both are cheap next to the
+    simplex solve that dominates either function.
+    """
+    fits = [
+        fit_donor_pool_point(unit_series, pool, pre_mask, post_mask)
+        for unit_series, pool in _unit_swaps(treated_series, donor_series)
+    ]
+    return HullAwarePlacebos(
+        point_estimates=np.array([fit.point for fit in fits]),
+        used_ridge=np.array([fit.use_ridge for fit in fits], dtype=bool),
+    )
 
 
 def permutation_p_value(rmspe_ratios: np.ndarray) -> float:

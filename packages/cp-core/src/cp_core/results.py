@@ -493,13 +493,12 @@ class PlaceboTestResult:
     read the same way on their own; they are not comparable to each other as
     measurements of the same quantity.
 
-    On that same donor-pool slot, `real_effect` and `placebo_effects` are not
-    two draws from one procedure either: the real effect is the convex-hull-
-    aware fit the estimator itself reports, and the placebo effects are always
-    simplex-based, since they exist to build the reference distribution the
-    simplex fit is judged against. Where the hull check fails the two forms
-    differ materially. `cp_causal.sensitivity.falsify` documents both facts
-    with measured numbers.
+    `real_effect` and `placebo_effects` are draws from one procedure in every
+    slot, including that one: on the donor pool both are convex-hull-aware
+    fits, each placebo unit running its own hull check against its own donor
+    pool. `cp_causal.sensitivity.falsify` documents the p-value split with
+    measured numbers, and what an earlier mixed-form version of the donor-pool
+    placebo effects looked like.
 
     `eq=False` because `placebo_effects` is an ndarray and a generated
     `__eq__` would raise on the ambiguous truth value of an array.

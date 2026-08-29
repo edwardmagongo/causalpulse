@@ -11,6 +11,8 @@ import pytest
 from cp_causal.estimators.synthetic_control import (
     SyntheticControl,
     _leave_one_donor_out_max_swing,
+    fit_donor_pool_point,
+    hull_aware_placebo_runs,
     leave_one_donor_out_points,
     permutation_p_value,
     placebo_runs,
@@ -119,6 +121,35 @@ def test_placebo_runs_first_entry_is_the_real_treated_unit():
     synthetic = weights @ donors
     expected_point = float(np.mean(treated[~pre] - synthetic[~pre]))
     assert runs.point_estimates[0] == pytest.approx(expected_point)
+
+
+def test_hull_aware_placebo_runs_share_placebo_runs_unit_swap():
+    # Both iterate `_unit_swaps`, so they must agree unit-for-unit wherever
+    # the hull check passes and the two forms coincide. If the swap were
+    # written out twice and one copy drifted (a wrong index, a donor left in
+    # its own pool), the hull-passing units would stop matching and this
+    # would catch it -- the two prior instances of exactly that drift on this
+    # branch are why the swap has one definition.
+    panel = _generate("S3", seed=0)
+    from cp_causal._panel import donor_matrix, panel_arrays
+
+    treated, donors, pre = donor_matrix(panel_arrays(panel.dataset))
+    post = ~pre
+    simplex = placebo_runs(treated, donors, pre, post)
+    hull_aware = hull_aware_placebo_runs(treated, donors, pre, post)
+
+    assert hull_aware.point_estimates.shape == simplex.point_estimates.shape
+    assert hull_aware.used_ridge.shape == simplex.point_estimates.shape
+    for index in range(simplex.point_estimates.size):
+        if not hull_aware.used_ridge[index]:
+            assert hull_aware.point_estimates[index] == simplex.point_estimates[index]
+
+    # Index 0 is the real treated unit under both, and on S3 it is the unit
+    # whose hull check fails -- so the two arrays must differ there.
+    assert hull_aware.used_ridge[0]
+    expected = fit_donor_pool_point(treated, donors, pre, post)
+    assert hull_aware.point_estimates[0] == expected.point
+    assert hull_aware.point_estimates[0] != simplex.point_estimates[0]
 
 
 def test_permutation_p_value_is_conservative_for_a_typical_donor():

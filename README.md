@@ -781,6 +781,38 @@ Leave-one-donor-out on the clean donor scenario S1, same 20 seeds: mean spread *
 0.0494), max 1.0137 — a clean estimate should not hinge on any single donor, and the harness
 asserts a ceiling of 0.40 on the mean.
 
+### The donor-pool placebo distribution is convex-hull-aware, unit by unit
+
+`falsify`'s `placebo_units` slot on `synthetic_control` puts every unit — the real treated one and
+each donor playing "treated" in turn — through the same `fit_donor_pool_point` call, so each runs
+its own `convex_hull` check against its own donor pool and takes the ridge-augmented fallback on
+its own terms. The reported effect is then one draw from that distribution in the same estimator
+form, rather than a hull-aware number plotted against a uniformly simplex-based reference.
+
+An earlier version drew the placebo effects from `placebo_runs`, which is simplex throughout, and
+the gap showed up exactly where the fallback exists. On S3, seed 0: the real effect is **+1.18353**
+from the ridge form, against a simplex placebo distribution of mean **0.04255**, sd **0.67820**.
+Refitted hull-aware, **2 of 17** donors fail their own hull check and switch — donor 14 moves from
+−1.96713 to −0.85951, donor 11 from 0.51641 to 0.42087 — giving mean **0.10208**, sd **0.49954**.
+On S1 the donors are the same series, so the placebo distribution moves identically; what differs
+is that S1's treated unit stays inside its hull and its own effect is unchanged at **+1.41401**.
+
+**The p-value did not change and was not meant to.** It stays the rank of the post-to-pre RMSPE
+ratio over the simplex `placebo_runs` — Abadie's statistic, which `donor_contamination_check` is
+calibrated against and which discounts a placebo unit that was never fitted well before treatment.
+Only the effect distribution became hull-aware. `placebo_runs` itself is untouched: it still backs
+the confidence interval and the contamination check with bit-identical output.
+
+Both procedures iterate one `_unit_swaps` generator rather than each writing out "unit `i` treated,
+the rest as its pool, real unit at index 0" for itself. Two independently written copies of that
+convention drifting apart is a defect this branch already shipped twice, and one definition is what
+stops a third.
+
+The extra work is one hull check per placebo unit plus a ridge solve for each unit that fails it,
+on top of a simplex solve that already dominates. Measured warm on seed 0, five calls:
+`falsify(dataset, "synthetic_control", config)` goes from **0.0434s to 0.0793s** on S1 and from
+**0.0356s to 0.0699s** on S3 — a factor of 1.8–2.0, under a doubling but not far under it.
+
 ### What is deferred, and why
 
 - **Negative-control outcomes.** A genuine negative control needs an outcome column provably
@@ -796,7 +828,8 @@ asserts a ceiling of 0.40 on the mean.
   the unit level, which is different machinery.
 - **Donor-pool falsification for `bsts`.** `bsts` declares a single treated unit exactly as
   `synthetic_control` does, so `falsify` classifies both into the same family — but the placebo-unit
-  and leave-one-donor-out machinery is synthetic control's own, built on simplex donor weights.
+  and leave-one-donor-out machinery is synthetic control's own, built on its simplex donor-weight
+  solve and the ridge-augmented fallback layered over it.
   `bsts` has none: its donors enter as state-space regressors under shrinkage priors, and a
   faithful version of either test would refit the full posterior once per donor. Both slots are
   reported absent with that reason rather than filled with another estimator's numbers, which is

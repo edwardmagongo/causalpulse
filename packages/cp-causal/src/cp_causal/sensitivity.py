@@ -37,6 +37,7 @@ from cp_causal.estimators.did import twfe_design, two_by_two_design
 from cp_causal.estimators.regression import lin_design
 from cp_causal.estimators.synthetic_control import (
     fit_donor_pool_point,
+    hull_aware_placebo_runs,
     leave_one_donor_out_points,
     permutation_p_value,
     placebo_runs,
@@ -764,26 +765,27 @@ def falsify(
     those estimators should lower it deliberately rather than discover the
     cost.
 
-    `placebo_units` on the donor-pool path is not the same object as the other
-    three slots, in two ways a reader has to know about:
+    `placebo_units` on the donor-pool path still differs from the other three
+    slots in one way a reader has to know about: **its `p_value` is an RMSPE
+    ratio's rank, not the effect's rank.** The other three slots rank
+    `abs(real_effect)` against `abs(placebo_effects)` via `_rank_p_value`.
+    Synthetic control's inference is Abadie's: rank the post-period-to-
+    pre-period RMSPE ratio, which discounts a placebo unit that was never
+    fitted well before treatment in the first place. That is the correct test
+    for this design and it is deliberately not changed -- but it means a
+    reader comparing p-values across the four slots is comparing two different
+    statistics.
 
-    * **Its `p_value` is an RMSPE ratio's rank, not the effect's rank.** The
-      other three slots rank `abs(real_effect)` against `abs(placebo_effects)`
-      via `_rank_p_value`. Synthetic control's inference is Abadie's: rank the
-      post-period-to-pre-period RMSPE ratio, which discounts a placebo unit
-      that was never fitted well before treatment in the first place. That is
-      the correct test for this design and it is deliberately not changed --
-      but it means a reader comparing p-values across the four slots is
-      comparing two different statistics.
-    * **`real_effect` and `placebo_effects` come from different weight forms.**
-      `real_effect` is `fit_donor_pool_point`'s, which is convex-hull-aware and
-      may use the ridge-augmented weights, matching what `SyntheticControl.fit`
-      itself reports. `placebo_effects` are always simplex-based, because that
-      is the reference distribution the simplex fit is judged against. Where
-      the convex-hull check fails the two forms genuinely differ: on scenario
-      S3 the hull-aware point is 1.18353 while the simplex form gives -0.46089,
-      on opposite sides of the null. Reading the real effect as one draw from
-      the placebo distribution therefore overstates how comparable they are.
+    `real_effect` and `placebo_effects` do come from one estimator form. Both
+    run through `fit_donor_pool_point`: every placebo unit gets its own
+    convex-hull check against its own donor pool and its own
+    simplex-or-ridge decision, exactly as the real treated unit does. An
+    earlier version drew the placebo effects from `placebo_runs`, which is
+    uniformly simplex-based -- on S3, this repo's convex-hull-violation
+    scenario, that put the real effect at 1.18353 against a simplex placebo
+    distribution centred on 0.04255, two different estimator forms on
+    opposite sides of the null, on precisely the scenario the ridge fallback
+    exists for.
     """
     get_estimator(estimator_name)
     family = _family(estimator_name)
@@ -831,19 +833,31 @@ def falsify(
         treated_series, donor_series, pre_mask = donor_matrix(panel)
         post_mask = ~pre_mask
         runs = placebo_runs(treated_series, donor_series, pre_mask, post_mask)
-        # `runs.point_estimates` (including index 0, the real treated unit)
-        # is always simplex-based -- see `PlaceboRuns`: it exists to build
-        # the null/reference distribution the simplex fit is judged against,
-        # not to report the headline number. The real point, and the weight
-        # form leave-one-donor-out must match, come from
-        # `fit_donor_pool_point` instead, which is convex-hull-aware exactly
-        # the way `SyntheticControl.fit()` itself is. Using
-        # `runs.point_estimates[0]` unconditionally here previously reported
-        # a sign-flipped, ~2.5x-off number whenever the convex-hull check
-        # failed -- caught by Task 7's review reproducing it against S3.
+        # Two placebo procedures over the same unit swap, each feeding the
+        # slot it is the right statistic for.
+        #
+        # `runs` is uniformly simplex-based -- see `PlaceboRuns`. Its
+        # `rmspe_ratios` are Abadie's permutation statistic, which is what
+        # `p_value` reports and what the donor_contamination check is
+        # calibrated against; that stays exactly as it is.
+        #
+        # The *effects*, real and placebo alike, come from
+        # `hull_aware_placebo_runs`, which puts every unit through the same
+        # `fit_donor_pool_point` the real unit goes through -- its own
+        # convex-hull check, its own simplex-or-ridge decision. Reading
+        # `runs.point_estimates[1:]` here instead put the real effect and the
+        # placebo distribution in different estimator forms, which on S3
+        # (this repo's convex-hull-violation scenario) is the difference
+        # between +1.18353 and -0.46089, opposite sides of the null: a reader
+        # plotting one against the other was comparing incomparable numbers,
+        # on precisely the scenario the ridge fallback exists for.
+        hull_aware = hull_aware_placebo_runs(treated_series, donor_series, pre_mask, post_mask)
+        # Index 0 of `hull_aware` is this same call by construction (see
+        # `HullAwarePlacebos`); `donor_fit` is kept for the weight form
+        # leave-one-donor-out below has to match.
         donor_fit = fit_donor_pool_point(treated_series, donor_series, pre_mask, post_mask)
         placebo_units = PlaceboTestResult(
-            placebo_effects=runs.point_estimates[1:],
+            placebo_effects=hull_aware.point_estimates[1:],
             real_effect=donor_fit.point,
             p_value=permutation_p_value(runs.rmspe_ratios),
         )
