@@ -794,6 +794,13 @@ asserts a ceiling of 0.40 on the mean.
 - **Panel randomization inference.** Permuting the treatment column on a panel would break the unit
   and period structure and the absorbing-adoption pattern. A correct version permutes adoption at
   the unit level, which is different machinery.
+- **Donor-pool falsification for `bsts`.** `bsts` declares a single treated unit exactly as
+  `synthetic_control` does, so `falsify` classifies both into the same family — but the placebo-unit
+  and leave-one-donor-out machinery is synthetic control's own, built on simplex donor weights.
+  `bsts` has none: its donors enter as state-space regressors under shrinkage priors, and a
+  faithful version of either test would refit the full posterior once per donor. Both slots are
+  reported absent with that reason rather than filled with another estimator's numbers, which is
+  what the branch did before it was gated on `synthetic_control` by name.
 - **Panel and donor-pool specification-curve axes** — time windows, control-group definitions,
   donor-set variants — matching how every prior phase shipped one estimator family's version of a
   capability before generalising.
