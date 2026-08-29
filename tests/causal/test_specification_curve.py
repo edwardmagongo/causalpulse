@@ -12,7 +12,12 @@ import pandas as pd
 import pytest
 from cp_causal.propensity import POSITIVITY_THRESHOLD
 from cp_causal.registry import all_estimators
-from cp_causal.sensitivity import CURVE_ESTIMATORS, TRIM_AXIS, specification_curve
+from cp_causal.sensitivity import (
+    _PROPENSITY_CURVE_ESTIMATORS,
+    CURVE_ESTIMATORS,
+    TRIM_AXIS,
+    specification_curve,
+)
 from cp_core.dataset import CausalDataset, CausalSchema
 from cp_core.values import EstimatorConfig
 from cp_simulation.scenarios import build_scenario
@@ -53,6 +58,25 @@ def wide_frame(n_covariates=6, n_rows=300):
 def test_the_supported_set_is_exactly_pinned():
     supported = frozenset({"lin_regression", "ipw", "aipw"})
     assert supported == CURVE_ESTIMATORS
+
+
+def test_the_trim_axis_reaches_exactly_the_propensity_curve_estimators():
+    # CURVE_ESTIMATORS, OLS_SENSITIVITY_ESTIMATORS and TRIM_AXIS each carry an
+    # exact-set pin; this one did not, and it is the set that decides whether
+    # an estimator's curve gets a trim axis at all. A propensity estimator
+    # added to CURVE_ESTIMATORS but not here would silently collapse to one
+    # trim value: 6 points where 18 were intended, which reads as robustness
+    # rather than as a missing axis. The two assertions are the two halves --
+    # what the set contains, and that everything in it is on the curve at all.
+    assert frozenset({"ipw", "aipw"}) == _PROPENSITY_CURVE_ESTIMATORS
+    assert _PROPENSITY_CURVE_ESTIMATORS <= CURVE_ESTIMATORS
+
+    # And the set is load-bearing rather than decorative: membership is what
+    # multiplies the curve by len(TRIM_AXIS).
+    for name in sorted(CURVE_ESTIMATORS):
+        trims = len(TRIM_AXIS) if name in _PROPENSITY_CURVE_ESTIMATORS else 1
+        curve = specification_curve(cross_section(), name, CONFIG)
+        assert len(curve.specifications) == 3 * 2 * trims, name
 
 
 def test_lin_regression_gets_the_covariate_by_outlier_cross_product():
