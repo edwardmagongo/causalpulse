@@ -54,8 +54,12 @@ from cp_causal.registry import all_estimators, get_estimator
 _STANDARDISED_TO_LOG_RR = 0.91
 
 _CONVERSION_NOTE = (
-    "The reported effect is on an absolute scale, so the risk ratio was "
-    f"approximated as exp({_STANDARDISED_TO_LOG_RR} * effect / outcome_sd). "
+    # Emitted for `absolute` scale AND for a `percentage_point` estimate whose
+    # counterfactual is missing or cannot form a positive ratio, so it must not
+    # name one of those two scales as though it were the only case.
+    "The reported effect carries no ratio scale of its own, so the risk "
+    "ratio was approximated as "
+    f"exp({_STANDARDISED_TO_LOG_RR} * effect / outcome_sd). "
     "That conversion assumes an approximately normal, non-rare outcome -- the "
     "opposite assumption from the rare-outcome derivation the classical "
     "E-value is stated under. Read this number as indicative, not as the "
