@@ -9,7 +9,12 @@ it is taken from the design doc's own verified table.
 
 import pytest
 from cp_causal.sensitivity import MISCLASSIFICATION_RATES, misclassification_curve
-from cp_core.results import EffectEstimate, FitMetadata
+from cp_core.results import (
+    MIN_ATTENUATION_FACTOR,
+    EffectEstimate,
+    FitMetadata,
+    MisclassificationPoint,
+)
 from cp_core.values import Interval
 
 
@@ -134,3 +139,43 @@ def test_a_log_ratio_estimate_is_refused():
 def test_the_observed_share_is_read_off_the_estimate():
     curve = misclassification_curve(an_estimate(n_treated=250, n_control=750))
     assert curve.observed_treated_share == pytest.approx(0.25)
+
+
+def test_a_share_on_the_float_boundary_does_not_emit_a_near_zero_attenuation():
+    # `1.0 - 0.90` is 0.09999999999999998, not 0.1, so an observed share of
+    # exactly 0.10 lands a hair off the implied-true-share boundary rather
+    # than on it. Under a bare `> 0` guard the (0.95, 0.90) and (0.90, 0.90)
+    # pairs came through with an attenuation of 3.1e-16 and a corrected point
+    # around 1e15. The floor is on the attenuation because that is the
+    # quantity the correction divides by.
+    curve = misclassification_curve(an_estimate(n_treated=100, n_control=900))
+    assert all(
+        point.attenuation_factor >= MIN_ATTENUATION_FACTOR for point in curve.points
+    )
+    assert all(
+        abs(point.corrected_point) <= abs(curve.observed_point) / MIN_ATTENUATION_FACTOR
+        for point in curve.points
+    )
+    assert (0.90, 0.90) not in [(p.sensitivity, p.specificity) for p in curve.points]
+
+
+def test_the_near_boundary_region_is_bounded_too_not_just_the_float_case():
+    # Independent of floats: at a share of 0.11 the same two pairs attenuate
+    # to 0.1009, a correction that multiplies the point and both interval
+    # endpoints by about ten. The floor bounds that with the same invariant.
+    curve = misclassification_curve(an_estimate(point=1.6, n_treated=110, n_control=890))
+    for point in curve.points:
+        assert point.attenuation_factor >= MIN_ATTENUATION_FACTOR
+        assert abs(point.corrected_point) <= 1.6 / MIN_ATTENUATION_FACTOR
+
+
+def test_a_point_below_the_floor_cannot_be_constructed_at_all():
+    # The same invariant on the contract type, so no other assembler of a
+    # curve can route around the skip above.
+    with pytest.raises(ValueError, match="attenuation_factor must be at least"):
+        MisclassificationPoint(
+            sensitivity=0.9, specificity=0.9, corrected_point=1e15,
+            corrected_ci=Interval(lower=0.9e15, upper=1.1e15),
+            attenuation_factor=3.1e-16,
+        )
+

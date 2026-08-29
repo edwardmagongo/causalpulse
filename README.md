@@ -983,6 +983,16 @@ recovering the true effect within 0.01. `q` is read from the fitted estimate's o
 `n_treated`/`n_control`, never accepted as a caller-supplied parameter that could disagree with it
 — the same two-values-that-must-agree failure shape as Phase 9's E-value defect.
 
+**A rate pair whose implied correction would divide by almost nothing is dropped from the curve.**
+The correction divides the point and both interval endpoints by the attenuation factor, and that
+factor falls continuously to zero as the assumed rates approach the edge of what the observed
+treated share admits. `MIN_ATTENUATION_FACTOR` puts a floor of 0.2 there — a corrected point may
+be at most five times the observed one — and both `misclassification_curve` and
+`MisclassificationPoint` enforce it, so no assembler of a curve can route around it. The floor was
+set by measurement: across observed treated shares from 0.02 to 0.98 it keeps 88.0% of the default
+grid's cells against 90.8% with no floor at all, and over the ordinary 0.2–0.8 band of treated
+shares it costs nothing.
+
 **Only non-differential misclassification is modelled.** Differential misclassification — where the
 error rates themselves depend on the true outcome — could manufacture an association where none
 exists, which is a different and harder analysis than correcting an attenuation. This is an

@@ -16,6 +16,7 @@ from itertools import combinations
 import numpy as np
 from cp_core.dataset import CausalDataset
 from cp_core.results import (
+    MIN_ATTENUATION_FACTOR,
     CinelliHazlettResult,
     ConfoundingSensitivity,
     CounterfactualPoint,
@@ -675,6 +676,11 @@ def misclassification_curve(
     needs symmetric rates and a balanced share; otherwise the prevalence terms
     below do not cancel. See the phase 10 design note for the derivation and
     its empirical check.
+
+    A rate pair is dropped rather than reported when it is uninformative,
+    when it implies a true share outside the unit interval, or when its
+    attenuation falls under `MIN_ATTENUATION_FACTOR` -- the last of the three
+    keeps the correction from dividing by almost nothing near the boundary.
     """
     if estimate.scale == "log_ratio":
         raise ValueError(
@@ -682,7 +688,6 @@ def misclassification_curve(
             "log_ratio estimate is on a different scale and the attenuation "
             "derived here does not apply to it"
         )
-
     total = estimate.n_treated + estimate.n_control
     observed_share = estimate.n_treated / total
 
@@ -703,7 +708,13 @@ def misclassification_curve(
             * (true_share * (1.0 - true_share))
             / (observed_share * (1.0 - observed_share))
         )
-        if attenuation <= 0.0:  # pragma: no cover - implied by the guards above
+        # Not merely "positive": near the boundary where the assumed rates
+        # only just admit the observed share, the attenuation goes to zero
+        # continuously and the correction divides by it. `MIN_ATTENUATION_
+        # FACTOR` documents the floor and the measurement behind it; a pair
+        # under it is refused the same way an incompatible one is, rather
+        # than emitted as a corrected point the data does not support.
+        if attenuation < MIN_ATTENUATION_FACTOR:
             continue
         points.append(
             MisclassificationPoint(
@@ -721,9 +732,10 @@ def misclassification_curve(
 
     if not points:
         raise ValueError(
-            f"no usable rate pair in {rates}: every pair was either "
-            "uninformative or incompatible with the observed treated share of "
-            f"{observed_share:.4f}"
+            f"no usable rate pair in {rates}: every pair was uninformative, "
+            "incompatible with the observed treated share of "
+            f"{observed_share:.4f}, or attenuated below "
+            f"{MIN_ATTENUATION_FACTOR}"
         )
 
     return MisclassificationCurve(

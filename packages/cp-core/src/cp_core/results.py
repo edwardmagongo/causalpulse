@@ -601,6 +601,25 @@ class NegativeControlResult:
             )
 
 
+# The correction divides the point estimate and both interval endpoints by
+# the attenuation factor, so `1 / MIN_ATTENUATION_FACTOR` is the largest
+# amplification a corrected point may carry. Chosen by measurement rather
+# than taste: across observed treated shares from 0.02 to 0.98 in steps of
+# 0.001, this floor keeps 88.0% of the default grid's (share, rate-pair)
+# cells against 90.8% with no floor at all, and over the ordinary 0.2-0.8
+# band of treated shares it costs nothing at all (100% kept either way). A
+# stricter 0.5 would drop the retention to 80.1%, which is a curve most
+# ordinary datasets would lose a fifth of.
+#
+# A positivity check alone is not enough. `1.0 - 0.90` is 0.09999999999999998
+# rather than 0.1, so an observed share of exactly 0.10 lands a hair off the
+# implied-true-share boundary instead of on it, and the default grid produced
+# an attenuation of 3.1e-16 there -- a corrected point around 1e15, which a
+# `> 0` guard admits. The floor bounds that and the wider near-boundary
+# blow-up (10x at a share of 0.11, 5.4x at 0.12) with one invariant.
+MIN_ATTENUATION_FACTOR = 0.2
+
+
 @dataclass(frozen=True)
 class MisclassificationPoint:
     """The effect implied at one assumed pair of misclassification rates."""
@@ -620,10 +639,16 @@ class MisclassificationPoint:
                 raise ValueError(f"{label} must lie in [0, 1], got {value}")
         # observed = true * attenuation_factor. At or below zero the observed
         # label carries no information about the true one and the correction
-        # does not exist, so such a point is never constructed.
-        if self.attenuation_factor <= 0.0:
+        # does not exist; just above zero it exists but divides by almost
+        # nothing, which is the same defect wearing a finite number. Both are
+        # refused here so an out-of-band point cannot be constructed at all,
+        # whichever caller assembled it.
+        if self.attenuation_factor < MIN_ATTENUATION_FACTOR:
             raise ValueError(
-                f"attenuation_factor must be positive, got {self.attenuation_factor}"
+                f"attenuation_factor must be at least {MIN_ATTENUATION_FACTOR}, got "
+                f"{self.attenuation_factor}: below that the correction divides by a "
+                "number small enough that the corrected estimate reports the assumed "
+                "rates rather than the data"
             )
 
 
