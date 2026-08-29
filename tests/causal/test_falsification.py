@@ -646,6 +646,30 @@ def test_a_panel_estimator_gets_no_misclassification_curve_but_a_deferral():
     assert "log ratio" not in reason
 
 
+def test_a_curve_with_only_its_identity_anchor_becomes_a_stated_absence():
+    # At a low enough treated share every non-identity pair in the default
+    # grid is refused, and the curve that survives holds the analysis as
+    # already run and nothing else. Returned as a curve it reads as
+    # "mismeasurement cannot move this finding"; the truth is that no assumed
+    # rate pair is usable at this share, so the report states that instead.
+    # The share is set on the estimate rather than by building a 5%-treated
+    # dataset: this arm reads its prevalence off the estimate's arm counts and
+    # nothing else, so that is the input under test.
+    from cp_causal.sensitivity import sensitivity_report
+
+    dataset = cross_section()
+    fitted = all_estimators()["lin_regression"]().fit(dataset, FAST)
+    estimate = dataclasses.replace(fitted, n_treated=50, n_control=950)
+    report = sensitivity_report(
+        dataset, "lin_regression", estimate, FAST, n_permutations=20
+    )
+    assert report.misclassification is None
+    reason = report.misclassification_reason
+    assert reason is not None
+    assert "0.0500" in reason
+    assert "identity" in reason
+
+
 def test_a_panel_with_no_treated_units_names_its_own_condition():
     # This path used to return the placebo-DATES reason ("the placebo-date
     # cells cannot be formed"), which names the wrong technique and states a

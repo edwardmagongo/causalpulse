@@ -1238,6 +1238,19 @@ _LOG_RATIO_MISCLASSIFICATION_REASON = (
     "here is derived for a difference of means."
 )
 
+# The other absence this arm can report, and a different fact from either of
+# the two above: the rates were fine and the estimator was in scope, but no
+# assumed pair survived against this particular treated share. Without it a
+# curve holding only its identity anchor reads as "misclassification cannot
+# move this finding", which is the opposite of what happened.
+_NO_COMPATIBLE_RATE_PAIR_REASON = (
+    "No assumed rate pair is usable at this analysis's observed treated share "
+    "of {share:.4f}: each one either implies a true share outside the unit "
+    "interval or attenuates below {floor}, where correcting would divide by "
+    "almost nothing. Only the identity pair survives, and a curve whose one "
+    "point is the analysis as already run says nothing about mismeasurement."
+)
+
 _DEGENERATE_OLS_FIT_REASON = (
     "{name} is fitted by least squares against a single treatment "
     "coefficient, so cinelli_hazlett normally applies to it, but this "
@@ -1284,6 +1297,15 @@ def sensitivity_report(
         misclassification_reason = _LOG_RATIO_MISCLASSIFICATION_REASON
     else:
         curve_of_rates = misclassification_curve(estimate)
+        if all(
+            point.sensitivity == 1.0 and point.specificity == 1.0
+            for point in curve_of_rates.points
+        ):
+            misclassification_reason = _NO_COMPATIBLE_RATE_PAIR_REASON.format(
+                share=curve_of_rates.observed_treated_share,
+                floor=MIN_ATTENUATION_FACTOR,
+            )
+            curve_of_rates = None
 
     bound = cinelli_hazlett(dataset, estimator_name, config)
     if bound is not None:

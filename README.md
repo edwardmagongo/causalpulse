@@ -991,7 +991,9 @@ be at most five times the observed one — and both `misclassification_curve` an
 `MisclassificationPoint` enforce it, so no assembler of a curve can route around it. The floor was
 set by measurement: across observed treated shares from 0.02 to 0.98 it keeps 88.0% of the default
 grid's cells against 90.8% with no floor at all, and over the ordinary 0.2–0.8 band of treated
-shares it costs nothing.
+shares it costs nothing. Where no pair survives but the identity anchor, `sensitivity_report`
+reports no curve and states that reason, rather than returning a one-point curve that would read as
+"mismeasurement cannot move this finding".
 
 **Only non-differential misclassification is modelled.** Differential misclassification — where the
 error rates themselves depend on the true outcome — could manufacture an association where none
