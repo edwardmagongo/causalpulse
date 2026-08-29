@@ -94,3 +94,67 @@ def test_scenario_g_is_registered_and_confounded():
 
     assert simulated.truth.true_ate == pytest.approx(0.05, abs=0.002)
     assert simulated.truth.true_confounders == ("x1", "x2")
+
+
+def test_build_scenario_defaults_to_neither_component():
+    from cp_simulation.scenarios import build_scenario
+
+    dgp = build_scenario("D")
+    assert dgp.negative_control is None
+    assert dgp.misclassification is None
+
+
+def test_build_scenario_attaches_a_negative_control_on_request():
+    from cp_simulation.scenarios import DEFAULT_NEGATIVE_CONTROL, build_scenario
+
+    dgp = build_scenario("D", negative_control=DEFAULT_NEGATIVE_CONTROL)
+    simulated = dgp.generate(n_units=300, rng=np.random.default_rng(0))
+    assert simulated.dataset.schema.negative_control_outcome == "outcome_nc"
+
+
+def test_build_scenario_attaches_misclassification_on_request():
+    from cp_simulation.components import NonDifferentialMisclassification
+    from cp_simulation.scenarios import build_scenario
+
+    dgp = build_scenario(
+        "D",
+        misclassification=NonDifferentialMisclassification(
+            sensitivity=0.8, specificity=0.9
+        ),
+    )
+    simulated = dgp.generate(n_units=300, rng=np.random.default_rng(0))
+    assert simulated.truth.true_treatment is not None
+
+
+def test_both_components_can_be_attached_together():
+    from cp_simulation.components import NonDifferentialMisclassification
+    from cp_simulation.scenarios import DEFAULT_NEGATIVE_CONTROL, build_scenario
+
+    dgp = build_scenario(
+        "D",
+        negative_control=DEFAULT_NEGATIVE_CONTROL,
+        misclassification=NonDifferentialMisclassification(
+            sensitivity=0.8, specificity=0.9
+        ),
+    )
+    simulated = dgp.generate(n_units=300, rng=np.random.default_rng(0))
+    assert simulated.dataset.schema.negative_control_outcome == "outcome_nc"
+    assert simulated.truth.true_treatment is not None
+
+
+def test_confounding_strength_still_reaches_the_builder():
+    # The opt-in parameters must not displace the existing positional one.
+    from cp_simulation.scenarios import build_scenario
+
+    weak = build_scenario("D", 0.1)
+    strong = build_scenario("D", 4.0)
+    assert weak.config_hash != strong.config_hash
+
+
+def test_the_default_negative_control_matches_the_scenario_covariates():
+    from cp_simulation.scenarios import DEFAULT_NEGATIVE_CONTROL, build_scenario
+
+    dgp = build_scenario("A")
+    assert len(DEFAULT_NEGATIVE_CONTROL.coefficients) == len(
+        dgp.unit_generator.covariate_names
+    )

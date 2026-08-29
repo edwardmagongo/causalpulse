@@ -8,13 +8,15 @@ rather than a fixed instance.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from cp_simulation.components import (
     BaselineSelectionAssignment,
     ConstantEffect,
     HeterogeneousEffect,
     LogisticBaseline,
+    NegativeControlOutcome,
+    NonDifferentialMisclassification,
     PropensityAssignment,
     RandomAssignment,
     UnitGenerator,
@@ -23,6 +25,13 @@ from cp_simulation.dgp import CrossSectionDGP
 
 _COVARIATES = ("x1", "x2")
 _BASELINE = LogisticBaseline(intercept=-1.0, coefficients=(0.8, 0.5))
+
+# One shared definition so the tests and the measured harness cannot drift
+# into using different negative controls and then disagree about what the
+# check measured. Its coefficients share the covariates every cross-sectional
+# scenario declares, at a different intercept and slope from the outcome's own
+# baseline so the column is not a copy of the outcome surface.
+DEFAULT_NEGATIVE_CONTROL = NegativeControlOutcome(intercept=-0.6, coefficients=(0.9, 0.4))
 
 
 @dataclass(frozen=True)
@@ -145,10 +154,29 @@ SCENARIOS: dict[str, ScenarioSpec] = {
 }
 
 
-def build_scenario(scenario_id: str, confounding_strength: float = 1.0) -> CrossSectionDGP:
-    """Instantiate a scenario's DGP at a given confounding strength."""
+def build_scenario(
+    scenario_id: str,
+    confounding_strength: float = 1.0,
+    *,
+    negative_control: NegativeControlOutcome | None = None,
+    misclassification: NonDifferentialMisclassification | None = None,
+) -> CrossSectionDGP:
+    """Instantiate a scenario's DGP at a given confounding strength.
+
+    The two optional components are attached after the scenario's own builder
+    has run, rather than threaded through it, so all six builders stay as they
+    were and a scenario that opts into neither produces exactly the frame it
+    produced before.
+    """
     if scenario_id not in SCENARIOS:
         raise KeyError(
             f"unknown scenario {scenario_id!r}; available: {sorted(SCENARIOS)}"
         )
-    return SCENARIOS[scenario_id].build(confounding_strength)
+    dgp = SCENARIOS[scenario_id].build(confounding_strength)
+    if negative_control is None and misclassification is None:
+        return dgp
+    return replace(
+        dgp,
+        negative_control=negative_control,
+        misclassification=misclassification,
+    )
