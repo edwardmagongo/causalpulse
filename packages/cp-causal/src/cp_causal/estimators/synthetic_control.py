@@ -289,6 +289,30 @@ def permutation_p_value(rmspe_ratios: np.ndarray) -> float:
     return rank / n
 
 
+def _split_pre_period(
+    pre_mask: np.ndarray, n_train: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """A fake treatment date inside the pre-period, as two masks over all periods.
+
+    The first `n_train` pre-treatment periods become the fake pre-period and
+    every later pre-treatment period becomes the fake post-period. Both masks
+    are subsets of `pre_mask` over the full period axis, so neither can reach
+    a period after the real treatment date -- which is the whole point of an
+    in-time placebo, and the one property that makes its effects a null
+    distribution rather than a second look at the real effect.
+
+    One definition of the split, shared by `_in_time_placebo` and
+    `in_time_placebo_sweep`, so the midpoint the estimator reports as a
+    diagnostic is literally one of the windows the sweep visits.
+    """
+    pre_positions = np.flatnonzero(pre_mask)
+    fake_pre = np.zeros_like(pre_mask, dtype=bool)
+    fake_post = np.zeros_like(pre_mask, dtype=bool)
+    fake_pre[pre_positions[:n_train]] = True
+    fake_post[pre_positions[n_train:]] = True
+    return fake_pre, fake_post
+
+
 def _in_time_placebo(
     treated_series: np.ndarray, donor_series: np.ndarray, pre_mask: np.ndarray
 ) -> float:
@@ -298,16 +322,110 @@ def _in_time_placebo(
     pre-period, the second half as its placebo post-period. A well-behaved
     fit should show a small effect here, since nothing was actually treated
     yet.
+
+    Stays uniformly simplex-based while `in_time_placebo_sweep` is
+    convex-hull-aware, for the reason `PlaceboRuns` stays simplex while
+    `HullAwarePlacebos` does not: this is a *diagnostic* about whether the
+    donor weights can find a match on their own, answered in the one weight
+    form that asks that question. The sweep instead builds a distribution the
+    reported point is ranked against, so it has to be fitted in whichever
+    form produced that point.
     """
-    pre_periods = np.flatnonzero(pre_mask)
-    if pre_periods.size < 4:
+    n_pre = int(np.count_nonzero(pre_mask))
+    if n_pre < 4:
         return float("nan")
-    midpoint = pre_periods.size // 2
-    fake_pre = pre_periods[:midpoint]
-    fake_post = pre_periods[midpoint:]
+    fake_pre, fake_post = _split_pre_period(pre_mask, n_pre // 2)
     weights = solve_donor_weights(treated_series[fake_pre], donor_series[:, fake_pre])
     synthetic = weights @ donor_series
     return float(np.mean(treated_series[fake_post] - synthetic[fake_post]))
+
+
+# A window trained on one period is not a weak fit, it is an unidentified one:
+# a single equation over 17 simplex weights is matched exactly by a whole face
+# of solutions, and which one SLSQP lands on decides the reported gap.
+# Measured on S1, the sweep over training lengths 1..16 gives -1.55847 at
+# length 1 against a range of [-0.67421, +0.55785] over every other length --
+# the one-period window is not a draw from the same distribution as the rest,
+# it is an artefact of the solver. Two is also the floor `_in_time_placebo`
+# already implies: it declines below 4 pre-periods, and its midpoint split of
+# 4 trains on 2.
+MIN_IN_TIME_TRAIN_PERIODS = 2
+
+
+@dataclass(frozen=True, eq=False)
+class InTimePlacebos:
+    """Effects from moving the treatment date back through the pre-period.
+
+    **These are not independent draws.** Consecutive windows share almost
+    their whole training slice -- the length-9 window's training periods are
+    the length-8 window's plus one -- and every window measures its gap over
+    an overlapping tail of the same pre-period. The rank of the real effect
+    among them is still an honest ordering, and it is the ordering
+    `_rank_p_value` reports, but the resulting p-value must not be read as
+    one from `n` independent placebo experiments: the effective number of
+    distinct looks at the data is far below `point_estimates.size`, and no
+    correction here recovers it.
+
+    The windows are also not identically distributed. A short training slice
+    fits noise the real 17-period fit would not, and a short measurement
+    slice averages fewer periods, so the sweep's tails are wider than the
+    estimator's own sampling distribution. That widens the reference
+    distribution, which makes the rank p-value conservative -- harder, not
+    easier, for the real effect to look extreme.
+
+    `train_lengths[i]` is the number of pre-treatment periods window `i`
+    trained on, and `used_ridge[i]` records whether it took the
+    ridge-augmented fallback, so a caller can say how much of the
+    distribution the hull check moved.
+    """
+
+    point_estimates: np.ndarray
+    train_lengths: tuple[int, ...]
+    used_ridge: np.ndarray
+
+
+def in_time_placebo_sweep(
+    treated_series: np.ndarray,
+    donor_series: np.ndarray,
+    pre_mask: np.ndarray,
+    *,
+    min_train_periods: int = MIN_IN_TIME_TRAIN_PERIODS,
+) -> InTimePlacebos:
+    """`_in_time_placebo` at every fake treatment date, not only the midpoint.
+
+    The technique that fits the donor-pool family. A donor pool has exactly
+    one treated unit by construction, so the panel placebo-date cells --
+    built from a within-group variance needing two units a side -- yield
+    nothing however long the pre-period is. Moving the treatment date back
+    instead costs nothing but refits, and it is the same falsification claim:
+    nothing was actually treated before the real date, so a method that
+    reports effects there is reporting them from something other than the
+    treatment.
+
+    Every window goes through `fit_donor_pool_point`, so each runs its own
+    convex-hull check over its own training slice and takes the
+    ridge-augmented fallback on its own terms -- the same rule
+    `hull_aware_placebo_runs` follows, for the same reason: the resulting
+    distribution is only comparable to the reported point if it was fitted in
+    the same form. No second weight solve exists here; `fit_donor_pool_point`
+    calls `solve_donor_weights` exactly as `fit()` does.
+
+    Returns an empty sweep when the pre-period cannot hold a single window
+    (fewer than `min_train_periods + 1` pre-treatment periods). That is a
+    real answer about the design, and the caller states it as one rather than
+    reporting a distribution built from nothing. See `InTimePlacebos` for
+    what the resulting effects are and are not.
+    """
+    n_pre = int(np.count_nonzero(pre_mask))
+    fits = [
+        fit_donor_pool_point(treated_series, donor_series, *_split_pre_period(pre_mask, n_train))
+        for n_train in range(min_train_periods, n_pre)
+    ]
+    return InTimePlacebos(
+        point_estimates=np.array([fit.point for fit in fits], dtype=float),
+        train_lengths=tuple(range(min_train_periods, n_pre)),
+        used_ridge=np.array([fit.use_ridge for fit in fits], dtype=bool),
+    )
 
 
 def leave_one_donor_out_points(

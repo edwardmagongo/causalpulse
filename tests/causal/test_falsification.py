@@ -228,7 +228,17 @@ def test_bsts_does_not_borrow_synthetic_controls_donor_pool_results():
     result = falsify(dataset, "bsts", DONOR_POOL_CONFIGS["bsts"])
     assert result.placebo_units is None
     assert result.leave_one_donor_out is None
-    for reason in (result.placebo_units_reason, result.leave_one_donor_out_reason):
+    # placebo_dates joins the same discipline. The in-time placebo sweep that
+    # fills this slot for synthetic_control refits simplex donor weights at
+    # every fake date, which is no more bsts's own machinery than the unit
+    # swap is -- so bsts declines here too rather than have a synthetic
+    # control's sweep reported under its name.
+    assert result.placebo_dates is None
+    for reason in (
+        result.placebo_units_reason,
+        result.leave_one_donor_out_reason,
+        result.placebo_dates_reason,
+    ):
         assert reason and "simplex" in reason
 
 
@@ -249,21 +259,127 @@ def test_a_panel_too_small_for_a_placebo_group_says_so_rather_than_raising():
     assert result.placebo_dates is not None
 
 
-def test_a_donor_pool_states_the_real_reason_placebo_dates_are_absent():
-    # placebo_leads builds its cells from a within-group variance that needs
-    # at least two units a side (group_change returns nan below that), and a
-    # donor pool has exactly one treated unit by construction -- so it yields
-    # zero cells no matter how long the pre-period is. Measured on S1: 16
-    # usable pre-treatment periods, still zero cells. The generic
-    # empty-result reason would therefore report "no cohort has two
-    # pre-treatment periods to compare", which on this data is simply untrue,
-    # and a report whose stated reasons are false is worse than one that says
-    # nothing. This pins the honest reason against that regression.
-    result = falsify(donor_panel("S1"), "synthetic_control", FAST)
+def test_a_donor_pool_gets_placebo_dates_from_an_in_time_placebo_sweep():
+    # The technique that fits this family is the in-time placebo: move the
+    # treatment date back into the pre-period, refit the donor weights on what
+    # comes before it, and measure the gap over what comes after. Sweeping the
+    # fake date across the pre-period turns the single number
+    # `SyntheticControl.fit` already reports as a diagnostic into a
+    # distribution the real effect can be ranked against.
+    #
+    # It replaces a stated absence. `placebo_leads` genuinely cannot run here
+    # -- it builds its cells from a within-group variance needing two units a
+    # side and a donor pool has exactly one treated unit -- but "the panel
+    # technique does not apply" was never the same claim as "no placebo-date
+    # test applies".
+    from cp_causal.estimators.synthetic_control import SyntheticControl
+
+    dataset = donor_panel("S1")
+    result = falsify(dataset, "synthetic_control", FAST)
+
+    assert result.placebo_dates is not None
+    assert result.placebo_dates_reason is None
+
+    # Deterministic arithmetic off the scenario's shape, not a measured
+    # quantity: S1 runs 24 periods with adoption at 18, so the pre-period is
+    # 17 periods. A window needs at least MIN_IN_TIME_TRAIN_PERIODS = 2
+    # periods to train on and at least one period left to measure over, so the
+    # training length runs 2..16 -- 15 windows.
+    assert result.placebo_dates.placebo_effects.size == 15
+
+    # Same discipline `placebo_units` is already held to: the real effect is
+    # the estimator's own reported point, not a separately derived number.
+    assert result.placebo_dates.real_effect == pytest.approx(
+        SyntheticControl().fit(dataset, FAST).point
+    )
+    # Abadie's floor, reused rather than recomputed -- 15 placebo effects plus
+    # the real one counting itself.
+    assert result.placebo_dates.p_value >= 1 / 16
+
+
+def test_the_in_time_placebo_sweep_reads_only_the_pre_period():
+    # The whole claim of an in-time placebo is that its distribution is a null
+    # the real effect can be ranked against -- which requires that no window
+    # ever sees data from after the real treatment date. Asserted directly:
+    # move the treated unit's entire post-period by a large constant and the
+    # sweep must not move at all. A window that leaked a single post-treatment
+    # period into either its training or its measurement slice would shift.
+    from cp_causal.estimators.synthetic_control import in_time_placebo_sweep
+
+    treated, donors, pre = donor_matrix(panel_arrays(donor_panel("S1")))
+    baseline = in_time_placebo_sweep(treated, donors, pre)
+
+    shifted = treated.copy()
+    shifted[~pre] += 100.0
+    after = in_time_placebo_sweep(shifted, donors, pre)
+
+    assert np.array_equal(baseline.point_estimates, after.point_estimates)
+    # Non-vacuous only if the sweep produced something to compare.
+    assert baseline.point_estimates.size == 15
+
+
+def test_the_in_time_placebo_distribution_uses_the_same_form_as_the_real_effect():
+    # The same finding `placebo_units` was already fixed for, applied to this
+    # slot before it can regress: a placebo distribution fitted in one
+    # estimator form and a real effect fitted in another are not comparable,
+    # and ranking one against the other is the bug rather than the test.
+    #
+    # S3 is this repo's convex-hull-violation scenario, so the real fit takes
+    # the ridge-augmented fallback. Every window is reconstructed through
+    # `fit_donor_pool_point` -- the same function the real effect goes through
+    # -- and demanded to match exactly.
+    from cp_causal.estimators.synthetic_control import (
+        fit_donor_pool_point,
+        in_time_placebo_sweep,
+    )
+
+    dataset = donor_panel("S3")
+    result = falsify(dataset, "synthetic_control", FAST)
+    assert result.placebo_dates is not None
+
+    treated, donors, pre = donor_matrix(panel_arrays(dataset))
+    sweep = in_time_placebo_sweep(treated, donors, pre)
+    assert np.array_equal(result.placebo_dates.placebo_effects, sweep.point_estimates)
+
+    pre_positions = np.flatnonzero(pre)
+    for offset, n_train in enumerate(sweep.train_lengths):
+        fake_pre = np.zeros_like(pre)
+        fake_post = np.zeros_like(pre)
+        fake_pre[pre_positions[:n_train]] = True
+        fake_post[pre_positions[n_train:]] = True
+        own_fit = fit_donor_pool_point(treated, donors, fake_pre, fake_post)
+        assert sweep.point_estimates[offset] == own_fit.point
+
+    # Without this the assertion above holds for the wrong reason: if no
+    # window ever took the ridge path, hull-aware and plain simplex would
+    # coincide everywhere. Measured on S3: all 15 windows take it, as the real
+    # fit does.
+    assert int(sweep.used_ridge.sum()) == 15
+    assert fit_donor_pool_point(treated, donors, pre, ~pre).use_ridge
+
+
+def test_a_donor_pool_with_too_short_a_pre_period_states_that_reason():
+    # S5 collapses S1's DGP to 6 periods with adoption at 3, leaving 2
+    # pre-treatment periods. A window needs 2 to train on and one more to
+    # measure over, so not one can be formed and the slot must go back to a
+    # stated absence -- naming the length that actually fired, and not
+    # claiming the technique does not exist for this family.
+    result = falsify(donor_panel("S5"), "synthetic_control", FAST)
     assert result.placebo_dates is None
-    assert result.placebo_dates_reason
-    assert "one treated unit" in result.placebo_dates_reason
-    assert "two pre-treatment periods" not in result.placebo_dates_reason
+    reason = result.placebo_dates_reason
+    assert reason is not None
+    # The numbers the reason states have to be this design's real ones, not a
+    # generic sentence with digits in it: 2 training periods plus one to
+    # measure over is 3, and S5 has 2.
+    assert "3 in total" in reason
+    assert "This design has 2" in reason
+    # And it must not fall back to claiming no placebo-date technique exists
+    # for this family, which is what the slot used to say for every donor pool
+    # however long its pre-period was.
+    assert "one treated unit" not in reason
+    # The other slots still stand: one technique declining does not take the
+    # others with it.
+    assert result.placebo_units is not None
 
 
 def test_every_absence_states_a_reason_that_is_not_boilerplate():

@@ -41,6 +41,26 @@ what was actually measured instead of the pre-registered "near 1.0".
 Leave-one-donor-out spread on S1 (clean donor scenario), 20 seeds: mean 0.2984
 (MCSE 0.0494), min 0.0651, max 1.0137.
 
+MEASURED 2026-08-29, in-time placebo sweep (the donor-pool family's
+placebo_dates slot), 20 seeds, synthetic_control, S1 against S0 -- the same
+DGP at tau=1.0 and tau=0.0:
+  Effect (S1): mean p 0.2000 (MCSE 0.0450); share of seeds landing on the
+               1/16 = 0.0625 floor 0.4500 (MCSE 0.1141).
+  Null (S0):   mean p 0.6312 (MCSE 0.0586); share on the floor 0.0000 --
+               0 of 20 seeds, minimum p-value seen 0.2500.
+That pair is cleaner to compare than the cross-sectional one above. The sweep
+reads only pre-treatment periods and tau enters only after adoption, so S0 and
+S1 produce byte-identical placebo distributions at every one of the 20 seeds
+(verified directly, not assumed). The entire difference between those two rows
+is the real effect moving through a fixed reference distribution, which is
+what makes the null direction a genuine guard rather than a second scenario
+that happens to read differently.
+
+Note that 0.0625 is this slot's smallest attainable p-value, so a "share at
+p <= 0.05" reading of it -- the statistic the randomization-inference tests
+above use -- would be identically zero for both scenarios and would measure
+nothing. The share landing ON the floor is the analogous statistic here.
+
 A note on the power of the true-effect bracket test below: with SEEDS=20, a
 share of seeds is really a count out of 20, so the floor (>= 0.10) is a
 break-even of 2-out-of-20 seeds landing at p<=0.05. That gives this bracket
@@ -87,6 +107,29 @@ def p_values(scenario_id: str, estimator_name: str) -> np.ndarray:
                 n_permutations=N_PERMUTATIONS, seed=seed,
             ).p_value
         )
+    return np.asarray(values)
+
+
+# The sweep's own floor. On the donor protocol S0/S1 run at (24 periods,
+# adoption at 18) the pre-period is 17 periods, and a window needs 2 to train
+# on plus at least one to measure over, so the fake date runs over training
+# lengths 2..16 -- 15 windows. `_rank_p_value` counts the real effect itself,
+# so the smallest p it can return is 1/(15 + 1).
+IN_TIME_WINDOWS = 15
+IN_TIME_FLOOR = 1.0 / (IN_TIME_WINDOWS + 1)
+
+
+def in_time_p_values(scenario_id: str) -> np.ndarray:
+    spec = DONOR_SCENARIOS[scenario_id]
+    values = []
+    for seed in range(SEEDS):
+        dataset = build_donor_scenario(scenario_id).generate(
+            spec.n_units, spec.n_periods, np.random.default_rng(seed)
+        ).dataset
+        placebo_dates = falsify(dataset, "synthetic_control", CONFIG).placebo_dates
+        assert placebo_dates is not None
+        assert placebo_dates.placebo_effects.size == IN_TIME_WINDOWS
+        values.append(placebo_dates.p_value)
     return np.asarray(values)
 
 
@@ -148,3 +191,46 @@ def test_leave_one_donor_out_stays_tight_on_a_clean_donor_scenario():
         if points.size:
             spreads.append(float(points.max() - points.min()))
     assert float(np.mean(spreads)) <= 0.40
+
+
+def test_the_in_time_placebo_ranks_a_true_effect_in_its_tail():
+    # MEASURED on S1 (declared_effect=1.0), 20 seeds: the share of seeds whose
+    # real effect ranked most extreme in its own sweep -- p on the 0.0625
+    # floor -- was 0.4500 (MCSE 0.1141). Floor set with headroom below the
+    # measured mean: 0.4500 - 2*MCSE = 0.4500 - 0.2282 = 0.2218, rounded DOWN
+    # to 0.20.
+    #
+    # Rounded down rather than up, the opposite of the lin_regression bracket
+    # above, and for a reason specific to this statistic: a share of 20 seeds
+    # moves in steps of 0.05, and 0.2218 sits between two attainable values,
+    # so a floor left at the raw bound is really a floor of 0.25 -- one seed
+    # of ordinary drift from the measured 0.45 would fail it. 0.20 is the
+    # nearest attainable value at or below the bound.
+    values = in_time_p_values("S1")
+    assert float(np.mean(values <= IN_TIME_FLOOR)) >= 0.20
+
+
+def test_the_in_time_placebo_leaves_a_true_null_unremarkable():
+    # The half that guards against a sweep that would rank anything in the
+    # tail. S0 is S1's DGP at tau=0.0, and its placebo distribution is
+    # byte-identical to S1's at every seed (see the module docstring), so this
+    # measures the real effect's rank against a fixed reference and nothing
+    # else.
+    #
+    # MEASURED on S0, 20 seeds: 0 of 20 seeds reached the 0.0625 floor, the
+    # smallest p-value seen was 0.2500, and the mean p-value was 0.6312
+    # (MCSE 0.0586).
+    #
+    # The share's MCSE is exactly 0.0000 at 0-of-20, which is a degenerate
+    # estimate rather than a real one: two MCSE of headroom around it gives a
+    # ceiling of 0.0 that a single seed's drift breaks. The rule of three is
+    # used in its place -- with 0 events in 20 trials the 95% upper bound on
+    # the true rate is about 3/20 = 0.15 -- and that is the ceiling asserted.
+    values = in_time_p_values("S0")
+    assert float(np.mean(values <= IN_TIME_FLOOR)) <= 0.15
+
+    # The mean p-value has a real MCSE, so it gets the usual treatment: floor
+    # set with headroom below the measured mean, 0.6312 - 2*MCSE = 0.6312 -
+    # 0.1172 = 0.5140, rounded down to 0.50. It catches a sweep drifting
+    # toward the tail well before the share above would.
+    assert float(np.mean(values)) >= 0.50

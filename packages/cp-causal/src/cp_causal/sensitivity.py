@@ -36,8 +36,10 @@ from cp_causal._support import arrays
 from cp_causal.estimators.did import twfe_design, two_by_two_design
 from cp_causal.estimators.regression import lin_design
 from cp_causal.estimators.synthetic_control import (
+    MIN_IN_TIME_TRAIN_PERIODS,
     fit_donor_pool_point,
     hull_aware_placebo_runs,
+    in_time_placebo_sweep,
     leave_one_donor_out_points,
     permutation_p_value,
     placebo_runs,
@@ -510,13 +512,13 @@ _TOO_FEW_PRE_PERIODS_REASON = (
     "No cohort has two pre-treatment periods to compare, so the placebo-date "
     "cells cannot be formed. Reported as untested rather than as a pass."
 )
-_DONOR_POOL_PLACEBO_DATES_REASON = (
-    "A donor pool has exactly one treated unit, and the placebo-date cells are "
-    "built from a within-group variance needing at least two units on each "
-    "side, so not one cell can be formed however long the pre-period is. This "
-    "is not a claim that the design has no pre-treatment periods -- it usually "
-    "has many. The in-time placebo the synthetic-control estimator reports as "
-    "a diagnostic is the technique that fits this family."
+_SHORT_PRE_PERIOD_IN_TIME_REASON = (
+    "The in-time placebo moves the treatment date back into the pre-period, "
+    "refits the donor weights on what comes before it and measures the gap "
+    "over what comes after, so it needs {minimum} pre-treatment periods to "
+    "train on and at least one more to measure over -- {needed} in total. "
+    "This design has {available}, so not one window can be formed. Reported "
+    "as untested rather than as a pass."
 )
 _CROSS_SECTION_PLACEBO_UNITS_REASON = (
     "On a cross-section every row is a unit and roughly half of them are "
@@ -541,6 +543,17 @@ _NON_SIMPLEX_PLACEBO_UNITS_REASON = (
     "priors, so the distribution those runs build is not the one this "
     "estimator would produce. Each round would also cost a full NUTS refit. "
     "Reported as untested rather than as a pass."
+)
+_NON_SIMPLEX_PLACEBO_DATES_REASON = (
+    "The in-time placebo sweep moves the treatment date back through the "
+    "pre-period and refits the simplex donor weights at each fake date, and "
+    "{name} does not fit simplex donor weights: its donors enter as "
+    "state-space regressors under shrinkage priors, so the distribution that "
+    "sweep builds is not the one this estimator would produce. The panel "
+    "placebo-date cells are no substitute either -- they are built from a "
+    "within-group variance needing at least two units on each side, and a "
+    "donor pool has exactly one treated unit by construction. Reported as "
+    "untested rather than as a pass."
 )
 _NON_SIMPLEX_DONOR_POOL_REASON = (
     "Leave-one-donor-out drops one weighted donor and refits, and {name} "
@@ -786,48 +799,47 @@ def falsify(
     distribution centred on 0.04255, two different estimator forms on
     opposite sides of the null, on precisely the scenario the ridge fallback
     exists for.
+
+    `placebo_dates` on the donor-pool path carries its own caveat, for a
+    different reason. It comes from `in_time_placebo_sweep`: the treatment
+    date moved back through the pre-period, the donor weights refitted at
+    each fake date. **Those placebo effects are not independent draws** --
+    consecutive windows share almost their whole training slice and measure
+    over overlapping tails of the same pre-period, so the effective number of
+    distinct looks at the data is well below `placebo_effects.size`. The rank
+    the p-value reports is honest; reading it as a p-value from that many
+    independent placebo experiments is not. `InTimePlacebos` states the full
+    version, including why the windows are not identically distributed either
+    and which direction that biases the rank.
     """
     get_estimator(estimator_name)
     family = _family(estimator_name)
 
     placebo_dates: PlaceboTestResult | None = None
     placebo_dates_reason: str | None = None
-    if family == "cross_section":
-        placebo_dates_reason = _NO_PRE_PERIODS_REASON
-    elif family == "donor_pool":
-        # Routed by family rather than discovered by running `placebo_leads`
-        # and reporting whatever it returns. It returns empty here for every
-        # donor pool -- `group_change` yields nan below two units per group --
-        # and the empty-result reason would then claim the pre-period was too
-        # short, which on S1 (16 usable pre-periods) is simply false.
-        placebo_dates_reason = _DONOR_POOL_PLACEBO_DATES_REASON
-    else:
-        panel = panel_arrays(dataset)
-        _, coefficients, _ = placebo_leads(panel, "never_treated")
-        if coefficients.size == 0:
-            placebo_dates_reason = _TOO_FEW_PRE_PERIODS_REASON
-        else:
-            real = get_estimator(estimator_name)().fit(dataset, config).point
-            placebo_dates = PlaceboTestResult(
-                placebo_effects=coefficients,
-                real_effect=real,
-                p_value=_rank_p_value(real, coefficients),
-            )
-
     placebo_units: PlaceboTestResult | None = None
     placebo_units_reason: str | None = None
     leave_one_donor_out: tuple[float, ...] | None = None
     leave_one_donor_out_reason: str | None = None
+
+    # One chain over all three donor-pool-sensitive slots rather than two
+    # chains over the same families. `placebo_dates` used to be decided in a
+    # chain of its own, above this one, which is how it kept routing on
+    # `family` alone after `placebo_units` had already learned it could not:
+    # the in-time placebo sweep below is synthetic_control's own machinery and
+    # the donor arrays it needs are fitted here exactly once.
+    #
     # Gated on the estimator by name, not on `family`, and that is the one
     # place in this module where a name beats the Requirements-derived family.
     # Everything below is synthetic_control's own machinery: `placebo_runs`,
-    # `fit_donor_pool_point` and `leave_one_donor_out_points` all fit simplex
-    # (or ridge-augmented) donor weights, and none of them consults
-    # `estimator_name`. `bsts` declares `max_treated_units == 1` too, so
-    # routing by family alone fitted a synthetic control and reported its
-    # numbers under the bsts name -- measured on S1, a bsts point of 1.17743
-    # against a reported real_effect of 1.41401, with both reason fields None
-    # asserting those were bsts's own results.
+    # `fit_donor_pool_point`, `in_time_placebo_sweep` and
+    # `leave_one_donor_out_points` all fit simplex (or ridge-augmented) donor
+    # weights, and none of them consults `estimator_name`. `bsts` declares
+    # `max_treated_units == 1` too, so routing by family alone fitted a
+    # synthetic control and reported its numbers under the bsts name --
+    # measured on S1, a bsts point of 1.17743 against a reported real_effect
+    # of 1.41401, with both reason fields None asserting those were bsts's own
+    # results.
     if estimator_name == "synthetic_control":
         panel = panel_arrays(dataset)
         treated_series, donor_series, pre_mask = donor_matrix(panel)
@@ -869,22 +881,62 @@ def falsify(
             reference_weights=donor_fit.reference_weights,
             use_ridge=donor_fit.use_ridge,
         )
+        # The placebo-date technique this family actually has. `placebo_leads`
+        # is not it and never was: it builds its cells from a within-group
+        # variance needing two units a side, and a donor pool has exactly one
+        # treated unit, so it returns nothing on a 17-period pre-period as
+        # readily as on a 2-period one. Moving the treatment date back through
+        # that pre-period is the test that fits the design -- and it is
+        # `hull_aware` fitting, so the distribution and `donor_fit.point` are
+        # in one estimator form, the same requirement `placebo_units` above is
+        # already held to.
+        sweep = in_time_placebo_sweep(treated_series, donor_series, pre_mask)
+        if sweep.point_estimates.size == 0:
+            placebo_dates_reason = _SHORT_PRE_PERIOD_IN_TIME_REASON.format(
+                minimum=MIN_IN_TIME_TRAIN_PERIODS,
+                needed=MIN_IN_TIME_TRAIN_PERIODS + 1,
+                available=int(np.count_nonzero(pre_mask)),
+            )
+        else:
+            # `_rank_p_value`, not `permutation_p_value` on an RMSPE ratio:
+            # this slot ranks effects, as the panel and cross-section
+            # placebo-date slots do. `placebo_units` is the deliberate
+            # exception -- see this function's docstring.
+            placebo_dates = PlaceboTestResult(
+                placebo_effects=sweep.point_estimates,
+                real_effect=donor_fit.point,
+                p_value=_rank_p_value(donor_fit.point, sweep.point_estimates),
+            )
     elif family == "donor_pool":
+        placebo_dates_reason = _NON_SIMPLEX_PLACEBO_DATES_REASON.format(
+            name=estimator_name
+        )
         placebo_units_reason = _NON_SIMPLEX_PLACEBO_UNITS_REASON.format(
             name=estimator_name
         )
         leave_one_donor_out_reason = _NON_SIMPLEX_DONOR_POOL_REASON.format(
             name=estimator_name
         )
+    elif family == "cross_section":
+        placebo_dates_reason = _NO_PRE_PERIODS_REASON
+        placebo_units_reason = _CROSS_SECTION_PLACEBO_UNITS_REASON
+        leave_one_donor_out_reason = _NO_DONOR_POOL_REASON.format(name=estimator_name)
     else:
         leave_one_donor_out_reason = _NO_DONOR_POOL_REASON.format(name=estimator_name)
-        if family == "cross_section":
-            placebo_units_reason = _CROSS_SECTION_PLACEBO_UNITS_REASON
+        panel = panel_arrays(dataset)
+        _, coefficients, _ = placebo_leads(panel, "never_treated")
+        if coefficients.size == 0:
+            placebo_dates_reason = _TOO_FEW_PRE_PERIODS_REASON
         else:
-            placebo_units, placebo_units_reason = _panel_placebo_units(
-                dataset, estimator_name, config, n_placebo_units, seed
+            real = get_estimator(estimator_name)().fit(dataset, config).point
+            placebo_dates = PlaceboTestResult(
+                placebo_effects=coefficients,
+                real_effect=real,
+                p_value=_rank_p_value(real, coefficients),
             )
-
+        placebo_units, placebo_units_reason = _panel_placebo_units(
+            dataset, estimator_name, config, n_placebo_units, seed
+        )
     randomization: PlaceboTestResult | None = None
     randomization_reason: str | None = None
     if family == "cross_section":
