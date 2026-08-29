@@ -96,6 +96,56 @@ def test_the_negative_control_may_not_be_a_covariate():
         )
 
 
+def test_the_negative_control_may_not_collide_with_treatment():
+    # A negative-control refit swaps this column in as the outcome and refits
+    # the same estimator; colliding with treatment would regress treatment on
+    # itself rather than test anything.
+    with pytest.raises(ValueError, match="negative_control_outcome"):
+        CausalSchema(
+            unit="unit_id",
+            treatment="treated",
+            outcome="outcome",
+            covariates=("x1",),
+            outcome_type="binary",
+            negative_control_outcome="treated",
+        )
+
+
+def test_the_negative_control_may_not_collide_with_unit():
+    with pytest.raises(ValueError, match="negative_control_outcome"):
+        CausalSchema(
+            unit="unit_id",
+            treatment="treated",
+            outcome="outcome",
+            covariates=("x1",),
+            outcome_type="binary",
+            negative_control_outcome="unit_id",
+        )
+
+
+def test_the_negative_control_may_not_collide_with_time_or_cohort():
+    with pytest.raises(ValueError, match="negative_control_outcome"):
+        CausalSchema(
+            unit="unit_id",
+            treatment="treated",
+            outcome="outcome",
+            covariates=("x1",),
+            outcome_type="binary",
+            time="period",
+            negative_control_outcome="period",
+        )
+    with pytest.raises(ValueError, match="negative_control_outcome"):
+        CausalSchema(
+            unit="unit_id",
+            treatment="treated",
+            outcome="outcome",
+            covariates=("x1",),
+            outcome_type="binary",
+            cohort="adoption_cohort",
+            negative_control_outcome="adoption_cohort",
+        )
+
+
 def a_negative_control() -> NegativeControlResult:
     return NegativeControlResult(
         outcome_column="outcome_nc",

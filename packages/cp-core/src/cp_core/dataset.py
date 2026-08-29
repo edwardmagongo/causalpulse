@@ -69,6 +69,26 @@ class CausalSchema:
                     "also a covariate; it is downstream of treatment's confounders, "
                     "and adjusting for it would not be the same analysis"
                 )
+            # `outcome`/`covariates` were the only collisions checked until this
+            # was caught by two independent task reviews in Phase 10: a
+            # negative-control refit swaps the outcome column for this one and
+            # refits the same estimator, so colliding with `unit`, `treatment`,
+            # `time` or `cohort` would silently corrupt or trivialise that
+            # refit rather than raise -- declaring `treatment` as the negative
+            # control would regress treatment on itself.
+            role_columns = {self.unit, self.treatment}
+            if self.time is not None:
+                role_columns.add(self.time)
+            if self.cohort is not None:
+                role_columns.add(self.cohort)
+            if self.negative_control_outcome in role_columns:
+                raise ValueError(
+                    f"negative_control_outcome {self.negative_control_outcome!r} "
+                    "collides with a role column (unit, treatment, time, or "
+                    "cohort); a negative-control refit swaps in this column as "
+                    "the outcome, and reusing a role column there would corrupt "
+                    "or trivialise that refit rather than test anything"
+                )
 
     @property
     def is_panel(self) -> bool:
