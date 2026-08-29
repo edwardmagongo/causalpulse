@@ -320,6 +320,39 @@ _UNSUPPORTED_CURVE_REASON = (
     "would be meaningless -- see the phase 9 design note."
 )
 
+# The scope-limit wording above is true of the panel and donor-pool families,
+# whose curve axes are deferred rather than rejected. It is NOT true of the
+# two cross-sectional exclusions: each was measured and refused on its own
+# grounds, and telling a reader "this would still be a fine analysis" about
+# difference_in_means contradicts the reason it was left out.
+_DEGENERATE_CURVE_REASON = (
+    "specification_curve varies the covariate set, and difference_in_means "
+    "never reads covariates: measured, it returns a bit-identical point for "
+    "every subset, so its curve would be N copies of one number, which reads "
+    "as robustness rather than as an inapplicable analysis. Withheld for what "
+    "it would say, not as a scope limit."
+)
+_COST_CURVE_REASON = (
+    "causal_forest is left out of specification_curve on cost rather than on "
+    "meaning -- 4.56s per fit against lin_regression's 0.02s, and a curve is "
+    "one fit per specification. The analysis itself would be informative, so "
+    "this is a budget decision a later phase can revisit."
+)
+_SPECIFIC_CURVE_REASONS: dict[str, str] = {
+    "difference_in_means": _DEGENERATE_CURVE_REASON,
+    "causal_forest": _COST_CURVE_REASON,
+}
+
+
+def _curve_reason(estimator_name: str) -> str:
+    """Why `estimator_name` has no specification curve, in its own terms."""
+    specific = _SPECIFIC_CURVE_REASONS.get(estimator_name)
+    if specific is not None:
+        return specific
+    return _UNSUPPORTED_CURVE_REASON.format(
+        supported=sorted(CURVE_ESTIMATORS), name=estimator_name
+    )
+
 
 def _high_leverage_rows(dataset: CausalDataset) -> np.ndarray:
     """Boolean mask of rows the outlier axis excludes.
@@ -379,11 +412,7 @@ def specification_curve(
             f"unknown estimator {estimator_name!r}; available: {sorted(all_estimators())}"
         )
     if estimator_name not in CURVE_ESTIMATORS:
-        raise ValueError(
-            _UNSUPPORTED_CURVE_REASON.format(
-                supported=sorted(CURVE_ESTIMATORS), name=estimator_name
-            )
-        )
+        raise ValueError(_curve_reason(estimator_name))
 
     declared = dataset.schema.covariates
     subsets = [
@@ -938,9 +967,7 @@ def sensitivity_report(
         # the one this report is actually about.
         curve = specification_curve(dataset, estimator_name, config)
     else:
-        curve_reason = _UNSUPPORTED_CURVE_REASON.format(
-            supported=sorted(CURVE_ESTIMATORS), name=estimator_name
-        )
+        curve_reason = _curve_reason(estimator_name)
 
     return SensitivityReport(
         confounding=confounding,
