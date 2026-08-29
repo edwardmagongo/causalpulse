@@ -112,11 +112,71 @@ def test_an_empty_reason_string_does_not_count_as_a_reason():
 def test_an_e_value_below_one_is_refused():
     # E = RR + sqrt(RR*(RR-1)) with RR >= 1 is at least 1 by construction, so
     # a value below it means the conversion or the formula is wrong.
-    with pytest.raises(ValueError, match="at least 1"):
+    # Matched on the field name, not on the shared "at least 1" phrasing: both
+    # bounds raise with that phrase, so the looser regex passed whichever
+    # branch fired and left the other one unverified.
+    with pytest.raises(ValueError, match="e_value must be at least 1"):
         EValueResult(
             e_value=0.8, e_value_ci_bound=1.0, approximated=False,
             approximation_note=None,
         )
+
+
+def test_an_e_value_ci_bound_below_one_is_refused():
+    # The other branch of the same guard. e_value is valid here, so only the
+    # CI-bound check can fire -- otherwise this would pass on the message
+    # above.
+    with pytest.raises(ValueError, match="e_value_ci_bound must be at least 1"):
+        EValueResult(
+            e_value=2.0, e_value_ci_bound=0.8, approximated=False,
+            approximation_note=None,
+        )
+
+
+CINELLI_HAZLETT_UNIT_FIELDS = (
+    "robustness_value",
+    "robustness_value_alpha",
+    "partial_r2_treatment_outcome",
+)
+
+
+def a_cinelli_hazlett(**overrides) -> CinelliHazlettResult:
+    fields = {
+        "robustness_value": 0.14,
+        "robustness_value_alpha": 0.08,
+        "partial_r2_treatment_outcome": 0.02,
+        "degrees_of_freedom": 783,
+    }
+    return CinelliHazlettResult(**{**fields, **overrides})
+
+
+@pytest.mark.parametrize("field", CINELLI_HAZLETT_UNIT_FIELDS)
+@pytest.mark.parametrize("value", (-0.01, 1.01))
+def test_a_cinelli_hazlett_share_outside_the_unit_interval_is_refused(field, value):
+    # All three are shares of residual variation, so all three are bounded by
+    # [0, 1] on both sides. Every field is exercised by name: a guard that
+    # checked one of them twice and another not at all would still satisfy a
+    # spot check on the first.
+    with pytest.raises(ValueError, match=field):
+        a_cinelli_hazlett(**{field: value})
+
+
+def test_a_cinelli_hazlett_boundary_share_is_accepted():
+    # The complement: 0 and 1 are inside the interval, so a strict comparison
+    # in the guard would fail here rather than shipping.
+    result = a_cinelli_hazlett(robustness_value=0.0, partial_r2_treatment_outcome=1.0)
+    assert result.robustness_value == 0.0
+    assert result.partial_r2_treatment_outcome == 1.0
+
+
+@pytest.mark.parametrize("degrees_of_freedom", (0, -5))
+def test_a_cinelli_hazlett_without_residual_degrees_of_freedom_is_refused(
+    degrees_of_freedom,
+):
+    # The bounds are read through a t-statistic on df residual degrees of
+    # freedom, and zero of them is not a small number -- it is no regression.
+    with pytest.raises(ValueError, match="degrees_of_freedom"):
+        a_cinelli_hazlett(degrees_of_freedom=degrees_of_freedom)
 
 
 def test_an_approximated_e_value_must_carry_its_note():
