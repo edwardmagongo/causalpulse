@@ -718,6 +718,27 @@ def falsify(
     `n_placebo_units` defaults to 20 for that reason, and a caller running
     those estimators should lower it deliberately rather than discover the
     cost.
+
+    `placebo_units` on the donor-pool path is not the same object as the other
+    three slots, in two ways a reader has to know about:
+
+    * **Its `p_value` is an RMSPE ratio's rank, not the effect's rank.** The
+      other three slots rank `abs(real_effect)` against `abs(placebo_effects)`
+      via `_rank_p_value`. Synthetic control's inference is Abadie's: rank the
+      post-period-to-pre-period RMSPE ratio, which discounts a placebo unit
+      that was never fitted well before treatment in the first place. That is
+      the correct test for this design and it is deliberately not changed --
+      but it means a reader comparing p-values across the four slots is
+      comparing two different statistics.
+    * **`real_effect` and `placebo_effects` come from different weight forms.**
+      `real_effect` is `fit_donor_pool_point`'s, which is convex-hull-aware and
+      may use the ridge-augmented weights, matching what `SyntheticControl.fit`
+      itself reports. `placebo_effects` are always simplex-based, because that
+      is the reference distribution the simplex fit is judged against. Where
+      the convex-hull check fails the two forms genuinely differ: on scenario
+      S3 the hull-aware point is 1.18353 while the simplex form gives -0.46089,
+      on opposite sides of the null. Reading the real effect as one draw from
+      the placebo distribution therefore overstates how comparable they are.
     """
     get_estimator(estimator_name)
     family = _family(estimator_name)

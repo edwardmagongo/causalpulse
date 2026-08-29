@@ -483,6 +483,24 @@ class SpecificationCurve:
 class PlaceboTestResult:
     """A real effect against a distribution of effects that should be null.
 
+    `p_value` is not one statistic across every producer of this type, and the
+    field name cannot say which one it is. Three of `FalsificationResult`'s
+    four slots rank the absolute effect against the absolute placebo effects.
+    The fourth, `placebo_units` on a donor pool, carries Abadie's
+    post-to-pre-period RMSPE ratio rank instead -- the standard inference for
+    synthetic control, which discounts a placebo unit that was never fitted
+    well before treatment. Both are rank p-values on the same scale, so both
+    read the same way on their own; they are not comparable to each other as
+    measurements of the same quantity.
+
+    On that same donor-pool slot, `real_effect` and `placebo_effects` are not
+    two draws from one procedure either: the real effect is the convex-hull-
+    aware fit the estimator itself reports, and the placebo effects are always
+    simplex-based, since they exist to build the reference distribution the
+    simplex fit is judged against. Where the hull check fails the two forms
+    differ materially. `cp_causal.sensitivity.falsify` documents both facts
+    with measured numbers.
+
     `eq=False` because `placebo_effects` is an ndarray and a generated
     `__eq__` would raise on the ambiguous truth value of an array.
     """
