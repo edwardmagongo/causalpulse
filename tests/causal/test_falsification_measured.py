@@ -61,6 +61,28 @@ p <= 0.05" reading of it -- the statistic the randomization-inference tests
 above use -- would be identically zero for both scenarios and would measure
 nothing. The share landing ON the floor is the analogous statistic here.
 
+**The bsts in-time placebo is deliberately NOT measured here, and that is a
+deferral rather than an oversight.** `falsify` fills `placebo_dates` for bsts
+too, from bsts's own posterior refit at each fake date, so that slot emits a
+p-value whose rate is unvalidated. Measuring it is not affordable at any
+config this repository can run:
+
+- A rate needs seeds. At SEEDS=20 and even a 3-window cap, that is 80 full
+  NUTS runs per scenario, 160 for the null/effect pair.
+- At `FAST_MCMC_CONFIG` (50 warmup, 50 samples, 2 chains) those 160 runs are
+  about 13 minutes -- affordable, but that config's own docstring says it
+  exercises code paths and array shapes rather than producing a trustworthy
+  posterior. A rate measured there would characterise the sampler, not the
+  design, which is the thing this file exists to avoid.
+- At `PRODUCTION_MCMC_CONFIG` the same protocol runs into hours.
+- And a 3-window cap puts the p-value floor at 1/4 = 0.25, so the statistic
+  has little resolution left to detect a rate with.
+
+So the bsts slot ships with its shape pinned in test_falsification.py -- that
+the numbers are bsts's own, window by window -- and its rate unmeasured and
+said to be unmeasured. `BstsInTimePlacebos` carries the same warning where a
+caller meets the result.
+
 A note on the power of the true-effect bracket test below: with SEEDS=20, a
 share of seeds is really a count out of 20, so the floor (>= 0.10) is a
 break-even of 2-out-of-20 seeds landing at p<=0.05. That gives this bracket

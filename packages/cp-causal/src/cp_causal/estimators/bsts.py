@@ -33,7 +33,14 @@ from numpyro.contrib.control_flow import scan
 from numpyro.infer import MCMC
 
 from cp_causal._mcmc import MCMCConfig, run_nuts
-from cp_causal._panel import donor_matrix, outcome_scale, panel_arrays
+from cp_causal._panel import (
+    MIN_IN_TIME_TRAIN_PERIODS,
+    donor_matrix,
+    in_time_placebo_windows,
+    outcome_scale,
+    panel_arrays,
+    split_pre_period,
+)
 from cp_causal._support import config_hash
 from cp_causal.base import Requirements
 from cp_causal.bayesian_checks import (
@@ -217,6 +224,178 @@ def summarize_posterior(
     )
 
 
+def resolve_mcmc_config(config: EstimatorConfig) -> MCMCConfig:
+    """The MCMC config a caller asked for, validated once.
+
+    Shared by `BSTS.fit` and `sensitivity.falsify`: a falsification sweep that
+    silently sampled at a different config from the fit it is ranking against
+    would be comparing two different estimators, and the default here is the
+    production config, so guessing wrong is expensive rather than merely
+    inconsistent.
+    """
+    mcmc_config = config.options.get("mcmc_config", PRODUCTION_MCMC_CONFIG)
+    if not isinstance(mcmc_config, MCMCConfig):
+        raise TypeError(
+            f"config.options['mcmc_config'] must be an MCMCConfig, got {type(mcmc_config)!r}"
+        )
+    return mcmc_config
+
+
+@dataclass(frozen=True, eq=False)
+class BstsFit:
+    """One NUTS run over a donor pool, with the posterior quantities it implies.
+
+    `mcmc` is carried alongside `summary` because the estimator's convergence
+    checks (R-hat, effective sample size, divergent transitions) read the
+    sampler object itself rather than the summarised draws.
+    """
+
+    mcmc: MCMC
+    summary: PosteriorSummary
+
+    @property
+    def point(self) -> float:
+        """The ATT `BSTS.fit()` reports: the posterior mean of `att_draws`."""
+        return float(self.summary.att_draws.mean())
+
+
+def fit_bsts_counterfactual(
+    treated_series: np.ndarray,
+    donor_series: np.ndarray,
+    pre_mask: np.ndarray,
+    post_mask: np.ndarray,
+    *,
+    mcmc_config: MCMCConfig,
+    random_seed: int,
+    ci_level: float,
+) -> BstsFit:
+    """Standardise, sample, summarise -- the whole of what `BSTS.fit` computes.
+
+    Factored out so `bsts_in_time_placebo_sweep` can fit a placebo window
+    through exactly the pipeline the real estimate comes from, rather than a
+    second copy of the standardisation and forecast arithmetic that could
+    drift from it. This is the BSTS analogue of synthetic control's
+    `fit_donor_pool_point`, and it exists for the same reason: a placebo
+    distribution is only comparable to the reported point if the two were
+    produced by the same estimator.
+
+    Note that the donor and treated series are standardised against **the
+    window's own pre-period**, not the real one. That is deliberate -- a
+    placebo window must not see the real pre-period's mean and scale, which
+    are computed partly from periods the window treats as its post-period.
+    """
+    treated_pre, treated_post = treated_series[pre_mask], treated_series[post_mask]
+    donor_pre, donor_post = donor_series[:, pre_mask], donor_series[:, post_mask]
+
+    donor_mean = donor_pre.mean(axis=1, keepdims=True)
+    donor_sd = donor_pre.std(axis=1, keepdims=True) + 1e-9
+    donor_pre_std = (donor_pre - donor_mean) / donor_sd
+    donor_post_std = (donor_post - donor_mean) / donor_sd
+
+    treated_mean = float(treated_pre.mean())
+    treated_sd = float(treated_pre.std()) + 1e-9
+    treated_pre_std = (treated_pre - treated_mean) / treated_sd
+
+    mcmc = _run_mcmc(
+        donor_pre_std, treated_pre_std, treated_pre.shape[0], mcmc_config, random_seed
+    )
+    summary = summarize_posterior(
+        mcmc.get_samples(),
+        donor_pre_std,
+        donor_post_std,
+        treated_post,
+        treated_mean,
+        treated_sd,
+        ci_level,
+    )
+    return BstsFit(mcmc=mcmc, summary=summary)
+
+
+@dataclass(frozen=True, eq=False)
+class BstsInTimePlacebos:
+    """BSTS effects from moving the treatment date back through the pre-period.
+
+    The BSTS counterpart of synthetic control's `InTimePlacebos`, and every
+    caveat recorded there applies here unchanged:
+
+    **These are not independent draws.** Consecutive windows share almost
+    their whole training slice and measure their gap over overlapping tails
+    of the same pre-period, so the effective number of distinct looks at the
+    data is far below `point_estimates.size`. The rank of the real effect
+    among them is an honest ordering, but the p-value it yields must not be
+    read as one from that many independent placebo experiments.
+
+    They are not identically distributed either: a short training slice fits
+    noise the real full-length fit would not, and a short measurement slice
+    averages fewer periods. Both widen the reference distribution, which
+    biases the rank p-value toward the null -- conservative, but a real limit
+    on power.
+
+    One caveat is BSTS's own. Each window is a separate NUTS run at its own
+    pre-period length, and a short window is exactly where a sampler is most
+    likely to struggle. `point_estimates` records the posterior means without
+    consulting each window's convergence, so a sweep run at a small MCMC
+    config is measuring the sampler as much as the design.
+    """
+
+    point_estimates: np.ndarray
+    train_lengths: tuple[int, ...]
+
+
+def bsts_in_time_placebo_sweep(
+    treated_series: np.ndarray,
+    donor_series: np.ndarray,
+    pre_mask: np.ndarray,
+    *,
+    mcmc_config: MCMCConfig,
+    random_seed: int,
+    ci_level: float,
+    min_train_periods: int = MIN_IN_TIME_TRAIN_PERIODS,
+    max_windows: int | None = None,
+) -> BstsInTimePlacebos:
+    """The in-time placebo, refitted with BSTS's own posterior at each fake date.
+
+    The donor-pool family's placebo-date test, done in this estimator's own
+    machinery rather than borrowed from synthetic control. Every window is a
+    full `fit_bsts_counterfactual` call, so the placebo effects and the
+    reported point come from one estimator -- the requirement the other
+    donor-pool slots are already held to.
+
+    **This is expensive, and the cost is why `max_windows` exists.** Each
+    window is a fresh NUTS run at its own pre-period length, which in JAX
+    also means a fresh compile, and nothing is shared between windows.
+    Measured on S1 (17 pre-treatment periods, so 15 uncapped windows) at
+    `FAST_MCMC_CONFIG`: about 5s per window, 81.5s for the full sweep. At
+    `PRODUCTION_MCMC_CONFIG` -- 10x the draws over twice the chains -- the
+    same sweep is a tens-of-minutes computation. A caller that wants this
+    slot filled on a production posterior should choose `max_windows`
+    deliberately rather than discover the cost, exactly as `falsify`'s
+    `n_placebo_units` already asks of the MCMC estimators.
+
+    Capping trades power for time and the trade is not free: the rank
+    p-value's floor is `1 / (n_windows + 1)`, so four windows cannot report a
+    p-value below 0.2 however extreme the real effect is. See
+    `BstsInTimePlacebos` for what the effects are and are not.
+    """
+    lengths = in_time_placebo_windows(
+        pre_mask, min_train_periods=min_train_periods, max_windows=max_windows
+    )
+    points = [
+        fit_bsts_counterfactual(
+            treated_series,
+            donor_series,
+            *split_pre_period(pre_mask, n_train),
+            mcmc_config=mcmc_config,
+            random_seed=random_seed,
+            ci_level=ci_level,
+        ).point
+        for n_train in lengths
+    ]
+    return BstsInTimePlacebos(
+        point_estimates=np.array(points, dtype=float), train_lengths=lengths
+    )
+
+
 @register
 class BSTS:
     """Bayesian structural time series: a donor-weighted, probabilistic
@@ -246,42 +425,23 @@ class BSTS:
         treated_series, donor_series, pre_mask = donor_matrix(panel)
         post_mask = ~pre_mask
 
-        treated_pre, treated_post = treated_series[pre_mask], treated_series[post_mask]
-        donor_pre, donor_post = donor_series[:, pre_mask], donor_series[:, post_mask]
-
-        donor_mean = donor_pre.mean(axis=1, keepdims=True)
-        donor_sd = donor_pre.std(axis=1, keepdims=True) + 1e-9
-        donor_pre_std = (donor_pre - donor_mean) / donor_sd
-        donor_post_std = (donor_post - donor_mean) / donor_sd
-
-        treated_mean = float(treated_pre.mean())
-        treated_sd = float(treated_pre.std()) + 1e-9
-        treated_pre_std = (treated_pre - treated_mean) / treated_sd
-
-        mcmc_config = config.options.get("mcmc_config", PRODUCTION_MCMC_CONFIG)
-        if not isinstance(mcmc_config, MCMCConfig):
-            raise TypeError(
-                f"config.options['mcmc_config'] must be an MCMCConfig, got {type(mcmc_config)!r}"
-            )
+        mcmc_config = resolve_mcmc_config(config)
         seed = 0 if config.random_seed is None else config.random_seed
 
-        mcmc = _run_mcmc(donor_pre_std, treated_pre_std, treated_pre.shape[0], mcmc_config, seed)
-
-        samples = mcmc.get_samples()
+        fitted = fit_bsts_counterfactual(
+            treated_series,
+            donor_series,
+            pre_mask,
+            post_mask,
+            mcmc_config=mcmc_config,
+            random_seed=seed,
+            ci_level=config.ci_level,
+        )
+        mcmc, summary = fitted.mcmc, fitted.summary
         chain_samples = mcmc.get_samples(group_by_chain=True)
         diverging = mcmc.get_extra_fields(group_by_chain=True)["diverging"]
 
-        summary = summarize_posterior(
-            samples,
-            donor_pre_std,
-            donor_post_std,
-            treated_post,
-            treated_mean,
-            treated_sd,
-            config.ci_level,
-        )
-
-        point = float(summary.att_draws.mean())
+        point = fitted.point
         lower_q, upper_q = (1 - config.ci_level) / 2, 1 - (1 - config.ci_level) / 2
         lo, hi = np.quantile(summary.att_draws, [lower_q, upper_q])
         ci = Interval(lower=float(lo), upper=float(hi), level=config.ci_level)

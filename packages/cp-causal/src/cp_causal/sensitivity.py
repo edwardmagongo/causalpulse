@@ -31,12 +31,21 @@ from cp_core.values import EstimatorConfig
 from cp_statistics.covariance import OLSFit, ols_fit
 from scipy import stats
 
-from cp_causal._panel import MIN_UNITS_PER_ARM, donor_matrix, panel_arrays
+from cp_causal._panel import (
+    MIN_IN_TIME_TRAIN_PERIODS,
+    MIN_UNITS_PER_ARM,
+    donor_matrix,
+    panel_arrays,
+)
 from cp_causal._support import arrays
+from cp_causal.estimators.bsts import (
+    bsts_in_time_placebo_sweep,
+    fit_bsts_counterfactual,
+    resolve_mcmc_config,
+)
 from cp_causal.estimators.did import twfe_design, two_by_two_design
 from cp_causal.estimators.regression import lin_design
 from cp_causal.estimators.synthetic_control import (
-    MIN_IN_TIME_TRAIN_PERIODS,
     fit_donor_pool_point,
     hull_aware_placebo_runs,
     in_time_placebo_sweep,
@@ -544,17 +553,6 @@ _NON_SIMPLEX_PLACEBO_UNITS_REASON = (
     "estimator would produce. Each round would also cost a full NUTS refit. "
     "Reported as untested rather than as a pass."
 )
-_NON_SIMPLEX_PLACEBO_DATES_REASON = (
-    "The in-time placebo sweep moves the treatment date back through the "
-    "pre-period and refits the simplex donor weights at each fake date, and "
-    "{name} does not fit simplex donor weights: its donors enter as "
-    "state-space regressors under shrinkage priors, so the distribution that "
-    "sweep builds is not the one this estimator would produce. The panel "
-    "placebo-date cells are no substitute either -- they are built from a "
-    "within-group variance needing at least two units on each side, and a "
-    "donor pool has exactly one treated unit by construction. Reported as "
-    "untested rather than as a pass."
-)
 _NON_SIMPLEX_DONOR_POOL_REASON = (
     "Leave-one-donor-out drops one weighted donor and refits, and {name} "
     "carries no simplex weight vector to say which donors the fit rests on -- "
@@ -767,6 +765,7 @@ def falsify(
     *,
     n_permutations: int = 500,
     n_placebo_units: int = 20,
+    n_placebo_dates: int | None = None,
     seed: int = 0,
 ) -> FalsificationResult:
     """Four tests a spurious finding should fail, each routed to the estimator
@@ -777,6 +776,16 @@ def falsify(
     `n_placebo_units` defaults to 20 for that reason, and a caller running
     those estimators should lower it deliberately rather than discover the
     cost.
+
+    `n_placebo_dates` is the same knob for the donor-pool in-time placebo,
+    and it matters for the same reason. On `synthetic_control` a window is a
+    simplex solve and the uncapped sweep is effectively free. On `bsts` every
+    window is a full NUTS run at its own pre-period length: measured on S1 at
+    `FAST_MCMC_CONFIG`, the uncapped 15-window sweep is 81.5s, and at the
+    production config it is a tens-of-minutes computation. `None` (the
+    default) visits every window; an integer caps the count, keeping both
+    ends of the range. Capping raises the rank p-value's floor to
+    `1 / (n_windows + 1)`, so it buys time with power.
 
     `placebo_units` on the donor-pool path still differs from the other three
     slots in one way a reader has to know about: **its `p_value` is an RMSPE
@@ -890,7 +899,9 @@ def falsify(
         # `hull_aware` fitting, so the distribution and `donor_fit.point` are
         # in one estimator form, the same requirement `placebo_units` above is
         # already held to.
-        sweep = in_time_placebo_sweep(treated_series, donor_series, pre_mask)
+        sweep = in_time_placebo_sweep(
+            treated_series, donor_series, pre_mask, max_windows=n_placebo_dates
+        )
         if sweep.point_estimates.size == 0:
             placebo_dates_reason = _SHORT_PRE_PERIOD_IN_TIME_REASON.format(
                 minimum=MIN_IN_TIME_TRAIN_PERIODS,
@@ -908,15 +919,64 @@ def falsify(
                 p_value=_rank_p_value(donor_fit.point, sweep.point_estimates),
             )
     elif family == "donor_pool":
-        placebo_dates_reason = _NON_SIMPLEX_PLACEBO_DATES_REASON.format(
-            name=estimator_name
-        )
+        # `placebo_units` and leave-one-donor-out stay absent for this family,
+        # for the reason they always have: both are defined in terms of the
+        # simplex weight vector this estimator does not fit.
         placebo_units_reason = _NON_SIMPLEX_PLACEBO_UNITS_REASON.format(
             name=estimator_name
         )
         leave_one_donor_out_reason = _NON_SIMPLEX_DONOR_POOL_REASON.format(
             name=estimator_name
         )
+        # `placebo_dates` is different in kind, and that is why it is filled
+        # here rather than declined alongside them. An in-time placebo does
+        # not need simplex weights or a donor swap -- it needs only that the
+        # estimator can be refitted at an earlier date, which bsts can be. So
+        # this branch runs bsts's OWN sweep rather than reporting synthetic
+        # control's under the bsts name, and `real_effect` comes from the same
+        # `fit_bsts_counterfactual` pipeline `BSTS.fit` reports its point
+        # from. Both sides of the comparison are this estimator's.
+        #
+        # The cost is real and is the reason `n_placebo_dates` exists: every
+        # window is a full NUTS run at its own pre-period length. Measured on
+        # S1 at FAST_MCMC_CONFIG, the uncapped 15-window sweep is 81.5s, and
+        # the production config is a tens-of-minutes computation. Capping
+        # raises the p-value floor to 1/(n_windows + 1); see
+        # `bsts_in_time_placebo_sweep`.
+        panel = panel_arrays(dataset)
+        treated_series, donor_series, pre_mask = donor_matrix(panel)
+        mcmc_config = resolve_mcmc_config(config)
+        mcmc_seed = 0 if config.random_seed is None else config.random_seed
+        bsts_sweep = bsts_in_time_placebo_sweep(
+            treated_series,
+            donor_series,
+            pre_mask,
+            mcmc_config=mcmc_config,
+            random_seed=mcmc_seed,
+            ci_level=config.ci_level,
+            max_windows=n_placebo_dates,
+        )
+        if bsts_sweep.point_estimates.size == 0:
+            placebo_dates_reason = _SHORT_PRE_PERIOD_IN_TIME_REASON.format(
+                minimum=MIN_IN_TIME_TRAIN_PERIODS,
+                needed=MIN_IN_TIME_TRAIN_PERIODS + 1,
+                available=int(np.count_nonzero(pre_mask)),
+            )
+        else:
+            bsts_real = fit_bsts_counterfactual(
+                treated_series,
+                donor_series,
+                pre_mask,
+                ~pre_mask,
+                mcmc_config=mcmc_config,
+                random_seed=mcmc_seed,
+                ci_level=config.ci_level,
+            ).point
+            placebo_dates = PlaceboTestResult(
+                placebo_effects=bsts_sweep.point_estimates,
+                real_effect=bsts_real,
+                p_value=_rank_p_value(bsts_real, bsts_sweep.point_estimates),
+            )
     elif family == "cross_section":
         placebo_dates_reason = _NO_PRE_PERIODS_REASON
         placebo_units_reason = _CROSS_SECTION_PLACEBO_UNITS_REASON
@@ -1007,6 +1067,7 @@ def sensitivity_report(
     outcome_sd: float | None = None,
     n_permutations: int = 500,
     n_placebo_units: int = 20,
+    n_placebo_dates: int | None = None,
     seed: int = 0,
 ) -> SensitivityReport:
     """Everything this module can say about how robust one finding is.
@@ -1016,6 +1077,10 @@ def sensitivity_report(
     the effect is real: a clean sensitivity report is consistent with an
     unmeasured confounder nobody thought to look for, and the report says so
     rather than implying otherwise.
+
+    `n_placebo_units` and `n_placebo_dates` are passed straight through to
+    `falsify`, which documents what they cost. Both matter most on `bsts`,
+    where each one buys or spends a full NUTS run.
     """
     bound = cinelli_hazlett(dataset, estimator_name, config)
     if bound is not None:
@@ -1061,6 +1126,7 @@ def sensitivity_report(
             config,
             n_permutations=n_permutations,
             n_placebo_units=n_placebo_units,
+            n_placebo_dates=n_placebo_dates,
             seed=seed,
         ),
     )

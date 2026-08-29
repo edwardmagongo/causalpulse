@@ -218,3 +218,71 @@ def donor_matrix(panel: PanelArrays) -> tuple[np.ndarray, np.ndarray, np.ndarray
 
     donor_rows = np.delete(np.arange(panel.n_units), treated_index)
     return wide[treated_index], wide[donor_rows], pre_mask
+
+
+# A window trained on one period is not a weak fit, it is an unidentified one.
+# On the simplex side, one equation over 17 donor weights is matched exactly by
+# a whole face of solutions and which one the solver lands on decides the
+# reported gap: measured on S1, the sweep over training lengths 1..16 gives
+# -1.55847 at length 1 against a range of [-0.67421, +0.55785] over every other
+# length. Two is also the floor `_in_time_placebo` already implied -- it
+# declines below 4 pre-periods, and its midpoint split of 4 trains on 2. Shared
+# by both donor-pool estimators so the two sweeps visit the same fake dates and
+# their distributions stay comparable in length.
+MIN_IN_TIME_TRAIN_PERIODS = 2
+
+
+def split_pre_period(pre_mask: np.ndarray, n_train: int) -> tuple[np.ndarray, np.ndarray]:
+    """A fake treatment date inside the pre-period, as two masks over all periods.
+
+    The first `n_train` pre-treatment periods become the fake pre-period and
+    every later pre-treatment period becomes the fake post-period. Both masks
+    are subsets of `pre_mask` over the full period axis, so neither can reach
+    a period after the real treatment date -- which is the whole point of an
+    in-time placebo, and the one property that makes its effects a null
+    distribution rather than a second look at the real effect.
+
+    One definition of the split for every caller: `_in_time_placebo`, the
+    synthetic-control sweep and the BSTS sweep all take their windows from
+    here, so no two of them can disagree about which periods a fake date
+    separates.
+    """
+    pre_positions = np.flatnonzero(pre_mask)
+    fake_pre = np.zeros_like(pre_mask, dtype=bool)
+    fake_post = np.zeros_like(pre_mask, dtype=bool)
+    fake_pre[pre_positions[:n_train]] = True
+    fake_post[pre_positions[n_train:]] = True
+    return fake_pre, fake_post
+
+
+def in_time_placebo_windows(
+    pre_mask: np.ndarray,
+    *,
+    min_train_periods: int = MIN_IN_TIME_TRAIN_PERIODS,
+    max_windows: int | None = None,
+) -> tuple[int, ...]:
+    """Training lengths the in-time placebo should visit, longest range first.
+
+    Every length from `min_train_periods` up to one short of the pre-period's
+    end, so each window keeps at least one period to measure a gap over.
+    Returns empty when the pre-period cannot hold a single window, which is a
+    real answer about the design rather than an error.
+
+    `max_windows` caps the count for an estimator that pays a full posterior
+    refit per window (see `bsts.bsts_in_time_placebo_sweep`). The cap keeps
+    both ends of the range and spreads the rest evenly between them, so a
+    capped sweep still spans short and long training windows rather than
+    sampling one end of a regime that is known to behave differently at each.
+    **A cap changes the rank p-value's floor**, which is `1 / (n_windows + 1)`
+    -- four windows cannot report a p-value below 0.2 however extreme the real
+    effect is.
+    """
+    lengths = range(min_train_periods, int(np.count_nonzero(pre_mask)))
+    if max_windows is None or len(lengths) <= max_windows:
+        return tuple(lengths)
+    if max_windows <= 0:
+        return ()
+    if max_windows == 1:
+        return (lengths[len(lengths) // 2],)
+    picks = np.linspace(0, len(lengths) - 1, max_windows)
+    return tuple(sorted({lengths[int(round(index))] for index in picks}))

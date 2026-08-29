@@ -8,11 +8,12 @@ permutations of one seed, would be measuring the rate from a single instance.
 """
 
 import dataclasses
+import functools
 
 import numpy as np
 import pytest
 from cp_causal._panel import donor_matrix, panel_arrays
-from cp_causal.estimators.bsts import FAST_MCMC_CONFIG
+from cp_causal.estimators.bsts import FAST_MCMC_CONFIG, bsts_in_time_placebo_sweep
 from cp_causal.registry import all_estimators
 from cp_causal.sensitivity import falsify, randomization_inference
 from cp_core.values import EstimatorConfig
@@ -179,6 +180,34 @@ DONOR_POOL_CONFIGS = {
     "bsts": dataclasses.replace(FAST, options={"mcmc_config": FAST_MCMC_CONFIG}),
 }
 
+# bsts now fills placebo_dates from its OWN in-time placebo sweep, and every
+# window there is a full NUTS run at its own pre-period length. Capped at 3
+# windows that is 4 posterior runs per falsify (3 placebo + 1 real), measured
+# at about 22s under FAST_MCMC_CONFIG against 87s uncapped. The cap also sets
+# the rank p-value's floor at 1/(3 + 1) = 0.25, which is why nothing below
+# asserts a p-value smaller than that -- a cutoff the statistic cannot reach
+# measures nothing.
+BSTS_PLACEBO_DATES = 3
+
+
+@functools.cache
+def donor_pool_falsification(estimator_name):
+    # Memoised so the whole file pays for one bsts falsification rather than
+    # one per test. The tests below only read the result.
+    return falsify(
+        donor_panel("S1"),
+        estimator_name,
+        DONOR_POOL_CONFIGS[estimator_name],
+        n_placebo_dates=BSTS_PLACEBO_DATES,
+    )
+
+
+@functools.cache
+def donor_pool_own_point(estimator_name):
+    return all_estimators()[estimator_name]().fit(
+        donor_panel("S1"), DONOR_POOL_CONFIGS[estimator_name]
+    ).point
+
 
 def test_the_donor_pool_family_is_exactly_these_two():
     # The reasons bsts declines with name state-space regressors and shrinkage
@@ -202,10 +231,8 @@ def test_a_donor_pool_result_belongs_to_the_estimator_it_is_reported_under(
     # result with both reason fields None -- which asserts the numbers are
     # bsts's. Either a slot carries the named estimator's own point, or it is
     # absent with a reason.
-    config = DONOR_POOL_CONFIGS[estimator_name]
-    dataset = donor_panel("S1")
-    own_point = all_estimators()[estimator_name]().fit(dataset, config).point
-    result = falsify(dataset, estimator_name, config)
+    own_point = donor_pool_own_point(estimator_name)
+    result = donor_pool_falsification(estimator_name)
 
     if result.placebo_units is None:
         assert result.placebo_units_reason
@@ -214,32 +241,40 @@ def test_a_donor_pool_result_belongs_to_the_estimator_it_is_reported_under(
     else:
         assert result.placebo_units.real_effect == pytest.approx(own_point)
 
+    # placebo_dates is filled for BOTH members of the family now -- each from
+    # its own machinery -- so the same rule applies to it: either the slot
+    # carries the named estimator's own point, or it is absent with a reason.
+    if result.placebo_dates is None:
+        assert result.placebo_dates_reason
+    else:
+        assert result.placebo_dates.real_effect == pytest.approx(own_point)
+
 
 def test_bsts_does_not_borrow_synthetic_controls_donor_pool_results():
-    dataset = donor_panel("S1")
-    bsts_point = all_estimators()["bsts"]().fit(
-        dataset, DONOR_POOL_CONFIGS["bsts"]
-    ).point
-    synthetic_point = all_estimators()["synthetic_control"]().fit(dataset, FAST).point
+    bsts_point = donor_pool_own_point("bsts")
+    synthetic_point = donor_pool_own_point("synthetic_control")
     # Non-vacuous: on S1 the two disagree (measured 1.17743 against 1.41401),
     # so a slot carrying the wrong one is visible rather than coincidental.
     assert bsts_point != pytest.approx(synthetic_point, rel=1e-3)
 
-    result = falsify(dataset, "bsts", DONOR_POOL_CONFIGS["bsts"])
+    result = donor_pool_falsification("bsts")
+    # The two slots defined in terms of the simplex weight vector stay absent:
+    # bsts does not fit one, and borrowing synthetic control's was the bug.
     assert result.placebo_units is None
     assert result.leave_one_donor_out is None
-    # placebo_dates joins the same discipline. The in-time placebo sweep that
-    # fills this slot for synthetic_control refits simplex donor weights at
-    # every fake date, which is no more bsts's own machinery than the unit
-    # swap is -- so bsts declines here too rather than have a synthetic
-    # control's sweep reported under its name.
-    assert result.placebo_dates is None
-    for reason in (
-        result.placebo_units_reason,
-        result.leave_one_donor_out_reason,
-        result.placebo_dates_reason,
-    ):
+    for reason in (result.placebo_units_reason, result.leave_one_donor_out_reason):
         assert reason and "simplex" in reason
+
+    # placebo_dates is different in kind and is filled. An in-time placebo
+    # needs only that the estimator can be refitted at an earlier date, which
+    # bsts can be -- so the slot carries bsts's own sweep. The discriminating
+    # assertion is which estimator's number `real_effect` is: the two points
+    # differ by about 0.24 on S1, so borrowing synthetic control's would be
+    # visible here rather than a coincidence.
+    assert result.placebo_dates is not None
+    assert result.placebo_dates_reason is None
+    assert result.placebo_dates.real_effect == pytest.approx(bsts_point)
+    assert result.placebo_dates.real_effect != pytest.approx(synthetic_point, rel=1e-3)
 
 
 def test_a_panel_too_small_for_a_placebo_group_says_so_rather_than_raising():
@@ -565,3 +600,109 @@ def test_a_panel_with_no_treated_units_names_its_own_condition():
     assert reason is not None
     assert "ever treated" in reason
     assert "placebo-date" not in reason
+
+
+def test_the_bsts_placebo_dates_come_from_bsts_own_posterior():
+    # The discriminating test for this slot, and the counterpart of
+    # `test_the_in_time_placebo_distribution_uses_the_same_form_as_the_real
+    # _effect` on the synthetic-control side: reconstruct each window through
+    # `fit_bsts_counterfactual` -- the same pipeline `BSTS.fit` reports its
+    # point from -- and demand exact equality with what falsify reported.
+    #
+    # A distribution-level check would not discriminate. What it has to rule
+    # out is the slot carrying synthetic control's sweep, so the assertion
+    # that carries the finding is that these are bsts posteriors, window by
+    # window.
+    from cp_causal._panel import split_pre_period
+    from cp_causal.estimators.bsts import fit_bsts_counterfactual, resolve_mcmc_config
+
+    config = DONOR_POOL_CONFIGS["bsts"]
+    result = donor_pool_falsification("bsts")
+    assert result.placebo_dates is not None
+    reported = np.asarray(result.placebo_dates.placebo_effects)
+    assert reported.size == BSTS_PLACEBO_DATES
+
+    treated, donors, pre = donor_matrix(panel_arrays(donor_panel("S1")))
+    sweep = bsts_in_time_placebo_sweep(
+        treated,
+        donors,
+        pre,
+        mcmc_config=resolve_mcmc_config(config),
+        random_seed=config.random_seed,
+        ci_level=config.ci_level,
+        max_windows=BSTS_PLACEBO_DATES,
+    )
+    assert np.array_equal(reported, sweep.point_estimates)
+
+    # Spot-check one window against the pipeline directly, so this does not
+    # merely assert the sweep equals itself.
+    fake_pre, fake_post = split_pre_period(pre, sweep.train_lengths[0])
+    own = fit_bsts_counterfactual(
+        treated,
+        donors,
+        fake_pre,
+        fake_post,
+        mcmc_config=resolve_mcmc_config(config),
+        random_seed=config.random_seed,
+        ci_level=config.ci_level,
+    )
+    assert sweep.point_estimates[0] == own.point
+
+    # And it is NOT synthetic control's sweep, which is the regression this
+    # slot is exposed to. Measured on S1: the two agree on no window.
+    from cp_causal.estimators.synthetic_control import in_time_placebo_sweep
+
+    sc_sweep = in_time_placebo_sweep(
+        treated, donors, pre, max_windows=BSTS_PLACEBO_DATES
+    )
+    assert sc_sweep.train_lengths == sweep.train_lengths
+    assert not np.any(np.isclose(sc_sweep.point_estimates, sweep.point_estimates))
+
+
+def test_a_capped_sweep_keeps_both_ends_of_the_pre_period():
+    # The cap exists to buy time on bsts, and what it must not do is spend
+    # that budget on one end of the range: short and long training windows
+    # behave differently, so a cap that sampled only short ones would build a
+    # reference distribution from the least representative windows.
+    from cp_causal._panel import in_time_placebo_windows
+
+    treated, donors, pre = donor_matrix(panel_arrays(donor_panel("S1")))
+    full = in_time_placebo_windows(pre)
+    assert full == tuple(range(2, 17))
+
+    capped = in_time_placebo_windows(pre, max_windows=BSTS_PLACEBO_DATES)
+    assert len(capped) == BSTS_PLACEBO_DATES
+    assert capped[0] == full[0]
+    assert capped[-1] == full[-1]
+    # A cap at or above the available count is a no-op rather than an error.
+    assert in_time_placebo_windows(pre, max_windows=99) == full
+
+
+def test_a_bsts_pre_period_too_short_declines_without_fitting_a_posterior():
+    # S5 leaves 2 pre-treatment periods, so no window can be formed. bsts must
+    # reach the same stated absence synthetic_control does -- and reach it
+    # without sampling, which matters far more here: an estimator that spent
+    # a NUTS run per window only to discover it had no windows would cost
+    # minutes to say nothing.
+    #
+    # Asserted structurally rather than by timing it. If the window list is
+    # empty then the sweep's comprehension never runs a body, so no posterior
+    # can have been fitted; a wall-clock bound would test the same fact more
+    # flakily.
+    from cp_causal._panel import in_time_placebo_windows
+
+    dataset = donor_panel("S5")
+    _, _, pre = donor_matrix(panel_arrays(dataset))
+    assert in_time_placebo_windows(pre) == ()
+
+    result = falsify(
+        dataset,
+        "bsts",
+        DONOR_POOL_CONFIGS["bsts"],
+        n_placebo_dates=BSTS_PLACEBO_DATES,
+    )
+    assert result.placebo_dates is None
+    reason = result.placebo_dates_reason
+    assert reason is not None
+    assert "3 in total" in reason
+    assert "This design has 2" in reason

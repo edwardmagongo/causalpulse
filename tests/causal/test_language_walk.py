@@ -122,6 +122,12 @@ def _report_texts(dataset, name, estimate) -> list[str]:
         outcome_sd=outcome_sd,
         n_permutations=20,
         n_placebo_units=3,
+        # Two windows, not the uncapped sweep. On the donor-pool pair this is
+        # an in-time placebo per window, and on bsts each window is a full
+        # NUTS run -- uncapped that is 81.5s of sampling for a walk whose
+        # whole purpose is reaching prose, not measuring where a p-value
+        # lands. Same reasoning as `n_placebo_units=3` above.
+        n_placebo_dates=2,
         seed=1,
     )
     falsification = report.falsification

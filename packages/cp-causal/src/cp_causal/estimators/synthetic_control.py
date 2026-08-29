@@ -18,7 +18,14 @@ from cp_core.results import AssumptionCheck, CounterfactualPath, EffectEstimate,
 from cp_core.values import Diagnostic, EstimatorConfig, Interval
 from scipy.optimize import minimize
 
-from cp_causal._panel import donor_matrix, outcome_scale, panel_arrays
+from cp_causal._panel import (
+    MIN_IN_TIME_TRAIN_PERIODS,
+    donor_matrix,
+    in_time_placebo_windows,
+    outcome_scale,
+    panel_arrays,
+    split_pre_period,
+)
 from cp_causal._support import config_hash
 from cp_causal.base import Requirements
 from cp_causal.panel_checks import (
@@ -289,30 +296,6 @@ def permutation_p_value(rmspe_ratios: np.ndarray) -> float:
     return rank / n
 
 
-def _split_pre_period(
-    pre_mask: np.ndarray, n_train: int
-) -> tuple[np.ndarray, np.ndarray]:
-    """A fake treatment date inside the pre-period, as two masks over all periods.
-
-    The first `n_train` pre-treatment periods become the fake pre-period and
-    every later pre-treatment period becomes the fake post-period. Both masks
-    are subsets of `pre_mask` over the full period axis, so neither can reach
-    a period after the real treatment date -- which is the whole point of an
-    in-time placebo, and the one property that makes its effects a null
-    distribution rather than a second look at the real effect.
-
-    One definition of the split, shared by `_in_time_placebo` and
-    `in_time_placebo_sweep`, so the midpoint the estimator reports as a
-    diagnostic is literally one of the windows the sweep visits.
-    """
-    pre_positions = np.flatnonzero(pre_mask)
-    fake_pre = np.zeros_like(pre_mask, dtype=bool)
-    fake_post = np.zeros_like(pre_mask, dtype=bool)
-    fake_pre[pre_positions[:n_train]] = True
-    fake_post[pre_positions[n_train:]] = True
-    return fake_pre, fake_post
-
-
 def _in_time_placebo(
     treated_series: np.ndarray, donor_series: np.ndarray, pre_mask: np.ndarray
 ) -> float:
@@ -334,22 +317,12 @@ def _in_time_placebo(
     n_pre = int(np.count_nonzero(pre_mask))
     if n_pre < 4:
         return float("nan")
-    fake_pre, fake_post = _split_pre_period(pre_mask, n_pre // 2)
+    fake_pre, fake_post = split_pre_period(pre_mask, n_pre // 2)
     weights = solve_donor_weights(treated_series[fake_pre], donor_series[:, fake_pre])
     synthetic = weights @ donor_series
     return float(np.mean(treated_series[fake_post] - synthetic[fake_post]))
 
 
-# A window trained on one period is not a weak fit, it is an unidentified one:
-# a single equation over 17 simplex weights is matched exactly by a whole face
-# of solutions, and which one SLSQP lands on decides the reported gap.
-# Measured on S1, the sweep over training lengths 1..16 gives -1.55847 at
-# length 1 against a range of [-0.67421, +0.55785] over every other length --
-# the one-period window is not a draw from the same distribution as the rest,
-# it is an artefact of the solver. Two is also the floor `_in_time_placebo`
-# already implies: it declines below 4 pre-periods, and its midpoint split of
-# 4 trains on 2.
-MIN_IN_TIME_TRAIN_PERIODS = 2
 
 
 @dataclass(frozen=True, eq=False)
@@ -390,6 +363,7 @@ def in_time_placebo_sweep(
     pre_mask: np.ndarray,
     *,
     min_train_periods: int = MIN_IN_TIME_TRAIN_PERIODS,
+    max_windows: int | None = None,
 ) -> InTimePlacebos:
     """`_in_time_placebo` at every fake treatment date, not only the midpoint.
 
@@ -415,15 +389,22 @@ def in_time_placebo_sweep(
     real answer about the design, and the caller states it as one rather than
     reporting a distribution built from nothing. See `InTimePlacebos` for
     what the resulting effects are and are not.
+
+    `max_windows` is accepted for symmetry with `bsts_in_time_placebo_sweep`,
+    which genuinely needs it -- a simplex solve per window is cheap enough
+    that this sweep has no reason to cap itself, so the default visits every
+    window. Passing one only lowers the rank p-value's floor.
     """
-    n_pre = int(np.count_nonzero(pre_mask))
+    lengths = in_time_placebo_windows(
+        pre_mask, min_train_periods=min_train_periods, max_windows=max_windows
+    )
     fits = [
-        fit_donor_pool_point(treated_series, donor_series, *_split_pre_period(pre_mask, n_train))
-        for n_train in range(min_train_periods, n_pre)
+        fit_donor_pool_point(treated_series, donor_series, *split_pre_period(pre_mask, n_train))
+        for n_train in lengths
     ]
     return InTimePlacebos(
         point_estimates=np.array([fit.point for fit in fits], dtype=float),
-        train_lengths=tuple(range(min_train_periods, n_pre)),
+        train_lengths=lengths,
         used_ridge=np.array([fit.use_ridge for fit in fits], dtype=bool),
     )
 
