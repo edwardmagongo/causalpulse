@@ -24,7 +24,7 @@ from cp_core.language import causal_language_lint
 from cp_core.values import EstimatorConfig
 from cp_simulation.donor_scenarios import DONOR_SCENARIOS, build_donor_scenario
 from cp_simulation.panel_scenarios import build_panel_scenario
-from cp_simulation.scenarios import build_scenario
+from cp_simulation.scenarios import DEFAULT_NEGATIVE_CONTROL, build_scenario
 
 # The MCMC estimators default to their PRODUCTION config -- 1500 warmup draws
 # over 4 chains for HierarchicalDiD -- whenever `options["mcmc_config"]` is
@@ -135,10 +135,12 @@ def _report_texts(dataset, name, estimate) -> list[str]:
         report.confounding.e_value.approximation_note,
         report.confounding.cinelli_hazlett_reason,
         report.specification_curve_reason,
+        report.misclassification_reason,
         falsification.placebo_dates_reason,
         falsification.placebo_units_reason,
         falsification.leave_one_donor_out_reason,
         falsification.randomization_inference_reason,
+        falsification.negative_control_reason,
     )
     return [text for text in optional_texts if text is not None]
 
@@ -165,6 +167,32 @@ def test_no_text_a_real_fit_produces_makes_an_unqualified_causal_claim():
         for text in texts:
             for violation in causal_language_lint(text):
                 offences.append(f"{name} on {label}: {violation.term} in {violation.sentence!r}")
+    assert offences == [], "\n".join(offences)
+
+
+@pytest.mark.slow
+def test_a_declared_negative_control_reaches_the_walk_without_a_new_violation():
+    """The two Phase 10 result types carry no string fields of their own --
+    only their `_reason` siblings do, and those already run through every
+    fit above regardless of whether a control is declared. What this test
+    adds is the one path the rest of the walk cannot reach on its own: a
+    dataset that actually declares a negative control, so `negative_control`
+    is populated instead of `negative_control_reason`, and the report is
+    built and linted without raising.
+    """
+    simulated = build_scenario("D", negative_control=DEFAULT_NEGATIVE_CONTROL).generate(
+        n_units=400, rng=np.random.default_rng(0)
+    )
+    dataset = simulated.dataset
+    estimate = all_estimators()["lin_regression"]().fit(dataset, CONFIG)
+    texts = _texts(estimate, score_validity(
+        estimate, provenance=dataset.schema.assignment_provenance
+    )) + _report_texts(dataset, "lin_regression", estimate)
+    offences = [
+        f"lin_regression on D+negative_control: {violation.term} in {violation.sentence!r}"
+        for text in texts
+        for violation in causal_language_lint(text)
+    ]
     assert offences == [], "\n".join(offences)
 
 

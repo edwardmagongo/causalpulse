@@ -943,6 +943,84 @@ a posterior to discover it.
   donor-set variants — matching how every prior phase shipped one estimator family's version of a
   capability before generalising.
 
+## Negative controls and treatment misclassification (Phase 10)
+
+Two more falsification techniques, both deferred out of Phase 9 because they need real data-
+generating capability rather than a computation over an already-fitted estimate: a second outcome
+that shares treatment's confounders but cannot be affected by treatment, and a treatment column
+recorded with error while the true one stays available for scoring.
+
+### What a negative-control finding means, and what it does not
+
+`negative_control_test` refits the same estimator on a column that treatment cannot affect by
+construction — `NegativeControlOutcome`'s `probabilities` never takes treatment as an argument, so
+no configuration of it can make the column depend on treatment. **An estimate that excludes zero
+there is evidence of residual confounding**: the only paths connecting treatment to that column run
+through the confounders, so an association there is not an effect.
+
+**A null result is a weaker claim than "no confounding."** It says this particular control found
+none, which is not the same as there being none — a confounder the control doesn't share with the
+real outcome would go undetected. `NegativeControlResult` carries no interpretation string of its
+own (no report renderer exists yet in this codebase), so this caveat lives here and in the
+function's own docstring rather than in a field a caller could drop.
+
+### The misclassification correction moves away from the null, and cannot explain a finding away
+
+`misclassification_curve` corrects an observed difference-of-means estimate for non-differential
+treatment misclassification — a treatment column recorded with error, at rates that do not depend
+on the outcome. Non-differential error attenuates toward the null, so **every corrected point in
+the curve lies further from the null than the observed estimate, never closer.** This is the
+phase's leading misuse risk: the correction can only say the true effect may be larger than
+reported, never smaller, and never that a real finding was an artefact.
+
+**The naive `(se + sp − 1)` attenuation factor is wrong except when the true and observed treated
+shares happen to coincide.** With `se`/`sp` the sensitivity/specificity, `q` the *observed* treated
+share, and `p` the *implied true* share solved from `q`, the correct factor is
+`(se + sp − 1) · p(1 − p) / [q(1 − q)]` — the naive form drops the prevalence-ratio term, which
+does not cancel except in the balanced, symmetric case. Verified against a simulated ground truth
+of 4,000,000 units per row across four `(q, se, sp)` configurations, three of them asymmetric, all
+recovering the true effect within 0.01. `q` is read from the fitted estimate's own
+`n_treated`/`n_control`, never accepted as a caller-supplied parameter that could disagree with it
+— the same two-values-that-must-agree failure shape as Phase 9's E-value defect.
+
+**Only non-differential misclassification is modelled.** Differential misclassification — where the
+error rates themselves depend on the true outcome — could manufacture an association where none
+exists, which is a different and harder analysis than correcting an attenuation. This is an
+intentional scope limit, not a gap: the tractable case is the one built, and the harder one is named
+rather than approximated.
+
+### What the measured harness found
+
+All three of spec §7.3's pre-registered expectations held as stated. Measured 2026-08-29, 20 seeds
+at `n_units=2000`:
+
+| check | scenario | result |
+|---|---|---|
+| Negative control, randomised | A, every covered estimator | fires 0.000–0.050 (nominal ≈ 0.05) |
+| Negative control, confounded, unadjusted | D and G, `difference_in_means` | fires **1.000** (20 of 20 seeds) |
+| Negative control, confounded, adjusted | D and G, `lin_regression`/`ipw`/`aipw` | fires 0.000–0.050 |
+| Misclassification recovery (`se=0.9, sp=0.9`) | A, `difference_in_means`, true ATE 0.05000 | observed bias −0.01496; corrected bias −0.00619 (MCSE 0.00525) |
+
+The separation on D and G is total, not a near-miss: every seed where `difference_in_means`
+(which adjusts for nothing) fit the negative control, it found a spurious effect; every seed where
+an adjusting estimator fit the same column on the same data, it did not. Two of these rates are
+literal unanimous shares (20 of 20, or 0 of 20), which the binomial formula gives an MCSE of exactly
+0.000 — a property of the formula at that share, not evidence of certainty, so the measured harness
+uses rule-of-three reasoning for those thresholds rather than `mean ± MCSE` arithmetic. The
+correction's residual bias (−0.00619) sits under 1.2× its own Monte Carlo standard error — genuine
+recovery, not a partial one.
+
+### What is deferred, and why
+
+- **Panel and donor-pool variants of both checks.** A negative control or a misclassified treatment
+  column on panel data needs its own DGP machinery — a panel negative control shares the panel's
+  time structure, and permuting a panel's treatment column the way the cross-sectional version does
+  would break the unit/period structure, the same reason Phase 9 deferred panel randomization
+  inference.
+- **Differential misclassification.** Named above — a harder analysis that this phase's tractable,
+  non-differential model does not attempt.
+- **Missing data.** Moves to Phase 11, the last of §7.1's five original concerns.
+
 ## On scikit-learn
 
 scikit-learn fits nuisance models only — the propensity model and the outcome regressions, which
