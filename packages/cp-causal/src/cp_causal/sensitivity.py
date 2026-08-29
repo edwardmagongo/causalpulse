@@ -681,6 +681,7 @@ def misclassification_curve(
     when it implies a true share outside the unit interval, or when its
     attenuation falls under `MIN_ATTENUATION_FACTOR` -- the last of the three
     keeps the correction from dividing by almost nothing near the boundary.
+    A pair with a rate outside `[0, 1]` is a caller error and raises.
     """
     if estimate.scale == "log_ratio":
         raise ValueError(
@@ -688,6 +689,19 @@ def misclassification_curve(
             "log_ratio estimate is on a different scale and the attenuation "
             "derived here does not apply to it"
         )
+    # Validated up front rather than at construction. A rate outside [0, 1] is
+    # not a pair this analysis declines to use, it is a caller error, and
+    # letting it reach MisclassificationPoint would abort the whole curve part
+    # way through -- inconsistent with the per-pair refusal every other
+    # unusable pair gets below.
+    for sensitivity, specificity in rates:
+        for label, value in (("sensitivity", sensitivity), ("specificity", specificity)):
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(
+                    f"every assumed rate must lie in [0, 1]; got {label}={value} "
+                    f"in {rates}"
+                )
+
     total = estimate.n_treated + estimate.n_control
     observed_share = estimate.n_treated / total
 
@@ -933,6 +947,12 @@ def falsify(
     `n_placebo_units` defaults to 20 for that reason, and a caller running
     those estimators should lower it deliberately rather than discover the
     cost.
+
+    The negative-control slot has a cost with no knob on it: when the schema
+    declares a negative-control outcome, this runs one extra full fit of the
+    same estimator, unconditionally and at the same price as the real fit --
+    on `causal_forest` that is a measured 4.56s added to every call. A schema
+    that declares no such column pays nothing.
 
     `n_placebo_dates` is the same knob for the donor-pool in-time placebo,
     and it matters for the same reason. On `synthetic_control` a window is a

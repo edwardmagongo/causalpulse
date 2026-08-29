@@ -1008,7 +1008,7 @@ at `n_units=2000`:
 
 | check | scenario | result |
 |---|---|---|
-| Negative control, randomised | A, every covered estimator | fires 0.000–0.050 (nominal ≈ 0.05) |
+| Negative control, randomised | A, four of the five covered estimators | fires 0.000–0.050 (nominal ≈ 0.05) |
 | Negative control, confounded, unadjusted | D and G, `difference_in_means` | fires **1.000** (20 of 20 seeds) |
 | Negative control, confounded, adjusted | D and G, `lin_regression`/`ipw`/`aipw` | fires 0.000–0.050 |
 | Misclassification recovery (`se=0.9, sp=0.9`) | A, `difference_in_means`, true ATE 0.05000 | observed bias −0.01496; corrected bias −0.00619 (MCSE 0.00525) |
@@ -1022,6 +1022,11 @@ literal unanimous shares (20 of 20, or 0 of 20), which the binomial formula give
 uses rule-of-three reasoning for those thresholds rather than `mean ± MCSE` arithmetic. The
 correction's residual bias sits under 1.2× its own Monte Carlo standard error at both rate
 pairs — genuine recovery, not a partial one.
+
+`causal_forest` is covered by `negative_control_test` but excluded from the measured harness on
+runtime cost: the check is one extra full fit, and that fit is a measured 4.56s there against
+milliseconds for the other four. The harness therefore measures `difference_in_means`,
+`lin_regression`, `ipw` and `aipw`.
 
 The harness asserts the **asymmetric** `se=0.8, sp=0.95` pair rather than the symmetric one.
 At `se=sp=0.9` on scenario A the true and observed treated shares coincide, which is the one

@@ -179,3 +179,13 @@ def test_a_point_below_the_floor_cannot_be_constructed_at_all():
             attenuation_factor=3.1e-16,
         )
 
+
+def test_a_rate_outside_the_unit_interval_is_refused_before_any_point_is_built():
+    # A pair this analysis declines to use is skipped; a pair that is not a
+    # pair of rates at all is a caller error. Raising up front rather than
+    # letting it reach MisclassificationPoint keeps the second from aborting a
+    # curve part way through, which the per-pair refusal contract does not do.
+    with pytest.raises(ValueError, match=r"must lie in \[0, 1\]"):
+        misclassification_curve(an_estimate(), rates=((1.0, 1.0), (1.2, 0.9)))
+    with pytest.raises(ValueError, match=r"must lie in \[0, 1\]"):
+        misclassification_curve(an_estimate(), rates=((1.0, 1.0), (0.9, -0.1)))
