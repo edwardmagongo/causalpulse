@@ -31,6 +31,11 @@ class GroundTruth:
     scenario_id: str
     config_hash: str
 
+    # The treatment actually assigned, when the observed column was measured
+    # with error. `None` when treatment is observed exactly, which is every
+    # scenario that does not opt into misclassification.
+    true_treatment: np.ndarray | None = None
+
 
 @dataclass(frozen=True)
 class SimulatedDataset:

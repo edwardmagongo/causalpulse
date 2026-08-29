@@ -88,6 +88,43 @@ class NegativeControlOutcome:
 
 
 @dataclass(frozen=True)
+class NonDifferentialMisclassification:
+    """Treatment observed with error, at rates that do not depend on the outcome.
+
+    Non-differential is the tractable case and the one modelled here: because
+    the error rates are the same whatever the outcome, the effect of the
+    observed treatment is an attenuated version of the effect of the real one.
+    Rates that did depend on the outcome could manufacture an association
+    where none exists, which is a different and harder analysis.
+    """
+
+    sensitivity: float
+    specificity: float
+
+    def __post_init__(self) -> None:
+        for label, value in (
+            ("sensitivity", self.sensitivity),
+            ("specificity", self.specificity),
+        ):
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(f"{label} must lie in [0, 1], got {value}")
+        if self.sensitivity + self.specificity <= 1.0:
+            raise ValueError(
+                "sensitivity + specificity must exceed 1; at or below it the "
+                "observed label is independent of the true one, which is noise "
+                "rather than mismeasurement"
+            )
+
+    def observe(self, treatment: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+        """Observed treatment: kept with probability `sensitivity` when truly
+        treated, and flipped on with probability `1 - specificity` otherwise."""
+        draw = rng.random(treatment.shape[0])
+        kept = draw < self.sensitivity
+        flipped = draw > self.specificity
+        return np.asarray(np.where(treatment == 1, kept, flipped).astype(int))
+
+
+@dataclass(frozen=True)
 class ConstantEffect:
     """A homogeneous treatment effect on the probability scale."""
 

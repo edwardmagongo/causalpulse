@@ -12,6 +12,7 @@ from cp_simulation._hashing import component_hash, describe_components
 from cp_simulation.components import (
     LogisticBaseline,
     NegativeControlOutcome,
+    NonDifferentialMisclassification,
     UnitGenerator,
 )
 from cp_simulation.truth import GroundTruth, SimulatedDataset
@@ -62,6 +63,7 @@ class CrossSectionDGP:
     assignment: Assignment
     scenario_id: str
     negative_control: NegativeControlOutcome | None = None
+    misclassification: NonDifferentialMisclassification | None = None
 
     @property
     def config_hash(self) -> str:
@@ -74,6 +76,7 @@ class CrossSectionDGP:
                     effect=self.effect,
                     assignment=self.assignment,
                     negative_control=self.negative_control,
+                    misclassification=self.misclassification,
                 ),
             }
         )
@@ -101,7 +104,18 @@ class CrossSectionDGP:
         treated_mask = treatment == 1
         true_att = float(cate[treated_mask].mean()) if treated_mask.any() else float("nan")
 
-        frame = frame.assign(treated=treatment, outcome=outcome)
+        # Outcomes are realised from the TRUE treatment above; only the
+        # observed column is mismeasured. That ordering is what keeps
+        # `true_ate` the effect of real treatment, so an estimator fitted on
+        # the observed column is genuinely attenuated rather than attenuated
+        # by definition.
+        true_treatment: np.ndarray | None = None
+        observed_treatment = treatment
+        if self.misclassification is not None:
+            true_treatment = treatment
+            observed_treatment = self.misclassification.observe(treatment, rng)
+
+        frame = frame.assign(treated=observed_treatment, outcome=outcome)
         if self.negative_control is not None:
             nc_probability = self.negative_control.probabilities(covariates)
             frame = frame.assign(
@@ -126,6 +140,7 @@ class CrossSectionDGP:
             true_confounders=self.assignment.confounders(names),
             scenario_id=self.scenario_id,
             config_hash=self.config_hash,
+            true_treatment=true_treatment,
         )
         return SimulatedDataset(
             dataset=CausalDataset(frame=frame, schema=schema), truth=truth
