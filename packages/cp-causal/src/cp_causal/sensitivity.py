@@ -22,12 +22,14 @@ from cp_core.results import (
     EffectEstimate,
     EValueResult,
     FalsificationResult,
+    MisclassificationCurve,
+    MisclassificationPoint,
     PlaceboTestResult,
     SensitivityReport,
     SpecificationCurve,
     SpecificationPoint,
 )
-from cp_core.values import EstimatorConfig
+from cp_core.values import EstimatorConfig, Interval
 from cp_statistics.covariance import OLSFit, ols_fit
 from scipy import stats
 
@@ -590,9 +592,99 @@ _NO_NEGATIVE_CONTROL_REASON = (
     "The schema declares no negative-control outcome, so there is no column "
     "known to be unaffected by treatment to refit against."
 )
-_NO_MISCLASSIFICATION_REASON = (
-    "No misclassification curve was computed for this estimate."
+# Pairs of (sensitivity, specificity) spanning plausible mismeasurement of a
+# binary treatment. The identity pair is first and deliberate: it makes the
+# curve contain the analysis as actually run, so a reader can see where the
+# uncorrected result sits rather than reading every point as equally a
+# candidate for the truth.
+MISCLASSIFICATION_RATES: tuple[tuple[float, float], ...] = (
+    (1.00, 1.00),
+    (0.95, 0.95),
+    (0.95, 0.90),
+    (0.90, 0.95),
+    (0.90, 0.90),
 )
+
+_MISCLASSIFICATION_DIRECTION = (
+    "Non-differential misclassification attenuates an estimate toward the "
+    "null, so every corrected point here lies further from the null than the "
+    "observed one. This analysis does not offer a way to explain a finding "
+    "away; it says only that the true effect may be larger than reported."
+)
+
+
+def misclassification_curve(
+    estimate: EffectEstimate,
+    *,
+    rates: tuple[tuple[float, float], ...] = MISCLASSIFICATION_RATES,
+) -> MisclassificationCurve:
+    """What the effect would have been if treatment were measured with error.
+
+    Assumes the error is non-differential -- the misclassification rates do
+    not depend on the outcome. Under that assumption the observed estimate is
+    attenuated, and correcting moves it away from the null.
+
+    The attenuation is not the widely quoted `se + sp - 1`. That factor is
+    correct only when the true and observed treated shares coincide, which
+    needs symmetric rates and a balanced share; otherwise the prevalence terms
+    below do not cancel. See the phase 10 design note for the derivation and
+    its empirical check.
+    """
+    if estimate.scale == "log_ratio":
+        raise ValueError(
+            "misclassification_curve corrects a difference of means; a "
+            "log_ratio estimate is on a different scale and the attenuation "
+            "derived here does not apply to it"
+        )
+
+    total = estimate.n_treated + estimate.n_control
+    observed_share = estimate.n_treated / total
+
+    points: list[MisclassificationPoint] = []
+    for sensitivity, specificity in rates:
+        informative = sensitivity + specificity - 1.0
+        # At or below zero the observed label says nothing about the true one,
+        # so there is no correction to make rather than an infinite one.
+        if informative <= 0.0:
+            continue
+        true_share = (observed_share - (1.0 - specificity)) / informative
+        # A true share outside the unit interval means the assumed rates are
+        # incompatible with the share actually observed.
+        if not 0.0 < true_share < 1.0:
+            continue
+        attenuation = (
+            informative
+            * (true_share * (1.0 - true_share))
+            / (observed_share * (1.0 - observed_share))
+        )
+        if attenuation <= 0.0:  # pragma: no cover - implied by the guards above
+            continue
+        points.append(
+            MisclassificationPoint(
+                sensitivity=sensitivity,
+                specificity=specificity,
+                corrected_point=estimate.point / attenuation,
+                corrected_ci=Interval(
+                    lower=estimate.ci.lower / attenuation,
+                    upper=estimate.ci.upper / attenuation,
+                    level=estimate.ci.level,
+                ),
+                attenuation_factor=attenuation,
+            )
+        )
+
+    if not points:
+        raise ValueError(
+            f"no usable rate pair in {rates}: every pair was either "
+            "uninformative or incompatible with the observed treated share of "
+            f"{observed_share:.4f}"
+        )
+
+    return MisclassificationCurve(
+        observed_point=estimate.point,
+        points=tuple(points),
+        observed_treated_share=observed_share,
+    )
 
 
 def _family(estimator_name: str) -> str:
@@ -1091,6 +1183,16 @@ def sensitivity_report(
     `falsify`, which documents what they cost. Both matter most on `bsts`,
     where each one buys or spends a full NUTS run.
     """
+    curve_of_rates: MisclassificationCurve | None = None
+    misclassification_reason: str | None = None
+    if estimate.scale == "log_ratio":
+        misclassification_reason = (
+            "The estimate is a log ratio, and the misclassification correction "
+            "here is derived for a difference of means."
+        )
+    else:
+        curve_of_rates = misclassification_curve(estimate)
+
     bound = cinelli_hazlett(dataset, estimator_name, config)
     if bound is not None:
         cinelli_hazlett_reason = None
@@ -1138,6 +1240,6 @@ def sensitivity_report(
             n_placebo_dates=n_placebo_dates,
             seed=seed,
         ),
-        misclassification=None,
-        misclassification_reason=_NO_MISCLASSIFICATION_REASON,
+        misclassification=curve_of_rates,
+        misclassification_reason=misclassification_reason,
     )
