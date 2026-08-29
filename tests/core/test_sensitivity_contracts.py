@@ -17,6 +17,9 @@ from cp_core.results import (
     ConfoundingSensitivity,
     EValueResult,
     FalsificationResult,
+    MisclassificationCurve,
+    MisclassificationPoint,
+    NegativeControlResult,
     PlaceboTestResult,
     SensitivityReport,
     SpecificationCurve,
@@ -57,6 +60,31 @@ def a_placebo() -> PlaceboTestResult:
         placebo_effects=np.array([0.1, -0.2, 0.05]),
         real_effect=0.9,
         p_value=0.25,
+    )
+
+
+def a_negative_control() -> NegativeControlResult:
+    # excludes_null must agree with whether the interval contains zero: this
+    # interval spans zero, so excludes_null is False.
+    return NegativeControlResult(
+        outcome_column="outcome_nc",
+        estimate=0.004,
+        ci=Interval(lower=-0.02, upper=0.03),
+        excludes_null=False,
+        estimator="lin_regression",
+    )
+
+
+def a_misclassification_curve() -> MisclassificationCurve:
+    point = MisclassificationPoint(
+        sensitivity=0.9,
+        specificity=0.9,
+        corrected_point=0.125,
+        corrected_ci=Interval(lower=0.05, upper=0.20),
+        attenuation_factor=0.8,
+    )
+    return MisclassificationCurve(
+        observed_point=0.1, points=(point,), observed_treated_share=0.5
     )
 
 
@@ -263,6 +291,7 @@ _FALSIFICATION_SLOTS: tuple[tuple[str, Callable[[], object]], ...] = (
     ("placebo_units", a_placebo),
     ("leave_one_donor_out", lambda: (0.1, 0.2)),
     ("randomization_inference", a_placebo),
+    ("negative_control", a_negative_control),
 )
 _FALSIFICATION_SLOT_IDS = [slot for slot, _ in _FALSIFICATION_SLOTS]
 
@@ -275,11 +304,6 @@ def _absent_falsification_kwargs() -> dict[str, object]:
     for slot, _ in _FALSIFICATION_SLOTS:
         kwargs[slot] = None
         kwargs[f"{slot}_reason"] = "not applicable"
-    # negative_control is not among _FALSIFICATION_SLOTS -- Task 2 adds no
-    # parametrized case for it -- but the baseline still has to satisfy the
-    # constructor's exclusive-or, so it is fixed absent here.
-    kwargs["negative_control"] = None
-    kwargs["negative_control_reason"] = "not applicable"
     return kwargs
 
 
@@ -414,4 +438,132 @@ def test_sensitivity_report_present_curve_with_reason_raises():
             ),
             misclassification=None,
             misclassification_reason="not applicable",
+        )
+
+
+def test_sensitivity_report_with_misclassification_constructs():
+    # misclassification present, reason None -- the other slot's "present"
+    # direction, mirroring the specification_curve pair above.
+    SensitivityReport(
+        confounding=a_confounding_sensitivity(),
+        specification_curve=None,
+        specification_curve_reason="not applicable",
+        falsification=FalsificationResult(
+            placebo_dates=None,
+            placebo_dates_reason="not applicable",
+            placebo_units=None,
+            placebo_units_reason="not applicable",
+            leave_one_donor_out=None,
+            leave_one_donor_out_reason="not applicable",
+            randomization_inference=None,
+            randomization_inference_reason="not applicable",
+            negative_control=None,
+            negative_control_reason="not applicable",
+        ),
+        misclassification=a_misclassification_curve(),
+        misclassification_reason=None,
+    )
+
+
+def test_sensitivity_report_without_misclassification_constructs():
+    # misclassification None, reason non-empty.
+    SensitivityReport(
+        confounding=a_confounding_sensitivity(),
+        specification_curve=None,
+        specification_curve_reason="not applicable",
+        falsification=FalsificationResult(
+            placebo_dates=None,
+            placebo_dates_reason="not applicable",
+            placebo_units=None,
+            placebo_units_reason="not applicable",
+            leave_one_donor_out=None,
+            leave_one_donor_out_reason="not applicable",
+            randomization_inference=None,
+            randomization_inference_reason="not applicable",
+            negative_control=None,
+            negative_control_reason="not applicable",
+        ),
+        misclassification=None,
+        misclassification_reason="not applicable",
+    )
+
+
+def test_sensitivity_report_absent_misclassification_without_reason_raises():
+    # misclassification None but reason is None -> should raise.
+    with pytest.raises(ValueError, match="misclassification_reason"):
+        SensitivityReport(
+            confounding=a_confounding_sensitivity(),
+            specification_curve=None,
+            specification_curve_reason="not applicable",
+            falsification=FalsificationResult(
+                placebo_dates=None,
+                placebo_dates_reason="not applicable",
+                placebo_units=None,
+                placebo_units_reason="not applicable",
+                leave_one_donor_out=None,
+                leave_one_donor_out_reason="not applicable",
+                randomization_inference=None,
+                randomization_inference_reason="not applicable",
+                negative_control=None,
+                negative_control_reason="not applicable",
+            ),
+            misclassification=None,
+            misclassification_reason=None,
+        )
+
+
+def test_sensitivity_report_present_misclassification_with_reason_raises():
+    # misclassification present but reason is non-None -> should raise.
+    with pytest.raises(ValueError, match="misclassification_reason"):
+        SensitivityReport(
+            confounding=a_confounding_sensitivity(),
+            specification_curve=None,
+            specification_curve_reason="not applicable",
+            falsification=FalsificationResult(
+                placebo_dates=None,
+                placebo_dates_reason="not applicable",
+                placebo_units=None,
+                placebo_units_reason="not applicable",
+                leave_one_donor_out=None,
+                leave_one_donor_out_reason="not applicable",
+                randomization_inference=None,
+                randomization_inference_reason="not applicable",
+                negative_control=None,
+                negative_control_reason="not applicable",
+            ),
+            misclassification=a_misclassification_curve(),
+            misclassification_reason="some reason",
+        )
+
+
+def test_an_empty_negative_control_reason_string_does_not_count_as_a_reason():
+    # Mirrors test_an_empty_reason_string_does_not_count_as_a_reason for the
+    # negative_control slot: an empty string is falsy but not None, and the
+    # guard must still refuse it as "no reason given".
+    kwargs = _absent_falsification_kwargs()
+    kwargs["negative_control_reason"] = ""
+    with pytest.raises(ValueError, match="negative_control_reason"):
+        FalsificationResult(**kwargs)
+
+
+def test_an_empty_misclassification_reason_string_does_not_count_as_a_reason():
+    with pytest.raises(ValueError, match="misclassification_reason"):
+        SensitivityReport(
+            confounding=a_confounding_sensitivity(),
+            specification_curve=None,
+            specification_curve_reason="not applicable",
+            falsification=FalsificationResult(
+                placebo_dates=None,
+                placebo_dates_reason="not applicable",
+                placebo_units=None,
+                placebo_units_reason="not applicable",
+                leave_one_donor_out=None,
+                leave_one_donor_out_reason="not applicable",
+                randomization_inference=None,
+                randomization_inference_reason="not applicable",
+                negative_control=None,
+                negative_control_reason="not applicable",
+            ),
+            misclassification=None,
+            misclassification_reason="",
         )
