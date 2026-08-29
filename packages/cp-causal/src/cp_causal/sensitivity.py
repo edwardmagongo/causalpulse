@@ -545,6 +545,15 @@ _NON_SIMPLEX_DONOR_POOL_REASON = (
     "estimator would refit the full posterior once per donor, which this "
     "phase does not build."
 )
+_NO_ADOPTION_REASON = (
+    "No unit in this panel is ever treated, so there is no adoption period to "
+    "start a placebo group at and no real effect for one to be compared "
+    "against."
+)
+_NO_TIME_COLUMN_REASON = (
+    "This dataset declares no time column, so its units have no before and "
+    "after for a placebo group to be relabelled across."
+)
 _TOO_FEW_NEVER_TREATED_REASON = (
     "This panel's never-treated pool cannot be split into a placebo treated "
     "group and a placebo control group that both clear the minimum arm size, "
@@ -651,7 +660,10 @@ def _panel_placebo_units(
     panel = panel_arrays(dataset)
     adoption = panel.adoption_periods
     if not adoption:
-        return None, _TOO_FEW_PRE_PERIODS_REASON
+        # Not _TOO_FEW_PRE_PERIODS_REASON: that names placebo-DATE cells, a
+        # different technique, and the condition here is not a short
+        # pre-period. It is that nothing in this panel is ever treated.
+        return None, _NO_ADOPTION_REASON
     if panel.n_never_treated_units < 2 * MIN_UNITS_PER_ARM:
         return None, _TOO_FEW_NEVER_TREATED_REASON
 
@@ -686,7 +698,7 @@ def _panel_placebo_units(
     # than to handle a case that can occur.
     time_column = schema.time
     if time_column is None:
-        return None, _TOO_FEW_PRE_PERIODS_REASON
+        return None, _NO_TIME_COLUMN_REASON
 
     rng = np.random.default_rng(np.random.SeedSequence(seed))
     effects: list[float] = []

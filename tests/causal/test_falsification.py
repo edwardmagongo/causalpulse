@@ -365,3 +365,27 @@ def test_a_degenerate_ols_refit_is_not_reported_as_not_ols_fitted(monkeypatch):
     assert reason is not None
     assert "lin_regression" in reason
     assert "not fitted by least squares" not in reason
+
+
+def test_a_panel_with_no_treated_units_names_its_own_condition():
+    # This path used to return the placebo-DATES reason ("the placebo-date
+    # cells cannot be formed"), which names the wrong technique and states a
+    # condition -- too short a pre-period -- that is not the one that fired.
+    # Reached directly: a panel with nothing ever treated does not survive
+    # falsify's other branches, and the reason a slot gives is worth pinning
+    # on its own.
+    from cp_causal.sensitivity import _panel_placebo_units
+    from cp_core.dataset import CausalDataset
+
+    dataset = uniform_panel()
+    frame = dataset.frame.copy()
+    frame[dataset.schema.treatment] = 0
+    if dataset.schema.cohort is not None:
+        frame[dataset.schema.cohort] = 0
+    never_treated = CausalDataset(frame=frame, schema=dataset.schema)
+
+    result, reason = _panel_placebo_units(never_treated, "twfe", FAST, 3, 0)
+    assert result is None
+    assert reason is not None
+    assert "ever treated" in reason
+    assert "placebo-date" not in reason
