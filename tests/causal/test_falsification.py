@@ -614,6 +614,38 @@ def test_a_degenerate_ols_refit_is_not_reported_as_not_ols_fitted(monkeypatch):
     assert "not fitted by least squares" not in reason
 
 
+def test_a_panel_estimator_gets_no_misclassification_curve_but_a_deferral():
+    # The misclassification arm used to gate on the estimate's scale alone, so
+    # it fired for every panel and donor-pool estimator reporting a difference
+    # of means -- computing a treated share from arm counts that on a panel
+    # count units while the regressor is the unit x period indicator, and on
+    # the donor-pool estimators are one hardcoded treated unit against the
+    # donor count. The README defers panel variants of both of this phase's
+    # checks; this is what makes that true for the second of them.
+    from cp_causal.sensitivity import sensitivity_report
+
+    dataset = uniform_panel()
+    estimate = all_estimators()["twfe"]().fit(dataset, FAST)
+    report = sensitivity_report(
+        dataset,
+        "twfe",
+        estimate,
+        FAST,
+        outcome_sd=1.0,
+        n_permutations=20,
+        n_placebo_units=2,
+    )
+    assert report.misclassification is None
+    reason = report.misclassification_reason
+    assert reason is not None
+    assert "twfe" in reason
+    assert "deferred" in reason
+    # Not the log-ratio refusal wearing a panel estimator's name: twfe reports
+    # a difference of means, so the scale was never the disqualifying fact.
+    assert estimate.scale != "log_ratio"
+    assert "log ratio" not in reason
+
+
 def test_a_panel_with_no_treated_units_names_its_own_condition():
     # This path used to return the placebo-DATES reason ("the placebo-date
     # cells cannot be formed"), which names the wrong technique and states a

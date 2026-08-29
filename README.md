@@ -1022,11 +1022,15 @@ recovery, not a partial one.
 
 ### What is deferred, and why
 
-- **Panel and donor-pool variants of both checks.** A negative control or a misclassified treatment
-  column on panel data needs its own DGP machinery — a panel negative control shares the panel's
-  time structure, and permuting a panel's treatment column the way the cross-sectional version does
-  would break the unit/period structure, the same reason Phase 9 deferred panel randomization
-  inference.
+- **Panel and donor-pool variants of both checks.** Both refuse a panel or donor-pool estimator by
+  name, through `Requirements.needs_panel`, and `SensitivityReport` and `FalsificationResult` each
+  carry the stated reason beside the empty slot. A negative control on panel data needs its own DGP
+  machinery, since the control column has to share the panel's time structure as well as its
+  confounders. The misclassification correction needs the treated share of the regressor, and on a
+  panel the fitted estimate's arm counts are treated and control *units* while the regressor is the
+  unit × period indicator — on the donor-pool estimators the treated count is a hardcoded 1, which is
+  not a prevalence at all. Correcting with either number would return a figure that looks like an
+  answer, so the check declines instead.
 - **Differential misclassification.** Named above — a harder analysis that this phase's tractable,
   non-differential model does not attempt.
 - **Missing data.** Moves to Phase 11, the last of §7.1's five original concerns.

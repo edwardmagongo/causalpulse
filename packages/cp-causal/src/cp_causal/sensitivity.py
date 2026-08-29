@@ -1218,6 +1218,26 @@ _EVENT_STUDY_REASON = (
 # would misstate it, so it gets its own wording. Deliberately silent on
 # which of the two degeneracy conditions fired -- cinelli_hazlett's contract
 # does not say, and restructuring it to say is out of scope here.
+# Mirrors _PANEL_NEGATIVE_CONTROL_REASON: same deferral, same phase, stated
+# for the other of this phase's two checks. Gating on `needs_panel` rather
+# than on the estimate's scale is what makes the README's deferral claim
+# true -- the correction reads its prevalence off the estimate's treated and
+# control arm counts, which on a panel count units while the regressor is the
+# unit x period indicator, and on the donor-pool estimators are a hardcoded
+# single treated unit against the donor count.
+_PANEL_MISCLASSIFICATION_REASON = (
+    "The misclassification correction is built for the cross-sectional "
+    "estimators this phase covers, and reads the treated share off the "
+    "estimate's arm counts; {name} needs panel data, where those counts are "
+    "units rather than the unit-period indicator the regressor uses, so a "
+    "panel misclassification correction is deferred rather than approximated."
+)
+
+_LOG_RATIO_MISCLASSIFICATION_REASON = (
+    "The estimate is a log ratio, and the misclassification correction "
+    "here is derived for a difference of means."
+)
+
 _DEGENERATE_OLS_FIT_REASON = (
     "{name} is fitted by least squares against a single treatment "
     "coefficient, so cinelli_hazlett normally applies to it, but this "
@@ -1252,11 +1272,16 @@ def sensitivity_report(
     """
     curve_of_rates: MisclassificationCurve | None = None
     misclassification_reason: str | None = None
-    if estimate.scale == "log_ratio":
-        misclassification_reason = (
-            "The estimate is a log ratio, and the misclassification correction "
-            "here is derived for a difference of means."
+    if get_estimator(estimator_name).requirements.needs_panel:
+        # Checked before the scale, and both branches kept: a panel estimator
+        # reporting a log ratio is out of scope for the design reason first,
+        # and the scale reason would understate that by implying a
+        # cross-sectional log-ratio estimator is the only thing excluded.
+        misclassification_reason = _PANEL_MISCLASSIFICATION_REASON.format(
+            name=estimator_name
         )
+    elif estimate.scale == "log_ratio":
+        misclassification_reason = _LOG_RATIO_MISCLASSIFICATION_REASON
     else:
         curve_of_rates = misclassification_curve(estimate)
 
