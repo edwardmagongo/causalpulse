@@ -7,8 +7,11 @@ under a protocol that can support it. Asserting a p-value here, on 20
 permutations of one seed, would be measuring the rate from a single instance.
 """
 
+import dataclasses
+
 import numpy as np
 import pytest
+from cp_causal.estimators.bsts import FAST_MCMC_CONFIG
 from cp_causal.registry import all_estimators
 from cp_causal.sensitivity import falsify, randomization_inference
 from cp_core.values import EstimatorConfig
@@ -105,6 +108,68 @@ def test_a_donor_pool_real_effect_matches_the_estimators_own_ridge_fallback_poin
     assert result.leave_one_donor_out is not None
     for estimate in result.leave_one_donor_out:
         assert estimate == pytest.approx(fitted.point, abs=0.5)
+
+
+# bsts declares `max_treated_units == 1` exactly as synthetic_control does, so
+# both land in the same `_family`. It runs NUTS, so it gets the fast MCMC
+# config the language walk uses -- without it a single fit is a production
+# posterior and this file would cost minutes.
+DONOR_POOL_CONFIGS = {
+    "synthetic_control": FAST,
+    "bsts": dataclasses.replace(FAST, options={"mcmc_config": FAST_MCMC_CONFIG}),
+}
+
+
+def test_the_donor_pool_family_is_exactly_these_two():
+    # The reasons bsts declines with name state-space regressors and shrinkage
+    # priors, which is a fact about bsts rather than about the family. A third
+    # single-treated-unit estimator would inherit that wording and it would be
+    # false, so the membership is pinned rather than assumed.
+    from cp_causal.sensitivity import _family
+
+    donor_pool = {name for name in all_estimators() if _family(name) == "donor_pool"}
+    assert donor_pool == {"bsts", "synthetic_control"}
+
+
+@pytest.mark.parametrize("estimator_name", sorted(DONOR_POOL_CONFIGS))
+def test_a_donor_pool_result_belongs_to_the_estimator_it_is_reported_under(
+    estimator_name,
+):
+    # `falsify` routes by `_family` almost everywhere, and the donor-pool
+    # branch is the one place that is not enough: the machinery it calls is
+    # synthetic_control's own and never consults the estimator name. Routed by
+    # family alone it fitted a synthetic control for bsts and reported the
+    # result with both reason fields None -- which asserts the numbers are
+    # bsts's. Either a slot carries the named estimator's own point, or it is
+    # absent with a reason.
+    config = DONOR_POOL_CONFIGS[estimator_name]
+    dataset = donor_panel("S1")
+    own_point = all_estimators()[estimator_name]().fit(dataset, config).point
+    result = falsify(dataset, estimator_name, config)
+
+    if result.placebo_units is None:
+        assert result.placebo_units_reason
+        assert result.leave_one_donor_out is None
+        assert result.leave_one_donor_out_reason
+    else:
+        assert result.placebo_units.real_effect == pytest.approx(own_point)
+
+
+def test_bsts_does_not_borrow_synthetic_controls_donor_pool_results():
+    dataset = donor_panel("S1")
+    bsts_point = all_estimators()["bsts"]().fit(
+        dataset, DONOR_POOL_CONFIGS["bsts"]
+    ).point
+    synthetic_point = all_estimators()["synthetic_control"]().fit(dataset, FAST).point
+    # Non-vacuous: on S1 the two disagree (measured 1.17743 against 1.41401),
+    # so a slot carrying the wrong one is visible rather than coincidental.
+    assert bsts_point != pytest.approx(synthetic_point, rel=1e-3)
+
+    result = falsify(dataset, "bsts", DONOR_POOL_CONFIGS["bsts"])
+    assert result.placebo_units is None
+    assert result.leave_one_donor_out is None
+    for reason in (result.placebo_units_reason, result.leave_one_donor_out_reason):
+        assert reason and "simplex" in reason
 
 
 def test_a_panel_too_small_for_a_placebo_group_says_so_rather_than_raising():

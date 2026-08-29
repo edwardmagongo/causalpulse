@@ -493,6 +493,29 @@ _NO_DONOR_POOL_REASON = (
     "Leave-one-donor-out needs a donor pool, and {name} does not build one: "
     "it draws on every control unit at once rather than weighting a few."
 )
+# `_family` reads `max_treated_units == 1` off Requirements, and TWO estimators
+# declare it: synthetic_control and bsts. The donor-pool machinery below is
+# synthetic_control's own -- simplex placebo runs and a convex-hull-aware
+# weight vector -- so bsts gets these two reasons rather than another
+# estimator's numbers reported under its name.
+# `test_the_donor_pool_family_is_exactly_these_two` pins the family membership
+# these two strings are written for.
+_NON_SIMPLEX_PLACEBO_UNITS_REASON = (
+    "The donor-pool placebo reassigns treatment to one donor at a time and "
+    "refits the simplex weights, and {name} does not fit simplex donor "
+    "weights: its donors enter as state-space regressors under shrinkage "
+    "priors, so the distribution those runs build is not the one this "
+    "estimator would produce. Each round would also cost a full NUTS refit. "
+    "Reported as untested rather than as a pass."
+)
+_NON_SIMPLEX_DONOR_POOL_REASON = (
+    "Leave-one-donor-out drops one weighted donor and refits, and {name} "
+    "carries no simplex weight vector to say which donors the fit rests on -- "
+    "its donors are state-space regressors shrunk toward zero rather than "
+    "weighted toward a convex combination. A version faithful to this "
+    "estimator would refit the full posterior once per donor, which this "
+    "phase does not build."
+)
 _TOO_FEW_NEVER_TREATED_REASON = (
     "This panel's never-treated pool cannot be split into a placebo treated "
     "group and a placebo control group that both clear the minimum arm size, "
@@ -727,7 +750,17 @@ def falsify(
     placebo_units_reason: str | None = None
     leave_one_donor_out: tuple[float, ...] | None = None
     leave_one_donor_out_reason: str | None = None
-    if family == "donor_pool":
+    # Gated on the estimator by name, not on `family`, and that is the one
+    # place in this module where a name beats the Requirements-derived family.
+    # Everything below is synthetic_control's own machinery: `placebo_runs`,
+    # `fit_donor_pool_point` and `leave_one_donor_out_points` all fit simplex
+    # (or ridge-augmented) donor weights, and none of them consults
+    # `estimator_name`. `bsts` declares `max_treated_units == 1` too, so
+    # routing by family alone fitted a synthetic control and reported its
+    # numbers under the bsts name -- measured on S1, a bsts point of 1.17743
+    # against a reported real_effect of 1.41401, with both reason fields None
+    # asserting those were bsts's own results.
+    if estimator_name == "synthetic_control":
         panel = panel_arrays(dataset)
         treated_series, donor_series, pre_mask = donor_matrix(panel)
         post_mask = ~pre_mask
@@ -755,6 +788,13 @@ def falsify(
             post_mask,
             reference_weights=donor_fit.reference_weights,
             use_ridge=donor_fit.use_ridge,
+        )
+    elif family == "donor_pool":
+        placebo_units_reason = _NON_SIMPLEX_PLACEBO_UNITS_REASON.format(
+            name=estimator_name
+        )
+        leave_one_donor_out_reason = _NON_SIMPLEX_DONOR_POOL_REASON.format(
+            name=estimator_name
         )
     else:
         leave_one_donor_out_reason = _NO_DONOR_POOL_REASON.format(name=estimator_name)
