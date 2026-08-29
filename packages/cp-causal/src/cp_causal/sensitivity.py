@@ -636,6 +636,8 @@ def negative_control_test(
         excludes_null=not estimate.ci.contains(0.0),
         estimator=estimator_name,
     )
+
+
 # Pairs of (sensitivity, specificity) spanning plausible mismeasurement of a
 # binary treatment. The identity pair is first and deliberate: it makes the
 # curve contain the analysis as actually run, so a reader can see where the
