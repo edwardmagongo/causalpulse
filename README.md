@@ -813,6 +813,96 @@ on top of a simplex solve that already dominates. Measured warm on seed 0, five 
 `falsify(dataset, "synthetic_control", config)` goes from **0.0434s to 0.0793s** on S1 and from
 **0.0356s to 0.0699s** on S3 — a factor of 1.8–2.0, under a doubling but not far under it.
 
+### The donor-pool family gets a placebo-date test, not a stated absence
+
+`falsify`'s `placebo_dates` slot was reported absent for every donor pool, with an accurate reason
+attached to a wrong conclusion. The accurate part: `placebo_leads` builds its cells from a
+within-group variance needing at least two units on each side, and a donor pool has exactly one
+treated unit by construction, so it yields zero cells on S1's 17 pre-treatment periods as readily
+as on S5's 2. The wrong part: "the panel technique does not apply here" is not the same claim as
+"no placebo-date test applies here", and the slot was reporting the second while only the first had
+been established.
+
+The technique that does fit the design was already in the codebase in miniature. `SyntheticControl`
+reports an `in_time_placebo_effect` diagnostic: refit the donor weights on the first half of the
+pre-period, measure the gap over the second half, and expect roughly zero, since nothing was
+treated yet. Sweeping that fake date across the whole pre-period instead of fixing it at the
+midpoint turns one number into a distribution the real effect can be ranked against. On the donor
+protocol — 24 periods, adoption at 18 — the pre-period is 17 periods, a window needs 2 to train on
+and at least one left to measure over, so the sweep visits training lengths 2 through 16: **15
+windows**.
+
+**The floor of two training periods is not a style choice.** A window trained on a single period is
+unidentified rather than merely weak: one equation over 17 simplex weights is satisfied exactly by a
+whole face of solutions, and which one SLSQP lands on decides the reported gap. Measured on S1, the
+sweep over training lengths 1–16 returns **−1.55847** at length 1 against a range of
+**[−0.67421, +0.55785]** across every other length — not a draw from the same distribution, an
+artefact of the solver.
+
+**Both estimators run their own version, and that is the whole point.** Each synthetic-control
+window goes through `fit_donor_pool_point`, so it runs its own convex-hull check over its own
+training slice and takes the ridge-augmented fallback on its own terms — the same rule
+`hull_aware_placebo_runs` follows in the section above, for the same reason. On S3 all 15 windows
+take the ridge path, as the real fit does. `bsts` gets `bsts_in_time_placebo_sweep`, a full
+posterior refit per window, with `real_effect` from the same `fit_bsts_counterfactual` pipeline
+`BSTS.fit` reports its own point from. Reporting synthetic control's sweep under the `bsts` name
+would have been the bug this branch already fixed once for `placebo_units`, in a slot that had not
+yet been built when it was fixed.
+
+Only the two slots *defined in terms of* the simplex weight vector stay deferred for `bsts`: a
+donor swap needs weights to swap. An in-time placebo needs no weights at all — only that the
+estimator can be refitted at an earlier date, which `bsts` can be.
+
+**These placebo effects are not independent draws, and the docstrings say so where a caller meets
+them.** Consecutive windows share almost their whole training slice — the length-9 window's
+training periods are the length-8 window's plus one — and every window measures its gap over an
+overlapping tail of the same pre-period. The rank is an honest ordering and `_rank_p_value` is
+reused rather than replaced, but the resulting p-value must not be read as one from 15 independent
+placebo experiments; the effective number of distinct looks is far lower and no correction here
+recovers it. The windows are not identically distributed either: short training slices fit noise
+the real 17-period fit would not, and short measurement slices average fewer periods. Both widen
+the reference distribution, which biases the rank toward the null — conservative, but a real limit
+on power.
+
+Measured across 20 seeds, S1 (τ = 1.0) against S0 (the same DGP at τ = 0.0):
+
+| | mean p | share on the 1/16 floor |
+|---|---|---|
+| S1, a real effect | **0.2000** (MCSE 0.0450) | **0.4500** (MCSE 0.1141) |
+| S0, a genuine null | **0.6312** (MCSE 0.0586) | **0.0000** — 0 of 20, minimum p seen 0.2500 |
+
+That pair is cleaner to compare than it first looks. The sweep reads only pre-treatment periods and
+τ enters only after adoption, so **S0 and S1 produce byte-identical placebo distributions at every
+one of the 20 seeds** — verified directly, not assumed. The entire difference between those two
+rows is the real effect moving through a fixed reference distribution.
+
+Note that 0.0625 is the smallest p-value this slot can return, so the "share at p ≤ 0.05" reading
+used by the randomization-inference tests would be identically zero for both scenarios and would
+measure nothing. The share landing *on* the floor is the analogous statistic.
+
+**Cost, and the knob it forced.** A synthetic-control window is a simplex solve, so the sweep is
+roughly 15 more `fit_donor_pool_point` calls on top of the ~37 that `placebo_runs` and
+`hull_aware_placebo_runs` already do — about 40% more solves, and the measurement agrees: warm,
+median of 10 calls over three blocks, `falsify` goes to **1.36×** its unswept cost on S1 and
+**1.14×** on S3. (Ratios rather than absolute times, and measured in a separate worktree: they are
+not comparable with the absolute figures in the section above, which were taken in a different
+environment.) The spread between scenarios is real — SLSQP's iteration count is data-dependent.
+
+`bsts` is a different order of cost entirely: each window is a fresh NUTS run at its own
+pre-period length, which in JAX also means a fresh compile, and nothing is shared between windows.
+Measured on S1 at `FAST_MCMC_CONFIG`, about **5s per window and 81.5s** for the uncapped sweep; at
+`PRODUCTION_MCMC_CONFIG` the same sweep is a tens-of-minutes computation. Hence `n_placebo_dates`
+on both `falsify` and `sensitivity_report`, following the precedent `n_placebo_units` already set
+for the MCMC estimators: default to the full sweep, document what it costs, let a caller spend
+deliberately. Capping is not free and says so — the rank p-value's floor is `1 / (n_windows + 1)`,
+so a 3-window sweep cannot report below 0.25 however extreme the real effect is — and it keeps both
+ends of the training-length range rather than sampling one end of a regime known to differ at each.
+
+A pre-period too short to hold one window still reports a stated absence, now naming the length
+that actually fired rather than the family: S5's 2 pre-treatment periods against the 3 needed. The
+sweep returns empty before fitting anything, so an estimator that cannot run this test does not pay
+a posterior to discover it.
+
 ### What is deferred, and why
 
 - **Negative-control outcomes.** A genuine negative control needs an outcome column provably
@@ -826,14 +916,29 @@ on top of a simplex solve that already dominates. Measured warm on seed 0, five 
 - **Panel randomization inference.** Permuting the treatment column on a panel would break the unit
   and period structure and the absorbing-adoption pattern. A correct version permutes adoption at
   the unit level, which is different machinery.
-- **Donor-pool falsification for `bsts`.** `bsts` declares a single treated unit exactly as
-  `synthetic_control` does, so `falsify` classifies both into the same family — but the placebo-unit
-  and leave-one-donor-out machinery is synthetic control's own, built on its simplex donor-weight
-  solve and the ridge-augmented fallback layered over it.
-  `bsts` has none: its donors enter as state-space regressors under shrinkage priors, and a
-  faithful version of either test would refit the full posterior once per donor. Both slots are
-  reported absent with that reason rather than filled with another estimator's numbers, which is
-  what the branch did before it was gated on `synthetic_control` by name.
+- **`placebo_units` and leave-one-donor-out for `bsts`.** `bsts` declares a single treated unit
+  exactly as `synthetic_control` does, so `falsify` classifies both into the same family — but
+  these two techniques are *defined in terms of* synthetic control's simplex donor-weight solve and
+  the ridge-augmented fallback layered over it: a donor swap needs weights to swap. `bsts` has no
+  such vector — its donors enter as state-space regressors under shrinkage priors — and a faithful
+  version of either test would refit the full posterior once per donor. Both slots are reported
+  absent with that reason rather than filled with another estimator's numbers, which is what the
+  branch did before it was gated on `synthetic_control` by name.
+
+  **This deferral no longer covers the whole family's falsification.** `placebo_dates` is not
+  defined in terms of donor weights, so `bsts` fills it from its own posterior sweep — see "The
+  donor-pool family gets a placebo-date test" above. What remains deferred is these two slots.
+- **A measured rate for the `bsts` in-time placebo.** The slot is filled and its *shape* is pinned
+  — that the numbers reported under the `bsts` name are `bsts`'s own, window by window — but its
+  false-positive and detection rates are not measured, and that is a deferral with arithmetic
+  behind it rather than an oversight. A rate needs seeds: 20 seeds over a null/effect pair is 160
+  full NUTS runs. At `FAST_MCMC_CONFIG` that is about 13 minutes, but that config's own docstring
+  says it exercises code paths and array shapes rather than producing a trustworthy posterior, so a
+  rate measured there would characterise the sampler rather than the design — the exact thing
+  `test_falsification_measured.py` exists to avoid. At `PRODUCTION_MCMC_CONFIG` the same protocol
+  runs into hours. And a capped sweep puts the p-value floor at `1 / (n_windows + 1)`, leaving the
+  statistic little resolution to detect a rate with. Recorded in that file's docstring rather than
+  shipped as a weak claim.
 - **Panel and donor-pool specification-curve axes** — time windows, control-group definitions,
   donor-set variants — matching how every prior phase shipped one estimator family's version of a
   capability before generalising.
