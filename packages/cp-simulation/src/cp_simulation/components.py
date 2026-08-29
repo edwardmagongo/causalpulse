@@ -60,6 +60,34 @@ class LogisticBaseline:
 
 
 @dataclass(frozen=True)
+class NegativeControlOutcome:
+    """A second outcome sharing the confounders, unaffected by treatment.
+
+    Treatment is not an argument here, and that is the whole construction: no
+    configuration of this component can make the column depend on treatment,
+    so an estimate that is not null on it points at residual confounding
+    rather than at an effect.
+
+    Its own intercept and coefficients rather than the untreated
+    potential-outcome surface's, so it shares the confounders without being a
+    copy of the outcome, which would make the check trivially self-fulfilling.
+    """
+
+    intercept: float
+    coefficients: tuple[float, ...]
+    column: str = "outcome_nc"
+
+    def probabilities(self, covariates: np.ndarray) -> np.ndarray:
+        beta = np.asarray(self.coefficients, dtype=float)
+        if covariates.shape[1] != beta.size:
+            raise ValueError(
+                f"expected {beta.size} covariates, got {covariates.shape[1]}"
+            )
+        raw = sigmoid(self.intercept + covariates @ beta)
+        return np.asarray(np.clip(raw, MIN_BASELINE_PROBABILITY, MAX_BASELINE_PROBABILITY))
+
+
+@dataclass(frozen=True)
 class ConstantEffect:
     """A homogeneous treatment effect on the probability scale."""
 

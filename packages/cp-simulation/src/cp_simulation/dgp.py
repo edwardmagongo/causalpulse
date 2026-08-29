@@ -11,6 +11,7 @@ from cp_core.dataset import AssignmentProvenance, CausalDataset, CausalSchema
 from cp_simulation._hashing import component_hash, describe_components
 from cp_simulation.components import (
     LogisticBaseline,
+    NegativeControlOutcome,
     UnitGenerator,
 )
 from cp_simulation.truth import GroundTruth, SimulatedDataset
@@ -60,6 +61,7 @@ class CrossSectionDGP:
     effect: EffectFunction
     assignment: Assignment
     scenario_id: str
+    negative_control: NegativeControlOutcome | None = None
 
     @property
     def config_hash(self) -> str:
@@ -68,7 +70,11 @@ class CrossSectionDGP:
                 "scenario_id": self.scenario_id,
                 "covariates": list(self.unit_generator.covariate_names),
                 "baseline": asdict(self.baseline),
-                **describe_components(effect=self.effect, assignment=self.assignment),
+                **describe_components(
+                    effect=self.effect,
+                    assignment=self.assignment,
+                    negative_control=self.negative_control,
+                ),
             }
         )
 
@@ -96,6 +102,11 @@ class CrossSectionDGP:
         true_att = float(cate[treated_mask].mean()) if treated_mask.any() else float("nan")
 
         frame = frame.assign(treated=treatment, outcome=outcome)
+        if self.negative_control is not None:
+            nc_probability = self.negative_control.probabilities(covariates)
+            frame = frame.assign(
+                **{self.negative_control.column: rng.binomial(1, nc_probability)}
+            )
         schema = CausalSchema(
             unit="unit_id",
             treatment="treated",
@@ -103,6 +114,9 @@ class CrossSectionDGP:
             covariates=names,
             outcome_type="binary",
             assignment_provenance=self.assignment.provenance(),
+            negative_control_outcome=(
+                self.negative_control.column if self.negative_control is not None else None
+            ),
         )
         truth = GroundTruth(
             true_ate=float(cate.mean()),
