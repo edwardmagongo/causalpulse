@@ -37,7 +37,9 @@ PINNED_OPTIONAL_SLOTS = {
         "randomization_inference",
         "randomization_inference_reason",
     ),
+    (FalsificationResult, "negative_control", "negative_control_reason"),
     (SensitivityReport, "specification_curve", "specification_curve_reason"),
+    (SensitivityReport, "misclassification", "misclassification_reason"),
 }
 
 
@@ -230,6 +232,8 @@ def test_falsification_result_fully_populated_constructs():
         leave_one_donor_out_reason=None,
         randomization_inference=a_placebo(),
         randomization_inference_reason=None,
+        negative_control=None,
+        negative_control_reason="not applicable",
     )
 
 
@@ -245,6 +249,8 @@ def test_falsification_result_fully_absent_constructs():
         leave_one_donor_out_reason="not applicable",
         randomization_inference=None,
         randomization_inference_reason="not applicable",
+        negative_control=None,
+        negative_control_reason="not applicable",
     )
 
 
@@ -269,6 +275,11 @@ def _absent_falsification_kwargs() -> dict[str, object]:
     for slot, _ in _FALSIFICATION_SLOTS:
         kwargs[slot] = None
         kwargs[f"{slot}_reason"] = "not applicable"
+    # negative_control is not among _FALSIFICATION_SLOTS -- Task 2 adds no
+    # parametrized case for it -- but the baseline still has to satisfy the
+    # constructor's exclusive-or, so it is fixed absent here.
+    kwargs["negative_control"] = None
+    kwargs["negative_control_reason"] = "not applicable"
     return kwargs
 
 
@@ -322,7 +333,11 @@ def test_sensitivity_report_with_specification_curve_constructs():
             leave_one_donor_out_reason="not applicable",
             randomization_inference=None,
             randomization_inference_reason="not applicable",
+            negative_control=None,
+            negative_control_reason="not applicable",
         ),
+        misclassification=None,
+        misclassification_reason="not applicable",
     )
 
 
@@ -341,7 +356,11 @@ def test_sensitivity_report_without_specification_curve_constructs():
             leave_one_donor_out_reason="not applicable",
             randomization_inference=None,
             randomization_inference_reason="not applicable",
+            negative_control=None,
+            negative_control_reason="not applicable",
         ),
+        misclassification=None,
+        misclassification_reason="not applicable",
     )
 
 
@@ -361,7 +380,11 @@ def test_sensitivity_report_absent_curve_without_reason_raises():
                 leave_one_donor_out_reason="not applicable",
                 randomization_inference=None,
                 randomization_inference_reason="not applicable",
+                negative_control=None,
+                negative_control_reason="not applicable",
             ),
+            misclassification=None,
+            misclassification_reason="not applicable",
         )
 
 
@@ -386,5 +409,9 @@ def test_sensitivity_report_present_curve_with_reason_raises():
                 leave_one_donor_out_reason="not applicable",
                 randomization_inference=None,
                 randomization_inference_reason="not applicable",
+                negative_control=None,
+                negative_control_reason="not applicable",
             ),
+            misclassification=None,
+            misclassification_reason="not applicable",
         )

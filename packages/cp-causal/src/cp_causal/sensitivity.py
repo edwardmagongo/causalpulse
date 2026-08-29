@@ -586,6 +586,13 @@ _PANEL_RI_REASON = (
     "adoption pattern. A correct panel version permutes adoption at the unit "
     "level, which is different machinery and is not built yet."
 )
+_NO_NEGATIVE_CONTROL_REASON = (
+    "The schema declares no negative-control outcome, so there is no column "
+    "known to be unaffected by treatment to refit against."
+)
+_NO_MISCLASSIFICATION_REASON = (
+    "No misclassification curve was computed for this estimate."
+)
 
 
 def _family(estimator_name: str) -> str:
@@ -1019,6 +1026,8 @@ def falsify(
         leave_one_donor_out_reason=leave_one_donor_out_reason,
         randomization_inference=randomization,
         randomization_inference_reason=randomization_reason,
+        negative_control=None,
+        negative_control_reason=_NO_NEGATIVE_CONTROL_REASON,
     )
 
 
@@ -1129,4 +1138,6 @@ def sensitivity_report(
             n_placebo_dates=n_placebo_dates,
             seed=seed,
         ),
+        misclassification=None,
+        misclassification_reason=_NO_MISCLASSIFICATION_REASON,
     )

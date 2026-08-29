@@ -531,6 +531,8 @@ class FalsificationResult:
     leave_one_donor_out_reason: str | None
     randomization_inference: PlaceboTestResult | None
     randomization_inference_reason: str | None
+    negative_control: NegativeControlResult | None
+    negative_control_reason: str | None
 
     def __post_init__(self) -> None:
         _require_reason(self.placebo_dates, self.placebo_dates_reason, "placebo_dates")
@@ -545,6 +547,9 @@ class FalsificationResult:
             self.randomization_inference_reason,
             "randomization_inference",
         )
+        _require_reason(
+            self.negative_control, self.negative_control_reason, "negative_control"
+        )
 
 
 @dataclass(frozen=True)
@@ -555,6 +560,8 @@ class SensitivityReport:
     specification_curve: SpecificationCurve | None
     specification_curve_reason: str | None
     falsification: FalsificationResult
+    misclassification: MisclassificationCurve | None
+    misclassification_reason: str | None
 
     def __post_init__(self) -> None:
         _require_reason(
@@ -562,3 +569,83 @@ class SensitivityReport:
             self.specification_curve_reason,
             "specification_curve",
         )
+        _require_reason(
+            self.misclassification, self.misclassification_reason, "misclassification"
+        )
+
+
+@dataclass(frozen=True)
+class NegativeControlResult:
+    """An estimate on an outcome treatment does not affect.
+
+    A non-null result is evidence of residual confounding: the only paths
+    connecting treatment to this column run through the confounders. A null
+    result is the weaker claim that this particular control found none, which
+    is not the same as there being none, and the interpretation text says so.
+    """
+
+    outcome_column: str
+    estimate: float
+    ci: Interval
+    excludes_null: bool
+    estimator: str
+
+    def __post_init__(self) -> None:
+        # Two fields that must agree. Storing both is worth it -- a renderer
+        # should not have to re-derive the judgement -- but a disagreement
+        # would leave a reader no way to tell which one to believe.
+        if self.excludes_null == self.ci.contains(0.0):
+            raise ValueError(
+                f"excludes_null={self.excludes_null} disagrees with the interval "
+                f"[{self.ci.lower}, {self.ci.upper}]"
+            )
+
+
+@dataclass(frozen=True)
+class MisclassificationPoint:
+    """The effect implied at one assumed pair of misclassification rates."""
+
+    sensitivity: float
+    specificity: float
+    corrected_point: float
+    corrected_ci: Interval
+    attenuation_factor: float
+
+    def __post_init__(self) -> None:
+        for label, value in (
+            ("sensitivity", self.sensitivity),
+            ("specificity", self.specificity),
+        ):
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(f"{label} must lie in [0, 1], got {value}")
+        # observed = true * attenuation_factor. At or below zero the observed
+        # label carries no information about the true one and the correction
+        # does not exist, so such a point is never constructed.
+        if self.attenuation_factor <= 0.0:
+            raise ValueError(
+                f"attenuation_factor must be positive, got {self.attenuation_factor}"
+            )
+
+
+@dataclass(frozen=True)
+class MisclassificationCurve:
+    """What the effect would have been under a range of assumed error rates.
+
+    Under non-differential misclassification the observed estimate is
+    attenuated toward the null, so every corrected point lies further from it
+    than the observed one. This analysis cannot explain a finding away; it can
+    only imply the true effect is larger than reported.
+    """
+
+    observed_point: float
+    points: tuple[MisclassificationPoint, ...]
+    observed_treated_share: float
+
+    def __post_init__(self) -> None:
+        if not self.points:
+            raise ValueError("a misclassification curve needs at least one point")
+        if not 0.0 < self.observed_treated_share < 1.0:
+            raise ValueError(
+                "observed_treated_share must lie strictly in (0, 1), got "
+                f"{self.observed_treated_share}"
+            )

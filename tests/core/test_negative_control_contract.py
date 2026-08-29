@@ -5,10 +5,18 @@ which column is a negative control is a claim about how the data came to
 exist, not something a heuristic can read off the values.
 """
 
+import dataclasses
+
 import numpy as np
 import pandas as pd
 import pytest
 from cp_core.dataset import CausalDataset, CausalSchema
+from cp_core.results import (
+    MisclassificationCurve,
+    MisclassificationPoint,
+    NegativeControlResult,
+)
+from cp_core.values import Interval
 
 
 def frame(with_nc: bool = True) -> pd.DataFrame:
@@ -86,3 +94,97 @@ def test_the_negative_control_may_not_be_a_covariate():
             outcome_type="binary",
             negative_control_outcome="x1",
         )
+
+
+def a_negative_control() -> NegativeControlResult:
+    return NegativeControlResult(
+        outcome_column="outcome_nc",
+        estimate=0.004,
+        ci=Interval(lower=-0.02, upper=0.03),
+        excludes_null=False,
+        estimator="lin_regression",
+    )
+
+
+def a_point() -> MisclassificationPoint:
+    return MisclassificationPoint(
+        sensitivity=0.9,
+        specificity=0.9,
+        corrected_point=0.125,
+        corrected_ci=Interval(lower=0.05, upper=0.20),
+        attenuation_factor=0.8,
+    )
+
+
+def test_the_two_new_slots_are_pinned_as_reason_carrying():
+    # Exact, matching test_sensitivity_contracts.py's style: a new optional
+    # slot added later without a reason fails here rather than shipping.
+    from cp_core.results import FalsificationResult, SensitivityReport
+
+    falsification = {f.name for f in dataclasses.fields(FalsificationResult)}
+    report = {f.name for f in dataclasses.fields(SensitivityReport)}
+    assert {"negative_control", "negative_control_reason"} <= falsification
+    assert {"misclassification", "misclassification_reason"} <= report
+
+
+def test_excludes_null_must_agree_with_the_interval():
+    # Two fields that must agree, so the contract refuses a disagreement
+    # rather than letting a reader pick which to believe.
+    with pytest.raises(ValueError, match="excludes_null"):
+        NegativeControlResult(
+            outcome_column="outcome_nc",
+            estimate=0.004,
+            ci=Interval(lower=-0.02, upper=0.03),
+            excludes_null=True,
+            estimator="lin_regression",
+        )
+
+
+def test_a_negative_control_result_constructs_when_they_agree():
+    assert a_negative_control().excludes_null is False
+
+
+def test_a_misclassification_point_refuses_a_non_positive_attenuation():
+    # attenuation <= 0 means the assumed rates carry no information about the
+    # true label; the correction is undefined and must not be constructed.
+    with pytest.raises(ValueError, match="attenuation_factor"):
+        MisclassificationPoint(
+            sensitivity=0.5,
+            specificity=0.5,
+            corrected_point=1.0,
+            corrected_ci=Interval(lower=0.0, upper=2.0),
+            attenuation_factor=0.0,
+        )
+
+
+@pytest.mark.parametrize(("se", "sp"), [(-0.1, 0.9), (1.1, 0.9), (0.9, -0.1), (0.9, 1.1)])
+def test_a_misclassification_point_refuses_rates_outside_the_unit_interval(se, sp):
+    with pytest.raises(ValueError, match="must lie in"):
+        MisclassificationPoint(
+            sensitivity=se,
+            specificity=sp,
+            corrected_point=1.0,
+            corrected_ci=Interval(lower=0.0, upper=2.0),
+            attenuation_factor=0.8,
+        )
+
+
+def test_a_curve_must_hold_at_least_one_point():
+    with pytest.raises(ValueError, match="at least one"):
+        MisclassificationCurve(
+            observed_point=0.1, points=(), observed_treated_share=0.5
+        )
+
+
+def test_a_curve_refuses_an_impossible_treated_share():
+    with pytest.raises(ValueError, match="observed_treated_share"):
+        MisclassificationCurve(
+            observed_point=0.1, points=(a_point(),), observed_treated_share=1.0
+        )
+
+
+def test_a_curve_constructs_and_keeps_its_points():
+    curve = MisclassificationCurve(
+        observed_point=0.1, points=(a_point(),), observed_treated_share=0.5
+    )
+    assert curve.points[0].attenuation_factor == 0.8
