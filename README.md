@@ -1012,6 +1012,7 @@ at `n_units=2000`:
 | Negative control, confounded, unadjusted | D and G, `difference_in_means` | fires **1.000** (20 of 20 seeds) |
 | Negative control, confounded, adjusted | D and G, `lin_regression`/`ipw`/`aipw` | fires 0.000–0.050 |
 | Misclassification recovery (`se=0.9, sp=0.9`) | A, `difference_in_means`, true ATE 0.05000 | observed bias −0.01496; corrected bias −0.00619 (MCSE 0.00525) |
+| Misclassification recovery (`se=0.8, sp=0.95`) | A, `difference_in_means`, true ATE 0.05000 | observed bias −0.01543; corrected bias −0.00494 (MCSE 0.00603) |
 
 The separation on D and G is total, not a near-miss: every seed where `difference_in_means`
 (which adjusts for nothing) fit the negative control, it found a spurious effect; every seed where
@@ -1019,8 +1020,13 @@ an adjusting estimator fit the same column on the same data, it did not. Two of 
 literal unanimous shares (20 of 20, or 0 of 20), which the binomial formula gives an MCSE of exactly
 0.000 — a property of the formula at that share, not evidence of certainty, so the measured harness
 uses rule-of-three reasoning for those thresholds rather than `mean ± MCSE` arithmetic. The
-correction's residual bias (−0.00619) sits under 1.2× its own Monte Carlo standard error — genuine
-recovery, not a partial one.
+correction's residual bias sits under 1.2× its own Monte Carlo standard error at both rate
+pairs — genuine recovery, not a partial one.
+
+The harness asserts the **asymmetric** `se=0.8, sp=0.95` pair rather than the symmetric one.
+At `se=sp=0.9` on scenario A the true and observed treated shares coincide, which is the one
+configuration where the naive `(se + sp − 1)` factor equals the correct one — so an end-to-end
+claim made only there would also have succeeded under the wrong formula.
 
 ### What is deferred, and why
 
