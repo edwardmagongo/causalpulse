@@ -661,13 +661,29 @@ E-value read as though it were the exact ratio-scale quantity is this phase's le
 | `estimate.scale` | ratio used | `approximated` |
 |---|---|---|
 | `log_ratio` | `exp(point)` — the estimate already is a log ratio | `False` |
-| `percentage_point` with a `CounterfactualPoint` | `observed_mean / predicted_absent_treatment` | `False` |
-| `absolute`, or `percentage_point` with no counterfactual | `exp(0.91 × effect / outcome_sd)` | `True` |
+| `percentage_point` with a usable `CounterfactualPoint` | `(predicted_absent_treatment + point) / predicted_absent_treatment` | `False` |
+| `absolute`, or `percentage_point` with no usable counterfactual | `exp(0.91 × effect / outcome_sd)` | `True` |
 
 The second row is why every cross-sectional scenario here gets an exact answer rather than a
-converted one: their outcomes are binary, and the arm means the estimators already report give a
-genuine risk ratio. Approximating a quantity that is exactly available would have been strictly
-worse.
+converted one: their outcomes are binary, so the predicted untreated mean the estimators already
+report turns the reported effect into a genuine risk ratio. Approximating a quantity that is
+exactly available would have been strictly worse.
+
+**The numerator is the baseline plus the reported effect, not the raw treated-arm mean, and the
+difference is not cosmetic.** For `aipw`, `difference_in_means`, `did_2x2` and `callaway_santanna`
+the counterfactual baseline is derived from the point, so the two forms are the same number. For
+`lin_regression` they are not — `observed_mean` is the raw treated-arm mean while the point is the
+Lin-*adjusted* ATE — and for `ipw` they are not either, since `observed_mean` is unweighted while
+the baseline is Hájek-weighted. Shipping the raw arm ratio there computed an E-value for a
+different estimate than the one being reported, always in the direction of overstating robustness:
+measured on scenario G at `n_units=600`, seed 1, it gave **2.338** for an `ipw` point of 0.00077
+(honest value 1.053) and **3.332** for a `lin_regression` point of 0.06251 (honest value 1.868).
+`e_value_ci_bound` was already derived from the reported interval, so the two fields of one
+`EValueResult` described two different estimates. Both now come from the same one.
+
+A "usable" counterfactual is one with a positive baseline whose sum with the reported effect is
+also positive — a ratio has to be positive to have an E-value at all. Either failure falls through
+to the conversion row, which is why that row's `outcome_sd` requirement is not optional.
 
 The `0.91` in the third row is load-bearing. It is the Chinn (2000) standardised-effect conversion
 as used in VanderWeele–Ding's E-value guidance; plain `exp(d)` is a different and larger quantity,

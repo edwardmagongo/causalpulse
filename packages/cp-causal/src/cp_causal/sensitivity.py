@@ -62,11 +62,14 @@ _CONVERSION_NOTE = (
     "exact ratio-scale quantity."
 )
 
-_ARM_MEANS_NOTE = (
-    "The outcome is binary, so the risk ratio is the ratio of the reported "
-    "arm means (treated mean over the predicted untreated mean) rather than a "
-    "conversion from the effect size. No standardised-effect approximation "
-    "was applied."
+_COUNTERFACTUAL_RATIO_NOTE = (
+    "The outcome is binary, so the risk ratio is available on the data's own "
+    "scale rather than through a conversion: the predicted untreated mean "
+    "plus the reported effect, over the predicted untreated mean. It is built "
+    "from the reported effect rather than from the raw treated-arm mean so "
+    "that it describes the estimate this report is about -- for an adjusted "
+    "or reweighted estimator the two differ. No standardised-effect "
+    "approximation was applied."
 )
 
 
@@ -111,12 +114,28 @@ def e_value(
         estimate.scale == "percentage_point"
         and isinstance(counterfactual, CounterfactualPoint)
         and counterfactual.predicted_absent_treatment > 0.0
+        # A ratio must be positive, and an effect more negative than the
+        # baseline would make it zero or negative. This also covers the CI
+        # bound: `_bound_nearer_null` returns a value strictly between the
+        # null and the point, so `baseline + bound` is at least
+        # `min(baseline, baseline + point)`, and both are positive here.
+        and counterfactual.predicted_absent_treatment + estimate.point > 0.0
     ):
         baseline = counterfactual.predicted_absent_treatment
-        ratio = counterfactual.observed_mean / baseline
+        # Derived from the reported point, NOT from `observed_mean / baseline`.
+        # Those agree only where the baseline is derived from the point --
+        # true for aipw, difference_in_means, did_2x2 and callaway_santanna,
+        # false for lin_regression (whose observed_mean is the raw treated-arm
+        # mean while its point is the Lin-adjusted ATE) and for ipw (whose
+        # observed_mean is unweighted while its baseline is Hajek-weighted).
+        # On those two the arm-mean form answered a different question from
+        # the one the report asks, always in the direction of overstating
+        # robustness, and disagreed with `e_value_ci_bound` one line below,
+        # which was already derived from the reported interval.
+        ratio = (baseline + estimate.point) / baseline
         bound = _bound_nearer_null(estimate.ci.lower, estimate.ci.upper, 0.0)
         ratio_bound = None if bound is None else (baseline + bound) / baseline
-        note, approximated = _ARM_MEANS_NOTE, False
+        note, approximated = _COUNTERFACTUAL_RATIO_NOTE, False
     else:
         if outcome_sd is None or outcome_sd <= 0.0:
             raise ValueError(

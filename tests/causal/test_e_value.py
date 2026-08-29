@@ -9,13 +9,15 @@ import math
 
 import numpy as np
 import pytest
+from cp_causal.registry import all_estimators
 from cp_causal.sensitivity import e_value
 from cp_core.results import (
     CounterfactualPoint,
     EffectEstimate,
     FitMetadata,
 )
-from cp_core.values import Interval
+from cp_core.values import EstimatorConfig, Interval
+from cp_simulation.scenarios import build_scenario
 
 
 def an_estimate(
@@ -88,8 +90,11 @@ def test_a_protective_effect_gives_the_same_e_value_as_its_reciprocal():
     assert e_value(protective).e_value == pytest.approx(e_value(harmful).e_value)
 
 
-def test_a_binary_outcome_uses_the_exact_ratio_of_the_reported_arm_means():
-    # p1 = 0.30, p0 = 0.20  ->  RR = 1.5 exactly, no conversion.
+def test_a_binary_outcome_uses_the_exact_ratio_the_counterfactual_carries():
+    # p0 = 0.20, effect = 0.10  ->  RR = 0.30/0.20 = 1.5 exactly, no conversion.
+    # Here observed_mean happens to equal baseline + point, which is what makes
+    # this fixture self-consistent -- see the real-fit tests below for the
+    # estimators where it does not.
     estimate = an_estimate(
         point=0.10, lower=0.04, upper=0.16, scale="percentage_point",
         counterfactual=CounterfactualPoint(
@@ -102,7 +107,23 @@ def test_a_binary_outcome_uses_the_exact_ratio_of_the_reported_arm_means():
     assert result.approximated is False
     # The note is still populated: the derivation is not the trivial exp(point),
     # and a reader should be able to see which ratio was used.
-    assert "arm means" in (result.approximation_note or "")
+    assert "reported effect" in (result.approximation_note or "")
+
+
+def test_an_effect_more_negative_than_the_baseline_falls_back_to_the_conversion():
+    # A ratio must be positive, and baseline + point here is -0.05. Inverting
+    # or clipping it would report an E-value for a quantity that does not
+    # exist; the honest response is the conversion path with its note.
+    estimate = an_estimate(
+        point=-0.25, lower=-0.35, upper=-0.15, scale="percentage_point",
+        counterfactual=CounterfactualPoint(
+            observed_mean=0.05, predicted_absent_treatment=0.20,
+            lower=0.17, upper=0.23,
+        ),
+    )
+    result = e_value(estimate, outcome_sd=0.5)
+    assert result.approximated is True
+    assert np.isfinite(result.e_value)
 
 
 def test_a_continuous_effect_uses_the_standardised_conversion_and_says_so():
@@ -168,4 +189,71 @@ def test_the_published_worked_example_reproduces():
     inv_hi = 1 / 0.91
     assert result.e_value_ci_bound == pytest.approx(
         inv_hi + math.sqrt(inv_hi * (inv_hi - 1)), rel=1e-9
+    )
+
+
+# The fixtures above are self-consistent by construction: `observed_mean`
+# equals `predicted_absent_treatment + point`, so the arm-mean form and the
+# effect-derived form agree and neither can fail. Two shipped estimators break
+# that identity on real data, and only a real fit shows it.
+#
+# - `lin_regression` reports raw arm means alongside a Lin-ADJUSTED point.
+# - `ipw` reports an unweighted treated mean alongside a Hajek-WEIGHTED
+#   baseline, and an adjusted point.
+#
+# On scenario G at n_units=600, seed 1, the arm-mean form reported E = 2.338
+# for an ipw point of 0.00077 -- an estimate flat at the null presented as
+# needing a confounder association of RR >= 2.34 to explain away. The error
+# always runs toward overstating robustness.
+REAL_FIT_ESTIMATORS = ("lin_regression", "ipw")
+
+
+def a_confounded_dataset():
+    return (
+        build_scenario("G")
+        .generate(n_units=600, rng=np.random.default_rng(1))
+        .dataset
+    )
+
+
+@pytest.mark.parametrize("estimator_name", REAL_FIT_ESTIMATORS)
+def test_a_real_fit_takes_its_ratio_from_the_estimate_not_the_raw_arm_means(
+    estimator_name,
+):
+    config = EstimatorConfig(bootstrap_reps=25, random_seed=1)
+    estimate = all_estimators()[estimator_name]().fit(a_confounded_dataset(), config)
+    counterfactual = estimate.counterfactual
+    assert counterfactual is not None
+    baseline = counterfactual.predicted_absent_treatment
+
+    ratio = (baseline + estimate.point) / baseline
+    expected = ratio + math.sqrt(ratio * (ratio - 1.0)) if ratio >= 1.0 else None
+    if expected is None:  # pragma: no cover - both estimators are positive here
+        inverted = 1.0 / ratio
+        expected = inverted + math.sqrt(inverted * (inverted - 1.0))
+
+    result = e_value(estimate)
+    assert result.e_value == pytest.approx(expected, rel=1e-12)
+    assert result.approximated is False
+
+    # And the arm-mean form is genuinely a different number on this data, so
+    # the assertion above is not passing vacuously.
+    arm_ratio = counterfactual.observed_mean / baseline
+    assert arm_ratio != pytest.approx(ratio, rel=1e-6)
+
+
+@pytest.mark.parametrize("estimator_name", ("aipw", "difference_in_means"))
+def test_an_estimator_whose_baseline_comes_from_its_point_is_unchanged(
+    estimator_name,
+):
+    # The other half of the claim: where the counterfactual IS derived from the
+    # reported point, the two forms are the same number, so this fix moved
+    # nothing for these estimators.
+    config = EstimatorConfig(bootstrap_reps=25, random_seed=1)
+    estimate = all_estimators()[estimator_name]().fit(a_confounded_dataset(), config)
+    counterfactual = estimate.counterfactual
+    assert counterfactual is not None
+    baseline = counterfactual.predicted_absent_treatment
+    assert counterfactual.observed_mean == pytest.approx(
+        baseline + estimate.point, rel=1e-12
     )
