@@ -24,6 +24,7 @@ from cp_core.results import (
     FalsificationResult,
     MisclassificationCurve,
     MisclassificationPoint,
+    NegativeControlResult,
     PlaceboTestResult,
     SensitivityReport,
     SpecificationCurve,
@@ -592,6 +593,49 @@ _NO_NEGATIVE_CONTROL_REASON = (
     "The schema declares no negative-control outcome, so there is no column "
     "known to be unaffected by treatment to refit against."
 )
+_PANEL_NEGATIVE_CONTROL_REASON = (
+    "The negative-control check is built for the cross-sectional estimators "
+    "this phase covers; {name} needs panel data, and a panel negative control "
+    "is deferred rather than approximated."
+)
+
+
+def negative_control_test(
+    dataset: CausalDataset, estimator_name: str, config: EstimatorConfig
+) -> NegativeControlResult | None:
+    """Refit the same estimator on an outcome treatment does not affect.
+
+    An interval excluding zero here is evidence of residual confounding: the
+    only paths from treatment to that column run through the confounders, so
+    an association is not an effect. A null result is the weaker statement
+    that this control found nothing, which is not the same as there being
+    nothing to find.
+
+    `None` when the schema declares no negative-control outcome, or when the
+    estimator needs panel data; the caller pairs each with its own reason.
+    """
+    # Raises on an unknown name rather than returning None: a typo must not
+    # read as "this technique does not apply here".
+    estimator_class = get_estimator(estimator_name)
+    column = dataset.schema.negative_control_outcome
+    if column is None or estimator_class.requirements.needs_panel:
+        return None
+
+    # The swapped schema clears its own negative-control declaration: a schema
+    # naming one column as both outcome and negative control is refused, and
+    # rightly -- it would compare an estimate against itself.
+    swapped = CausalDataset(
+        frame=dataset.frame,
+        schema=replace(dataset.schema, outcome=column, negative_control_outcome=None),
+    )
+    estimate = estimator_class().fit(swapped, config)
+    return NegativeControlResult(
+        outcome_column=column,
+        estimate=estimate.point,
+        ci=estimate.ci,
+        excludes_null=not estimate.ci.contains(0.0),
+        estimator=estimator_name,
+    )
 # Pairs of (sensitivity, specificity) spanning plausible mismeasurement of a
 # binary treatment. The identity pair is first and deliberate: it makes the
 # curve contain the analysis as actually run, so a reader can see where the
@@ -1109,6 +1153,15 @@ def falsify(
     else:
         randomization_reason = _PANEL_RI_REASON
 
+    negative_control = negative_control_test(dataset, estimator_name, config)
+    negative_control_reason: str | None = None
+    if negative_control is None:
+        negative_control_reason = (
+            _PANEL_NEGATIVE_CONTROL_REASON.format(name=estimator_name)
+            if get_estimator(estimator_name).requirements.needs_panel
+            else _NO_NEGATIVE_CONTROL_REASON
+        )
+
     return FalsificationResult(
         placebo_dates=placebo_dates,
         placebo_dates_reason=placebo_dates_reason,
@@ -1118,8 +1171,8 @@ def falsify(
         leave_one_donor_out_reason=leave_one_donor_out_reason,
         randomization_inference=randomization,
         randomization_inference_reason=randomization_reason,
-        negative_control=None,
-        negative_control_reason=_NO_NEGATIVE_CONTROL_REASON,
+        negative_control=negative_control,
+        negative_control_reason=negative_control_reason,
     )
 
 
