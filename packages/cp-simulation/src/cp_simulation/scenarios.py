@@ -15,6 +15,7 @@ from cp_simulation.components import (
     ConstantEffect,
     HeterogeneousEffect,
     LogisticBaseline,
+    MissingnessMechanism,
     NegativeControlOutcome,
     NonDifferentialMisclassification,
     PropensityAssignment,
@@ -66,6 +67,28 @@ def _confounded(scenario_id: str, tau: float) -> Callable[[float], CrossSectionD
                 coefficients=(0.9, 0.7), strength=confounding_strength
             ),
             scenario_id=scenario_id,
+        )
+
+    return build
+
+
+def _missing_data(scenario_id: str, tau: float) -> Callable[[float], CrossSectionDGP]:
+    """Scenario D's confounding, plus missingness that depends on the outcome.
+
+    MNAR rather than MAR: the parent spec allows either, and MNAR is the case
+    complete-case analysis cannot be adjusted out of, which is what makes it
+    worth a scenario of its own.
+
+    The rate/strength pair is a starting hypothesis until Task 8 measures
+    whether it produces a complete-case bias large enough to test against.
+    """
+
+    def build(confounding_strength: float) -> CrossSectionDGP:
+        return replace(
+            _confounded(scenario_id, tau)(confounding_strength),
+            missingness=MissingnessMechanism(
+                mechanism="MNAR", rate=0.25, strength=2.0
+            ),
         )
 
     return build
@@ -151,6 +174,15 @@ SCENARIOS: dict[str, ScenarioSpec] = {
         "outcome probability, so naive comparison overstates the effect.",
         build=_selected("G", 0.05),
     ),
+    "H": ScenarioSpec(
+        scenario_id="H",
+        name="Missing data",
+        declared_effect=0.05,
+        description="Scenario D's confounding plus outcome missingness that "
+        "depends on the outcome itself, so complete-case analysis is biased "
+        "in a way adjusting for the covariates does not repair.",
+        build=_missing_data("H", 0.05),
+    ),
 }
 
 
@@ -160,6 +192,7 @@ def build_scenario(
     *,
     negative_control: NegativeControlOutcome | None = None,
     misclassification: NonDifferentialMisclassification | None = None,
+    missingness: MissingnessMechanism | None = None,
 ) -> CrossSectionDGP:
     """Instantiate a scenario's DGP at a given confounding strength.
 
@@ -173,10 +206,13 @@ def build_scenario(
             f"unknown scenario {scenario_id!r}; available: {sorted(SCENARIOS)}"
         )
     dgp = SCENARIOS[scenario_id].build(confounding_strength)
-    if negative_control is None and misclassification is None:
+    if negative_control is None and misclassification is None and missingness is None:
         return dgp
     return replace(
         dgp,
         negative_control=negative_control,
         misclassification=misclassification,
+        # H bakes its own mechanism in, so an explicit argument must not
+        # silently erase it when the caller passed none.
+        missingness=missingness if missingness is not None else dgp.missingness,
     )

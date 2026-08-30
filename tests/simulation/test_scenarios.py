@@ -4,7 +4,7 @@ from cp_simulation.scenarios import SCENARIOS, build_scenario
 
 
 def test_all_scenarios_are_registered():
-    assert sorted(SCENARIOS) == ["A", "B", "C", "D", "F", "G"]
+    assert sorted(SCENARIOS) == ["A", "B", "C", "D", "F", "G", "H"]
 
 
 @pytest.mark.parametrize(
@@ -158,3 +158,45 @@ def test_the_default_negative_control_matches_the_scenario_covariates():
     assert len(DEFAULT_NEGATIVE_CONTROL.coefficients) == len(
         dgp.unit_generator.covariate_names
     )
+
+
+def test_scenario_h_is_registered():
+    from cp_simulation.scenarios import SCENARIOS
+
+    assert "H" in SCENARIOS
+    assert SCENARIOS["H"].declared_effect == 0.05
+
+
+def test_scenario_h_produces_missing_outcomes():
+    import numpy as np
+    from cp_simulation.scenarios import build_scenario
+
+    simulated = build_scenario("H").generate(
+        n_units=2000, rng=np.random.default_rng(0)
+    )
+    outcome = simulated.dataset.frame[simulated.dataset.schema.outcome]
+    assert outcome.isna().any()
+    assert simulated.truth.complete_outcome is not None
+
+
+def test_scenario_h_inherits_scenario_ds_confounding():
+    # H is D plus missingness, per the parent spec, so its assignment
+    # mechanism must be D's -- not randomised.
+    from cp_simulation.scenarios import build_scenario
+
+    assert (
+        build_scenario("H").assignment.provenance()
+        == build_scenario("D").assignment.provenance()
+    )
+
+
+def test_build_scenario_can_attach_missingness_to_any_scenario():
+    import numpy as np
+    from cp_simulation.components import MissingnessMechanism
+    from cp_simulation.scenarios import build_scenario
+
+    dgp = build_scenario(
+        "A", missingness=MissingnessMechanism(mechanism="MNAR", rate=0.2)
+    )
+    simulated = dgp.generate(n_units=500, rng=np.random.default_rng(0))
+    assert simulated.dataset.frame["outcome"].isna().any()
