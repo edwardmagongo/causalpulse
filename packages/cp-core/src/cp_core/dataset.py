@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
 
@@ -260,3 +261,58 @@ class CausalDataset:
         ever = self.frame.groupby(self.schema.unit)[self.schema.treatment].max()
         mask = ever.astype(bool) if treated else ~ever.astype(bool)
         return int(np.count_nonzero(mask))
+
+
+@dataclass(frozen=True)
+class CompleteCaseRecord:
+    """What a complete-case reduction removed, and which columns caused it.
+
+    `dropped_by_column` counts the rows in which each column was individually
+    missing. A row missing in two columns is counted under both, so these
+    counts overlap and do not in general sum to
+    `n_rows_before - n_rows_after`. Recorded per column anyway, because
+    knowing which column drove the attrition is what tells an analyst whether
+    the reduction is plausibly ignorable.
+    """
+
+    n_rows_before: int
+    n_rows_after: int
+    columns_with_missing: tuple[str, ...]
+    dropped_by_column: Mapping[str, int]
+
+
+def complete_cases(dataset: CausalDataset) -> tuple[CausalDataset, CompleteCaseRecord]:
+    """Drop every row missing any required column, and record what went.
+
+    Complete-case analysis is unbiased when values are missing completely at
+    random and biased in general when they are not, so this is a modelling
+    choice rather than a cleanup step. It is a separate function, and not
+    something an estimator does on a caller's behalf, so that the choice is
+    made deliberately and the record of it survives.
+
+    Columns come from `schema.required_columns` rather than a list written out
+    here, so a column added to the schema is considered without this function
+    being edited.
+    """
+    frame = dataset.frame
+    columns = list(dataset.schema.required_columns)
+    per_column = {column: int(frame[column].isna().sum()) for column in columns}
+    with_missing = tuple(column for column in columns if per_column[column])
+
+    keep = frame[columns].notna().all(axis=1)
+    kept = frame.loc[keep].reset_index(drop=True)
+    if kept.empty:
+        raise ValueError(
+            f"no complete cases remain: all {len(frame)} rows are missing at "
+            f"least one of {sorted(with_missing)}"
+        )
+
+    return (
+        CausalDataset(frame=kept, schema=dataset.schema),
+        CompleteCaseRecord(
+            n_rows_before=int(len(frame)),
+            n_rows_after=int(len(kept)),
+            columns_with_missing=with_missing,
+            dropped_by_column=per_column,
+        ),
+    )
