@@ -36,6 +36,11 @@ class GroundTruth:
     # scenario that does not opt into misclassification.
     true_treatment: np.ndarray | None = None
 
+    # The outcome before missingness was applied. `None` when every outcome is
+    # observed, which is every scenario that does not opt into a missingness
+    # mechanism.
+    complete_outcome: np.ndarray | None = None
+
 
 @dataclass(frozen=True)
 class SimulatedDataset:

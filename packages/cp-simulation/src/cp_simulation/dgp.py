@@ -11,6 +11,7 @@ from cp_core.dataset import AssignmentProvenance, CausalDataset, CausalSchema
 from cp_simulation._hashing import component_hash, describe_components
 from cp_simulation.components import (
     LogisticBaseline,
+    MissingnessMechanism,
     NegativeControlOutcome,
     NonDifferentialMisclassification,
     UnitGenerator,
@@ -64,6 +65,7 @@ class CrossSectionDGP:
     scenario_id: str
     negative_control: NegativeControlOutcome | None = None
     misclassification: NonDifferentialMisclassification | None = None
+    missingness: MissingnessMechanism | None = None
 
     @property
     def config_hash(self) -> str:
@@ -77,6 +79,7 @@ class CrossSectionDGP:
                     assignment=self.assignment,
                     negative_control=self.negative_control,
                     misclassification=self.misclassification,
+                    missingness=self.missingness,
                 ),
             }
         )
@@ -115,7 +118,26 @@ class CrossSectionDGP:
             true_treatment = treatment
             observed_treatment = self.misclassification.observe(treatment, rng)
 
-        frame = frame.assign(treated=observed_treatment, outcome=outcome)
+        # The outcome is realised above; missingness is applied only to what
+        # the frame carries. The complete vector goes to GroundTruth, so a
+        # harness has something to measure complete-case bias against.
+        complete_outcome: np.ndarray | None = None
+        # Cast unconditionally, not only when a mechanism is configured. It
+        # makes the outcome column float64 on every scenario rather than the
+        # int64 it was before, which is a real change -- but a dtype that
+        # depended on whether missingness happened to be configured would be
+        # worse, and only float can carry the NaN. Verified: values stay
+        # exactly 0/1, nothing in the codebase branches on this column's
+        # dtype, and `CausalDataset`'s binary check compares against `{0, 1}`
+        # by value, which floats satisfy.
+        observed_outcome = outcome.astype(float)
+        if self.missingness is not None:
+            complete_outcome = observed_outcome.copy()
+            hidden = self.missingness.missing_mask(covariates, observed_outcome, rng)
+            observed_outcome = observed_outcome.copy()
+            observed_outcome[hidden] = np.nan
+
+        frame = frame.assign(treated=observed_treatment, outcome=observed_outcome)
         if self.negative_control is not None:
             nc_probability = self.negative_control.probabilities(covariates)
             frame = frame.assign(
@@ -141,6 +163,7 @@ class CrossSectionDGP:
             scenario_id=self.scenario_id,
             config_hash=self.config_hash,
             true_treatment=true_treatment,
+            complete_outcome=complete_outcome,
         )
         return SimulatedDataset(
             dataset=CausalDataset(frame=frame, schema=schema), truth=truth

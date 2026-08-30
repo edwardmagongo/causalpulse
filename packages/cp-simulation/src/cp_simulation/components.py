@@ -8,6 +8,7 @@ menu of scenarios.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -329,3 +330,80 @@ class MultivariateHeterogeneousEffect:
             + interaction
             + self.secondary_coefficient * secondary
         )
+
+
+_MISSINGNESS_MECHANISMS = ("MAR", "MNAR")
+
+
+def _solve_intercept(z: np.ndarray, strength: float, rate: float) -> float:
+    """Intercept `a` with `mean(sigmoid(a + strength*z)) == rate`.
+
+    Strictly increasing in `a`, so bisection converges. Solved rather than
+    approximated because the harness varies `strength` while holding the
+    marginal rate fixed, and an intercept that drifted with `strength` would
+    confound the two.
+    """
+    low, high = -50.0, 50.0
+    for _ in range(200):
+        mid = (low + high) / 2.0
+        if float(sigmoid(mid + strength * z).mean()) < rate:
+            low = mid
+        else:
+            high = mid
+    return (low + high) / 2.0
+
+
+@dataclass(frozen=True)
+class MissingnessMechanism:
+    """Outcome missingness at a declared marginal rate.
+
+    `MAR` drives missingness from the covariates, which are observed, so an
+    estimator adjusting for them can in principle recover. `MNAR` drives it
+    from the outcome itself, which is unobserved exactly where it is missing,
+    so no adjustment repairs it -- that is the case the tipping-point bounds
+    exist for.
+
+    The intercept is solved so the realised marginal rate matches `rate` at
+    any `strength`, which lets a harness vary the dependence while holding
+    the amount of missingness fixed. At `strength = 0` every unit shares the
+    same probability, which is missingness completely at random.
+    """
+
+    mechanism: Literal["MAR", "MNAR"]
+    rate: float
+    strength: float = 1.0
+
+    def __post_init__(self) -> None:
+        if self.mechanism not in _MISSINGNESS_MECHANISMS:
+            raise ValueError(
+                f"mechanism must be one of {list(_MISSINGNESS_MECHANISMS)}, "
+                f"got {self.mechanism!r}"
+            )
+        if not 0.0 < self.rate < 1.0:
+            raise ValueError(f"rate must lie in (0, 1), got {self.rate}")
+        if self.strength < 0.0:
+            raise ValueError(f"strength must be non-negative, got {self.strength}")
+
+    def missing_mask(
+        self,
+        covariates: np.ndarray,
+        outcome: np.ndarray,
+        rng: np.random.Generator,
+    ) -> np.ndarray:
+        """Boolean mask of the units whose outcome is not observed."""
+        driver = (
+            covariates.sum(axis=1)
+            if self.mechanism == "MAR"
+            else outcome.astype(float)
+        )
+        spread = float(driver.std())
+        if spread == 0.0 or self.strength == 0.0:
+            # A constant driver carries no information, so the honest
+            # behaviour is missingness completely at random at the requested
+            # rate rather than an arbitrary tilt.
+            probability = np.full(driver.shape[0], self.rate)
+        else:
+            z = (driver - driver.mean()) / spread
+            intercept = _solve_intercept(z, self.strength, self.rate)
+            probability = sigmoid(intercept + self.strength * z)
+        return np.asarray(rng.random(driver.shape[0]) < probability)
