@@ -30,6 +30,7 @@ from cp_core.results import (
     SensitivityReport,
     SpecificationCurve,
     SpecificationPoint,
+    TippingPoint,
 )
 from cp_core.values import EstimatorConfig, Interval
 from cp_statistics.covariance import OLSFit, ols_fit
@@ -1330,6 +1331,187 @@ def _worst_case_bounds(
 
 
 
+_TIPPING_POINT_BISECTION_STEPS = 18
+
+_CONTINUOUS_TIPPING_REASON = (
+    "Tipping-point bounds here fill a missing outcome with its extreme "
+    "values, which needs a bounded outcome; a continuous outcome has no "
+    "worst case to fill in."
+)
+_PANEL_TIPPING_REASON = (
+    "Tipping-point bounds are built for the cross-sectional estimators this "
+    "phase covers; {name} needs panel data, where attrition also removes a "
+    "unit from periods it would otherwise contribute to."
+)
+
+
+def _conclusion_holds(estimate: EffectEstimate, direction: float) -> bool:
+    """Does this refit still say what the original finding said?
+
+    Two conditions, and the second is the one the obvious version omits. The
+    estimate must still exclude the null, AND it must still fall on the same
+    side of it. Testing significance alone reports a finding as surviving
+    when an adverse fill has driven it clean through zero and out the far
+    side -- measured on scenario D at n_units=2000 under MNAR missingness,
+    a complete-case estimate of +0.1002 (CI 0.0629 to 0.1374) becomes
+    -0.1176 (CI -0.1535 to -0.0819) once every missing outcome is filled
+    against it. That interval excludes zero, so a significance-only rule
+    calls the conclusion intact at the exact point it has been reversed.
+    """
+    if estimate.ci.contains(0.0):
+        return False
+    return (estimate.point > 0.0) == (direction > 0.0)
+
+
+def _adverse_values(
+    dataset: CausalDataset, estimator_name: str, config: EstimatorConfig
+) -> tuple[float, float]:
+    """`(treated_value, control_value)` for the fill that most opposes the finding.
+
+    A positive complete-case estimate is most opposed by giving the treated
+    arm its lowest outcome and the control arm its highest; a negative one by
+    the reverse. Resolved once and threaded through the bisection, so the
+    search does not pay for a complete-case refit at every step.
+    """
+    reduced, _ = complete_cases(dataset)
+    point = get_estimator(estimator_name)().fit(reduced, config).point
+    return (0.0, 1.0) if point >= 0 else (1.0, 0.0)
+
+
+def _estimate_at_fraction(
+    dataset: CausalDataset,
+    estimator_name: str,
+    config: EstimatorConfig,
+    fraction: float,
+    adverse: tuple[float, float],
+) -> EffectEstimate:
+    """Refit with `fraction` of each arm's missing outcomes filled adversely.
+
+    The remainder is drawn from that arm's own observed rate, so `fraction=0`
+    reproduces the complete-case answer in expectation and `fraction=1` is the
+    adverse bound. Which units take the adverse value is chosen by a generator
+    seeded from `config.random_seed`, so a bisection over this function is
+    reproducible rather than wandering between steps.
+    """
+    schema = dataset.schema
+    frame = dataset.frame.copy()
+    seed = 0 if config.random_seed is None else config.random_seed
+    rng = np.random.default_rng(np.random.SeedSequence(seed))
+
+    outcome = frame[schema.outcome]
+    treated = frame[schema.treatment] == 1
+    adverse_treated, adverse_control = adverse
+
+    for arm_mask, adverse_value in (
+        (treated, adverse_treated),
+        (~treated, adverse_control),
+    ):
+        observed = arm_mask & outcome.notna()
+        gaps = np.flatnonzero((arm_mask & outcome.isna()).to_numpy())
+        if gaps.size == 0:
+            continue
+        arm_rate = float(frame.loc[observed, schema.outcome].mean())
+        n_adverse = int(round(fraction * gaps.size))
+        shuffled = rng.permutation(gaps)
+        frame.loc[frame.index[shuffled[:n_adverse]], schema.outcome] = adverse_value
+        remainder = shuffled[n_adverse:]
+        if remainder.size:
+            frame.loc[frame.index[remainder], schema.outcome] = rng.binomial(
+                1, arm_rate, remainder.size
+            ).astype(float)
+
+    return get_estimator(estimator_name)().fit(
+        CausalDataset(frame=frame, schema=schema), config
+    )
+
+
+def _point_at_fraction(
+    dataset: CausalDataset,
+    estimator_name: str,
+    config: EstimatorConfig,
+    fraction: float,
+) -> float:
+    """The point estimate at a fill fraction. Exists for the closed-form
+    cross-check, which is stated on the point rather than on significance."""
+    return _estimate_at_fraction(
+        dataset,
+        estimator_name,
+        config,
+        fraction,
+        _adverse_values(dataset, estimator_name, config),
+    ).point
+
+
+def tipping_point(
+    dataset: CausalDataset, estimator_name: str, config: EstimatorConfig
+) -> TippingPoint | None:
+    """How much the unobserved outcomes would have to differ to overturn this.
+
+    Reports the two worst-case bounds and, when the finding can be overturned
+    at all, the smallest share of the missing outcomes that -- filled against
+    the finding -- removes its significance.
+
+    Costs roughly twenty refits: three for the bounds and the complete-case
+    anchor, then an 18-step bisection. Measured on scenario D at n_units=2000
+    under MNAR missingness: see the commit for the per-estimator table.
+
+    `None` when nothing is missing, when the outcome is not binary, or when
+    the estimator needs panel data; the caller pairs each with its reason.
+
+    Note the field naming on the result: `adverse_bound` is the lower of the
+    two bounds, which is the adverse one only when the finding is positive.
+    The tipping fraction itself is unaffected -- it resolves the adverse
+    direction from the sign through `_adverse_values`.
+    """
+    estimator_class = get_estimator(estimator_name)
+    if estimator_class.requirements.needs_panel:
+        return None
+    if dataset.schema.outcome_type != "binary":
+        return None
+    n_missing = int(dataset.frame[dataset.schema.outcome].isna().sum())
+    if n_missing == 0:
+        return None
+
+    reduced, _ = complete_cases(dataset)
+    direction = get_estimator(estimator_name)().fit(reduced, config).point
+    adverse_values = _adverse_values(dataset, estimator_name, config)
+    adverse, favourable = _worst_case_bounds(dataset, estimator_name, config)
+    survives = _conclusion_holds(
+        _estimate_at_fraction(
+            dataset, estimator_name, config, 1.0, adverse_values
+        ),
+        direction,
+    )
+
+    fraction: float | None = None
+    if not survives:
+        # The adverse fill moves the estimate monotonically away from the
+        # finding, so `_conclusion_holds` is true below the tipping fraction
+        # and false above it, which is what makes bisection valid here.
+        low, high = 0.0, 1.0
+        for _ in range(_TIPPING_POINT_BISECTION_STEPS):
+            mid = (low + high) / 2.0
+            if _conclusion_holds(
+                _estimate_at_fraction(
+                    dataset, estimator_name, config, mid, adverse_values
+                ),
+                direction,
+            ):
+                low = mid
+            else:
+                high = mid
+        fraction = high
+
+    return TippingPoint(
+        adverse_bound=adverse,
+        favourable_bound=favourable,
+        tipping_fraction=fraction,
+        n_missing_outcomes=n_missing,
+        conclusion_survives_worst_case=survives,
+    )
+
+
+
 _NO_MISSING_DATA_REASON = (
     "The dataset has no missing outcomes, so there is nothing unobserved "
     "for a tipping point to vary."
@@ -1384,7 +1566,22 @@ def sensitivity_report(
             )
             curve_of_rates = None
 
-    bound = cinelli_hazlett(dataset, estimator_name, config)
+    # Every other arm of this report describes the analysis as actually run,
+    # and on a frame with gaps that is the complete-case analysis -- the
+    # estimate the caller passed in was fitted that way too. They would also
+    # refuse the raw frame outright, since Task 2's guard rejects missing
+    # values at both array choke points. `tipping_point` is the one arm that
+    # reasons about the gaps themselves, so it alone receives the original
+    # dataset. Reduction is skipped entirely when nothing is missing, so a
+    # complete frame reaches every arm exactly as it did before.
+    analysis_dataset = dataset
+    if any(
+        dataset.frame[column].isna().any()
+        for column in dataset.schema.required_columns
+    ):
+        analysis_dataset, _ = complete_cases(dataset)
+
+    bound = cinelli_hazlett(analysis_dataset, estimator_name, config)
     if bound is not None:
         cinelli_hazlett_reason = None
     elif estimator_name == "event_study":
@@ -1414,16 +1611,30 @@ def sensitivity_report(
         # so they must propagate rather than be relabelled as an absence.
         # Checking membership up front means the only case handled here is
         # the one this report is actually about.
-        curve = specification_curve(dataset, estimator_name, config)
+        curve = specification_curve(analysis_dataset, estimator_name, config)
     else:
         curve_reason = _curve_reason(estimator_name)
+
+    # The three branches below must match tipping_point's three None
+    # conditions, in the same order. Phase 10 shipped a reason that named
+    # the wrong cause, and a reason stating the wrong cause is worse than
+    # a vague one.
+    tipping = tipping_point(dataset, estimator_name, config)
+    missing_data_reason: str | None = None
+    if tipping is None:
+        if get_estimator(estimator_name).requirements.needs_panel:
+            missing_data_reason = _PANEL_TIPPING_REASON.format(name=estimator_name)
+        elif dataset.schema.outcome_type != "binary":
+            missing_data_reason = _CONTINUOUS_TIPPING_REASON
+        else:
+            missing_data_reason = _NO_MISSING_DATA_REASON
 
     return SensitivityReport(
         confounding=confounding,
         specification_curve=curve,
         specification_curve_reason=curve_reason,
         falsification=falsify(
-            dataset,
+            analysis_dataset,
             estimator_name,
             config,
             n_permutations=n_permutations,
@@ -1433,6 +1644,6 @@ def sensitivity_report(
         ),
         misclassification=curve_of_rates,
         misclassification_reason=misclassification_reason,
-        missing_data=None,
-        missing_data_reason=_NO_MISSING_DATA_REASON,
+        missing_data=tipping,
+        missing_data_reason=missing_data_reason,
     )

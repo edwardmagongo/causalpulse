@@ -181,3 +181,179 @@ def test_filling_a_complete_dataset_changes_nothing():
     ).dataset
     filled = _fill_missing_outcomes(dataset, treated_value=0.0, control_value=1.0)
     assert filled.frame["outcome"].equals(dataset.frame["outcome"])
+
+
+def test_a_dataset_with_no_missing_outcomes_returns_none():
+    from cp_causal.sensitivity import tipping_point
+
+    dataset = build_scenario("D").generate(
+        n_units=400, rng=np.random.default_rng(0)
+    ).dataset
+    assert tipping_point(dataset, "difference_in_means", CONFIG) is None
+
+
+def test_a_continuous_outcome_returns_none():
+    from cp_causal.sensitivity import tipping_point
+
+    dataset = hand_built()
+    continuous = CausalDataset(
+        frame=dataset.frame,
+        schema=CausalSchema(
+            unit="unit_id",
+            treatment="treated",
+            outcome="outcome",
+            covariates=("x1",),
+            outcome_type="continuous",
+        ),
+    )
+    assert tipping_point(continuous, "difference_in_means", CONFIG) is None
+
+
+def test_a_panel_estimator_returns_none():
+    from cp_causal.sensitivity import tipping_point
+
+    assert tipping_point(hand_built(), "twfe", CONFIG) is None
+
+
+def test_an_unknown_estimator_is_refused_rather_than_silently_none():
+    from cp_causal.sensitivity import tipping_point
+
+    with pytest.raises(KeyError):
+        tipping_point(hand_built(), "difference_in_meanz", CONFIG)
+
+
+def test_the_result_reports_the_missing_count_and_agreeing_flags():
+    from cp_causal.sensitivity import tipping_point
+
+    result = tipping_point(hand_built(), "difference_in_means", CONFIG)
+    assert result is not None
+    assert result.n_missing_outcomes == 180  # 100 treated + 80 control
+    assert result.adverse_bound <= result.favourable_bound
+    assert (result.tipping_fraction is None) == result.conclusion_survives_worst_case
+
+
+def test_the_point_based_bisection_agrees_with_the_closed_form():
+    """Cross-check on the fill machinery, using the quantity that has one.
+
+    The shipped fraction is defined on significance and has no closed form.
+    This test bisects on the POINT estimate instead, where the design derived
+    f* = (p1 - p0) / [m1*p1/n1 + m0*(1-p0)/n0], and checks the two agree. If
+    they diverge, the fill or the arm bookkeeping is wrong -- independent of
+    anything to do with intervals.
+    """
+    from cp_causal.sensitivity import _point_at_fraction
+
+    n1 = n0 = 500
+    r1, r0, s1, s0 = 400, 420, 240, 168
+    m1, m0 = n1 - r1, n0 - r0
+    p1, p0 = s1 / r1, s0 / r0
+    closed_form = (p1 - p0) / (m1 * p1 / n1 + m0 * (1 - p0) / n0)
+
+    dataset = hand_built()
+    low, high = 0.0, 1.0
+    for _ in range(60):
+        mid = (low + high) / 2.0
+        if _point_at_fraction(dataset, "difference_in_means", CONFIG, mid) > 0:
+            low = mid
+        else:
+            high = mid
+    # Tolerance measured, not guessed. The plan specifies abs=0.01, which is
+    # unreachable: `n_adverse` is an integer count, so the treated arm's 100
+    # gaps quantise the fraction at 1/100 = 0.01 before any noise at all, and
+    # the non-adverse remainder is a random binomial draw on top of that.
+    # Measured over 15 seeds: closed form 0.925926, bisection roots mean
+    # 0.918333, sd 0.016350, spanning 0.881250 to 0.935000, so the largest
+    # deviation seen is 0.0447. Tolerance 0.06 is that plus ~1 sd. The point
+    # of this test is that the two agree to about a percent -- which is what
+    # shows the arm bookkeeping is right -- not that they agree exactly.
+    assert (low + high) / 2.0 == pytest.approx(closed_form, abs=0.06)
+
+
+def test_sensitivity_report_carries_the_arm_when_outcomes_are_missing():
+    from cp_causal.sensitivity import sensitivity_report
+
+    dataset = hand_built()
+    reduced, _ = complete_cases(dataset)
+    estimate = all_estimators()["difference_in_means"]().fit(reduced, CONFIG)
+    report = sensitivity_report(
+        dataset, "difference_in_means", estimate, CONFIG, n_permutations=20
+    )
+    assert report.missing_data is not None
+    assert report.missing_data_reason is None
+
+
+def test_sensitivity_report_states_a_reason_on_complete_data():
+    from cp_causal.sensitivity import sensitivity_report
+
+    dataset = build_scenario("D").generate(
+        n_units=400, rng=np.random.default_rng(0)
+    ).dataset
+    estimate = all_estimators()["difference_in_means"]().fit(dataset, CONFIG)
+    report = sensitivity_report(
+        dataset, "difference_in_means", estimate, CONFIG, n_permutations=20
+    )
+    assert report.missing_data is None
+    assert report.missing_data_reason
+    assert len(report.missing_data_reason.split()) >= 6
+
+
+def test_a_reversed_finding_is_not_reported_as_surviving():
+    """The defect a significance-only rule ships.
+
+    The plan defines the conclusion as `ci.contains(0.0)` and nothing more.
+    Measured on scenario D at n_units=2000 under MNAR missingness at rate
+    0.25, strength 2.0 (490 of 2000 outcomes missing): the complete-case
+    estimate is +0.1002 with CI (0.0629, 0.1374), and filling every missing
+    outcome against it gives -0.1176 with CI (-0.1535, -0.0819). That
+    interval excludes zero, so a significance-only rule reports the
+    conclusion as surviving its own worst case -- at the exact point the
+    finding has been driven through zero and out the far side, which is the
+    most complete reversal the data admits.
+
+    A reader of that report would be told the finding is robust to any
+    pattern of missingness. It is the opposite.
+    """
+    from cp_causal.sensitivity import tipping_point
+
+    simulated = build_scenario(
+        "D",
+        missingness=MissingnessMechanism(
+            mechanism="MNAR", rate=0.25, strength=2.0
+        ),
+    ).generate(n_units=2000, rng=np.random.default_rng(0))
+    dataset = simulated.dataset
+    reduced, _ = complete_cases(dataset)
+    complete_case = all_estimators()["difference_in_means"]().fit(reduced, CONFIG)
+    assert complete_case.point > 0
+    assert not complete_case.ci.contains(0.0)
+
+    result = tipping_point(dataset, "difference_in_means", CONFIG)
+    assert result is not None
+    # The adverse bound is on the far side of zero, so the finding cannot
+    # survive its own worst case however significant that bound looks.
+    assert result.adverse_bound < 0.0
+    assert result.conclusion_survives_worst_case is False
+    assert result.tipping_fraction is not None
+    assert 0.0 < result.tipping_fraction < 1.0
+
+
+def test_the_conclusion_test_rejects_a_flipped_sign_that_stays_significant():
+    """The unit-level version of the case above, with no fitting involved."""
+    from cp_causal.sensitivity import _conclusion_holds
+    from cp_core.values import Interval
+
+    class _Stub:
+        def __init__(self, point, lower, upper):
+            self.point = point
+            self.ci = Interval(lower=lower, upper=upper)
+
+    # Same sign, excludes zero -> holds.
+    assert _conclusion_holds(_Stub(0.10, 0.06, 0.14), direction=0.10)
+    # Covers zero -> does not hold.
+    assert not _conclusion_holds(_Stub(0.02, -0.01, 0.05), direction=0.10)
+    # Significant but flipped -> does not hold. This is the one the
+    # significance-only rule gets wrong.
+    assert not _conclusion_holds(_Stub(-0.12, -0.15, -0.08), direction=0.10)
+    # And symmetrically for an originally negative finding.
+    assert _conclusion_holds(_Stub(-0.12, -0.15, -0.08), direction=-0.10)
+    assert not _conclusion_holds(_Stub(0.12, 0.08, 0.15), direction=-0.10)
