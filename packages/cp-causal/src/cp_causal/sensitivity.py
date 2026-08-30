@@ -14,7 +14,7 @@ from dataclasses import replace
 from itertools import combinations
 
 import numpy as np
-from cp_core.dataset import CausalDataset
+from cp_core.dataset import CausalDataset, complete_cases
 from cp_core.results import (
     MIN_ATTENUATION_FACTOR,
     CinelliHazlettResult,
@@ -1277,6 +1277,57 @@ _DEGENERATE_OLS_FIT_REASON = (
     "particular refit could not compute a usable coefficient standard error, so "
     "the bound could not be computed."
 )
+
+
+def _fill_missing_outcomes(
+    dataset: CausalDataset, treated_value: float, control_value: float
+) -> CausalDataset:
+    """A copy with every missing outcome replaced, by arm.
+
+    Observed values are untouched -- only the gaps are filled, which is what
+    makes the result a bound on the original rather than a different dataset.
+    """
+    schema = dataset.schema
+    frame = dataset.frame.copy()
+    outcome = frame[schema.outcome]
+    treated = frame[schema.treatment] == 1
+    frame.loc[outcome.isna() & treated, schema.outcome] = treated_value
+    frame.loc[outcome.isna() & ~treated, schema.outcome] = control_value
+    return CausalDataset(frame=frame, schema=schema)
+
+
+def _worst_case_bounds(
+    dataset: CausalDataset, estimator_name: str, config: EstimatorConfig
+) -> tuple[float, float]:
+    """The two extreme fills, returned low end first.
+
+    Which fill opposes the finding depends on the sign of the complete-case
+    estimate: a positive finding is most opposed by giving the treated arm
+    its lowest outcome and the control arm its highest, and a negative
+    finding by the reverse. Assumes a binary outcome, whose extremes are 0
+    and 1.
+
+    Returned as `(min, max)` rather than positionally as
+    `(adverse, favourable)`, which keeps `TippingPoint`'s ordering invariant
+    satisfied by construction. Note the consequence: on a NEGATIVE finding
+    the semantically adverse fill -- the one pulling the estimate back toward
+    zero -- is the larger of the two, so it is returned second. A caller that
+    needs the adverse end specifically must re-derive it from the sign rather
+    than assuming it is the first element.
+    """
+    estimator_class = get_estimator(estimator_name)
+    reduced, _ = complete_cases(dataset)
+    complete_case = estimator_class().fit(reduced, config).point
+
+    low, high = (0.0, 1.0) if complete_case >= 0 else (1.0, 0.0)
+    adverse = estimator_class().fit(
+        _fill_missing_outcomes(dataset, treated_value=low, control_value=high), config
+    ).point
+    favourable = estimator_class().fit(
+        _fill_missing_outcomes(dataset, treated_value=high, control_value=low), config
+    ).point
+    return (min(adverse, favourable), max(adverse, favourable))
+
 
 
 _NO_MISSING_DATA_REASON = (
