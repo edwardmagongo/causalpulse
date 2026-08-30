@@ -147,6 +147,8 @@ def test_importing_cp_causal_registers_every_cross_sectional_estimator():
 
 def test_all_scenarios_are_covered_by_this_harness():
     # If a scenario is added without a recovery expectation, say so loudly
-    # rather than letting it drift untested.
-    covered = {"A", "B", "C", "D", "F", "G"}
+    # rather than letting it drift untested. H's expectation lives in
+    # tests/causal/test_phase11_measured.py, not here -- its missingness
+    # mechanism needs its own harness rather than this file's recovery shape.
+    covered = {"A", "B", "C", "D", "F", "G", "H"}
     assert set(SCENARIOS) == covered
