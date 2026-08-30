@@ -13,8 +13,38 @@ from cp_statistics.bootstrap import BootstrapResult, bootstrap_interval
 from scipy import stats
 
 
+def require_no_missing(dataset: CausalDataset) -> None:
+    """Refuse a dataset carrying missing values in any required column.
+
+    No estimator here handles a missing value, and before this guard each one
+    failed differently and late -- three of them only because a downstream
+    interval or integer conversion happened to notice a `nan`, and none of
+    them naming the column at fault.
+
+    Dropping the incomplete rows is a modelling choice rather than a repair,
+    so it is not done here on the caller's behalf. The message names
+    `complete_cases` as the way to make that choice, not as the way to make
+    an error go away: complete-case analysis is unbiased when values are
+    missing completely at random, and biased in general when they are not.
+    """
+    frame = dataset.frame
+    offending = tuple(
+        column
+        for column in dataset.schema.required_columns
+        if frame[column].isna().any()
+    )
+    if offending:
+        raise ValueError(
+            f"columns {sorted(offending)} contain missing values, and no "
+            "estimator here handles them. Reduce to complete cases with "
+            "cp_core.dataset.complete_cases if that assumption suits the "
+            "analysis, or supply data without gaps."
+        )
+
+
 def arrays(dataset: CausalDataset) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Extract `(covariates, treatment, outcome)` as float arrays."""
+    require_no_missing(dataset)
     frame = dataset.frame
     schema = dataset.schema
     covariates = (

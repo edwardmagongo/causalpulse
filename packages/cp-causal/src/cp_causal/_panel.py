@@ -16,6 +16,8 @@ from cp_core.results import EffectScale
 from cp_core.values import Diagnostic, EstimatorConfig
 from cp_statistics.bootstrap import BootstrapResult, bootstrap_interval
 
+from cp_causal._support import require_no_missing
+
 # Every panel estimator's minimum units per arm, and every bootstrap resample's
 # degeneracy threshold. One constant rather than four copies: Phase 2 shipped a
 # diagnostic string that had drifted apart across four copied blocks, and a
@@ -81,6 +83,7 @@ class PanelArrays:
 
 def panel_arrays(dataset: CausalDataset) -> PanelArrays:
     """Resolve a panel dataset into aligned arrays and per-unit cohorts."""
+    require_no_missing(dataset)
     schema = dataset.schema
     if schema.time is None:
         raise ValueError("dataset is not a panel; it declares no time column")
