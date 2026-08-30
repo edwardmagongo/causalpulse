@@ -20,8 +20,10 @@ from cp_causal.registry import all_estimators
 from cp_causal.router import eligible_estimators
 from cp_causal.sensitivity import sensitivity_report
 from cp_causal.validity import score_validity
+from cp_core.dataset import complete_cases
 from cp_core.language import causal_language_lint
 from cp_core.values import EstimatorConfig
+from cp_simulation.components import MissingnessMechanism
 from cp_simulation.donor_scenarios import DONOR_SCENARIOS, build_donor_scenario
 from cp_simulation.panel_scenarios import build_panel_scenario
 from cp_simulation.scenarios import DEFAULT_NEGATIVE_CONTROL, build_scenario
@@ -141,6 +143,7 @@ def _report_texts(dataset, name, estimate) -> list[str]:
         falsification.leave_one_donor_out_reason,
         falsification.randomization_inference_reason,
         falsification.negative_control_reason,
+        report.missing_data_reason,
     )
     return [text for text in optional_texts if text is not None]
 
@@ -190,6 +193,33 @@ def test_a_declared_negative_control_reaches_the_walk_without_a_new_violation():
     )) + _report_texts(dataset, "lin_regression", estimate)
     offences = [
         f"lin_regression on D+negative_control: {violation.term} in {violation.sentence!r}"
+        for text in texts
+        for violation in causal_language_lint(text)
+    ]
+    assert offences == [], "\n".join(offences)
+
+
+@pytest.mark.slow
+def test_a_dataset_with_missing_outcomes_reaches_the_walk_without_a_new_violation():
+    """`TippingPoint` carries no string fields of its own, same as Phase 10's
+    two result types -- only `missing_data_reason` does, and that already
+    runs through every fit above whenever nothing is missing. What this test
+    adds is the one path the rest of the walk cannot reach on its own: a
+    dataset that actually has missing outcomes, so `missing_data` is
+    populated instead of `missing_data_reason`, and the report is built and
+    linted without raising.
+    """
+    simulated = build_scenario(
+        "D", missingness=MissingnessMechanism(mechanism="MNAR", rate=0.25, strength=2.0)
+    ).generate(n_units=400, rng=np.random.default_rng(0))
+    dataset = simulated.dataset
+    reduced, _ = complete_cases(dataset)
+    estimate = all_estimators()["difference_in_means"]().fit(reduced, CONFIG)
+    texts = _texts(estimate, score_validity(
+        estimate, provenance=dataset.schema.assignment_provenance
+    )) + _report_texts(dataset, "difference_in_means", estimate)
+    offences = [
+        f"difference_in_means on D+missing_outcomes: {violation.term} in {violation.sentence!r}"
         for text in texts
         for violation in causal_language_lint(text)
     ]

@@ -1048,6 +1048,98 @@ claim made only there would also have succeeded under the wrong formula.
   non-differential model does not attempt.
 - **Missing data.** Moves to Phase 11, the last of §7.1's five original concerns.
 
+## Missing outcomes: complete-case analysis and tipping-point bounds (Phase 11)
+
+The last of §7.1's five original concerns. `CausalDataset` has always permitted missing outcomes,
+but no estimator handled one — before this phase, a dataset with a missing outcome failed late and
+differently per estimator (`ValueError: cannot convert float NaN to integer`,
+`Interval bounds must be finite, got lower=nan`, `Input y contains NaN` from scikit-learn, or an
+unrelated `LinAlgError` from a missing covariate), naming no column and suggesting no fix.
+
+### Estimators now refuse missing data, and complete-case is opt-in, not automatic
+
+`arrays()` and `panel_arrays()` — the two shared choke points every cross-sectional and
+panel/donor-pool estimator fits through — now refuse a dataset with any missing value in a required
+column, by name and by column, before any estimator sees it. Dropping the incomplete rows is offered
+as a separate, explicit function, `complete_cases`, rather than something an estimator does on a
+caller's behalf. **Complete-case analysis is unbiased when values are missing completely at random
+(MCAR) and biased in general when they are not** — under MAR, where the chance of missingness
+depends on observed covariates, or MNAR, where it depends on the outcome itself. Silently dropping
+rows would make that assumption invisible; refusing forces a caller to choose it deliberately, and
+the choice is recorded (`CompleteCaseRecord`, which rows were dropped and which column drove each).
+Complete-case is a starting point offered for convenience, not a recommendation — the error message
+that points to it says so, rather than presenting it as the fix.
+
+### What a wide bound means
+
+`tipping_point` reports the two Manski worst-case bounds — every missing outcome filled with the
+value most opposed to the finding, then with the value most in its favour — and, when the finding
+can be overturned at all, the smallest share of the missing outcomes that would need filling
+adversely to remove its statistical significance. **These bounds widen with the missing fraction, so
+at high missingness they routinely span zero.** That is the honest answer the data admits, not a
+failure of the method: a bound this wide says the data cannot settle the question, and the
+measured harness below found exactly that at 25% missingness — the mean bound width was 0.485 on a
+binary outcome whose full range is 1.0.
+
+The bisection that finds the tipping fraction also checks more than significance: an adverse fill
+that drives a finding through zero and out the other side, while its interval still excludes zero,
+is a **reversal**, not survival, and `_conclusion_holds` requires the refit to agree in sign with
+the original finding as well as remain significant. A significance-only check would report that
+case as robust at the exact point it had been overturned.
+
+### Only binary outcomes on cross-sectional data are covered
+
+The worst-case fill needs a bounded outcome to fill the gaps with — 0 and 1 for a binary outcome —
+so a continuous outcome has no worst case to compute, and `tipping_point` returns `None` with a
+stated reason. Panel and donor-pool estimators are out of scope for the same reason Phase 10's two
+checks stopped at cross-sectional data: attrition on a panel also removes a unit from periods it
+would otherwise contribute to, which this phase's machinery does not model. Both `None` cases carry
+their own reason string, checked by the language walk the same way Phase 9 and 10's reasons are.
+
+### Imputation is Phase 12
+
+This phase builds the missingness mechanism, complete-case analysis as an explicit baseline, and the
+tipping-point bounds — two of the three pieces the parent spec's original "complete-case vs
+imputation comparison, tipping-point analysis" row called for. **Imputation, and any comparison
+between complete-case and imputed estimates, is Phase 12.** Tipping-point analysis needs no model
+for the missing values, which is the point of it, so it does not depend on what Phase 12 builds.
+
+### What the measured harness found
+
+All four of spec §7.3's pre-registered expectations held as stated. Measured 2026-08-30, 20 seeds at
+`n_units=2000`, `difference_in_means`, scenario D unless noted, MNAR at `rate=0.25, strength=2.0`:
+
+| check | scenario | result |
+|---|---|---|
+| Complete-case bias, MCAR (`strength=0`) | D | mean gap −0.00189 (MCSE 0.00256) — the control, near zero |
+| Complete-case bias, MNAR | D | mean gap −0.07699 (MCSE 0.00390) — clearly biased |
+| MNAR bias exceeds MCAR bias by | D, paired | 0.07510 (combined MCSE 0.00467) |
+| Worst-case bounds contain the complete-data estimate | D | 0 violations of 20; mean width 0.4850 |
+| Tipping fraction, null finding | B | 0.00675 (MCSE 0.00423); 0 of 20 seeds survived full adverse fill |
+| Tipping fraction, +5pp finding | D | 0.24645 (MCSE 0.01893); 0 of 20 seeds survived full adverse fill |
+
+Neither B nor D survives its own full adverse fill in any of the 20 seeds at this missingness
+severity — a 25%, strength-2.0 MNAR mechanism is a genuinely severe pattern, and it is plausible for
+it to erase even a real +5pp effect entirely at full adversity. What discriminates the two scenarios
+is not survival but **how much** adverse filling each takes: D's finding needs roughly 24.6% of its
+missing outcomes filled against it before its significance breaks, against roughly 0.7% for a
+finding with no real effect behind it in the first place — a difference of 0.240 against a combined
+MCSE of 0.0194, ruling out the two being indistinguishable.
+
+The bounds identity — that the worst-case interval always contains the complete-data estimate — is a
+mathematical property of `difference_in_means` on a binary outcome (strictly monotonic in each
+missing coordinate, so its extremes occur exactly at the two filled corners the code computes), not
+a statistical claim, and is asserted with zero tolerance rather than headroom: one violation in
+`test_the_bounds_always_contain_the_complete_data_estimate` would mean the bounds are wrong, not
+that the tolerance needs widening.
+
+### What is deferred, and why
+
+- **Imputation and the complete-case-vs-imputation comparison.** Phase 12.
+- **Continuous outcomes and panel data, for the tipping point.** Named above — no worst case to fill
+  a continuous gap with, and panel attrition needs machinery this phase does not build.
+- **A panel missingness mechanism.** `MissingnessMechanism` attaches to `CrossSectionDGP` only.
+
 ## On scikit-learn
 
 scikit-learn fits nuisance models only — the propensity model and the outcome regressions, which
