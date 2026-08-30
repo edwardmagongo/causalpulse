@@ -1392,19 +1392,30 @@ def _estimate_at_fraction(
     adverse bound. Which units take the adverse value is chosen by a generator
     seeded from `config.random_seed`, so a bisection over this function is
     reproducible rather than wandering between steps.
+
+    Each arm gets its own independent stream, spawned from the same seed
+    rather than shared sequentially. A shared stream would let the treated
+    arm's remainder draw -- whose size shrinks as `fraction` grows -- shift
+    how many draws the control arm's permutation consumes before it runs,
+    silently reshuffling which control units go adverse at every fraction.
+    That breaks the nested-nesting a bisection needs: a unit filled adverse
+    at a lower fraction must stay filled adverse at every higher one, which
+    only holds if each arm's permutation order is fixed across fractions.
     """
     schema = dataset.schema
     frame = dataset.frame.copy()
     seed = 0 if config.random_seed is None else config.random_seed
-    rng = np.random.default_rng(np.random.SeedSequence(seed))
+    treated_rng, control_rng = (
+        np.random.default_rng(s) for s in np.random.SeedSequence(seed).spawn(2)
+    )
 
     outcome = frame[schema.outcome]
     treated = frame[schema.treatment] == 1
     adverse_treated, adverse_control = adverse
 
-    for arm_mask, adverse_value in (
-        (treated, adverse_treated),
-        (~treated, adverse_control),
+    for arm_mask, adverse_value, rng in (
+        (treated, adverse_treated, treated_rng),
+        (~treated, adverse_control, control_rng),
     ):
         observed = arm_mask & outcome.notna()
         gaps = np.flatnonzero((arm_mask & outcome.isna()).to_numpy())
@@ -1541,6 +1552,14 @@ def sensitivity_report(
     `n_placebo_units` and `n_placebo_dates` are passed straight through to
     `falsify`, which documents what they cost. Both matter most on `bsts`,
     where each one buys or spends a full NUTS run.
+
+    `estimate` is trusted, not re-derived: when `dataset` has missing
+    outcomes, `confounding` and `falsification` are computed against
+    `complete_cases(dataset)`, so a caller whose `estimate` was fitted on
+    anything else -- a different missing-outcome filter, say -- gets a
+    report that silently mixes two fits. `tipping_point` is not exposed to
+    this, since it recomputes its own complete-case direction from `dataset`
+    rather than consuming `estimate`.
     """
     curve_of_rates: MisclassificationCurve | None = None
     misclassification_reason: str | None = None
