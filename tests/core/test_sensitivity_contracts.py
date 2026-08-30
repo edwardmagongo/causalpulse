@@ -24,6 +24,7 @@ from cp_core.results import (
     SensitivityReport,
     SpecificationCurve,
     SpecificationPoint,
+    TippingPoint,
 )
 from cp_core.values import Interval
 
@@ -43,6 +44,7 @@ PINNED_OPTIONAL_SLOTS = {
     (FalsificationResult, "negative_control", "negative_control_reason"),
     (SensitivityReport, "specification_curve", "specification_curve_reason"),
     (SensitivityReport, "misclassification", "misclassification_reason"),
+    (SensitivityReport, "missing_data", "missing_data_reason"),
 }
 
 
@@ -362,6 +364,8 @@ def test_sensitivity_report_with_specification_curve_constructs():
         ),
         misclassification=None,
         misclassification_reason="not applicable",
+        missing_data=None,
+        missing_data_reason="not applicable",
     )
 
 
@@ -385,6 +389,8 @@ def test_sensitivity_report_without_specification_curve_constructs():
         ),
         misclassification=None,
         misclassification_reason="not applicable",
+        missing_data=None,
+        missing_data_reason="not applicable",
     )
 
 
@@ -409,6 +415,8 @@ def test_sensitivity_report_absent_curve_without_reason_raises():
             ),
             misclassification=None,
             misclassification_reason="not applicable",
+            missing_data=None,
+            missing_data_reason="not applicable",
         )
 
 
@@ -438,6 +446,8 @@ def test_sensitivity_report_present_curve_with_reason_raises():
             ),
             misclassification=None,
             misclassification_reason="not applicable",
+            missing_data=None,
+            missing_data_reason="not applicable",
         )
 
 
@@ -462,6 +472,8 @@ def test_sensitivity_report_with_misclassification_constructs():
         ),
         misclassification=a_misclassification_curve(),
         misclassification_reason=None,
+        missing_data=None,
+        missing_data_reason="not applicable",
     )
 
 
@@ -485,6 +497,8 @@ def test_sensitivity_report_without_misclassification_constructs():
         ),
         misclassification=None,
         misclassification_reason="not applicable",
+        missing_data=None,
+        missing_data_reason="not applicable",
     )
 
 
@@ -509,6 +523,8 @@ def test_sensitivity_report_absent_misclassification_without_reason_raises():
             ),
             misclassification=None,
             misclassification_reason=None,
+            missing_data=None,
+            missing_data_reason="not applicable",
         )
 
 
@@ -533,6 +549,8 @@ def test_sensitivity_report_present_misclassification_with_reason_raises():
             ),
             misclassification=a_misclassification_curve(),
             misclassification_reason="some reason",
+            missing_data=None,
+            missing_data_reason="not applicable",
         )
 
 
@@ -566,4 +584,114 @@ def test_an_empty_misclassification_reason_string_does_not_count_as_a_reason():
             ),
             misclassification=None,
             misclassification_reason="",
+            missing_data=None,
+            missing_data_reason="not applicable",
         )
+
+
+def a_tipping_point(**overrides) -> TippingPoint:
+    fields = {
+        "adverse_bound": -0.02,
+        "favourable_bound": 0.18,
+        "tipping_fraction": 0.34,
+        "n_missing_outcomes": 120,
+        "conclusion_survives_worst_case": False,
+    }
+    return TippingPoint(**{**fields, **overrides})
+
+
+def _report_kwargs(**overrides) -> dict[str, object]:
+    """Every SensitivityReport slot absent-with-a-reason, ready to override.
+
+    The hand-written constructions above predate this and are left alone; new
+    slot tests build from here so that adding a slot costs one line in this
+    helper rather than another twenty-line block per test.
+    """
+    kwargs: dict[str, object] = {
+        "confounding": a_confounding_sensitivity(),
+        "specification_curve": None,
+        "specification_curve_reason": "not applicable",
+        "falsification": FalsificationResult(**_absent_falsification_kwargs()),
+        "misclassification": None,
+        "misclassification_reason": "not applicable",
+        "missing_data": None,
+        "missing_data_reason": "not applicable",
+    }
+    kwargs.update(overrides)
+    return kwargs
+
+
+def test_a_tipping_point_constructs_when_its_invariants_hold():
+    assert a_tipping_point().tipping_fraction == 0.34
+
+
+def test_reversed_bounds_are_refused():
+    with pytest.raises(ValueError, match="adverse_bound"):
+        a_tipping_point(adverse_bound=0.18, favourable_bound=-0.02)
+
+
+def test_a_surviving_conclusion_must_carry_no_tipping_fraction():
+    # Survives the full adverse fill, so no fraction tips it. A number here
+    # would contradict the boolean beside it.
+    with pytest.raises(ValueError, match="tipping_fraction"):
+        a_tipping_point(
+            adverse_bound=0.04, tipping_fraction=0.9,
+            conclusion_survives_worst_case=True,
+        )
+
+
+def test_a_tipped_conclusion_must_carry_a_tipping_fraction():
+    with pytest.raises(ValueError, match="tipping_fraction"):
+        a_tipping_point(tipping_fraction=None)
+
+
+def test_a_surviving_conclusion_with_no_fraction_constructs():
+    result = a_tipping_point(
+        adverse_bound=0.04, tipping_fraction=None,
+        conclusion_survives_worst_case=True,
+    )
+    assert result.tipping_fraction is None
+
+
+@pytest.mark.parametrize("bad", [-0.1, 1.1])
+def test_a_tipping_fraction_outside_the_unit_interval_is_refused(bad):
+    with pytest.raises(ValueError, match="tipping_fraction"):
+        a_tipping_point(tipping_fraction=bad)
+
+
+def test_a_tipping_point_needs_at_least_one_missing_outcome():
+    with pytest.raises(ValueError, match="n_missing_outcomes"):
+        a_tipping_point(n_missing_outcomes=0)
+
+
+def test_equal_bounds_are_accepted():
+    # The guard is `>`, not `>=`: a degenerate interval is a real answer --
+    # it says the missing outcomes cannot move the estimate at all.
+    result = a_tipping_point(adverse_bound=0.05, favourable_bound=0.05)
+    assert result.adverse_bound == result.favourable_bound
+
+
+def test_an_absent_missing_data_slot_without_a_reason_is_refused():
+    with pytest.raises(ValueError, match="missing_data_reason"):
+        SensitivityReport(**_report_kwargs(missing_data_reason=None))
+
+
+def test_a_present_missing_data_slot_with_a_reason_is_refused():
+    with pytest.raises(ValueError, match="missing_data_reason"):
+        SensitivityReport(
+            **_report_kwargs(
+                missing_data=a_tipping_point(), missing_data_reason="not applicable"
+            )
+        )
+
+
+def test_an_empty_missing_data_reason_string_does_not_count_as_a_reason():
+    with pytest.raises(ValueError, match="missing_data_reason"):
+        SensitivityReport(**_report_kwargs(missing_data_reason=""))
+
+
+def test_a_present_missing_data_slot_without_a_reason_constructs():
+    report = SensitivityReport(
+        **_report_kwargs(missing_data=a_tipping_point(), missing_data_reason=None)
+    )
+    assert report.missing_data is not None

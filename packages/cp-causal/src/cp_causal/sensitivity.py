@@ -1279,6 +1279,12 @@ _DEGENERATE_OLS_FIT_REASON = (
 )
 
 
+_NO_MISSING_DATA_REASON = (
+    "The dataset has no missing outcomes, so there is nothing unobserved "
+    "for a tipping point to vary."
+)
+
+
 def sensitivity_report(
     dataset: CausalDataset,
     estimator_name: str,
@@ -1376,4 +1382,6 @@ def sensitivity_report(
         ),
         misclassification=curve_of_rates,
         misclassification_reason=misclassification_reason,
+        missing_data=None,
+        missing_data_reason=_NO_MISSING_DATA_REASON,
     )

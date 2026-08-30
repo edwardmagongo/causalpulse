@@ -553,6 +553,57 @@ class FalsificationResult:
 
 
 @dataclass(frozen=True)
+class TippingPoint:
+    """How much the unobserved outcomes would have to differ to overturn a finding.
+
+    The bounds are worst-case and assume nothing about why values are
+    missing: every missing outcome is filled with the value most opposed to
+    the finding, and then with the value most in its favour. A wide interval
+    is a property of the data rather than a failure of the method -- at high
+    missingness the honest answer is that the data cannot settle the question.
+
+    `tipping_fraction` is the smallest share of the missing outcomes that,
+    filled adversely, removes the finding's significance. It is `None` exactly
+    when no share does, which is what `conclusion_survives_worst_case`
+    records; the two must agree.
+    """
+
+    adverse_bound: float
+    favourable_bound: float
+    tipping_fraction: float | None
+    n_missing_outcomes: int
+    conclusion_survives_worst_case: bool
+
+    def __post_init__(self) -> None:
+        if self.adverse_bound > self.favourable_bound:
+            raise ValueError(
+                f"adverse_bound {self.adverse_bound} exceeds favourable_bound "
+                f"{self.favourable_bound}; they are the two ends of one interval"
+            )
+        if self.n_missing_outcomes < 1:
+            raise ValueError(
+                "n_missing_outcomes must be positive; a tipping point needs "
+                f"something unobserved to vary, got {self.n_missing_outcomes}"
+            )
+        if (
+            self.tipping_fraction is not None
+            and not 0.0 <= self.tipping_fraction <= 1.0
+        ):
+            raise ValueError(
+                f"tipping_fraction must lie in [0, 1], got {self.tipping_fraction}"
+            )
+        # Exactly one of the two states, so a reader cannot be told both that
+        # the finding survives and that a share of the missing data undoes it.
+        if self.conclusion_survives_worst_case != (self.tipping_fraction is None):
+            raise ValueError(
+                "tipping_fraction must be None if and only if "
+                "conclusion_survives_worst_case is True; got "
+                f"{self.tipping_fraction!r} against "
+                f"{self.conclusion_survives_worst_case}"
+            )
+
+
+@dataclass(frozen=True)
 class SensitivityReport:
     """How robust one finding is, across three independent lines of attack."""
 
@@ -562,6 +613,8 @@ class SensitivityReport:
     falsification: FalsificationResult
     misclassification: MisclassificationCurve | None
     misclassification_reason: str | None
+    missing_data: TippingPoint | None
+    missing_data_reason: str | None
 
     def __post_init__(self) -> None:
         _require_reason(
@@ -572,6 +625,7 @@ class SensitivityReport:
         _require_reason(
             self.misclassification, self.misclassification_reason, "misclassification"
         )
+        _require_reason(self.missing_data, self.missing_data_reason, "missing_data")
 
 
 @dataclass(frozen=True)
