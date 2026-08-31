@@ -9,16 +9,20 @@ reason fails this file rather than shipping as a silent gap.
 
 import dataclasses
 from collections.abc import Callable
+from datetime import datetime
 
 import numpy as np
 import pytest
 from cp_core.results import (
     CinelliHazlettResult,
     ConfoundingSensitivity,
+    EffectEstimate,
     EValueResult,
     FalsificationResult,
+    FitMetadata,
     MisclassificationCurve,
     MisclassificationPoint,
+    MissingDataAnalysis,
     NegativeControlResult,
     PlaceboTestResult,
     SensitivityReport,
@@ -695,3 +699,96 @@ def test_a_present_missing_data_slot_without_a_reason_constructs():
         **_report_kwargs(missing_data=a_tipping_point(), missing_data_reason=None)
     )
     assert report.missing_data is not None
+
+
+def _estimate(point: float = 0.1) -> EffectEstimate:
+    """Helper to create a valid EffectEstimate with customizable point."""
+    return EffectEstimate(
+        estimand="ATE",
+        method="ols",
+        point=point,
+        se=0.05,
+        ci=Interval(lower=point - 0.1, upper=point + 0.1),
+        ci_basis="analytic",
+        bootstrap_ci=None,
+        p_value=0.05,
+        n_treated=100,
+        n_control=100,
+        scale="absolute",
+        diagnostics={},
+        assumptions=(),
+        counterfactual=None,
+        fit_metadata=FitMetadata(
+            estimator="ols",
+            package_versions={},
+            git_commit="abc123",
+            config_hash="xyz",
+            platform="darwin",
+            runtime_seconds=1.0,
+            timestamp=datetime.now(),
+            random_seed=None,
+        ),
+    )
+
+
+def _analysis(**overrides: object) -> MissingDataAnalysis:
+    """Helper to create a MissingDataAnalysis with customizable overrides."""
+    fields = {
+        "complete_case": _estimate(point=0.1),
+        "single_imputation": _estimate(point=0.1),
+        "multiple_imputation": _estimate(point=0.1),
+        "tipping_point": a_tipping_point(),
+        "tipping_point_reason": None,
+        "n_missing_outcomes": 50,
+        "fraction_missing": 0.2,
+        "arms_agree_in_sign": True,
+        "arms_agree_in_significance": True,
+    }
+    return MissingDataAnalysis(**{**fields, **overrides})
+
+
+def test_a_missing_data_analysis_requires_a_reason_when_the_tipping_point_is_absent():
+    with pytest.raises(ValueError, match="tipping_point_reason"):
+        _analysis(tipping_point=None, tipping_point_reason=None)
+
+
+def test_a_stale_reason_beside_a_real_tipping_point_is_refused():
+    with pytest.raises(ValueError, match="tipping_point_reason"):
+        _analysis(tipping_point=a_tipping_point(), tipping_point_reason="not applicable")
+
+
+def test_the_agreement_flags_must_match_the_arms():
+    # Both are stored rather than derived so a renderer need not re-compute a
+    # judgement, which is exactly why a disagreement between the stored flag
+    # and the arms would leave a reader no way to tell which to believe.
+    with pytest.raises(ValueError, match="arms_agree_in_sign"):
+        _analysis(
+            complete_case=_estimate(point=0.2),
+            single_imputation=_estimate(point=-0.2),
+            multiple_imputation=_estimate(point=0.2),
+            arms_agree_in_sign=True,
+        )
+
+
+def test_a_fraction_missing_outside_the_unit_interval_is_refused():
+    with pytest.raises(ValueError, match="fraction_missing"):
+        _analysis(fraction_missing=1.4)
+
+
+def test_it_needs_something_missing_to_analyse():
+    with pytest.raises(ValueError, match="n_missing_outcomes"):
+        _analysis(n_missing_outcomes=0)
+
+
+def test_the_significance_agreement_flag_must_match_the_arms():
+    # Both are stored rather than derived so a renderer need not re-compute a
+    # judgement, which is exactly why a disagreement between the stored flag
+    # and the arms would leave a reader no way to tell which to believe.
+    # Create estimates where one's interval excludes zero and others don't.
+    with pytest.raises(ValueError, match="arms_agree_in_significance"):
+        _analysis(
+            complete_case=_estimate(point=0.5),  # [0.4, 0.6] - excludes zero
+            single_imputation=_estimate(point=0.05),  # [−0.05, 0.15] - contains zero
+            multiple_imputation=_estimate(point=0.5),  # [0.4, 0.6] - excludes zero
+            arms_agree_in_significance=True,
+        )

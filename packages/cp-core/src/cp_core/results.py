@@ -603,6 +603,65 @@ class TippingPoint:
             )
 
 
+def _sign(value: float) -> int:
+    return (value > 0.0) - (value < 0.0)
+
+
+@dataclass(frozen=True)
+class MissingDataAnalysis:
+    """Three answers to one question about gaps, reported side by side.
+
+    Complete-case analysis drops the incomplete rows, which is unbiased only
+    when values are missing completely at random. Single imputation fills them
+    and then reports its uncertainty as though they had been observed.
+    Multiple imputation fills them many times and carries the disagreement
+    between fills into its interval. None of the three is the right answer in
+    general, so all three are reported and none is selected here.
+
+    The tipping point sits inside rather than beside them because it answers
+    the same question without a model for the missing values, which is what
+    makes it the honest fallback when the three arms disagree.
+    """
+
+    complete_case: EffectEstimate
+    single_imputation: EffectEstimate
+    multiple_imputation: EffectEstimate
+    tipping_point: TippingPoint | None
+    tipping_point_reason: str | None
+    n_missing_outcomes: int
+    fraction_missing: float
+    arms_agree_in_sign: bool
+    arms_agree_in_significance: bool
+
+    @property
+    def arms(self) -> tuple[EffectEstimate, EffectEstimate, EffectEstimate]:
+        return (self.complete_case, self.single_imputation, self.multiple_imputation)
+
+    def __post_init__(self) -> None:
+        _require_reason(self.tipping_point, self.tipping_point_reason, "tipping_point")
+        if self.n_missing_outcomes < 1:
+            raise ValueError(
+                "n_missing_outcomes must be positive; there is nothing to "
+                f"compare complete-case against otherwise, got {self.n_missing_outcomes}"
+            )
+        if not 0.0 < self.fraction_missing <= 1.0:
+            raise ValueError(
+                f"fraction_missing must lie in (0, 1], got {self.fraction_missing}"
+            )
+        signs = {_sign(arm.point) for arm in self.arms}
+        if self.arms_agree_in_sign != (len(signs) == 1):
+            raise ValueError(
+                f"arms_agree_in_sign={self.arms_agree_in_sign} disagrees with "
+                f"the arms' point estimates {[arm.point for arm in self.arms]}"
+            )
+        significance = {arm.is_significant for arm in self.arms}
+        if self.arms_agree_in_significance != (len(significance) == 1):
+            raise ValueError(
+                f"arms_agree_in_significance={self.arms_agree_in_significance} "
+                "disagrees with the arms' intervals"
+            )
+
+
 @dataclass(frozen=True)
 class SensitivityReport:
     """How robust one finding is, across three independent lines of attack."""
