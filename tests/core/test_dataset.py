@@ -327,3 +327,20 @@ def test_an_auxiliary_column_may_not_also_be_a_covariate():
 def test_an_auxiliary_column_may_not_shadow_a_structural_column(clash):
     with pytest.raises(ValueError, match="auxiliary_columns"):
         _schema(auxiliary_columns=(clash,))
+
+
+def test_an_auxiliary_column_may_not_clash_with_negative_control_outcome():
+    # The negative-control outcome is a structural column like unit and treatment.
+    # Declaring it as auxiliary would corrupt a negative-control refit.
+    with pytest.raises(ValueError, match="auxiliary_columns"):
+        _schema(
+            negative_control_outcome="negative_control",
+            auxiliary_columns=("negative_control",),
+        )
+
+
+def test_auxiliary_columns_must_not_contain_duplicates():
+    # Duplicates in auxiliary_columns are a misconfiguration. The schema
+    # should catch and reject them at construction time.
+    with pytest.raises(ValueError, match="auxiliary_columns.*duplicates"):
+        _schema(auxiliary_columns=("outcome_proxy", "outcome_proxy"))

@@ -104,15 +104,37 @@ class CausalSchema:
         structural = {self.unit, self.treatment, self.outcome, *self.covariates}
         if self.negative_control_outcome is not None:
             structural.add(self.negative_control_outcome)
-        clashes = sorted(set(self.auxiliary_columns) & structural)
-        if clashes:
-            raise ValueError(
-                f"auxiliary_columns {clashes} already play another role in "
-                "this schema. An auxiliary is a column the imputation model "
-                "may use and no estimator may: a covariate that is also an "
-                "auxiliary would be adjusted for, and adjusting for a "
-                "descendant of the outcome biases every estimator."
-            )
+
+        # Check each auxiliary column for clashes and describe the actual role
+        for aux_col in self.auxiliary_columns:
+            if aux_col in structural:
+                # Identify which role this column plays
+                if aux_col == self.unit:
+                    role = "unit"
+                elif aux_col == self.treatment:
+                    role = "treatment"
+                elif aux_col == self.outcome:
+                    role = "outcome"
+                elif aux_col == self.negative_control_outcome:
+                    role = "negative_control_outcome"
+                elif aux_col in self.covariates:
+                    role = "covariate"
+                else:
+                    role = "structural column"
+
+                if role == "covariate":
+                    raise ValueError(
+                        f"auxiliary_columns contains {aux_col!r}, which is also a "
+                        "covariate. An auxiliary is a column the imputation model may "
+                        "use and no estimator may: a covariate that is also an "
+                        "auxiliary would be adjusted for, and adjusting for a "
+                        "descendant of the outcome biases every estimator."
+                    )
+                else:
+                    raise ValueError(
+                        f"auxiliary_columns contains {aux_col!r}, which is already "
+                        f"the {role}. An auxiliary column cannot play multiple roles."
+                    )
         if len(set(self.auxiliary_columns)) != len(self.auxiliary_columns):
             raise ValueError(
                 f"auxiliary_columns contains duplicates: {self.auxiliary_columns}"
