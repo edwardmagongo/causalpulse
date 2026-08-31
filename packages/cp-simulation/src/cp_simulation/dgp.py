@@ -14,6 +14,7 @@ from cp_simulation.components import (
     MissingnessMechanism,
     NegativeControlOutcome,
     NonDifferentialMisclassification,
+    OutcomeProxy,
     UnitGenerator,
 )
 from cp_simulation.truth import GroundTruth, SimulatedDataset
@@ -66,6 +67,7 @@ class CrossSectionDGP:
     negative_control: NegativeControlOutcome | None = None
     misclassification: NonDifferentialMisclassification | None = None
     missingness: MissingnessMechanism | None = None
+    outcome_proxy: OutcomeProxy | None = None
 
     @property
     def config_hash(self) -> str:
@@ -80,6 +82,7 @@ class CrossSectionDGP:
                     negative_control=self.negative_control,
                     misclassification=self.misclassification,
                     missingness=self.missingness,
+                    outcome_proxy=self.outcome_proxy,
                 ),
             }
         )
@@ -137,12 +140,26 @@ class CrossSectionDGP:
             observed_outcome = observed_outcome.copy()
             observed_outcome[hidden] = np.nan
 
+        # Drawn after the mask, from the complete vector rather than the
+        # masked one, for two reasons. The proxy must exist where the outcome
+        # does not, which is the whole point of an auxiliary; and drawing it
+        # here leaves the missingness mask untouched, so the same seed
+        # produces the same missing rows whether or not a proxy is configured.
+        # Drawing it earlier would consume from `rng` before `missing_mask`
+        # and shift every subsequent draw.
+        proxy: np.ndarray | None = None
+        if self.outcome_proxy is not None:
+            source = complete_outcome if complete_outcome is not None else observed_outcome
+            proxy = self.outcome_proxy.observe(source, rng)
+
         frame = frame.assign(treated=observed_treatment, outcome=observed_outcome)
         if self.negative_control is not None:
             nc_probability = self.negative_control.probabilities(covariates)
             frame = frame.assign(
                 **{self.negative_control.column: rng.binomial(1, nc_probability)}
             )
+        if self.outcome_proxy is not None:
+            frame = frame.assign(**{self.outcome_proxy.column: proxy})
         schema = CausalSchema(
             unit="unit_id",
             treatment="treated",
@@ -152,6 +169,9 @@ class CrossSectionDGP:
             assignment_provenance=self.assignment.provenance(),
             negative_control_outcome=(
                 self.negative_control.column if self.negative_control is not None else None
+            ),
+            auxiliary_columns=(
+                (self.outcome_proxy.column,) if self.outcome_proxy is not None else ()
             ),
         )
         truth = GroundTruth(

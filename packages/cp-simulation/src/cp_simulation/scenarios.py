@@ -18,6 +18,7 @@ from cp_simulation.components import (
     MissingnessMechanism,
     NegativeControlOutcome,
     NonDifferentialMisclassification,
+    OutcomeProxy,
     PropensityAssignment,
     RandomAssignment,
     UnitGenerator,
@@ -193,20 +194,26 @@ def build_scenario(
     negative_control: NegativeControlOutcome | None = None,
     misclassification: NonDifferentialMisclassification | None = None,
     missingness: MissingnessMechanism | None = None,
+    outcome_proxy: OutcomeProxy | None = None,
 ) -> CrossSectionDGP:
     """Instantiate a scenario's DGP at a given confounding strength.
 
-    The two optional components are attached after the scenario's own builder
-    has run, rather than threaded through it, so all six builders stay as they
-    were and a scenario that opts into neither produces exactly the frame it
-    produced before.
+    The three optional components are attached after the scenario's own
+    builder has run, rather than threaded through it, so all six builders stay
+    as they were and a scenario that opts into none of them produces exactly
+    the frame it produced before.
     """
     if scenario_id not in SCENARIOS:
         raise KeyError(
             f"unknown scenario {scenario_id!r}; available: {sorted(SCENARIOS)}"
         )
     dgp = SCENARIOS[scenario_id].build(confounding_strength)
-    if negative_control is None and misclassification is None and missingness is None:
+    if (
+        negative_control is None
+        and misclassification is None
+        and missingness is None
+        and outcome_proxy is None
+    ):
         return dgp
     return replace(
         dgp,
@@ -215,4 +222,5 @@ def build_scenario(
         # H bakes its own mechanism in, so an explicit argument must not
         # silently erase it when the caller passed none.
         missingness=missingness if missingness is not None else dgp.missingness,
+        outcome_proxy=outcome_proxy,
     )

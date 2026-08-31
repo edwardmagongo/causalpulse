@@ -89,6 +89,46 @@ class NegativeControlOutcome:
 
 
 @dataclass(frozen=True)
+class OutcomeProxy:
+    """A noisy proxy for the realised outcome, recorded for every unit.
+
+    Read as a cheap metric collected on everyone while the expensive outcome
+    is collected on only some, which is the situation in which imputing an
+    outcome is worth doing at all.
+
+    Built from the REALISED outcome rather than from its latent probability,
+    and that is the whole construction. A column correlated with the outcome
+    only through the covariates carries nothing an analysis model that already
+    conditions on them does not have, so multiple imputation would gain
+    nothing from it -- measured during design as the difference between an
+    empirical standard deviation of 0.02831 with no auxiliary and 0.02413 with
+    a strong one, against complete-case analysis at 0.02619.
+
+    It is a descendant of the outcome, so no estimator may adjust for it:
+    conditioning on a post-outcome variable biases every one of them.
+    `CausalSchema` enforces that by refusing an auxiliary that is also a
+    covariate; this component only produces the column.
+    """
+
+    noise_sd: float
+    column: str = "outcome_proxy"
+
+    def __post_init__(self) -> None:
+        if self.noise_sd <= 0.0:
+            raise ValueError(f"noise_sd must be positive, got {self.noise_sd}")
+
+    def observe(self, outcome: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+        """The proxy, from the complete outcome vector.
+
+        The caller passes the complete outcome, not the frame's column: a
+        proxy built from a vector with gaps in it would be missing exactly
+        where it is needed.
+        """
+        noise = rng.normal(0.0, self.noise_sd, size=outcome.shape[0])
+        return np.asarray(outcome + noise, dtype=float)
+
+
+@dataclass(frozen=True)
 class NonDifferentialMisclassification:
     """Treatment observed with error, at rates that do not depend on the outcome.
 
