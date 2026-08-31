@@ -367,6 +367,14 @@ def multiple_impute(
     # difference of about 6.8e-6 -- immaterial next to the between-imputation
     # noise Rubin's rules already carry.
     complete_data_df = float(first.n_treated + first.n_control - 2)
+    # `if fit.se is not None` is not a real filter here -- the guard above
+    # already returned `None` for this exact `fits` list if any `se` were
+    # `None`, so nothing is ever dropped. It exists only to narrow
+    # `float | None` to `float` for mypy while keeping this list aligned
+    # index-for-index with `[fit.point for fit in fits]`. Do not separate
+    # this line from the guard above (e.g. by hoisting the filtered list to
+    # a variable computed earlier, or by relaxing the guard to allow some
+    # `None`s through) -- doing so could silently misalign points and SEs.
     pooled = pool_rubin(
         [fit.point for fit in fits],
         [fit.se for fit in fits if fit.se is not None],

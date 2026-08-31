@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from cp_causal.imputation import DEFAULT_IMPUTATIONS, impute_once, multiple_impute
+from cp_causal.registry import get_estimator
 from cp_core.dataset import CausalDataset, CausalSchema
 from cp_core.values import EstimatorConfig
 from cp_simulation.components import MissingnessMechanism
@@ -150,17 +151,65 @@ def test_it_offers_no_bootstrap_interval():
     assert estimate.bootstrap_ci is None
 
 
-def test_it_is_wider_than_any_single_completion():
-    # Rubin's total variance adds the between-imputation spread on top of the
-    # within, so the pooled interval cannot be narrower than the typical
-    # completed-data one. A pooled interval that matched a single fit's would
-    # mean the between term never reached the result.
+def test_a_wider_ci_level_widens_the_pooled_interval():
+    # Nothing pinned that the interval actually reads `config.ci_level`
+    # rather than a hardcoded 0.95. Same dataset and seed, two configs that
+    # differ only in ci_level: the wider level must produce a wider interval
+    # (a larger critical t-value at the same pooled se) and each returned
+    # `Interval.level` must match the config it came from.
+    dataset = _simulated()
+    narrow_config = EstimatorConfig(
+        bootstrap_reps=25, random_seed=1, ci_level=0.80
+    )
+    wide_config = EstimatorConfig(bootstrap_reps=25, random_seed=1, ci_level=0.99)
+
+    narrow = multiple_impute(dataset, "difference_in_means", narrow_config, m=5)
+    wide = multiple_impute(dataset, "difference_in_means", wide_config, m=5)
+    assert narrow is not None
+    assert wide is not None
+
+    assert narrow.ci.level == 0.80
+    assert wide.ci.level == 0.99
+    narrow_width = narrow.ci.upper - narrow.ci.lower
+    wide_width = wide.ci.upper - wide.ci.lower
+    assert wide_width > narrow_width
+
+
+def test_it_is_wider_than_a_typical_single_completion():
+    # Pin the property the test name claims, not an arithmetic fact
+    # `pool_rubin` guarantees for any positive between-variance regardless of
+    # whether `multiple_impute` wired the right fits into it (`se**2 >
+    # within_variance` is exactly that guarantee, true of `total = within +
+    # (1 + 1/m) * between` for any m and any between > 0, so it would pass
+    # even if the pooled point/se were quietly swapped for garbage).
+    #
+    # Compared against the MEAN width across the m completions actually
+    # pooled, not one arbitrary completion, because a single completion's
+    # width relative to the pooled one is only a probabilistic claim on one
+    # seed. The mean is reconstructed by replaying the identical rng sequence
+    # `multiple_impute` consumes internally (same seed, same
+    # draw_parameters=True resampling), so this is exactly the set of fits
+    # that went into the pool, not a fresh independent draw.
+    #
+    # Verified over 30 seeds (0-29) that pooled_width > mean_width holds with
+    # margin ranging from about 0.0106 to 0.075 (mean widths cluster near
+    # 0.145-0.153; pooled widths near 0.15-0.22) -- comfortably robust, never
+    # close to reversing. See task-6-report.md for the full sweep.
     dataset = _simulated()
     estimate = multiple_impute(dataset, "difference_in_means", CONFIG, m=10)
     assert estimate is not None
-    assert estimate.diagnostics["between_variance"].value > 0.0
-    assert estimate.se is not None
-    assert estimate.se**2 > estimate.diagnostics["within_variance"].value
+    pooled_width = estimate.ci.upper - estimate.ci.lower
+
+    rng = np.random.default_rng(np.random.SeedSequence(0))
+    estimator_class = get_estimator("difference_in_means")
+    widths = []
+    for _ in range(10):
+        completed = impute_once(dataset, rng, draw_parameters=True)
+        fit = estimator_class().fit(completed, CONFIG)
+        widths.append(fit.ci.upper - fit.ci.lower)
+    mean_width = float(np.mean(widths))
+
+    assert pooled_width > mean_width
 
 
 def test_a_panel_estimator_is_refused():
@@ -186,14 +235,28 @@ def test_every_eligible_cross_sectional_estimator_pools(name):
     assert estimate.ci_basis == "rubin"
 
 
+@pytest.mark.slow
 def test_an_assumption_that_disagrees_across_completions_is_not_claimed():
     # A check whose verdict depends on which completion it saw has not been
     # tested, and reporting the first one's answer would be the same overclaim
     # a hardcoded WARN status made in Phase 8.
-    estimate = multiple_impute(_simulated(), "lin_regression", CONFIG, m=5)
+    #
+    # Pins the downgrade actually firing end to end, not just that every
+    # status is one of the four the type permits (`AssumptionCheck` already
+    # guarantees that for any assumptions object, so it would pass even if
+    # `_pool_assumptions` never downgraded anything). `causal_forest` at
+    # m=20 on scenario D produces `calibration_test == "NOT_TESTABLE"` on
+    # seed 1 (also reproduced on seed 5); confirmed by direct measurement
+    # rather than assumed. About 19s per call, hence @pytest.mark.slow.
+    estimate = multiple_impute(_simulated(seed=1), "causal_forest", CONFIG, m=20, seed=1)
     assert estimate is not None
-    for check in estimate.assumptions:
-        assert check.status in {"PASS", "WARN", "FAIL", "NOT_TESTABLE"}
+    calibration = next(
+        check for check in estimate.assumptions if check.name == "calibration_test"
+    )
+    assert calibration.status == "NOT_TESTABLE"
+    assert "reached different verdicts across the imputed datasets" in (
+        calibration.interpretation
+    )
 
 
 def test_the_default_imputation_count_is_reported_in_diagnostics():
