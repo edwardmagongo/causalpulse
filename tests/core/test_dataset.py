@@ -4,6 +4,25 @@ import pytest
 from cp_core.dataset import CausalDataset, CausalSchema
 
 
+def _schema(
+    unit: str = "unit_id",
+    treatment: str = "treated",
+    outcome: str = "outcome",
+    covariates: tuple[str, ...] = ("x1", "x2"),
+    outcome_type: str = "binary",
+    **kwargs,
+) -> CausalSchema:
+    """Helper to construct a valid CausalSchema with sensible defaults."""
+    return CausalSchema(
+        unit=unit,
+        treatment=treatment,
+        outcome=outcome,
+        covariates=covariates,
+        outcome_type=outcome_type,
+        **kwargs,
+    )
+
+
 def cross_section_frame() -> pd.DataFrame:
     return pd.DataFrame(
         {
@@ -280,3 +299,31 @@ def test_schema_rejects_an_unknown_provenance():
             outcome_type="continuous",
             assignment_provenance="quasi-ish",
         )
+
+
+def test_auxiliary_columns_default_to_empty():
+    schema = _schema()
+    assert schema.auxiliary_columns == ()
+
+
+def test_an_auxiliary_column_is_not_a_required_column():
+    # required_columns means "columns an estimator needs". The auxiliary is by
+    # construction a column no estimator may use, so including it would make
+    # Phase 11's missing-data refusal reject a dataset over a column that
+    # plays no part in any fit.
+    schema = _schema(auxiliary_columns=("outcome_proxy",))
+    assert "outcome_proxy" not in schema.required_columns
+
+
+def test_an_auxiliary_column_may_not_also_be_a_covariate():
+    # The proxy is a descendant of the outcome. Adjusting for it would
+    # condition on a post-outcome variable and bias every estimator, so this
+    # is a correctness rule, not a naming convention.
+    with pytest.raises(ValueError, match="auxiliary_columns"):
+        _schema(covariates=("x1", "x2"), auxiliary_columns=("x1",))
+
+
+@pytest.mark.parametrize("clash", ["unit_id", "treated", "outcome"])
+def test_an_auxiliary_column_may_not_shadow_a_structural_column(clash):
+    with pytest.raises(ValueError, match="auxiliary_columns"):
+        _schema(auxiliary_columns=(clash,))

@@ -44,6 +44,17 @@ class CausalSchema:
     # about how the data came to exist, and no diagnostic computed from the
     # values can settle it.
     negative_control_outcome: str | None = None
+    # Columns an imputation model may use and no estimator may. Declared
+    # rather than inferred, exactly like `negative_control_outcome`: whether a
+    # column is a legitimate auxiliary is a claim about how the data came to
+    # exist, and no diagnostic computed from the values can settle it.
+    #
+    # Deliberately NOT part of `required_columns`, which is a divergence from
+    # `negative_control_outcome`. That property means "an estimator needs
+    # this"; an auxiliary is a column no estimator may touch, so including it
+    # would let the missing-data refusal reject a dataset over a column no fit
+    # ever reads.
+    auxiliary_columns: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         # The annotation is erased at runtime, so a schema built from a config
@@ -90,6 +101,22 @@ class CausalSchema:
                     "the outcome, and reusing a role column there would corrupt "
                     "or trivialise that refit rather than test anything"
                 )
+        structural = {self.unit, self.treatment, self.outcome, *self.covariates}
+        if self.negative_control_outcome is not None:
+            structural.add(self.negative_control_outcome)
+        clashes = sorted(set(self.auxiliary_columns) & structural)
+        if clashes:
+            raise ValueError(
+                f"auxiliary_columns {clashes} already play another role in "
+                "this schema. An auxiliary is a column the imputation model "
+                "may use and no estimator may: a covariate that is also an "
+                "auxiliary would be adjusted for, and adjusting for a "
+                "descendant of the outcome biases every estimator."
+            )
+        if len(set(self.auxiliary_columns)) != len(self.auxiliary_columns):
+            raise ValueError(
+                f"auxiliary_columns contains duplicates: {self.auxiliary_columns}"
+            )
 
     @property
     def is_panel(self) -> bool:
