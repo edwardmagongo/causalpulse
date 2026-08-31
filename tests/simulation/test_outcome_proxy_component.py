@@ -61,10 +61,31 @@ def test_the_proxy_carries_signal_beyond_treatment_and_covariates():
 
 def test_a_frame_without_a_proxy_is_byte_identical():
     # The Phase 10 and 11 precedent: an opt-in component must leave every
-    # existing scenario producing exactly the frame it produced before.
+    # existing scenario producing exactly the frame it produced before. That
+    # means every OTHER column's values, not just the proxy column's absence:
+    # configuring a proxy must add a column and change nothing else. Compared
+    # against a scenario WITHOUT a proxy at the same seed, rather than only
+    # inspecting one frame in isolation, so a draw the proxy branch makes
+    # before the shared columns are computed -- shifting them only when a
+    # proxy is configured -- shows up as a mismatch here. (A draw added
+    # unconditionally, on both branches alike, before this comparison begins,
+    # would shift both frames identically and would NOT be caught by this
+    # comparison; only pinning against independently known-correct values
+    # could catch that shape of bug.)
     plain = build_scenario("D").generate(n_units=500, rng=np.random.default_rng(3))
+    with_proxy = build_scenario("D", outcome_proxy=OutcomeProxy(noise_sd=0.5)).generate(
+        n_units=500, rng=np.random.default_rng(3)
+    )
     assert "outcome_proxy" not in plain.dataset.frame.columns
     assert plain.dataset.schema.auxiliary_columns == ()
+    shared_columns = set(plain.dataset.frame.columns) & set(with_proxy.dataset.frame.columns)
+    assert shared_columns == {"unit_id", "x1", "x2", "treated", "outcome"}
+    for column in shared_columns:
+        np.testing.assert_array_equal(
+            plain.dataset.frame[column].to_numpy(),
+            with_proxy.dataset.frame[column].to_numpy(),
+            err_msg=f"column {column!r} differs when a proxy is configured",
+        )
 
 
 def test_the_proxy_does_not_disturb_the_missingness_mask():
@@ -84,3 +105,12 @@ def test_the_proxy_does_not_disturb_the_missingness_mask():
         without.dataset.frame["outcome"].isna().to_numpy(),
         with_proxy.dataset.frame["outcome"].isna().to_numpy(),
     )
+
+
+def test_the_component_changes_the_config_hash():
+    # Two DGPs differing only by the proxy must not record the same
+    # configuration hash, or a reproduction would silently rebuild the wrong
+    # one.
+    base = build_scenario("D")
+    with_proxy = build_scenario("D", outcome_proxy=OutcomeProxy(noise_sd=0.5))
+    assert with_proxy.config_hash != base.config_hash
