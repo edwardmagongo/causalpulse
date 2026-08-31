@@ -124,6 +124,19 @@ def test_estimate_rejects_unknown_ci_basis() -> None:
         estimate(ci_basis="vibes")
 
 
+def test_rubin_is_a_valid_ci_basis() -> None:
+    # Multiple imputation's interval comes from Rubin's rules on a t
+    # reference, which is neither an analytic sandwich nor a bootstrap
+    # distribution. Reusing either label would misdescribe the inference.
+    result = estimate(ci_basis="rubin")
+    assert result.ci_basis == "rubin"
+
+
+def test_an_unknown_ci_basis_is_still_refused() -> None:
+    with pytest.raises(ValueError, match="ci_basis must be one of"):
+        estimate(ci_basis="vibes")
+
+
 def test_counterfactual_point_is_frozen() -> None:
     point = CounterfactualPoint(
         observed_mean=0.25, predicted_absent_treatment=0.207, lower=0.19, upper=0.22

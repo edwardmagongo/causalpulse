@@ -24,7 +24,7 @@ from cp_core.values import Diagnostic, Interval
 AssumptionStatus = Literal["PASS", "WARN", "FAIL", "NOT_TESTABLE"]
 AssumptionKind = Literal["identification", "estimation", "data_adequacy"]
 Estimand = Literal["ATE", "ATT", "CATE"]
-CIBasis = Literal["analytic", "bootstrap", "permutation", "posterior"]
+CIBasis = Literal["analytic", "bootstrap", "permutation", "posterior", "rubin"]
 EffectScale = Literal["absolute", "percentage_point", "log_ratio"]
 
 _VALID_STATUSES: tuple[str, ...] = ("PASS", "WARN", "FAIL", "NOT_TESTABLE")
@@ -36,7 +36,7 @@ _VALID_STATUSES: tuple[str, ...] = ("PASS", "WARN", "FAIL", "NOT_TESTABLE")
 # that knows the answer is the thing that declares it.
 _VALID_KINDS: tuple[str, ...] = ("identification", "estimation", "data_adequacy")
 _VALID_ESTIMANDS: tuple[str, ...] = ("ATE", "ATT", "CATE")
-_VALID_BASES: tuple[str, ...] = ("analytic", "bootstrap", "permutation", "posterior")
+_VALID_BASES: tuple[str, ...] = ("analytic", "bootstrap", "permutation", "posterior", "rubin")
 _VALID_SCALES: tuple[str, ...] = ("absolute", "percentage_point", "log_ratio")
 
 # Severity order for rolling up assumption checks. NOT_TESTABLE is deliberately
