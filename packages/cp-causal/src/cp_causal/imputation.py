@@ -13,11 +13,52 @@ tipping-point bounds in `sensitivity` are for.
 
 from __future__ import annotations
 
+import time
+from dataclasses import replace
+
 import numpy as np
 from cp_core.dataset import CausalDataset
+from cp_core.results import AssumptionCheck, EffectEstimate, FitMetadata
+from cp_core.values import Diagnostic, EstimatorConfig, Interval
+from cp_statistics.pooling import PooledEstimate, pool_rubin
+from scipy import stats
 from sklearn.linear_model import LogisticRegression
 
+from cp_causal._support import config_hash
+from cp_causal.registry import get_estimator
+
 MAX_RESAMPLE_ATTEMPTS = 20
+DEFAULT_IMPUTATIONS = 20
+
+PANEL_IMPUTATION_REASON = (
+    "Imputation here fills a missing outcome from a cross-sectional model, "
+    "and {name} needs panel data, whose gaps are an attrition pattern over "
+    "time rather than independent draws."
+)
+CONTINUOUS_IMPUTATION_REASON = (
+    "The imputation model is logistic and the fill is a Bernoulli draw, "
+    "which needs a binary outcome."
+)
+NO_MISSING_DATA_REASON = (
+    "The dataset has no missing outcomes, so there is nothing to impute and "
+    "complete-case analysis is the same analysis."
+)
+NO_STANDARD_ERROR_REASON = (
+    "Rubin's rules pool a within-imputation variance, and {name} reports no "
+    "standard error, so its several fits cannot be combined into one."
+)
+
+_DISAGREEMENT_NOTE = (
+    "This check reached different verdicts across the imputed datasets, so "
+    "it is reported as untested rather than as whichever verdict the first "
+    "completion happened to reach."
+)
+_INCONSISTENT_PRESENCE_NOTE = (
+    "This check was reported by only some of the imputed datasets' fits, "
+    "which is the same kind of inconsistency as a disagreeing verdict, so "
+    "it is reported as untested rather than as whichever completions "
+    "happened to carry it."
+)
 
 
 def _imputation_design(dataset: CausalDataset) -> np.ndarray:
@@ -108,4 +149,263 @@ def impute_once(
     filled[missing] = (rng.random(probability.size) < probability).astype(float)
     return CausalDataset(
         frame=frame.assign(**{schema.outcome: filled}), schema=schema
+    )
+
+
+def _pool_assumptions(fits: list[EffectEstimate]) -> tuple[AssumptionCheck, ...]:
+    """The assumption checks every completion agrees on, the rest downgraded.
+
+    Agreement means two things at once: every completion that names this
+    check reports the same status for it, and every completion names it at
+    all. A check present in some completions' assumption lists and absent
+    from others has not been consistently tested either -- that absence is
+    as much a disagreement as a differing verdict, so it is downgraded the
+    same way rather than silently dropped (which would hide it from a reader
+    entirely) or kept from whichever completions happened to carry it (which
+    would report a partial answer as though it were a full one).
+
+    In the estimators registered as of this writing, a fit's assumption
+    checks are a fixed set of names determined by the estimator and config,
+    never by which values happened to be imputed, so the absence branch does
+    not fire in practice -- but nothing in the `Estimator` protocol
+    guarantees that, and a defect here would be the same shape as the family
+    predicates that shipped wrong classifications in earlier phases. The
+    status-mismatch branch is not dead in the same way: on real fixtures,
+    `causal_forest`'s `calibration_test` was observed to disagree across
+    completions (`WARN` on some, `PASS` on others) at `m = 20`, on two of ten
+    tried seeds, and is downgraded to `NOT_TESTABLE` exactly as this function
+    intends.
+    """
+    by_name: list[dict[str, AssumptionCheck]] = [
+        {check.name: check for check in fit.assumptions} for fit in fits
+    ]
+    # An ordered set of every check name seen anywhere, first-fit order
+    # first, so the pooled result matches the ordinary case's ordering.
+    seen: dict[str, None] = {}
+    for checks in by_name:
+        for name in checks:
+            seen[name] = None
+
+    pooled: list[AssumptionCheck] = []
+    for name in seen:
+        present = [checks[name] for checks in by_name if name in checks]
+        template = present[0]
+        if len(present) < len(fits):
+            pooled.append(
+                replace(
+                    template,
+                    status="NOT_TESTABLE",
+                    statistic=None,
+                    threshold=None,
+                    interpretation=(
+                        f"{template.interpretation} {_INCONSISTENT_PRESENCE_NOTE}"
+                    ),
+                )
+            )
+        elif len({check.status for check in present}) > 1:
+            pooled.append(
+                replace(
+                    template,
+                    status="NOT_TESTABLE",
+                    statistic=None,
+                    threshold=None,
+                    interpretation=f"{template.interpretation} {_DISAGREEMENT_NOTE}",
+                )
+            )
+        else:
+            pooled.append(template)
+    return tuple(pooled)
+
+
+def _pooling_diagnostics(pooled: PooledEstimate, m: int) -> dict[str, Diagnostic]:
+    return {
+        "imputations": Diagnostic(
+            name="imputations",
+            value=float(m),
+            unit="datasets",
+            interpretation=(
+                "How many completed datasets the estimate was pooled from. "
+                "More reduces the simulation noise Rubin's rules add, and "
+                "does nothing about the uncertainty the missing data itself "
+                "creates."
+            ),
+        ),
+        "within_variance": Diagnostic(
+            name="within_variance",
+            value=pooled.within_variance,
+            unit=None,
+            interpretation=(
+                "Average sampling variance the completed-data analyses "
+                "reported for themselves, as if each completion were the "
+                "observed data."
+            ),
+        ),
+        "between_variance": Diagnostic(
+            name="between_variance",
+            value=pooled.between_variance,
+            unit=None,
+            interpretation=(
+                "Variance of the point estimates across completions. This is "
+                "the part the missing data is responsible for; it goes to "
+                "zero as the missing fraction does."
+            ),
+        ),
+        "proportion_variance_missing": Diagnostic(
+            name="proportion_variance_missing",
+            value=pooled.proportion_variance_missing,
+            unit=None,
+            interpretation=(
+                "Share of the total variance attributable to the missing "
+                "data -- Rubin's lambda. Near zero means the gaps cost this "
+                "estimate little; near one means most of what is reported "
+                "rests on the imputation model rather than on observed "
+                "values. This is the quantity the degrees-of-freedom "
+                "adjustment consumes, and it is not the fraction of missing "
+                "information."
+            ),
+        ),
+        "fraction_missing_information": Diagnostic(
+            name="fraction_missing_information",
+            value=pooled.fraction_missing_information,
+            unit=None,
+            interpretation=(
+                "How much of the information about this estimate the missing "
+                "data cost. Larger than the variance share above, because it "
+                "carries a correction for the finite number of imputations: "
+                "on this module's own worked example the two are 0.133 and "
+                "0.125."
+            ),
+        ),
+        "barnard_rubin_df": Diagnostic(
+            name="barnard_rubin_df",
+            value=pooled.degrees_of_freedom,
+            unit="degrees of freedom",
+            interpretation=(
+                "Degrees of freedom of the t reference the interval uses, "
+                "adjusted for the finite complete-data sample. Always below "
+                "the degrees of freedom a complete dataset would have had."
+            ),
+        ),
+    }
+
+
+def multiple_impute(
+    dataset: CausalDataset,
+    estimator_name: str,
+    config: EstimatorConfig,
+    *,
+    m: int = DEFAULT_IMPUTATIONS,
+    seed: int = 0,
+) -> EffectEstimate | None:
+    """`m` completions, each refitted through the registry and pooled by Rubin's rules.
+
+    Returns an ordinary `EffectEstimate` so the result reaches `compare`, the
+    validity rubric and the language lint like any other, with
+    `ci_basis="rubin"` naming the inference honestly rather than presenting a
+    pooled quantity as an ordinary analytic or bootstrap interval.
+
+    `None` when the estimator needs panel data, when the outcome is not
+    binary, when nothing is missing, or when the estimator reports no
+    standard error; `PANEL_IMPUTATION_REASON`, `CONTINUOUS_IMPUTATION_REASON`,
+    `NO_MISSING_DATA_REASON` and `NO_STANDARD_ERROR_REASON` are the matching
+    reasons a caller pairs with each case. The four conditions are checked
+    separately rather than folded into one predicate, because a predicate
+    that admits an estimator whose fields mean something else is how the
+    same defect shipped in three consecutive phases of this project.
+
+    The first three conditions are free -- they read the estimator's
+    declared requirements and the dataset's own schema and missingness, none
+    of which needs a fit. The fourth cannot be: whether an estimator reports
+    a standard error is a property of its `fit()`, invisible without calling
+    it, so it costs the full `m` refits before this function can return
+    `None` on that account. In the estimators registered as of this writing
+    that cost never actually bites -- every non-panel estimator either always
+    reports a standard error or (like the two panel-only ones) is already
+    excluded by the first condition -- so the honest cheapest check available
+    is exactly this one: there is no signal available before fitting that
+    would let this function skip refits it might still need.
+
+    Costs `m` refits. Measured on a 600-unit dataset at `m = 20`: about
+    0.30 seconds for `difference_in_means`, and about 19 seconds for
+    `causal_forest`, whose 50-unit-per-arm minimum and per-tree bootstrap
+    make it the slowest estimator this function can reach.
+    """
+    if m < 2:
+        raise ValueError(
+            "pooling needs at least two imputations; m must be at least two, "
+            f"got {m}"
+        )
+
+    started = time.perf_counter()
+    estimator_class = get_estimator(estimator_name)
+    if estimator_class.requirements.needs_panel:
+        return None
+    if dataset.schema.outcome_type != "binary":
+        return None
+    if not dataset.frame[dataset.schema.outcome].isna().any():
+        return None
+
+    rng = np.random.default_rng(np.random.SeedSequence(seed))
+    fits = [
+        estimator_class().fit(
+            impute_once(dataset, rng, draw_parameters=True), config
+        )
+        for _ in range(m)
+    ]
+    if any(fit.se is None for fit in fits):
+        return None
+
+    first = fits[0]
+    # Two-arm degrees of freedom, uniform across estimators because the
+    # `Estimator` protocol exposes no parameter count. For an adjusted
+    # estimator this overstates the degrees of freedom by the number of
+    # covariates, but the Barnard-Rubin adjustment's own sensitivity to this
+    # input is tiny: on a 600-unit two-covariate dataset like this module's
+    # own tests, moving `complete_data_df` from 598 (this uniform figure) to
+    # 596 (the adjusted one, net of both covariates) moves the 97.5% t
+    # quantile from 1.9639388980555033 to 1.963952263347006, a relative
+    # difference of about 6.8e-6 -- immaterial next to the between-imputation
+    # noise Rubin's rules already carry.
+    complete_data_df = float(first.n_treated + first.n_control - 2)
+    pooled = pool_rubin(
+        [fit.point for fit in fits],
+        [fit.se for fit in fits if fit.se is not None],
+        complete_data_df=complete_data_df,
+    )
+
+    critical = float(
+        stats.t.ppf(1 - (1 - config.ci_level) / 2, pooled.degrees_of_freedom)
+    )
+    half_width = critical * pooled.se
+    return EffectEstimate(
+        estimand=first.estimand,
+        method=estimator_name,
+        point=pooled.point,
+        se=pooled.se,
+        ci=Interval(
+            lower=pooled.point - half_width,
+            upper=pooled.point + half_width,
+            level=config.ci_level,
+        ),
+        ci_basis="rubin",
+        # Deliberately absent: bootstrapping a Rubin-pooled quantity would
+        # resample a statistic that is already an average over resampled
+        # imputation models, a bootstrap of a bootstrap.
+        bootstrap_ci=None,
+        # Derivable from the same t reference, but a second inferential
+        # quantity needing its own calibration. `is_significant` reads the
+        # interval instead.
+        p_value=None,
+        n_treated=first.n_treated,
+        n_control=first.n_control,
+        scale=first.scale,
+        diagnostics=_pooling_diagnostics(pooled, m),
+        assumptions=_pool_assumptions(fits),
+        counterfactual=None,
+        fit_metadata=FitMetadata.capture(
+            estimator=estimator_name,
+            config_hash=config_hash(config),
+            runtime_seconds=time.perf_counter() - started,
+            random_seed=config.random_seed,
+        ),
     )

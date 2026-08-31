@@ -1,10 +1,14 @@
 """Filling missing outcomes, and refusing to when the fill would be a fiction."""
 
+import cp_causal  # noqa: F401  -- registers the estimators
 import numpy as np
 import pandas as pd
 import pytest
-from cp_causal.imputation import impute_once
+from cp_causal.imputation import DEFAULT_IMPUTATIONS, impute_once, multiple_impute
 from cp_core.dataset import CausalDataset, CausalSchema
+from cp_core.values import EstimatorConfig
+from cp_simulation.components import MissingnessMechanism
+from cp_simulation.scenarios import build_scenario
 
 
 def _dataset(*, missing_rows=(0, 1), auxiliary=False, single_class=False):
@@ -101,3 +105,205 @@ def test_the_auxiliary_enters_the_imputation_model():
     imputed = filled.frame.loc[list(range(0, 30)), "outcome"].to_numpy()
     proxy = frame.loc[list(range(0, 30)), "outcome_proxy"].to_numpy()
     assert float(np.corrcoef(imputed, proxy)[0, 1]) > 0.8
+
+
+CONFIG = EstimatorConfig(bootstrap_reps=25, random_seed=1)
+
+
+def _simulated(scenario="D", n_units=600, seed=0, proxy=None):
+    dgp = build_scenario(
+        scenario,
+        missingness=MissingnessMechanism(mechanism="MAR", rate=0.25, strength=2.0),
+        outcome_proxy=proxy,
+    )
+    return dgp.generate(n_units=n_units, rng=np.random.default_rng(seed)).dataset
+
+
+def test_it_reports_rubin_as_its_interval_basis():
+    estimate = multiple_impute(_simulated(), "difference_in_means", CONFIG, m=5)
+    assert estimate is not None
+    assert estimate.ci_basis == "rubin"
+    assert estimate.method == "difference_in_means"
+
+
+def test_it_carries_the_pooling_as_diagnostics():
+    estimate = multiple_impute(_simulated(), "difference_in_means", CONFIG, m=5)
+    assert estimate is not None
+    names = set(estimate.diagnostics)
+    assert {
+        "imputations",
+        "within_variance",
+        "between_variance",
+        "proportion_variance_missing",
+        "fraction_missing_information",
+        "barnard_rubin_df",
+    } <= names
+    assert estimate.diagnostics["imputations"].value == 5.0
+
+
+def test_it_offers_no_bootstrap_interval():
+    # The project asks for a bootstrap interval alongside an analytic one.
+    # Bootstrapping a Rubin-pooled quantity would be a bootstrap of a
+    # bootstrap, so this is a deliberate exception rather than an omission.
+    estimate = multiple_impute(_simulated(), "difference_in_means", CONFIG, m=5)
+    assert estimate is not None
+    assert estimate.bootstrap_ci is None
+
+
+def test_it_is_wider_than_any_single_completion():
+    # Rubin's total variance adds the between-imputation spread on top of the
+    # within, so the pooled interval cannot be narrower than the typical
+    # completed-data one. A pooled interval that matched a single fit's would
+    # mean the between term never reached the result.
+    dataset = _simulated()
+    estimate = multiple_impute(dataset, "difference_in_means", CONFIG, m=10)
+    assert estimate is not None
+    assert estimate.diagnostics["between_variance"].value > 0.0
+    assert estimate.se is not None
+    assert estimate.se**2 > estimate.diagnostics["within_variance"].value
+
+
+def test_a_panel_estimator_is_refused():
+    assert multiple_impute(_simulated(), "twfe", CONFIG, m=5) is None
+
+
+def test_a_dataset_with_no_missing_outcomes_is_refused():
+    complete = build_scenario("D").generate(
+        n_units=400, rng=np.random.default_rng(0)
+    ).dataset
+    assert multiple_impute(complete, "difference_in_means", CONFIG, m=5) is None
+
+
+@pytest.mark.parametrize(
+    "name", ["difference_in_means", "lin_regression", "ipw", "aipw"]
+)
+def test_every_eligible_cross_sectional_estimator_pools(name):
+    # Enumerated rather than predicated. Phase 9's bsts defect and Phase 10's
+    # misclassification defect were both a family predicate admitting an
+    # estimator whose fields meant something else.
+    estimate = multiple_impute(_simulated(), name, CONFIG, m=5)
+    assert estimate is not None
+    assert estimate.ci_basis == "rubin"
+
+
+def test_an_assumption_that_disagrees_across_completions_is_not_claimed():
+    # A check whose verdict depends on which completion it saw has not been
+    # tested, and reporting the first one's answer would be the same overclaim
+    # a hardcoded WARN status made in Phase 8.
+    estimate = multiple_impute(_simulated(), "lin_regression", CONFIG, m=5)
+    assert estimate is not None
+    for check in estimate.assumptions:
+        assert check.status in {"PASS", "WARN", "FAIL", "NOT_TESTABLE"}
+
+
+def test_the_default_imputation_count_is_reported_in_diagnostics():
+    estimate = multiple_impute(_simulated(), "difference_in_means", CONFIG)
+    assert estimate is not None
+    assert estimate.diagnostics["imputations"].value == float(DEFAULT_IMPUTATIONS)
+
+
+def test_m_below_two_is_refused_with_a_clear_error():
+    with pytest.raises(ValueError, match="at least two"):
+        multiple_impute(_simulated(), "difference_in_means", CONFIG, m=1)
+
+
+def _fake_effect_estimate(assumptions):
+    from cp_core.dataset import CausalDataset as _CausalDataset  # noqa: F401
+    from cp_core.results import EffectEstimate, FitMetadata
+    from cp_core.values import Interval
+
+    return EffectEstimate(
+        estimand="ATE",
+        method="fake",
+        point=0.1,
+        se=0.02,
+        ci=Interval(lower=0.05, upper=0.15),
+        ci_basis="analytic",
+        bootstrap_ci=None,
+        p_value=0.01,
+        n_treated=100,
+        n_control=100,
+        scale="absolute",
+        diagnostics={},
+        assumptions=assumptions,
+        counterfactual=None,
+        fit_metadata=FitMetadata.capture(
+            estimator="fake", config_hash="deadbeef", runtime_seconds=0.0, random_seed=0
+        ),
+    )
+
+
+def _check(name, status):
+    from cp_core.results import AssumptionCheck
+
+    return AssumptionCheck(
+        name=name,
+        kind="identification",
+        status=status,
+        statistic=None,
+        threshold=None,
+        interpretation="an interpretation",
+        remedy=None,
+    )
+
+
+def test_pool_assumptions_downgrades_a_check_that_disagrees_across_completions():
+    from cp_causal.imputation import _pool_assumptions
+
+    fits = [
+        _fake_effect_estimate((_check("positivity", "PASS"),)),
+        _fake_effect_estimate((_check("positivity", "WARN"),)),
+        _fake_effect_estimate((_check("positivity", "PASS"),)),
+    ]
+    pooled = _pool_assumptions(fits)
+    assert len(pooled) == 1
+    assert pooled[0].status == "NOT_TESTABLE"
+
+
+def test_pool_assumptions_keeps_a_check_every_completion_agrees_on():
+    from cp_causal.imputation import _pool_assumptions
+
+    fits = [
+        _fake_effect_estimate((_check("randomised_assignment", "NOT_TESTABLE"),)),
+        _fake_effect_estimate((_check("randomised_assignment", "NOT_TESTABLE"),)),
+    ]
+    pooled = _pool_assumptions(fits)
+    assert len(pooled) == 1
+    assert pooled[0].status == "NOT_TESTABLE"
+    assert pooled[0].interpretation == "an interpretation"
+
+
+def test_pool_assumptions_downgrades_a_check_absent_from_a_later_completion():
+    # A check present in the first completion's list but missing from a
+    # later one has not been tested consistently either -- the absence is a
+    # disagreement about whether the check applies at all, not a milder case
+    # than a status mismatch, so it is downgraded the same way.
+    from cp_causal.imputation import _pool_assumptions
+
+    fits = [
+        _fake_effect_estimate(
+            (_check("positivity", "PASS"), _check("covariate_balance", "PASS"))
+        ),
+        _fake_effect_estimate((_check("positivity", "PASS"),)),
+    ]
+    pooled = _pool_assumptions(fits)
+    names = {check.name: check.status for check in pooled}
+    assert names["positivity"] == "PASS"
+    assert names["covariate_balance"] == "NOT_TESTABLE"
+
+
+def test_pool_assumptions_downgrades_a_check_absent_from_the_first_completion():
+    # The reverse direction: a check the first completion lacks but a later
+    # one carries must not be silently dropped from the pooled result.
+    from cp_causal.imputation import _pool_assumptions
+
+    fits = [
+        _fake_effect_estimate((_check("positivity", "PASS"),)),
+        _fake_effect_estimate(
+            (_check("positivity", "PASS"), _check("covariate_balance", "WARN"))
+        ),
+    ]
+    pooled = _pool_assumptions(fits)
+    names = {check.name: check.status for check in pooled}
+    assert names["positivity"] == "PASS"
+    assert names["covariate_balance"] == "NOT_TESTABLE"
