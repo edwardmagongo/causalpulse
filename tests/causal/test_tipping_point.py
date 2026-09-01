@@ -99,6 +99,106 @@ def test_the_bounds_contain_the_complete_data_estimate_on_a_real_scenario():
     assert adverse <= complete_estimate <= favourable
 
 
+ADMITTED_ESTIMATORS = (
+    "difference_in_means",
+    "lin_regression",
+    "ipw",
+    "aipw",
+    "causal_forest",
+)
+"""Every non-panel estimator, which is exactly what `tipping_point`'s gate
+admits: it refuses on `needs_panel`, on a non-binary outcome, and on nothing
+missing. Enumerated rather than predicated, for the reason Phase 9's bsts
+defect and Phase 10's misclassification defect both taught."""
+
+CORNER_EXTREMAL = ("difference_in_means", "ipw")
+"""The estimators whose per-unit weights are non-negative within an arm, so a
+one-value fill of that arm really is the extreme. See `_worst_case_bounds`."""
+
+
+@pytest.mark.parametrize("name", ADMITTED_ESTIMATORS)
+def test_the_bounds_contain_the_complete_data_estimate_for_every_admitted_estimator(
+    name,
+):
+    """The identity, on every estimator the gate lets through, not just one.
+
+    Phase 11 wrote and tested `_worst_case_bounds` against
+    `difference_in_means` alone; Phase 12 widened who could call it without
+    revisiting the assumption, and every test in this file still used that one
+    estimator. A gate admitting five estimators needs a test per estimator for
+    every property its output claims.
+    """
+    simulated = build_scenario(
+        "D",
+        missingness=MissingnessMechanism(
+            mechanism="MNAR", rate=0.25, strength=2.0
+        ),
+    ).generate(n_units=600, rng=np.random.default_rng(0))
+    frame = simulated.dataset.frame.copy()
+    frame[simulated.dataset.schema.outcome] = simulated.truth.complete_outcome
+    complete = CausalDataset(frame=frame, schema=simulated.dataset.schema)
+    truth = all_estimators()[name]().fit(complete, CONFIG).point
+
+    adverse, favourable = _worst_case_bounds(simulated.dataset, name, CONFIG)
+    assert adverse <= truth <= favourable
+
+
+def _best_single_flip(dataset, name, config):
+    """The lowest estimate reachable by flipping one filled unit off the corner."""
+    from cp_causal.sensitivity import _adverse_values
+
+    schema = dataset.schema
+    treated_value, control_value = _adverse_values(dataset, name, config)
+    filled = _fill_missing_outcomes(
+        dataset, treated_value=treated_value, control_value=control_value
+    )
+    estimator = all_estimators()[name]
+    best = estimator().fit(filled, config).point
+    for row in np.flatnonzero(dataset.frame[schema.outcome].isna().to_numpy()):
+        frame = filled.frame.copy()
+        frame.loc[row, schema.outcome] = 1.0 - frame.loc[row, schema.outcome]
+        point = estimator().fit(
+            CausalDataset(frame=frame, schema=schema), config
+        ).point
+        best = min(best, point)
+    return best
+
+
+@pytest.mark.parametrize("name", ADMITTED_ESTIMATORS[:3])
+def test_only_the_documented_estimators_have_an_extremal_corner(name):
+    """Which estimators the corner fill is actually the extreme for.
+
+    `TippingPoint` and `_worst_case_bounds` both name `difference_in_means`
+    and `ipw` as the two whose per-unit weights keep a constant sign within
+    an arm, so that filling the whole arm with one value cannot be beaten.
+    This measures that claim instead of trusting it, by exhaustively flipping
+    each filled unit off the corner and refitting.
+
+    `lin_regression` is asserted to VIOLATE it -- its Lin-interacted
+    coefficient is a linear functional of `y` whose per-unit weight can flip
+    sign on units with extreme covariates. That direction is pinned
+    deliberately: if a future change makes the corner extremal for it, this
+    assertion fails and the field documentation naming the exception must be
+    updated in the same commit, rather than quietly rotting into a false
+    claim.
+    """
+    simulated = build_scenario(
+        "D",
+        missingness=MissingnessMechanism(
+            mechanism="MNAR", rate=0.25, strength=2.0
+        ),
+    ).generate(n_units=400, rng=np.random.default_rng(0))
+    adverse, _ = _worst_case_bounds(simulated.dataset, name, CONFIG)
+    best = _best_single_flip(simulated.dataset, name, CONFIG)
+
+    if name in CORNER_EXTREMAL:
+        assert best >= adverse - 1e-12
+    else:
+        # MEASURED at bootstrap_reps=25, seed 1: corner -0.228862, best
+        # single flip -0.229403. One flip is enough; no search is needed.
+        assert best < adverse
+
+
 @pytest.mark.parametrize("seed", range(25))
 def test_the_bounds_contain_the_complete_data_estimate_across_seeds(seed):
     """The same identity, not resting on one lucky draw.

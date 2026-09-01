@@ -1072,10 +1072,15 @@ that points to it says so, rather than presenting it as the fix.
 
 ### What a wide bound means
 
-`tipping_point` reports the two Manski worst-case bounds — every missing outcome filled with the
-value most opposed to the finding, then with the value most in its favour — and, when the finding
-can be overturned at all, the smallest share of the missing outcomes that would need filling
-adversely to remove its statistical significance. **These bounds widen with the missing fraction, so
+`tipping_point` reports the estimate under the two extreme corner fills — every missing outcome
+filled with the value most opposed to the finding, then with the value most in its favour — and,
+when the finding can be overturned at all, the smallest share of the missing outcomes that would
+need filling adversely to remove its statistical significance. For `difference_in_means` and `ipw`
+those corners are the Manski worst case outright, because each unit's weight keeps a constant sign
+within its arm. For `lin_regression` they are not: its Lin-interacted coefficient weights some units
+negatively, and flipping a single filled unit off the corner has been measured going past the
+reported bound. The property that holds for every estimator the gate admits, and the one the tests
+assert as an identity, is that the pair contains the complete-data estimate. **These bounds widen with the missing fraction, so
 at high missingness they routinely span zero.** That is the honest answer the data admits, not a
 failure of the method: a bound this wide says the data cannot settle the question, and the
 measured harness below found exactly that at 25% missingness — the mean bound width was 0.485 on a

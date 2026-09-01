@@ -574,16 +574,27 @@ class FalsificationResult:
 class TippingPoint:
     """How much the unobserved outcomes would have to differ to overturn a finding.
 
-    The bounds are worst-case and assume nothing about why values are
-    missing: every missing outcome is filled with the value most opposed to
-    the finding, and then with the value most in its favour. A wide interval
-    is a property of the data rather than a failure of the method -- at high
-    missingness the honest answer is that the data cannot settle the question.
+    The two bounds assume nothing about why values are missing: every missing
+    outcome is filled with the value most opposed to the finding, and then
+    with the value most in its favour. A wide interval is a property of the
+    data rather than a failure of the method -- at high missingness the
+    honest answer is that the data cannot settle the question.
+
+    They are the estimate under those two CORNER fills, which is a weaker
+    claim than the extreme over every possible fill. Filling one whole arm
+    with a single value is extremal only if the estimator's weight on each
+    unit's outcome has a constant sign within that arm -- true for
+    `difference_in_means` and `ipw`, not true for `lin_regression`, and not
+    established for `aipw` or `causal_forest`. `_worst_case_bounds` carries
+    the measured counterexample. The property that holds for every estimator
+    the gate admits, and the one the tests assert as an identity, is that
+    this pair contains the complete-data estimate.
 
     `tipping_fraction` is the smallest share of the missing outcomes that,
     filled adversely, removes the finding's significance. It is `None` exactly
     when no share does, which is what `conclusion_survives_worst_case`
-    records; the two must agree.
+    records; the two must agree. `conclusion_survives_worst_case` inherits the
+    same caveat: it records survival of the corner fill.
     """
 
     adverse_bound: float

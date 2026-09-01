@@ -1310,13 +1310,34 @@ def _fill_missing_outcomes(
 def _worst_case_bounds(
     dataset: CausalDataset, estimator_name: str, config: EstimatorConfig
 ) -> tuple[float, float]:
-    """The two extreme fills, returned low end first.
+    """The estimate under the two extreme corner fills, returned low end first.
 
     Which fill opposes the finding depends on the sign of the complete-case
     estimate: a positive finding is most opposed by giving the treated arm
     its lowest outcome and the control arm its highest, and a negative
     finding by the reverse. Assumes a binary outcome, whose extremes are 0
     and 1.
+
+    These are the two CORNER fills, which is not the same claim as the two
+    extreme estimates. Filling one whole arm with a single value is the
+    extremum only if the estimator's weight on each unit's outcome has a
+    constant sign within that arm -- true for `difference_in_means` and
+    `ipw`, whose per-unit weights are non-negative within an arm by
+    construction. It is NOT true for `lin_regression`, whose Lin-interacted
+    OLS coefficient is a linear functional of `y` whose per-unit weight can
+    flip sign on units with extreme covariates, and it is not established for
+    `aipw` or `causal_forest` either. Measured on scenario D under
+    MNAR(0.25, 2.0), n=400, seed 0: `lin_regression`'s corner fill gives
+    -0.228862, and flipping one single filled unit off that corner reaches
+    -0.229403, below it. `difference_in_means` and `ipw` were clean on the
+    same dataset under an exhaustive single-flip search.
+
+    The gate in `tipping_point` admits all five non-panel estimators, so the
+    fields these values populate are named and documented for what they are
+    -- the estimate under the two extreme corner fills -- rather than as
+    worst-case bounds over every possible fill. The weaker property does hold
+    for all five and is the one the tests assert as an identity: the pair
+    contains the complete-data estimate.
 
     Returned as `(min, max)` rather than positionally as
     `(adverse, favourable)`, which keeps `TippingPoint`'s ordering invariant
