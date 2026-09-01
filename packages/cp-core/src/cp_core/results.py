@@ -9,6 +9,7 @@ with a confidence interval, is a realistic way to reach a wrong conclusion.
 
 from __future__ import annotations
 
+import math
 import platform as platform_module
 import subprocess
 from collections.abc import Mapping
@@ -604,6 +605,15 @@ class TippingPoint:
 
 
 def _sign(value: float) -> int:
+    """-1, 0, or +1. Exact zero is its own class, not folded into either side.
+
+    A risk difference of exactly 0.0 is reachable when treated and control
+    rates tie on a discrete outcome, so this is not a hypothetical edge: three
+    arms all at exactly 0.0 count as agreeing in sign, while `[+1, 0, -1]`
+    counts as disagreeing, because 0 is neither `> 0` nor `< 0`. That is a
+    choice, made explicitly here rather than left for a reader to infer from
+    `arms_agree_in_sign`'s behaviour.
+    """
     return (value > 0.0) - (value < 0.0)
 
 
@@ -659,6 +669,41 @@ class MissingDataAnalysis:
             raise ValueError(
                 f"arms_agree_in_significance={self.arms_agree_in_significance} "
                 "disagrees with the arms' intervals"
+            )
+        # Measured, not assumed: fitting each of the five eligible
+        # cross-sectional estimators (difference_in_means, lin_regression,
+        # ipw, aipw, causal_forest) on a complete-case reduction and on an
+        # imputed completion of the same dataset -- across several
+        # scenarios, seeds, and missingness rates -- `n_treated + n_control`
+        # always equalled exactly the row count of the frame the estimator
+        # was fitted on. None of the five drops rows internally (ipw/aipw
+        # clip propensity weights rather than dropping units; causal_forest's
+        # cross-fitting still counts every row into one fold or the other).
+        # That licenses exact equality below rather than a weaker bound.
+        single_total = self.single_imputation.n_treated + self.single_imputation.n_control
+        multiple_total = (
+            self.multiple_imputation.n_treated + self.multiple_imputation.n_control
+        )
+        if single_total != multiple_total:
+            raise ValueError(
+                "single_imputation and multiple_imputation are both fitted on "
+                f"every row of the same dataset and must report the same total; "
+                f"got {single_total} against {multiple_total}"
+            )
+        complete_case_total = self.complete_case.n_treated + self.complete_case.n_control
+        expected_complete_case_total = single_total - self.n_missing_outcomes
+        if complete_case_total != expected_complete_case_total:
+            raise ValueError(
+                f"complete_case reports {complete_case_total} units, but the "
+                f"imputed arms' total ({single_total}) minus n_missing_outcomes "
+                f"({self.n_missing_outcomes}) is {expected_complete_case_total}"
+            )
+        expected_fraction = self.n_missing_outcomes / single_total
+        if not math.isclose(self.fraction_missing, expected_fraction, abs_tol=1e-9):
+            raise ValueError(
+                f"fraction_missing={self.fraction_missing} disagrees with "
+                f"n_missing_outcomes/total = {self.n_missing_outcomes}/{single_total} "
+                f"= {expected_fraction}"
             )
 
 

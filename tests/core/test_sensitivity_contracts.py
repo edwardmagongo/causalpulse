@@ -701,7 +701,7 @@ def test_a_present_missing_data_slot_without_a_reason_constructs():
     assert report.missing_data is not None
 
 
-def _estimate(point: float = 0.1) -> EffectEstimate:
+def _estimate(point: float = 0.1, n_treated: int = 100, n_control: int = 100) -> EffectEstimate:
     """Helper to create a valid EffectEstimate with customizable point."""
     return EffectEstimate(
         estimand="ATE",
@@ -712,8 +712,8 @@ def _estimate(point: float = 0.1) -> EffectEstimate:
         ci_basis="analytic",
         bootstrap_ci=None,
         p_value=0.05,
-        n_treated=100,
-        n_control=100,
+        n_treated=n_treated,
+        n_control=n_control,
         scale="absolute",
         diagnostics={},
         assumptions=(),
@@ -732,15 +732,23 @@ def _estimate(point: float = 0.1) -> EffectEstimate:
 
 
 def _analysis(**overrides: object) -> MissingDataAnalysis:
-    """Helper to create a MissingDataAnalysis with customizable overrides."""
+    """Helper to create a MissingDataAnalysis with customizable overrides.
+
+    The default arm sizes are internally consistent, not arbitrary: the two
+    imputed arms are fitted on every row (100 + 100 = 200 each), the
+    complete-case arm is fitted on every row but the 50 missing outcomes
+    (75 + 75 = 150 = 200 - 50), and fraction_missing is 50 / 200 = 0.25. A
+    test that only needs to break one relationship can override a single
+    field without also having to re-derive the rest.
+    """
     fields = {
-        "complete_case": _estimate(point=0.1),
-        "single_imputation": _estimate(point=0.1),
-        "multiple_imputation": _estimate(point=0.1),
+        "complete_case": _estimate(point=0.1, n_treated=75, n_control=75),
+        "single_imputation": _estimate(point=0.1, n_treated=100, n_control=100),
+        "multiple_imputation": _estimate(point=0.1, n_treated=100, n_control=100),
         "tipping_point": a_tipping_point(),
         "tipping_point_reason": None,
         "n_missing_outcomes": 50,
-        "fraction_missing": 0.2,
+        "fraction_missing": 0.25,
         "arms_agree_in_sign": True,
         "arms_agree_in_significance": True,
     }
@@ -792,3 +800,31 @@ def test_the_significance_agreement_flag_must_match_the_arms():
             multiple_imputation=_estimate(point=0.5),  # [0.4, 0.6] - excludes zero
             arms_agree_in_significance=True,
         )
+
+
+def test_the_two_imputed_arms_must_report_the_same_total():
+    # Measured directly (see results.py's comment and task-7-report.md): every
+    # eligible estimator fits both imputed arms on the same full dataset, so
+    # their n_treated + n_control must agree. Here multiple_imputation reports
+    # 190 units against single_imputation's 200.
+    with pytest.raises(ValueError, match="single_imputation and multiple_imputation"):
+        _analysis(
+            multiple_imputation=_estimate(point=0.1, n_treated=90, n_control=100),
+        )
+
+
+def test_the_complete_case_arm_must_equal_the_imputed_total_minus_missing():
+    # The default fixture's complete_case is sized 75 + 75 = 150, exactly the
+    # imputed arms' 200 minus the 50 missing outcomes. Reporting the full 200
+    # here -- as if no rows had been dropped -- must be refused.
+    with pytest.raises(ValueError, match="complete_case reports"):
+        _analysis(
+            complete_case=_estimate(point=0.1, n_treated=100, n_control=100),
+        )
+
+
+def test_fraction_missing_must_match_n_missing_outcomes_over_the_total():
+    # 50 missing out of 200 total is 0.25, not 0.9 -- an internally
+    # contradictory value like the one in the review finding must be refused.
+    with pytest.raises(ValueError, match="fraction_missing"):
+        _analysis(fraction_missing=0.9)
