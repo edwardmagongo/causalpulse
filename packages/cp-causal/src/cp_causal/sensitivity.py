@@ -1563,7 +1563,16 @@ def compare_missing_data(
     reduced, _ = complete_cases(dataset)
     complete_case = estimator_class().fit(reduced, config)
 
-    single_rng = np.random.default_rng(np.random.SeedSequence(seed))
+    # Spawned off the same root seed `multiple_impute` reads internally,
+    # rather than built from `np.random.SeedSequence(seed)` directly -- that
+    # would read from the same early portion of the stream `multiple_impute`
+    # also reads, correlating two arms this report presents as independently
+    # fitted. Follows b753c25's precedent for decoupling two arms drawn from
+    # one seed. Spawning a child is safe against the parent's own stream by
+    # construction, so `multiple_impute`'s numbers are unaffected -- only this
+    # arm's draws move.
+    (single_seed,) = np.random.SeedSequence(seed).spawn(1)
+    single_rng = np.random.default_rng(single_seed)
     single = estimator_class().fit(
         impute_once(dataset, single_rng, draw_parameters=False), config
     )
@@ -1591,7 +1600,16 @@ def compare_missing_data(
         tipping_point=tipping,
         tipping_point_reason=None,
         n_missing_outcomes=n_missing,
-        fraction_missing=n_missing / len(dataset.frame),
+        # Deliberately NOT `n_missing / len(dataset.frame)`. That reads the
+        # raw frame's length, a quantity nothing here validates. `single`'s
+        # own fitted total is the quantity `MissingDataAnalysis.__post_init__`
+        # actually checks this fraction against, so this must read that same
+        # field rather than an independently-derived one -- they agree today
+        # only because none of the five currently-registered cross-sectional
+        # estimators drops a row when it fits. An estimator that ever dropped
+        # one would make a frame-length fraction silently wrong, or trip the
+        # invariant below with a ValueError naming the wrong cause.
+        fraction_missing=n_missing / (single.n_treated + single.n_control),
         arms_agree_in_sign=len(signs) == 1,
         arms_agree_in_significance=len({arm.is_significant for arm in arms}) == 1,
     )
