@@ -54,15 +54,53 @@ def test_it_recovers_the_1987_degrees_of_freedom_as_the_complete_data_sample_gro
     assert pooled.degrees_of_freedom == pytest.approx(expected, rel=1e-6)
 
 
-def test_identical_estimates_do_not_divide_by_zero():
+@pytest.mark.parametrize("m", [2, 3, 5, 6, 7, 8, 20, 25, 40])
+def test_identical_estimates_do_not_divide_by_zero(m: int):
     # Reachable, not hypothetical: every imputation returns the same estimate
     # whenever nothing was missing. `(m - 1) / lam**2` would divide by zero.
-    pooled = pool_rubin([0.2] * 5, [0.03] * 5, complete_data_df=1994.0)
-    assert pooled.between_variance == 0.0
+    #
+    # Parametrized over `m` because the version pinned at m=5 alone passed by
+    # luck. `np.var` over identical values returns exactly 0.0 at some m and
+    # a rounding residue around 1e-33 at others, with no pattern: m=5 gave
+    # 0.0 and m=20 -- this module's own DEFAULT_IMPUTATIONS -- gave 8.1e-34,
+    # taking the else branch and reporting lambda 9.5e-31, fmi 0.001003 and
+    # df 1992.003 for imputations that are all the same number. A guard whose
+    # only check is a sign is not a guard.
+    pooled = pool_rubin([0.2] * m, [0.03] * m, complete_data_df=1994.0)
     assert pooled.proportion_variance_missing == 0.0
     assert pooled.fraction_missing_information == 0.0
     assert pooled.degrees_of_freedom == 1994.0
     assert pooled.se == pytest.approx(0.03, abs=1e-12)
+
+
+@pytest.mark.parametrize("se", [1e-7, 1e-8, 1e-9])
+def test_a_within_variance_just_short_of_zero_still_falls_back(se: float):
+    # The same defect at the other end, with a worse consequence. The
+    # `lam >= 1.0` fallback exists because `df_observed`'s `(1 - lam)` factor
+    # goes to zero; one ULP short of 1.0 it does not divide by zero, it
+    # divides by almost zero. Measured before the fix, m=3, nu_com=1994:
+    # se=1e-9 gives lambda 0.9999999999999999 and df 2.2e-13, against the
+    # 2.0 the exactly-1.0 case falls back to -- thirteen orders of magnitude
+    # of discontinuity across a boundary that floating point decides.
+    #
+    # A t reference with 2e-13 degrees of freedom does not produce a
+    # conservative interval, it produces a meaningless one.
+    pooled = pool_rubin([0.1, 0.2, 0.3], [se] * 3, complete_data_df=1994.0)
+    assert pooled.proportion_variance_missing == 1.0
+    assert pooled.fraction_missing_information == 1.0
+    assert pooled.degrees_of_freedom == pytest.approx(2.0)
+
+
+def test_the_endpoint_tolerance_does_not_swallow_a_real_lambda():
+    # The tolerance closes a float-noise neighbourhood, nothing wider. A
+    # lambda of ~1e-6 is far below anything a real analysis produces and is
+    # still six orders above the tolerance, so it must be reported as itself
+    # rather than clamped to zero.
+    pooled = pool_rubin(
+        [0.2, 0.2 + 4e-8, 0.2 - 4e-8], [0.03] * 3, complete_data_df=1994.0
+    )
+    assert 0.0 < pooled.proportion_variance_missing < 1e-5
+    assert pooled.degrees_of_freedom < 1994.0
 
 
 def test_negative_standard_error_is_refused():

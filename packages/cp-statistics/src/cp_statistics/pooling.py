@@ -13,6 +13,23 @@ from dataclasses import dataclass
 
 import numpy as np
 
+# How close lambda must come to 0 or 1 before it is treated as having
+# reached it. Lambda is a ratio of variances accumulated in double precision:
+# `within + (1 + 1/m) * between` carries a relative rounding error of order
+# `m * eps`, about 1e-14 at the largest `m` this library uses. Two orders of
+# margin above that puts the tolerance at 1e-12, which is far below any
+# lambda a real analysis produces (0.01 to 0.9 in practice) and far above
+# the residues that decide the endpoints by accident.
+#
+# This closes the float-noise neighbourhood of each endpoint and nothing
+# wider. A lambda genuinely close to 1 but outside it -- say 1 - 1e-10, from
+# completed-data analyses reporting near-zero sampling variance while
+# disagreeing -- still takes the Barnard-Rubin branch and still yields a very
+# small df. Whether that regime deserves its own policy is a real question
+# about degrees of freedom, not about floating point, and it is deliberately
+# not answered here.
+_ENDPOINT_TOLERANCE = 1e-12
+
 
 @dataclass(frozen=True)
 class PooledEstimate:
@@ -41,7 +58,14 @@ class PooledEstimate:
     information at all) gives `fraction_missing_information == 0.0`, and
     `lambda == 1.0` gives `fraction_missing_information == 1.0` (the limit of
     the formula above as `r -> infinity`), rather than raising or producing
-    NaN.
+    NaN. Note that the formula does NOT tend to 0 as lambda does: its limit
+    at `r = 0` is `2 / (nu + 3)`, around 0.001 on a large sample. Reporting 0
+    there is a deliberate choice -- with no between-imputation variance there
+    is no missing information, and `2 / (nu + 3)` is an artifact of the
+    degrees-of-freedom correction rather than a measurement of it.
+
+    Both endpoints are reached by tolerance rather than by exact equality;
+    see `_ENDPOINT_TOLERANCE`.
     """
 
     point: float
@@ -116,17 +140,32 @@ def pool_rubin(
         )
 
     lam = (1.0 + 1.0 / m) * between / total
+    # Snapped to the endpoint it has effectively reached, so the branches
+    # below are exact comparisons against an exact value rather than sign
+    # tests on a residue. Pinning this at one `m` hid the defect: `np.var`
+    # over identical values returns exactly 0.0 at some `m` and a residue
+    # around 1e-33 at others, so the same input took different branches at
+    # m=5 and at m=20. `between_variance` is left as computed, so the raw
+    # decomposition stays inspectable.
+    if lam <= _ENDPOINT_TOLERANCE:
+        lam = 0.0
+    elif lam >= 1.0 - _ENDPOINT_TOLERANCE:
+        lam = 1.0
 
     if lam <= 0.0:
         # Reachable whenever nothing was missing, so every imputation returned
         # the same estimate. `(m - 1) / lam**2` would divide by zero.
         degrees_of_freedom = complete_data_df
     elif lam >= 1.0:
-        # Every within-imputation standard error is exactly zero but the
-        # point estimates differ: all variance is between-imputation, so
-        # lambda is exactly 1.0. `df_observed`'s `(1 - lam)` factor would be
-        # zero, making `1.0 / df_observed` divide by zero. Fall back to the
-        # Rubin (1987) degrees of freedom, finite and well-defined here.
+        # Every within-imputation standard error is zero, or near enough that
+        # lambda cannot be told from 1.0, but the point estimates differ: all
+        # variance is between-imputation. `df_observed`'s `(1 - lam)` factor
+        # would be zero, making `1.0 / df_observed` divide by zero -- and one
+        # ULP short of 1.0 it does not divide by zero, it divides by almost
+        # zero, which is worse: measured at m=3, nu_com=1994, standard errors
+        # of 1e-9 gave df 2.2e-13 against the 2.0 this branch returns. Fall
+        # back to the Rubin (1987) degrees of freedom, finite and
+        # well-defined here.
         degrees_of_freedom = (m - 1) / lam**2
     else:
         df_old = (m - 1) / lam**2
