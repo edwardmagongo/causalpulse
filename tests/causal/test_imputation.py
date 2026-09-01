@@ -290,7 +290,7 @@ def test_m_below_two_is_refused_with_a_clear_error():
         multiple_impute(_simulated(), "difference_in_means", CONFIG, m=1)
 
 
-def _fake_effect_estimate(assumptions):
+def _fake_effect_estimate(assumptions, diagnostics=None):
     from cp_core.dataset import CausalDataset as _CausalDataset  # noqa: F401
     from cp_core.results import EffectEstimate, FitMetadata
     from cp_core.values import Interval
@@ -307,7 +307,7 @@ def _fake_effect_estimate(assumptions):
         n_treated=100,
         n_control=100,
         scale="absolute",
-        diagnostics={},
+        diagnostics={} if diagnostics is None else diagnostics,
         assumptions=assumptions,
         counterfactual=None,
         fit_metadata=FitMetadata.capture(
@@ -478,6 +478,87 @@ def test_pool_assumptions_keeps_a_check_absent_from_the_first_completion():
     names = {check.name: check.status for check in pooled}
     assert names["positivity"] == "PASS"
     assert names["covariate_balance"] == "WARN"
+
+
+def _diagnostic(name, value):
+    from cp_core.values import Diagnostic
+
+    return Diagnostic(
+        name=name, value=value, unit="units", interpretation="How many units."
+    )
+
+
+def test_pooled_diagnostics_average_what_every_completion_reported():
+    # §5.3 says the pooled diagnostics "gain" the pooling fields; shipped
+    # code replaced the mapping wholesale, leaving the multiple-imputation
+    # arm the least inspectable of the three -- no trimming count, no fold
+    # count, no overlap -- even though `compare()` may pick it as the
+    # highest-validity line. Averaging over completions is the same
+    # operation Rubin's rules already apply to the point estimate.
+    from cp_causal.imputation import _pool_estimator_diagnostics
+
+    fits = [
+        _fake_effect_estimate((), {"n_trimmed": _diagnostic("n_trimmed", 4.0)}),
+        _fake_effect_estimate((), {"n_trimmed": _diagnostic("n_trimmed", 10.0)}),
+    ]
+    pooled = _pool_estimator_diagnostics(fits)
+    assert pooled["n_trimmed"].value == 7.0
+    assert "mean over the 2" in pooled["n_trimmed"].interpretation
+
+
+def test_a_diagnostic_missing_from_a_completion_is_dropped_rather_than_averaged():
+    # A mean over a subset of the completions would describe neither the
+    # subset nor the pooled fit, and there is no honest name for it.
+    from cp_causal.imputation import _pool_estimator_diagnostics
+
+    fits = [
+        _fake_effect_estimate((), {"n_trimmed": _diagnostic("n_trimmed", 4.0)}),
+        _fake_effect_estimate((), {}),
+    ]
+    assert _pool_estimator_diagnostics(fits) == {}
+
+
+def test_an_array_valued_diagnostic_is_dropped_rather_than_averaged():
+    # Averaging arrays would need every completion to agree on shape and
+    # meaning, which nothing guarantees. Reporting nothing beats reporting a
+    # number whose definition depends on that.
+    from cp_causal.imputation import _pool_estimator_diagnostics
+
+    fits = [
+        _fake_effect_estimate((), {"curve": _diagnostic("curve", np.array([1.0, 2.0]))}),
+        _fake_effect_estimate((), {"curve": _diagnostic("curve", np.array([3.0, 4.0]))}),
+    ]
+    assert _pool_estimator_diagnostics(fits) == {}
+
+
+def test_the_pooled_estimate_still_carries_the_estimators_own_diagnostics():
+    estimate = multiple_impute(_simulated(), "aipw", CONFIG, m=3)
+    assert estimate is not None
+    # The pooling fields, and the estimator's own alongside them.
+    assert "proportion_variance_missing" in estimate.diagnostics
+    assert "n_trimmed" in estimate.diagnostics
+    assert "cross_fit_folds" in estimate.diagnostics
+
+
+def test_the_pooled_fit_records_the_seed_that_actually_reproduces_it():
+    # FitMetadata is the artifact a reader uses to re-run a result. It
+    # recorded the ESTIMATOR's seed, while the imputation ran from
+    # `multiple_impute`'s own `seed` -- which was recorded nowhere, and which
+    # `config_hash` did not see either. Two materially different pooled
+    # estimates therefore carried the same configuration fingerprint and a
+    # seed reproducing neither.
+    first = multiple_impute(_simulated(), "difference_in_means", CONFIG, m=3, seed=3)
+    second = multiple_impute(_simulated(), "difference_in_means", CONFIG, m=3, seed=99)
+    more = multiple_impute(_simulated(), "difference_in_means", CONFIG, m=5, seed=3)
+    assert first is not None and second is not None and more is not None
+
+    assert first.point != second.point
+    assert first.fit_metadata.random_seed == 3
+    assert second.fit_metadata.random_seed == 99
+    # `m` and `seed` both change the pooled result, so both must reach the
+    # fingerprint.
+    assert first.fit_metadata.config_hash != second.fit_metadata.config_hash
+    assert first.fit_metadata.config_hash != more.fit_metadata.config_hash
 
 
 def test_the_comparison_carries_all_three_arms_and_the_tipping_point():

@@ -277,6 +277,48 @@ def _pool_assumptions(fits: list[EffectEstimate]) -> tuple[AssumptionCheck, ...]
     return tuple(pooled)
 
 
+def _pool_estimator_diagnostics(
+    fits: list[EffectEstimate],
+) -> dict[str, Diagnostic]:
+    """The estimator's own diagnostics, averaged over the completions.
+
+    §5.3 says the pooled diagnostics *gain* the pooling fields; replacing the
+    mapping wholesale left the multiple-imputation arm the least inspectable
+    of the report's three -- no trimming count, no fold count, no overlap --
+    even though `compare()` may select it as the highest-validity line.
+
+    Averaging is the same operation Rubin's rules already apply to the point
+    estimate, and a diagnostic is a measurement rather than a verdict, so
+    unlike a disagreeing assumption check there is an honest summary to
+    report. Two cases are dropped instead of averaged: a diagnostic only some
+    completions reported, whose mean would describe neither the subset nor
+    the pooled fit, and an array-valued one, whose average would need every
+    completion to agree on shape and meaning with nothing guaranteeing it.
+    """
+    if not fits:
+        return {}
+    shared = set(fits[0].diagnostics)
+    for fit in fits[1:]:
+        shared &= set(fit.diagnostics)
+
+    pooled: dict[str, Diagnostic] = {}
+    for name in sorted(shared):
+        values = [fit.diagnostics[name].value for fit in fits]
+        if any(isinstance(value, np.ndarray) for value in values):
+            continue
+        template = fits[0].diagnostics[name]
+        pooled[name] = replace(
+            template,
+            value=float(np.mean([float(value) for value in values])),
+            interpretation=(
+                f"{template.interpretation} Reported as the mean over the "
+                f"{len(fits)} completions; no single completion's value "
+                "describes the pooled fit."
+            ),
+        )
+    return pooled
+
+
 def _pooling_diagnostics(pooled: PooledEstimate, m: int) -> dict[str, Diagnostic]:
     return {
         "imputations": Diagnostic(
@@ -467,13 +509,21 @@ def multiple_impute(
         n_treated=first.n_treated,
         n_control=first.n_control,
         scale=first.scale,
-        diagnostics=_pooling_diagnostics(pooled, m),
+        diagnostics={
+            **_pool_estimator_diagnostics(fits),
+            **_pooling_diagnostics(pooled, m),
+        },
         assumptions=_pool_assumptions(fits),
         counterfactual=None,
         fit_metadata=FitMetadata.capture(
             estimator=estimator_name,
-            config_hash=config_hash(config),
+            # `m` and `seed` change the pooled result and are not part of
+            # `EstimatorConfig`, so a bare `config_hash(config)` fingerprints
+            # two materially different estimates identically. The recorded
+            # seed is the imputation's, which is what reproduces the pooling;
+            # the estimator's own seed is already inside the hash.
+            config_hash=config_hash(config, extra={"imputations": m, "seed": seed}),
             runtime_seconds=time.perf_counter() - started,
-            random_seed=config.random_seed,
+            random_seed=seed,
         ),
     )

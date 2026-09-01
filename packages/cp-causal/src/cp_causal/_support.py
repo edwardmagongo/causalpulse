@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 
 import numpy as np
 from cp_core.dataset import CausalDataset
@@ -57,11 +57,19 @@ def arrays(dataset: CausalDataset) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     return covariates, treatment, outcome
 
 
-def config_hash(config: EstimatorConfig) -> str:
+def config_hash(
+    config: EstimatorConfig, *, extra: Mapping[str, object] | None = None
+) -> str:
     """Stable hash of a configuration, for reproducibility metadata.
 
     Uses sha256 over sorted JSON rather than `hash()`, which is salted per
     process and would make the recorded value meaningless across runs.
+
+    `extra` carries settings that change the result but do not live on
+    `EstimatorConfig` -- `multiple_impute`'s `m` and `seed` are the case this
+    exists for. Without it a caller with such settings fingerprints two
+    materially different estimates identically, which is worse than no
+    fingerprint at all.
     """
     payload = {
         "bootstrap_reps": config.bootstrap_reps,
@@ -69,6 +77,7 @@ def config_hash(config: EstimatorConfig) -> str:
         "ci_level": config.ci_level,
         "random_seed": config.random_seed,
         "options": {k: repr(v) for k, v in sorted(config.options.items())},
+        "extra": {} if extra is None else {k: repr(v) for k, v in sorted(extra.items())},
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:16]
 
