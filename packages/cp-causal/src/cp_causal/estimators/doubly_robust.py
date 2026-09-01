@@ -56,6 +56,20 @@ def _resolve_nuisance_covariates(
     if schema.cohort is not None:
         role_columns.add(schema.cohort)
 
+    # Two declared columns are not structural roles but are just as
+    # forbidden, and neither is caught by the "not present in the frame"
+    # check because both are in the frame by construction. An auxiliary is
+    # declared precisely because it may carry outcome information no
+    # estimator may see -- §4.2 of the Phase 12 spec calls keeping it out of
+    # the adjustment set a correctness requirement, enforced rather than
+    # documented -- and a negative control outcome is chosen because the
+    # treatment cannot affect it, which adjusting for it would destroy.
+    # `CausalSchema` already refuses either as a `covariates` entry; this is
+    # the same rule for the option-supplied path.
+    forbidden: dict[str, str] = {name: "auxiliary" for name in schema.auxiliary_columns}
+    if schema.negative_control_outcome is not None:
+        forbidden[schema.negative_control_outcome] = "negative control outcome"
+
     def resolve(option_name: str) -> np.ndarray:
         raw = config.options.get(option_name)
         if raw is None:
@@ -77,6 +91,12 @@ def _resolve_nuisance_covariates(
                     raise ValueError(
                         f"options[{option_name!r}] names column {name!r}, which "
                         "is a role column and cannot be used as a covariate"
+                    )
+                if name in forbidden:
+                    raise ValueError(
+                        f"options[{option_name!r}] names column {name!r}, which "
+                        f"is declared as a {forbidden[name]} and cannot be used "
+                        "as a covariate"
                     )
         if not names:
             return np.empty((len(dataset.frame), 0))

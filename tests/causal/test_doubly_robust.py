@@ -153,6 +153,55 @@ def test_rejects_a_bare_string_for_a_covariates_option():
         )
 
 
+def _with_declared_extras(dataset: CausalDataset) -> CausalDataset:
+    """The same frame, with a proxy declared auxiliary and a negative control.
+
+    Both columns exist in the frame, so the "not present" guard cannot catch
+    them; only a role check can.
+    """
+    frame = dataset.frame.copy()
+    rng = np.random.default_rng(0)
+    frame["outcome_proxy"] = frame["outcome"] + rng.normal(0.0, 0.25, size=len(frame))
+    frame["nco"] = rng.normal(size=len(frame))
+    return CausalDataset(
+        frame=frame,
+        schema=CausalSchema(
+            unit=dataset.schema.unit,
+            treatment=dataset.schema.treatment,
+            outcome=dataset.schema.outcome,
+            covariates=dataset.schema.covariates,
+            outcome_type=dataset.schema.outcome_type,
+            auxiliary_columns=("outcome_proxy",),
+            negative_control_outcome="nco",
+        ),
+    )
+
+
+@pytest.mark.parametrize("option", ["propensity_covariates", "outcome_covariates"])
+def test_no_option_can_hand_an_estimator_a_declared_auxiliary(option: str):
+    # §4.2 of the Phase 12 spec calls keeping the auxiliary out of the
+    # adjustment set "a correctness requirement, not a convenience --
+    # enforced rather than documented". The schema's own validation only
+    # covers `covariates`; an auxiliary is by construction a descendant of
+    # the outcome, so conditioning on it through an option is the exact bias
+    # the declaration exists to prevent, and it must be refused by name.
+    dataset = _with_declared_extras(full(0))
+    with pytest.raises(ValueError, match="outcome_proxy"):
+        AugmentedIPW().fit(
+            dataset, config(options={option: ("x1", "x2", "outcome_proxy")})
+        )
+
+
+@pytest.mark.parametrize("option", ["propensity_covariates", "outcome_covariates"])
+def test_no_option_can_hand_an_estimator_the_negative_control(option: str):
+    # The same hole, one column over. A negative control outcome is chosen
+    # precisely because the treatment cannot affect it; adjusting for it
+    # would destroy the falsification test that reads it.
+    dataset = _with_declared_extras(full(0))
+    with pytest.raises(ValueError, match="nco"):
+        AugmentedIPW().fit(dataset, config(options={option: ("x1", "x2", "nco")}))
+
+
 def poor_overlap() -> CausalDataset:
     """Scenario G at a fixed seed: overlap is bad by construction, so the
     trimming threshold has something to bite on."""
