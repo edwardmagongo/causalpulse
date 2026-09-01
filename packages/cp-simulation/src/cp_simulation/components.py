@@ -99,10 +99,20 @@ class OutcomeProxy:
     Built from the REALISED outcome rather than from its latent probability,
     and that is the whole construction. A column correlated with the outcome
     only through the covariates carries nothing an analysis model that already
-    conditions on them does not have, so multiple imputation would gain
-    nothing from it -- measured during design as the difference between an
-    empirical standard deviation of 0.02831 with no auxiliary and 0.02413 with
-    a strong one, against complete-case analysis at 0.02619.
+    conditions on them does not have, so multiple imputation without it
+    should gain nothing over complete-case -- confirmed by measurement
+    through shipped code rather than assumed: paired against complete-case
+    (`lin_regression`, MAR, 40 seeds), imputation with NO auxiliary is
+    statistically indistinguishable from complete-case (paired diff
+    -7.106e-06, MCSE 2.854e-05, RMSE ratio 0.984), while imputation WITH this
+    auxiliary beats complete-case with a clear gradient in `noise_sd`: paired
+    diff -2.094e-04 (ratio -4.43) at noise_sd=0.25, -1.243e-04 (ratio -2.73)
+    at noise_sd=0.5. It also partially rescues MNAR: with an auxiliary built
+    from the complete outcome, missingness that depends on the outcome
+    becomes partially ignorable given the proxy, repairing roughly two
+    thirds of the MNAR bias rather than none of it. See
+    `tests/causal/test_phase12_measured.py` for the full protocol and every
+    threshold's derivation.
 
     It is a descendant of the outcome, so no estimator may adjust for it:
     conditioning on a post-outcome variable biases every one of them.

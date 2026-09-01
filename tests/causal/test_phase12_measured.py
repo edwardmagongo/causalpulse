@@ -3,11 +3,10 @@
 MEASURED 2026-09-01 (Task 9), 40 seeds at n_units=2000, m=20, scenario D,
 MAR/MNAR(rate=0.25, strength=2.0), OutcomeProxy(noise_sd=...), through
 SHIPPED code -- not the design document's discarded prototype, whose figures
-are wrong in several places. All numbers below come from
-the Task 9 measurements; "gap" = arm's point estimate minus
-the complete-data estimate on the same seed, and "paired" statistics are
-per-seed differences, which is the powerful comparison here because all four
-arms share seeds, datasets and missing rows.
+are wrong in several places. All numbers below come from that run; "gap" =
+arm's point estimate minus the complete-data estimate on the same seed, and
+"paired" statistics are per-seed differences, which is the powerful comparison
+here because all four arms share seeds, datasets and missing rows.
 
 ## Expectation 1 -- MI repairs difference_in_means under MAR (HOLDS)
 
@@ -132,9 +131,7 @@ def _complete_dataset(simulated) -> CausalDataset:
 def _without_auxiliary(dataset: CausalDataset) -> CausalDataset:
     if not dataset.schema.auxiliary_columns:
         return dataset
-    return CausalDataset(
-        frame=dataset.frame, schema=replace(dataset.schema, auxiliary_columns=())
-    )
+    return CausalDataset(frame=dataset.frame, schema=replace(dataset.schema, auxiliary_columns=()))
 
 
 def _fit(dataset: CausalDataset, estimator_name: str, seed: int, arm: str):
@@ -166,9 +163,7 @@ def _gaps(
     gaps: dict[str, list[float]] = {arm: [] for arm in arms}
     for seed in range(SEEDS):
         simulated = _simulate(mechanism, proxy, seed)
-        target = (
-            all_estimators()[estimator_name]().fit(_complete_dataset(simulated), CONFIG).point
-        )
+        target = all_estimators()[estimator_name]().fit(_complete_dataset(simulated), CONFIG).point
         for arm in arms:
             point = _fit(simulated.dataset, estimator_name, seed, arm).point
             gaps[arm].append(point - target)
@@ -191,7 +186,9 @@ def test_expectation_1_multiple_imputation_repairs_the_mar_gap():
     #   mi_no_aux: 0.00181 + 4*0.00256 = 0.01205 -> 0.013
     #   mi_aux:    0.00056 + 4*0.00150 = 0.00656 -> 0.007
     gaps = _gaps(
-        "difference_in_means", MAR, noise_sd=0.5,
+        "difference_in_means",
+        MAR,
+        noise_sd=0.5,
         arms=("complete_case", "single", "mi_no_aux", "mi_aux"),
     )
     assert abs(gaps["complete_case"].mean()) >= 0.03
@@ -225,9 +222,7 @@ def test_expectation_2_mi_without_an_auxiliary_is_no_worse_than_complete_case():
     for seed in range(SEEDS):
         simulated = _simulate(MAR, proxy, seed)
         target = (
-            all_estimators()["lin_regression"]()
-            .fit(_complete_dataset(simulated), CONFIG)
-            .point
+            all_estimators()["lin_regression"]().fit(_complete_dataset(simulated), CONFIG).point
         )
         cc = _fit(simulated.dataset, "lin_regression", seed, "complete_case").point
         mi = _fit(simulated.dataset, "lin_regression", seed, "mi_no_aux").point
@@ -260,9 +255,7 @@ def test_expectation_3_mi_with_an_auxiliary_beats_complete_case():
         for seed in range(SEEDS):
             simulated = _simulate(MAR, proxy, seed)
             target = (
-                all_estimators()["lin_regression"]()
-                .fit(_complete_dataset(simulated), CONFIG)
-                .point
+                all_estimators()["lin_regression"]().fit(_complete_dataset(simulated), CONFIG).point
             )
             cc = _fit(simulated.dataset, "lin_regression", seed, "complete_case").point
             mi = _fit(simulated.dataset, "lin_regression", seed, "mi_aux").point
@@ -313,9 +306,7 @@ def test_expectation_5_mi_repairs_most_but_not_all_of_the_mnar_gap():
         ("difference_in_means", 0.06, 0.04, 0.015, (0.45, 0.85)),
         ("lin_regression", 0.02, 0.012, 0.005, (0.40, 0.90)),
     ):
-        gaps = _gaps(
-            estimator_name, MNAR, noise_sd=0.5, arms=("complete_case", "mi_aux")
-        )
+        gaps = _gaps(estimator_name, MNAR, noise_sd=0.5, arms=("complete_case", "mi_aux"))
         cc_gap = gaps["complete_case"].mean()
         mi_gap = gaps["mi_aux"].mean()
         repair = mi_gap - cc_gap
@@ -340,9 +331,7 @@ def test_expectation_6_between_imputation_variance_rises_with_the_missing_rate()
         values = []
         for seed in range(SEEDS):
             simulated = _simulate(mechanism, proxy, seed)
-            estimate = multiple_impute(
-                simulated.dataset, "lin_regression", CONFIG, m=M, seed=seed
-            )
+            estimate = multiple_impute(simulated.dataset, "lin_regression", CONFIG, m=M, seed=seed)
             assert estimate is not None
             values.append(estimate.diagnostics["between_variance"].value)
         means[rate] = float(np.mean(values))

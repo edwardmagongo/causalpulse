@@ -1140,6 +1140,75 @@ that the tolerance needs widening.
   a continuous gap with, and panel attrition needs machinery this phase does not build.
 - **A panel missingness mechanism.** `MissingnessMechanism` attaches to `CrossSectionDGP` only.
 
+## Imputation, and where it stops helping (Phase 12)
+
+The other two of the parent spec's original "complete-case vs imputation comparison, tipping-point
+analysis" row. `impute_once` fills missing outcomes from a logistic model of treatment, covariates
+and an optional declared `auxiliary_columns` (schema fields an imputation model may see but no
+estimator may adjust for, since an auxiliary built from the outcome is a descendant of it);
+`multiple_impute` draws `m` such completions, bootstrap-resampling the observed rows before each
+fit, refits the requested estimator on every one, and pools by Rubin's rules (`cp_statistics.pooling`,
+Barnard–Rubin degrees of freedom). `compare_missing_data` runs complete-case, single imputation,
+multiple imputation and the Phase 11 tipping-point bounds on the same dataset and reports all four
+together, agreeing or not, rather than picking one.
+
+### Multiple imputation buys nothing without an auxiliary, and does not repair MNAR by itself
+
+Both were pre-registered expectations going in, and both were falsified by measurement against the
+shipped code — recorded as falsified rather than quietly rewritten, since a pre-registration that
+gets edited after seeing the data stops being one:
+
+- **MI with no auxiliary was expected to be ~8% *less* efficient than complete-case. Measured:
+  statistically indistinguishable** (paired RMSE ratio 0.984, paired diff −7.1e-06 against an MCSE
+  of 2.9e-05). This is the theoretically correct answer, not a surprising one in hindsight — Little
+  (1992): imputing an outcome from information the analysis model already has gains nothing and
+  loses nothing. The naive expectation that "any imputation helps" is the one to distrust.
+- **Under MNAR, MI was expected to leave the complete-case gap roughly unchanged. Measured: it
+  repairs about two thirds of it** and leaves a residual that is unambiguously nonzero. The
+  mechanism the spec missed: this project's `OutcomeProxy` is built from the *complete* outcome, so
+  it carries information about the missing values themselves, which makes MNAR partially ignorable
+  *given the proxy*. Imputation is still not a general fix for MNAR — a proxy that carried no
+  outcome information would not repair anything — but an auxiliary correlated with why data is
+  missing changes what MNAR means for this estimate.
+
+An auxiliary that genuinely predicts the missing values is a different story: **MI *with* one beats
+complete-case, by a margin that shrinks as the auxiliary gets noisier** — paired diff −2.09e-04
+(ratio −4.43 against its MCSE) at `noise_sd=0.25`, −1.24e-04 (ratio −2.73) at `noise_sd=0.5`; the
+gradient continues to `noise_sd=1.0` but 40 seeds cannot separate it there. Single imputation is the
+one arm that should not be trusted for its stated uncertainty: its SE calibration (mean reported SE
+÷ empirical SD; 1.0 is honest) falls monotonically as the imputation gets less certain — 0.84 → 0.79
+→ 0.75 across the same three noise levels — while multiple imputation stays close to complete-case's
+0.94 throughout, because treating an imputed value as if it were observed is exactly the
+overconfidence Rubin's rules exist to correct.
+
+### What the measured harness found
+
+Measured 2026-09-01, 40 seeds at `n_units=2000`, `m=20`, scenario D, `MissingnessMechanism(rate=0.25,
+strength=2.0)`, `OutcomeProxy(noise_sd=0.5)` unless noted. Full tables in
+`tests/causal/test_phase12_measured.py`.
+
+| check | result |
+|---|---|
+| MAR gap, `difference_in_means`, complete-case | −0.04011 (MCSE 0.00232) — 17 MCSE from zero |
+| MAR gap, same, `mi_aux` | −0.00056 (MCSE 0.00150) — indistinguishable from zero |
+| MI-no-aux vs complete-case, `lin_regression`, paired RMSE ratio | 0.984 — indistinguishable |
+| MI-aux vs complete-case, paired diff, `noise_sd=0.25` | −2.094e-04 (ratio −4.43) |
+| MI-aux vs complete-case, paired diff, `noise_sd=0.5` | −1.243e-04 (ratio −2.73) |
+| Single-imputation SE calibration, `noise_sd=0.25 / 0.5 / 1.0` | 0.8406 / 0.7927 / 0.7532 — monotone |
+| MNAR gap, `difference_in_means`, complete-case → `mi_aux` | −0.07566 → −0.02551 (66% repaired, residual 14.5 MCSE from zero) |
+| Between-imputation variance, `lin_regression`, `rate=0.05 / 0.10 / 0.25` | 1.10e-05 / 2.73e-05 / 7.46e-05 — rises with the missing rate |
+
+### What is deferred, and why
+
+- **Continuous outcomes and panel data.** `multiple_impute` and `compare_missing_data` share Phase
+  11's `tipping_point` limits: the imputation model here is logistic, so only a binary outcome on
+  cross-sectional data is covered.
+- **A scaling policy for the imputation model.** `LogisticRegression`'s L2 penalty is applied to
+  unstandardised features, so its regularisation is scale-dependent; rescaling `OutcomeProxy` by
+  0.2×/5× moved `mi_aux`'s empirical SD and calibration by an amount too small to separate from
+  noise at 20 seeds. Suggestive, not resolved — carried to a future phase rather than fixed on a
+  measurement this uncertain.
+
 ## On scikit-learn
 
 scikit-learn fits nuisance models only — the propensity model and the outcome regressions, which
