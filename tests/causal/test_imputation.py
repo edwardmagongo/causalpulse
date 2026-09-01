@@ -5,8 +5,9 @@ import numpy as np
 import pandas as pd
 import pytest
 from cp_causal.imputation import DEFAULT_IMPUTATIONS, impute_once, multiple_impute
-from cp_causal.registry import get_estimator
-from cp_core.dataset import CausalDataset, CausalSchema
+from cp_causal.registry import all_estimators, get_estimator
+from cp_causal.sensitivity import compare_missing_data, sensitivity_report
+from cp_core.dataset import CausalDataset, CausalSchema, complete_cases
 from cp_core.values import EstimatorConfig
 from cp_simulation.components import MissingnessMechanism
 from cp_simulation.scenarios import build_scenario
@@ -370,3 +371,51 @@ def test_pool_assumptions_downgrades_a_check_absent_from_the_first_completion():
     names = {check.name: check.status for check in pooled}
     assert names["positivity"] == "PASS"
     assert names["covariate_balance"] == "NOT_TESTABLE"
+
+
+def test_the_comparison_carries_all_three_arms_and_the_tipping_point():
+    analysis = compare_missing_data(_simulated(), "difference_in_means", CONFIG, m=5)
+    assert analysis is not None
+    assert analysis.complete_case.ci_basis == "analytic"
+    assert analysis.single_imputation.ci_basis == "analytic"
+    assert analysis.multiple_imputation.ci_basis == "rubin"
+    assert analysis.tipping_point is not None
+    assert analysis.tipping_point_reason is None
+    assert analysis.n_missing_outcomes > 0
+
+
+def test_the_complete_case_arm_uses_fewer_rows_than_the_imputed_arms():
+    # The distinguishing property of the comparison: one arm answers with
+    # less data, the other two answer with a model for what is missing.
+    analysis = compare_missing_data(_simulated(), "difference_in_means", CONFIG, m=5)
+    assert analysis is not None
+    complete_case_n = analysis.complete_case.n_treated + analysis.complete_case.n_control
+    imputed_n = (
+        analysis.multiple_imputation.n_treated + analysis.multiple_imputation.n_control
+    )
+    assert complete_case_n < imputed_n
+
+
+def test_a_panel_estimator_gets_no_comparison():
+    assert compare_missing_data(_simulated(), "twfe", CONFIG, m=5) is None
+
+
+def test_the_report_carries_the_comparison_with_no_reason():
+    dataset = _simulated()
+    reduced, _ = complete_cases(dataset)
+    estimate = all_estimators()["difference_in_means"]().fit(reduced, CONFIG)
+    report = sensitivity_report(dataset, "difference_in_means", estimate, CONFIG)
+    assert report.missing_data is not None
+    assert report.missing_data_reason is None
+    assert report.missing_data.multiple_imputation.ci_basis == "rubin"
+
+
+def test_a_complete_dataset_gets_a_reason_and_no_comparison():
+    complete = build_scenario("D").generate(
+        n_units=400, rng=np.random.default_rng(0)
+    ).dataset
+    estimate = all_estimators()["difference_in_means"]().fit(complete, CONFIG)
+    report = sensitivity_report(complete, "difference_in_means", estimate, CONFIG)
+    assert report.missing_data is None
+    assert report.missing_data_reason is not None
+    assert "nothing to impute" in report.missing_data_reason

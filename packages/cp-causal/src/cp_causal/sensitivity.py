@@ -25,6 +25,7 @@ from cp_core.results import (
     FalsificationResult,
     MisclassificationCurve,
     MisclassificationPoint,
+    MissingDataAnalysis,
     NegativeControlResult,
     PlaceboTestResult,
     SensitivityReport,
@@ -57,6 +58,15 @@ from cp_causal.estimators.synthetic_control import (
     leave_one_donor_out_points,
     permutation_p_value,
     placebo_runs,
+)
+from cp_causal.imputation import (
+    CONTINUOUS_IMPUTATION_REASON,
+    DEFAULT_IMPUTATIONS,
+    NO_MISSING_DATA_REASON,
+    NO_STANDARD_ERROR_REASON,
+    PANEL_IMPUTATION_REASON,
+    impute_once,
+    multiple_impute,
 )
 from cp_causal.panel_checks import placebo_leads
 from cp_causal.propensity import POSITIVITY_THRESHOLD, resolve_trim
@@ -1333,17 +1343,6 @@ def _worst_case_bounds(
 
 _TIPPING_POINT_BISECTION_STEPS = 18
 
-_CONTINUOUS_TIPPING_REASON = (
-    "Tipping-point bounds here fill a missing outcome with its extreme "
-    "values, which needs a bounded outcome; a continuous outcome has no "
-    "worst case to fill in."
-)
-_PANEL_TIPPING_REASON = (
-    "Tipping-point bounds are built for the cross-sectional estimators this "
-    "phase covers; {name} needs panel data, where attrition also removes a "
-    "unit from periods it would otherwise contribute to."
-)
-
 
 def _conclusion_holds(estimate: EffectEstimate, direction: float) -> bool:
     """Does this refit still say what the original finding said?
@@ -1522,11 +1521,80 @@ def tipping_point(
     )
 
 
+def compare_missing_data(
+    dataset: CausalDataset,
+    estimator_name: str,
+    config: EstimatorConfig,
+    *,
+    m: int = DEFAULT_IMPUTATIONS,
+    seed: int = 0,
+) -> MissingDataAnalysis | None:
+    """Complete-case against single and multiple imputation, plus the bounds.
 
-_NO_MISSING_DATA_REASON = (
-    "The dataset has no missing outcomes, so there is nothing unobserved "
-    "for a tipping point to vary."
-)
+    Three arms fitted on the same data and reported together. Which one to
+    believe is not decided here: complete-case is unbiased only under
+    missingness completely at random, single imputation reports the
+    uncertainty of data it did not observe, and multiple imputation trusts a
+    model for the missing values. When they disagree, the tipping point is the
+    arm that assumes nothing.
+
+    `None` under exactly the conditions `multiple_impute` refuses, and for the
+    same reasons, so the caller pairs one reason with the whole comparison
+    rather than one per arm.
+    """
+    estimator_class = get_estimator(estimator_name)
+    if estimator_class.requirements.needs_panel:
+        return None
+    if dataset.schema.outcome_type != "binary":
+        return None
+
+    outcome = dataset.frame[dataset.schema.outcome]
+    n_missing = int(outcome.isna().sum())
+    if n_missing == 0:
+        return None
+
+    pooled = multiple_impute(dataset, estimator_name, config, m=m, seed=seed)
+    if pooled is None:
+        # Only the standard-error condition can still be unmet here; the other
+        # three were checked above. Returning None keeps the caller's reason
+        # accurate rather than reporting two arms and calling it a comparison.
+        return None
+
+    reduced, _ = complete_cases(dataset)
+    complete_case = estimator_class().fit(reduced, config)
+
+    single_rng = np.random.default_rng(np.random.SeedSequence(seed))
+    single = estimator_class().fit(
+        impute_once(dataset, single_rng, draw_parameters=False), config
+    )
+
+    # Verified by reading `tipping_point` on 2026-08-31: it returns None on
+    # exactly three conditions -- panel estimator, non-binary outcome, nothing
+    # missing -- and all three were excluded above. A finding that survives
+    # every adverse fill still returns a TippingPoint, carrying
+    # `tipping_fraction=None` and `conclusion_survives_worst_case=True`. So
+    # the reason slot here is always empty, and an absence would be a bug
+    # rather than a case to explain.
+    tipping = tipping_point(dataset, estimator_name, config)
+    if tipping is None:
+        raise AssertionError(
+            "tipping_point returned None after its three None conditions were "
+            "excluded; its gate and this one have drifted apart"
+        )
+
+    arms = (complete_case, single, pooled)
+    signs = {(arm.point > 0.0) - (arm.point < 0.0) for arm in arms}
+    return MissingDataAnalysis(
+        complete_case=complete_case,
+        single_imputation=single,
+        multiple_imputation=pooled,
+        tipping_point=tipping,
+        tipping_point_reason=None,
+        n_missing_outcomes=n_missing,
+        fraction_missing=n_missing / len(dataset.frame),
+        arms_agree_in_sign=len(signs) == 1,
+        arms_agree_in_significance=len({arm.is_significant for arm in arms}) == 1,
+    )
 
 
 def sensitivity_report(
@@ -1557,9 +1625,15 @@ def sensitivity_report(
     outcomes, `confounding` and `falsification` are computed against
     `complete_cases(dataset)`, so a caller whose `estimate` was fitted on
     anything else -- a different missing-outcome filter, say -- gets a
-    report that silently mixes two fits. `tipping_point` is not exposed to
-    this, since it recomputes its own complete-case direction from `dataset`
-    rather than consuming `estimate`.
+    report that silently mixes two fits. `missing_data` is not exposed to
+    this, since `compare_missing_data` recomputes its own complete-case,
+    single- and multiple-imputation fits from `dataset` rather than consuming
+    `estimate`.
+
+    The dataset is read two ways here, and which arms see which is stated
+    once rather than traced: `confounding`, `specification_curve` and
+    `falsification` see `complete_cases(dataset)`, while `missing_data` sees
+    the raw dataset, gaps and all, because the gaps are its subject.
     """
     curve_of_rates: MisclassificationCurve | None = None
     misclassification_reason: str | None = None
@@ -1634,19 +1708,21 @@ def sensitivity_report(
     else:
         curve_reason = _curve_reason(estimator_name)
 
-    # The three branches below must match tipping_point's three None
+    # The three branches must match compare_missing_data's three None
     # conditions, in the same order. Phase 10 shipped a reason that named
     # the wrong cause, and a reason stating the wrong cause is worse than
     # a vague one.
-    tipping = tipping_point(dataset, estimator_name, config)
+    analysis = compare_missing_data(dataset, estimator_name, config)
     missing_data_reason: str | None = None
-    if tipping is None:
+    if analysis is None:
         if get_estimator(estimator_name).requirements.needs_panel:
-            missing_data_reason = _PANEL_TIPPING_REASON.format(name=estimator_name)
+            missing_data_reason = PANEL_IMPUTATION_REASON.format(name=estimator_name)
         elif dataset.schema.outcome_type != "binary":
-            missing_data_reason = _CONTINUOUS_TIPPING_REASON
+            missing_data_reason = CONTINUOUS_IMPUTATION_REASON
+        elif not dataset.frame[dataset.schema.outcome].isna().any():
+            missing_data_reason = NO_MISSING_DATA_REASON
         else:
-            missing_data_reason = _NO_MISSING_DATA_REASON
+            missing_data_reason = NO_STANDARD_ERROR_REASON.format(name=estimator_name)
 
     return SensitivityReport(
         confounding=confounding,
@@ -1663,6 +1739,6 @@ def sensitivity_report(
         ),
         misclassification=curve_of_rates,
         misclassification_reason=misclassification_reason,
-        missing_data=tipping,
+        missing_data=analysis,
         missing_data_reason=missing_data_reason,
     )

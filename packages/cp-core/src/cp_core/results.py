@@ -717,7 +717,7 @@ class SensitivityReport:
     falsification: FalsificationResult
     misclassification: MisclassificationCurve | None
     misclassification_reason: str | None
-    missing_data: TippingPoint | None
+    missing_data: MissingDataAnalysis | None
     missing_data_reason: str | None
 
     def __post_init__(self) -> None:

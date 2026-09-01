@@ -684,7 +684,7 @@ def test_a_present_missing_data_slot_with_a_reason_is_refused():
     with pytest.raises(ValueError, match="missing_data_reason"):
         SensitivityReport(
             **_report_kwargs(
-                missing_data=a_tipping_point(), missing_data_reason="not applicable"
+                missing_data=_analysis(), missing_data_reason="not applicable"
             )
         )
 
@@ -696,7 +696,7 @@ def test_an_empty_missing_data_reason_string_does_not_count_as_a_reason():
 
 def test_a_present_missing_data_slot_without_a_reason_constructs():
     report = SensitivityReport(
-        **_report_kwargs(missing_data=a_tipping_point(), missing_data_reason=None)
+        **_report_kwargs(missing_data=_analysis(), missing_data_reason=None)
     )
     assert report.missing_data is not None
 
