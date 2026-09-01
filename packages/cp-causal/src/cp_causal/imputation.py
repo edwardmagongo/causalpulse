@@ -20,6 +20,7 @@ import numpy as np
 from cp_core.dataset import CausalDataset
 from cp_core.results import (
     AssumptionCheck,
+    AssumptionStatus,
     EffectEstimate,
     FitMetadata,
     worst_status,
@@ -62,9 +63,11 @@ _DISAGREEMENT_NOTE = (
 )
 _INCONSISTENT_PRESENCE_NOTE = (
     "This check was reported by only some of the imputed datasets' fits, "
-    "which is the same kind of inconsistency as a disagreeing verdict, so "
-    "it is reported as untested rather than as whichever completions "
-    "happened to carry it."
+    "which is the same kind of inconsistency as a disagreeing verdict. It "
+    "is reported at the most severe verdict any of them reached, and as "
+    "untested when none of them reached one more severe than a pass. Its "
+    "statistic and threshold are dropped, because no single completion's "
+    "numbers describe the pooled result."
 )
 
 
@@ -176,8 +179,8 @@ def impute_once(
 
 
 def _pool_assumptions(fits: list[EffectEstimate]) -> tuple[AssumptionCheck, ...]:
-    """The assumption checks every completion agrees on; disagreements pooled
-    to the worst verdict any completion reached.
+    """The assumption checks every completion agrees on; inconsistencies
+    pooled to the worst verdict any completion reached.
 
     A check whose status differs across completions is reported at the most
     severe status seen, not as `NOT_TESTABLE`. Reporting it as untestable was
@@ -200,18 +203,26 @@ def _pool_assumptions(fits: list[EffectEstimate]) -> tuple[AssumptionCheck, ...]
     hidden by that -- `PASS` is already the mildest rank -- and a check a
     completion could not answer is not a `PASS`.
 
-    Absence is handled separately and still yields `NOT_TESTABLE`: a check
+    Absence obeys the same rule, because it is the same argument. A check
     present in some completions' assumption lists and absent from others has
-    not been consistently tested at all, which is a different thing from a
-    verdict that varied. It is neither silently dropped (which would hide it
-    from a reader entirely) nor kept from whichever completions happened to
-    carry it (which would report a partial answer as though it were a full
-    one). In the estimators registered as of this writing, a fit's assumption
-    checks are a fixed set of names determined by the estimator and config,
-    never by which values happened to be imputed, so that branch does not
-    fire in practice -- but nothing in the `Estimator` protocol guarantees
-    it, and a defect there would be the same shape as the family predicates
-    that shipped wrong classifications in earlier phases.
+    not been consistently tested either, and "some completions could not even
+    report this check" is weaker evidence of health than "the completions
+    disagreed", not stronger -- so routing a `FAIL` there would launder it
+    exactly as the original rule laundered a disagreeing one. An absent
+    report is therefore counted as a `NOT_TESTABLE` vote and pooled with the
+    rest: it cannot outvote a verdict some completion actually reached, and
+    an all-`PASS` partial report still lands on `NOT_TESTABLE` through the
+    asymmetry above. The check is neither silently dropped (which would hide
+    it from a reader entirely) nor reported at a `PASS` the missing
+    completions never gave.
+
+    That branch does not fire in practice: in the estimators registered as of
+    this writing, a fit's assumption checks are a fixed set of names
+    determined by the estimator and config, never by which values happened to
+    be imputed. It is implemented to the same standard anyway, because
+    nothing in the `Estimator` protocol guarantees that, and a defect there
+    would be the same shape as the family predicates that shipped wrong
+    classifications in earlier phases.
 
     The status-mismatch branch is not dead in the same way: on real fixtures,
     `causal_forest`'s `calibration_test` was observed to disagree across
@@ -232,37 +243,37 @@ def _pool_assumptions(fits: list[EffectEstimate]) -> tuple[AssumptionCheck, ...]
     for name in seen:
         present = [checks[name] for checks in by_name if name in checks]
         template = present[0]
-        if len(present) < len(fits):
-            pooled.append(
-                replace(
-                    template,
-                    status="NOT_TESTABLE",
-                    statistic=None,
-                    threshold=None,
-                    interpretation=(
-                        f"{template.interpretation} {_INCONSISTENT_PRESENCE_NOTE}"
-                    ),
-                )
-            )
-        elif len({check.status for check in present}) > 1:
-            statuses = [check.status for check in present]
-            status = worst_status(statuses)
-            if status == "PASS" and "NOT_TESTABLE" in statuses:
-                # Nothing severe is being hidden -- PASS is already the
-                # mildest rank -- but a check some completion could not
-                # answer is not a PASS either.
-                status = "NOT_TESTABLE"
-            pooled.append(
-                replace(
-                    template,
-                    status=status,
-                    statistic=None,
-                    threshold=None,
-                    interpretation=f"{template.interpretation} {_DISAGREEMENT_NOTE}",
-                )
-            )
+        # A completion that did not report this check at all votes the same
+        # way as one that could not answer it. That single line is what makes
+        # the two inconsistencies -- absence and disagreement -- one rule
+        # rather than two that could drift apart.
+        absent = len(fits) - len(present)
+        statuses: list[AssumptionStatus] = [check.status for check in present]
+        statuses.extend(["NOT_TESTABLE"] * absent)
+
+        if absent:
+            note = _INCONSISTENT_PRESENCE_NOTE
+        elif len(set(statuses)) > 1:
+            note = _DISAGREEMENT_NOTE
         else:
             pooled.append(template)
+            continue
+
+        status = worst_status(statuses)
+        if status == "PASS" and "NOT_TESTABLE" in statuses:
+            # Nothing severe is being hidden -- PASS is already the mildest
+            # rank -- but a check some completion could not answer, or did
+            # not report at all, is not a PASS either.
+            status = "NOT_TESTABLE"
+        pooled.append(
+            replace(
+                template,
+                status=status,
+                statistic=None,
+                threshold=None,
+                interpretation=f"{template.interpretation} {note}",
+            )
+        )
     return tuple(pooled)
 
 

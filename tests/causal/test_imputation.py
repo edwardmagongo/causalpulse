@@ -420,11 +420,11 @@ def test_pool_assumptions_keeps_a_check_every_completion_agrees_on():
     assert pooled[0].interpretation == "an interpretation"
 
 
-def test_pool_assumptions_downgrades_a_check_absent_from_a_later_completion():
+def test_pool_assumptions_will_not_claim_a_pass_from_only_some_completions():
     # A check present in the first completion's list but missing from a
-    # later one has not been tested consistently either -- the absence is a
-    # disagreement about whether the check applies at all, not a milder case
-    # than a status mismatch, so it is downgraded the same way.
+    # later one has not been tested consistently. An all-PASS partial report
+    # is still NOT_TESTABLE: PASS is the mildest rank, so nothing severe is
+    # hidden, and a check some completions never reported is not a PASS.
     from cp_causal.imputation import _pool_assumptions
 
     fits = [
@@ -439,9 +439,33 @@ def test_pool_assumptions_downgrades_a_check_absent_from_a_later_completion():
     assert names["covariate_balance"] == "NOT_TESTABLE"
 
 
-def test_pool_assumptions_downgrades_a_check_absent_from_the_first_completion():
+@pytest.mark.parametrize("severe", ["FAIL", "WARN"])
+def test_pool_assumptions_carries_a_severe_verdict_out_of_a_partial_report(severe):
+    # The absence branch's own laundering case, and the twin of the
+    # disagreement branch's. NOT_TESTABLE carries no rank in `_SEVERITY` and
+    # no weight in `score_validity`, so routing a FAIL into it hides the
+    # FAIL -- and "some completions could not even report this check" is
+    # weaker evidence of health than "the completions disagreed", not
+    # stronger. An absent report votes NOT_TESTABLE; it cannot outvote a
+    # verdict some completion actually reached.
+    from cp_causal.imputation import _pool_assumptions
+
+    fits = [
+        _fake_effect_estimate(
+            (_check("positivity", "PASS"), _check("covariate_balance", severe))
+        ),
+        _fake_effect_estimate((_check("positivity", "PASS"),)),
+    ]
+    pooled = _pool_assumptions(fits)
+    names = {check.name: check.status for check in pooled}
+    assert names["covariate_balance"] == severe
+
+
+def test_pool_assumptions_keeps_a_check_absent_from_the_first_completion():
     # The reverse direction: a check the first completion lacks but a later
-    # one carries must not be silently dropped from the pooled result.
+    # one carries must not be silently dropped from the pooled result --
+    # dropping it would hide the check from a reader entirely. It is kept,
+    # and at the WARN the one completion that could test it reached.
     from cp_causal.imputation import _pool_assumptions
 
     fits = [
@@ -453,7 +477,7 @@ def test_pool_assumptions_downgrades_a_check_absent_from_the_first_completion():
     pooled = _pool_assumptions(fits)
     names = {check.name: check.status for check in pooled}
     assert names["positivity"] == "PASS"
-    assert names["covariate_balance"] == "NOT_TESTABLE"
+    assert names["covariate_balance"] == "WARN"
 
 
 def test_the_comparison_carries_all_three_arms_and_the_tipping_point():
