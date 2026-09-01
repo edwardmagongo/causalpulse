@@ -254,7 +254,7 @@ def test_an_assumption_that_disagrees_across_completions_is_not_claimed():
     calibration = next(
         check for check in estimate.assumptions if check.name == "calibration_test"
     )
-    assert calibration.status == "NOT_TESTABLE"
+    assert calibration.status == "WARN"
     assert "reached different verdicts across the imputed datasets" in (
         calibration.interpretation
     )
@@ -311,7 +311,12 @@ def _check(name, status):
     )
 
 
-def test_pool_assumptions_downgrades_a_check_that_disagrees_across_completions():
+def test_pool_assumptions_reports_the_worst_verdict_a_disagreeing_check_reached():
+    # Reporting NOT_TESTABLE here would be an UPGRADE, not a downgrade:
+    # `score_validity` names NOT_TESTABLE checks without moving the band and
+    # `_SEVERITY` does not rank it, so a WARN two completions out of three
+    # reached would stop counting anywhere downstream. The pooled verdict is
+    # the most severe one any completion reached.
     from cp_causal.imputation import _pool_assumptions
 
     fits = [
@@ -321,7 +326,66 @@ def test_pool_assumptions_downgrades_a_check_that_disagrees_across_completions()
     ]
     pooled = _pool_assumptions(fits)
     assert len(pooled) == 1
+    assert pooled[0].status == "WARN"
+    # No single completion's statistic describes the pooled result.
+    assert pooled[0].statistic is None
+    assert pooled[0].threshold is None
+    assert "most severe verdict" in pooled[0].interpretation
+
+
+def test_pool_assumptions_carries_a_fail_only_some_completions_reached():
+    # The reachable worst case: nineteen identifying FAILs and one PASS must
+    # not pool to a status that escapes the WEAK cap entirely.
+    from cp_causal.imputation import _pool_assumptions
+
+    fits = [_fake_effect_estimate((_check("positivity", "FAIL"),)) for _ in range(19)]
+    fits.append(_fake_effect_estimate((_check("positivity", "PASS"),)))
+    pooled = _pool_assumptions(fits)
+    assert pooled[0].status == "FAIL"
+
+
+def test_pool_assumptions_will_not_claim_a_pass_a_completion_could_not_test():
+    # Nothing severe is being hidden here, but a check one completion could
+    # not answer is not a PASS either. NOT_TESTABLE is the honest verdict,
+    # and it is not an upgrade because PASS is already the mildest rank.
+    from cp_causal.imputation import _pool_assumptions
+
+    fits = [
+        _fake_effect_estimate((_check("positivity", "PASS"),)),
+        _fake_effect_estimate((_check("positivity", "NOT_TESTABLE"),)),
+    ]
+    pooled = _pool_assumptions(fits)
     assert pooled[0].status == "NOT_TESTABLE"
+
+
+def test_pool_assumptions_prefers_a_warn_to_an_untestable_verdict():
+    # The mirror of the case above: once something rankable and worse than
+    # PASS was observed, it outranks the completions that could not answer.
+    from cp_causal.imputation import _pool_assumptions
+
+    fits = [
+        _fake_effect_estimate((_check("positivity", "NOT_TESTABLE"),)),
+        _fake_effect_estimate((_check("positivity", "WARN"),)),
+    ]
+    pooled = _pool_assumptions(fits)
+    assert pooled[0].status == "WARN"
+
+
+def test_a_disagreeing_warn_still_moves_the_validity_band():
+    # The consequence the unit tests above exist for, pinned end to end: a
+    # WARN that only some completions reached must still cost the estimate a
+    # band. Pooling it to NOT_TESTABLE left the band at the observational
+    # ceiling, which reported a weaker analysis as a stronger one.
+    from cp_causal.imputation import _pool_assumptions
+    from cp_causal.validity import score_validity
+
+    fits = [
+        _fake_effect_estimate((_check("positivity", "WARN"),)),
+        _fake_effect_estimate((_check("positivity", "PASS"),)),
+    ]
+    estimate = _fake_effect_estimate(_pool_assumptions(fits))
+    assert estimate.worst_assumption_status == "WARN"
+    assert score_validity(estimate, provenance="observational").band == "WEAK"
 
 
 def test_pool_assumptions_keeps_a_check_every_completion_agrees_on():

@@ -18,7 +18,12 @@ from dataclasses import replace
 
 import numpy as np
 from cp_core.dataset import CausalDataset
-from cp_core.results import AssumptionCheck, EffectEstimate, FitMetadata
+from cp_core.results import (
+    AssumptionCheck,
+    EffectEstimate,
+    FitMetadata,
+    worst_status,
+)
 from cp_core.values import Diagnostic, EstimatorConfig, Interval
 from cp_statistics.pooling import PooledEstimate, pool_rubin
 from scipy import stats
@@ -50,8 +55,10 @@ NO_STANDARD_ERROR_REASON = (
 
 _DISAGREEMENT_NOTE = (
     "This check reached different verdicts across the imputed datasets, so "
-    "it is reported as untested rather than as whichever verdict the first "
-    "completion happened to reach."
+    "it is reported at the most severe verdict any of them reached rather "
+    "than whichever one the first completion happened to reach. Its "
+    "statistic and threshold are dropped, because no single completion's "
+    "numbers describe the pooled result."
 )
 _INCONSISTENT_PRESENCE_NOTE = (
     "This check was reported by only some of the imputed datasets' fits, "
@@ -153,28 +160,47 @@ def impute_once(
 
 
 def _pool_assumptions(fits: list[EffectEstimate]) -> tuple[AssumptionCheck, ...]:
-    """The assumption checks every completion agrees on, the rest downgraded.
+    """The assumption checks every completion agrees on; disagreements pooled
+    to the worst verdict any completion reached.
 
-    Agreement means two things at once: every completion that names this
-    check reports the same status for it, and every completion names it at
-    all. A check present in some completions' assumption lists and absent
-    from others has not been consistently tested either -- that absence is
-    as much a disagreement as a differing verdict, so it is downgraded the
-    same way rather than silently dropped (which would hide it from a reader
-    entirely) or kept from whichever completions happened to carry it (which
-    would report a partial answer as though it were a full one).
+    A check whose status differs across completions is reported at the most
+    severe status seen, not as `NOT_TESTABLE`. Reporting it as untestable was
+    this function's original rule and it was an UPGRADE in disguise:
+    `score_validity` names `NOT_TESTABLE` checks in its rationale without
+    moving the band, and `_SEVERITY` does not rank it, so a `WARN` eighteen
+    completions out of twenty reached stopped counting anywhere downstream --
+    measured at `MODERATE` against the `WEAK` every individual completion
+    scored, and reachable with `FAIL` in place of `WARN`. Two meanings had
+    been loaded onto one status: "cannot be answered from data", which the
+    design ceiling already prices in, and "the answer varied", which nothing
+    priced at all.
 
-    In the estimators registered as of this writing, a fit's assumption
+    The statistic and threshold are dropped on a disagreement even though the
+    status survives, because they came from whichever completion happened to
+    be first and no single completion's numbers describe the pooled result.
+
+    One asymmetry is deliberate: a `PASS` on some completions and
+    `NOT_TESTABLE` on others pools to `NOT_TESTABLE`. Nothing severe is
+    hidden by that -- `PASS` is already the mildest rank -- and a check a
+    completion could not answer is not a `PASS`.
+
+    Absence is handled separately and still yields `NOT_TESTABLE`: a check
+    present in some completions' assumption lists and absent from others has
+    not been consistently tested at all, which is a different thing from a
+    verdict that varied. It is neither silently dropped (which would hide it
+    from a reader entirely) nor kept from whichever completions happened to
+    carry it (which would report a partial answer as though it were a full
+    one). In the estimators registered as of this writing, a fit's assumption
     checks are a fixed set of names determined by the estimator and config,
-    never by which values happened to be imputed, so the absence branch does
-    not fire in practice -- but nothing in the `Estimator` protocol
-    guarantees that, and a defect here would be the same shape as the family
-    predicates that shipped wrong classifications in earlier phases. The
-    status-mismatch branch is not dead in the same way: on real fixtures,
+    never by which values happened to be imputed, so that branch does not
+    fire in practice -- but nothing in the `Estimator` protocol guarantees
+    it, and a defect there would be the same shape as the family predicates
+    that shipped wrong classifications in earlier phases.
+
+    The status-mismatch branch is not dead in the same way: on real fixtures,
     `causal_forest`'s `calibration_test` was observed to disagree across
     completions (`WARN` on some, `PASS` on others) at `m = 20`, on two of ten
-    tried seeds, and is downgraded to `NOT_TESTABLE` exactly as this function
-    intends.
+    tried seeds, and now pools to `WARN`.
     """
     by_name: list[dict[str, AssumptionCheck]] = [
         {check.name: check for check in fit.assumptions} for fit in fits
@@ -203,10 +229,17 @@ def _pool_assumptions(fits: list[EffectEstimate]) -> tuple[AssumptionCheck, ...]
                 )
             )
         elif len({check.status for check in present}) > 1:
+            statuses = [check.status for check in present]
+            status = worst_status(statuses)
+            if status == "PASS" and "NOT_TESTABLE" in statuses:
+                # Nothing severe is being hidden -- PASS is already the
+                # mildest rank -- but a check some completion could not
+                # answer is not a PASS either.
+                status = "NOT_TESTABLE"
             pooled.append(
                 replace(
                     template,
-                    status="NOT_TESTABLE",
+                    status=status,
                     statistic=None,
                     threshold=None,
                     interpretation=f"{template.interpretation} {_DISAGREEMENT_NOTE}",

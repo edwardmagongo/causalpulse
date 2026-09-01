@@ -12,7 +12,7 @@ from __future__ import annotations
 import math
 import platform as platform_module
 import subprocess
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError, version
@@ -45,6 +45,26 @@ _VALID_SCALES: tuple[str, ...] = ("absolute", "percentage_point", "log_ratio")
 # honesty marker rather than a severity level. Ranking it would either hide a
 # real FAIL or make every observational analysis look broken.
 _SEVERITY: dict[str, int] = {"PASS": 0, "WARN": 1, "FAIL": 2}
+
+
+def worst_status(statuses: Iterable[AssumptionStatus]) -> AssumptionStatus:
+    """The most severe of several assumption statuses.
+
+    Public so that every caller rolling several checks up into one shares
+    this ordering rather than defining a copy -- the pooling in
+    `cp_causal.imputation` needs exactly this question answered across
+    completions, and a second severity table would be free to drift.
+
+    `NOT_TESTABLE` carries no rank (see `_SEVERITY` above), so anything
+    rankable outranks it and it is returned only when nothing rankable was
+    seen. An empty collection is `PASS`: no check objected.
+    """
+    observed = tuple(statuses)
+    rankable = [status for status in observed if status in _SEVERITY]
+    if not rankable:
+        return "NOT_TESTABLE" if observed else "PASS"
+    return max(rankable, key=lambda status: _SEVERITY[status])
+
 
 _TRACKED_PACKAGES = ("numpy", "scipy", "pandas", "scikit-learn")
 
@@ -284,10 +304,7 @@ class EffectEstimate:
 
     @property
     def worst_assumption_status(self) -> AssumptionStatus:
-        rankable = [a for a in self.assumptions if a.status in _SEVERITY]
-        if not rankable:
-            return "NOT_TESTABLE" if self.assumptions else "PASS"
-        return max(rankable, key=lambda a: _SEVERITY[a.status]).status
+        return worst_status(check.status for check in self.assumptions)
 
 
 ValidityBand = Literal["STRONG", "MODERATE", "WEAK", "INSUFFICIENT"]

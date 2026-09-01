@@ -7,6 +7,7 @@ from cp_core.results import (
     CounterfactualPoint,
     EffectEstimate,
     FitMetadata,
+    worst_status,
 )
 from cp_core.values import Interval
 
@@ -96,6 +97,28 @@ def test_worst_assumption_status_ignores_not_testable() -> None:
     result = estimate(assumptions=(check("PASS"), check("NOT_TESTABLE", "unconfoundedness")))
 
     assert result.worst_assumption_status == "PASS"
+
+
+def test_worst_status_ranks_the_statuses_it_can_rank() -> None:
+    # The ordering is public because more than one caller rolls checks up
+    # into a single verdict -- `EffectEstimate.worst_assumption_status` over
+    # one fit's checks, and the imputation pooling over one check across
+    # completions. Both must agree, so the table lives in one place.
+    assert worst_status(("PASS", "WARN", "FAIL")) == "FAIL"
+    assert worst_status(("PASS", "WARN")) == "WARN"
+    assert worst_status(("PASS", "PASS")) == "PASS"
+
+
+def test_worst_status_lets_anything_rankable_outrank_not_testable() -> None:
+    assert worst_status(("NOT_TESTABLE", "WARN")) == "WARN"
+    assert worst_status(("NOT_TESTABLE", "PASS")) == "PASS"
+
+
+def test_worst_status_reports_not_testable_only_when_nothing_was_rankable() -> None:
+    # Two distinct empties. Checks that all declined to answer are
+    # NOT_TESTABLE; no checks at all is PASS, because nothing objected.
+    assert worst_status(("NOT_TESTABLE", "NOT_TESTABLE")) == "NOT_TESTABLE"
+    assert worst_status(()) == "PASS"
 
 
 def test_significance_uses_the_interval_not_the_p_value() -> None:
