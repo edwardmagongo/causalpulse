@@ -85,6 +85,25 @@ def test_it_refuses_when_a_declared_auxiliary_has_gaps():
         impute_once(broken, np.random.default_rng(0), draw_parameters=False)
 
 
+def test_it_refuses_by_name_when_a_covariate_has_gaps():
+    # The auxiliary was guarded and the rest of the same design matrix was
+    # not, so a gap in a covariate reached sklearn and came back as "Input X
+    # contains NaN" -- naming no column, from a library the caller never
+    # invoked. That is exactly the late, undiagnosable failure
+    # `require_no_missing` was built to end, and it is reachable through
+    # `sensitivity_report`, which hands `compare_missing_data` the raw
+    # dataset by design. Every column the model reads must refuse the same
+    # way, naming itself. The treatment column is the one part of the design
+    # already covered -- `CausalDataset` refuses a gap there at construction
+    # -- so covariates are the hole.
+    dataset = _dataset()
+    frame = dataset.frame.copy()
+    frame.loc[5, "x1"] = np.nan
+    broken = CausalDataset(frame=frame, schema=dataset.schema)
+    with pytest.raises(ValueError, match="x1"):
+        impute_once(broken, np.random.default_rng(0), draw_parameters=False)
+
+
 def test_it_refuses_when_the_observed_outcomes_are_all_one_class():
     # A logistic model cannot be fitted on one class, and filling every gap
     # with the only value ever seen would manufacture certainty.
@@ -472,6 +491,45 @@ def test_the_report_carries_the_comparison_with_no_reason():
     assert report.missing_data is not None
     assert report.missing_data_reason is None
     assert report.missing_data.multiple_imputation.ci_basis == "rubin"
+
+
+def test_the_single_imputation_arm_shares_a_stream_with_no_other_arm():
+    # Third occurrence of one defect family: b753c25 gave the tipping-point
+    # fill's two arms their own streams, 79b8729 decoupled this arm from
+    # `multiple_impute`'s -- and the arm still landed byte-for-byte on the
+    # tipping point's treated fill, because `SeedSequence(seed).spawn(1)[0]`
+    # and `SeedSequence(seed).spawn(2)[0]` are the same stream. On the
+    # default path they collide outright: `compare_missing_data` defaults to
+    # `seed=0` and `_estimate_at_fraction` falls back to 0 when
+    # `config.random_seed is None`. A report that presents four arms as
+    # independently fitted must not draw two of them from one stream.
+    from cp_causal.sensitivity import _single_imputation_seed_sequence
+
+    for seed in range(4):
+        single = _single_imputation_seed_sequence(seed).generate_state(8)
+        # `multiple_impute` reads the root sequence itself.
+        assert not np.array_equal(single, np.random.SeedSequence(seed).generate_state(8))
+        # `_estimate_at_fraction` spawns two children of it, one per arm.
+        for child in np.random.SeedSequence(seed).spawn(2):
+            assert not np.array_equal(single, child.generate_state(8))
+
+
+def test_the_report_threads_its_seed_into_the_missing_data_arm():
+    # `sensitivity_report` passed `seed` to `falsify` and not to
+    # `compare_missing_data`, so every call at every seed produced the same
+    # imputation arms -- a parameter that looked threaded and was not, which
+    # makes the arm impossible to vary for a Monte Carlo check.
+    dataset = _simulated()
+    reduced, _ = complete_cases(dataset)
+    estimate = all_estimators()["difference_in_means"]().fit(reduced, CONFIG)
+    first = sensitivity_report(dataset, "difference_in_means", estimate, CONFIG, seed=0)
+    second = sensitivity_report(dataset, "difference_in_means", estimate, CONFIG, seed=7)
+    assert first.missing_data is not None
+    assert second.missing_data is not None
+    assert (
+        first.missing_data.multiple_imputation.point
+        != second.missing_data.multiple_imputation.point
+    )
 
 
 def test_a_complete_dataset_gets_a_reason_and_no_comparison():

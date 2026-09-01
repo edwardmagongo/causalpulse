@@ -1377,6 +1377,33 @@ def _adverse_values(
     return (0.0, 1.0) if point >= 0 else (1.0, 0.0)
 
 
+# Distinguishes this report's single-imputation arm from every other stream
+# derived from the same seed. Any value works; it is fixed so the arm stays
+# reproducible.
+_SINGLE_IMPUTATION_STREAM = 0x51
+
+
+def _single_imputation_seed_sequence(seed: int) -> np.random.SeedSequence:
+    """The single-imputation arm's own stream, shared with no other arm.
+
+    Three arms of this report draw from one seed and must not overlap:
+    `multiple_impute` reads `SeedSequence(seed)` itself, and
+    `_estimate_at_fraction` spawns two children of it, one per treatment arm.
+    An earlier fix (b753c25, then 79b8729) spawned a child here for exactly
+    that reason -- but `SeedSequence(seed).spawn(1)[0]` and
+    `SeedSequence(seed).spawn(2)[0]` are the same stream, so this arm landed
+    byte-for-byte on the tipping point's treated fill on the default path,
+    where `compare_missing_data`'s `seed=0` meets `_estimate_at_fraction`'s
+    own fallback to 0.
+
+    Deriving from a distinct entropy tuple rather than a spawn index keeps
+    that from recurring the next time one of these functions changes how many
+    children it spawns: this stream does not depend on their spawn counts,
+    and none of theirs move because of this one.
+    """
+    return np.random.SeedSequence([seed, _SINGLE_IMPUTATION_STREAM])
+
+
 def _estimate_at_fraction(
     dataset: CausalDataset,
     estimator_name: str,
@@ -1563,16 +1590,7 @@ def compare_missing_data(
     reduced, _ = complete_cases(dataset)
     complete_case = estimator_class().fit(reduced, config)
 
-    # Spawned off the same root seed `multiple_impute` reads internally,
-    # rather than built from `np.random.SeedSequence(seed)` directly -- that
-    # would read from the same early portion of the stream `multiple_impute`
-    # also reads, correlating two arms this report presents as independently
-    # fitted. Follows b753c25's precedent for decoupling two arms drawn from
-    # one seed. Spawning a child is safe against the parent's own stream by
-    # construction, so `multiple_impute`'s numbers are unaffected -- only this
-    # arm's draws move.
-    (single_seed,) = np.random.SeedSequence(seed).spawn(1)
-    single_rng = np.random.default_rng(single_seed)
+    single_rng = np.random.default_rng(_single_imputation_seed_sequence(seed))
     single = estimator_class().fit(
         impute_once(dataset, single_rng, draw_parameters=False), config
     )
@@ -1730,7 +1748,7 @@ def sensitivity_report(
     # conditions, in the same order. Phase 10 shipped a reason that named
     # the wrong cause, and a reason stating the wrong cause is worse than
     # a vague one.
-    analysis = compare_missing_data(dataset, estimator_name, config)
+    analysis = compare_missing_data(dataset, estimator_name, config, seed=seed)
     missing_data_reason: str | None = None
     if analysis is None:
         if get_estimator(estimator_name).requirements.needs_panel:

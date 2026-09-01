@@ -109,12 +109,28 @@ def impute_once(
     if not missing.any():
         return dataset
 
+    # Every column of `_imputation_design`, not just the auxiliary. Guarding
+    # only the auxiliary left a gap in a covariate to reach sklearn, which
+    # answers "Input X contains NaN" -- naming no column, from a library the
+    # caller never invoked. That is the late, undiagnosable failure
+    # `require_no_missing` exists to end, and it is reachable through
+    # `sensitivity_report`, which hands `compare_missing_data` the raw
+    # dataset by design. The treatment column needs no check here:
+    # `CausalDataset` refuses a gap in it at construction.
     for column in schema.auxiliary_columns:
         if frame[column].isna().any():
             raise ValueError(
                 f"auxiliary column {column!r} contains missing values. An "
                 "auxiliary exists to carry information where the outcome does "
                 "not, so there is no fallback for filling one."
+            )
+    for column in schema.covariates:
+        if frame[column].isna().any():
+            raise ValueError(
+                f"covariate {column!r} contains missing values. The imputation "
+                "model reads it alongside the treatment and any auxiliary, and "
+                "this phase fills gaps in the outcome only, so there is nothing "
+                "to fall back on for a gap in a covariate."
             )
 
     observed = np.flatnonzero(~missing)
