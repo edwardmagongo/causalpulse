@@ -52,13 +52,34 @@ def solve_donor_weights(treated_pre: np.ndarray, donor_pre: np.ndarray) -> np.nd
     near zero by overfitting noise, at the cost of the post-period
     extrapolation. This is why the measured protocol uses 17 donors against
     17 pre-periods, not more donors than periods.
+
+    The standardisation the paragraph above describes is applied here, and is
+    load-bearing rather than cosmetic. SLSQP's finite-difference gradient is
+    not scale-free, and on the Proposition 99 panel -- outcomes around 130
+    packs, so a starting SSE near 4,891 -- it reported `success=True` after
+    five iterations without moving off `x0` at all, returning the uniform
+    average of 38 states in place of a synthetic control, with no error and no
+    warning. Pre-period RMSE was 16.0 where the converged fit reaches 1.7.
+
+    Both series are divided by one common positive scalar, never per donor.
+    That leaves the minimiser exactly unchanged, since the objective scales by
+    1/s**2, so this is a conditioning fix with no statistical content. Scaling
+    each donor separately would change the problem and is not what happens.
     """
     n_donors = donor_pre.shape[0]
     x0 = np.full(n_donors, 1.0 / n_donors)
 
+    scale = float(np.std(donor_pre))
+    if not np.isfinite(scale) or scale <= 0.0:
+        # Constant donors: there is nothing to condition, and dividing would
+        # turn the objective into nan rather than leaving it alone.
+        scale = 1.0
+    treated_scaled = treated_pre / scale
+    donor_scaled = donor_pre / scale
+
     def objective(weights: np.ndarray) -> float:
-        synthetic = weights @ donor_pre
-        return float(np.sum((treated_pre - synthetic) ** 2))
+        synthetic = weights @ donor_scaled
+        return float(np.sum((treated_scaled - synthetic) ** 2))
 
     result = minimize(
         objective,

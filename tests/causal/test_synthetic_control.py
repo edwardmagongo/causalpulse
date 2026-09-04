@@ -301,3 +301,44 @@ def test_the_max_swing_is_the_widest_gap_among_the_per_donor_estimates():
     # One estimate per influential donor, and each names the donor it dropped.
     assert len(donors) == len(points)
     assert all(0 <= d < donor_series.shape[0] for d in donors)
+
+
+def test_donor_weights_do_not_depend_on_the_outcome_s_units():
+    """Recording an outcome in packs or in cigarettes must not change the fit.
+
+    `solve_donor_weights` minimises a sum of squares whose magnitude is set by
+    the outcome's own scale, and SLSQP's finite-difference gradient is not
+    scale-free: on the Proposition 99 panel (outcomes ~130, SSE ~4,891) it
+    reported `success=True` after five iterations without moving off the
+    uniform starting weights at all, yielding an unweighted average of 38
+    states in place of a synthetic control.
+
+    Dividing both series by one common positive scalar leaves the minimiser
+    exactly unchanged -- the objective scales by 1/s**2 -- so this invariance
+    is a property the solver owes, not an approximation.
+    """
+    rng = np.random.default_rng(0)
+    n_pre = 20
+    donor_pre = rng.normal(100.0, 20.0, size=(8, n_pre))
+    treated_pre = 0.5 * donor_pre[0] + 0.3 * donor_pre[1] + 0.2 * donor_pre[2]
+
+    in_packs = solve_donor_weights(treated_pre, donor_pre)
+    in_units = solve_donor_weights(treated_pre * 1000.0, donor_pre * 1000.0)
+
+    assert np.abs(in_packs - in_units).max() < 1e-6
+
+
+def test_donor_weights_beat_the_uniform_starting_point_on_a_large_scale_outcome():
+    # The failure above was silent: SLSQP returned its own x0 and reported
+    # success. Pin that the solve actually improves on where it started.
+    rng = np.random.default_rng(1)
+    donor_pre = rng.normal(130.0, 30.0, size=(38, 19))
+    treated_pre = 0.4 * donor_pre[0] + 0.35 * donor_pre[1] + 0.25 * donor_pre[2]
+
+    weights = solve_donor_weights(treated_pre, donor_pre)
+
+    def sse(w: np.ndarray) -> float:
+        return float(np.sum((treated_pre - w @ donor_pre) ** 2))
+
+    uniform = np.full(donor_pre.shape[0], 1.0 / donor_pre.shape[0])
+    assert sse(weights) < 0.01 * sse(uniform)
