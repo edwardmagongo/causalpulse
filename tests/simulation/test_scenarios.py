@@ -1,6 +1,12 @@
 import numpy as np
+import pandas as pd
 import pytest
-from cp_simulation.scenarios import SCENARIOS, build_scenario
+from cp_core.manifest import ScenarioReference
+from cp_simulation.scenarios import (
+    SCENARIOS,
+    build_scenario,
+    resolve_scenario_reference,
+)
 
 
 def test_all_scenarios_are_registered():
@@ -200,3 +206,62 @@ def test_build_scenario_can_attach_missingness_to_any_scenario():
     )
     simulated = dgp.generate(n_units=500, rng=np.random.default_rng(0))
     assert simulated.dataset.frame["outcome"].isna().any()
+
+
+def test_resolve_scenario_reference_matches_a_direct_call():
+    direct = build_scenario("D").generate(n_units=500, rng=np.random.default_rng(11)).dataset
+    reference = ScenarioReference(scenario="D", seed=11, params={"n_units": 500})
+
+    resolved = resolve_scenario_reference(reference, direct.schema)
+
+    pd.testing.assert_frame_equal(resolved.frame, direct.frame)
+    assert resolved.schema == direct.schema
+
+
+def test_resolve_scenario_reference_honours_confounding_strength():
+    # Not a redundant second happy path: `confounding_strength` is the one
+    # optional param, and a resolver that dropped it would still match a
+    # direct call at the default 1.0 and so pass the test above.
+    direct = build_scenario("D", 2.5).generate(n_units=400, rng=np.random.default_rng(4)).dataset
+    reference = ScenarioReference(
+        scenario="D", seed=4, params={"n_units": 400, "confounding_strength": 2.5}
+    )
+
+    resolved = resolve_scenario_reference(reference, direct.schema)
+
+    pd.testing.assert_frame_equal(resolved.frame, direct.frame)
+    at_default = build_scenario("D").generate(n_units=400, rng=np.random.default_rng(4)).dataset
+    assert not direct.frame.equals(at_default.frame)
+
+
+def test_resolve_scenario_reference_refuses_an_unsupported_params_key():
+    reference = ScenarioReference(
+        scenario="D", seed=0, params={"n_units": 200, "outcome_proxy": "nope"}
+    )
+    schema = build_scenario("D").generate(n_units=200, rng=np.random.default_rng(0)).dataset.schema
+
+    with pytest.raises(ValueError, match="unsupported keys"):
+        resolve_scenario_reference(reference, schema)
+
+
+def test_resolve_scenario_reference_requires_n_units():
+    reference = ScenarioReference(scenario="D", seed=0, params={})
+    schema = build_scenario("D").generate(n_units=200, rng=np.random.default_rng(0)).dataset.schema
+
+    with pytest.raises(KeyError, match="n_units"):
+        resolve_scenario_reference(reference, schema)
+
+
+def test_resolve_scenario_reference_refuses_on_schema_mismatch():
+    reference = ScenarioReference(scenario="D", seed=0, params={"n_units": 200})
+    # A and D differ only in `assignment_provenance` -- 'randomised' against
+    # 'observational'. That is the whole of what this guard can see: A, B and C
+    # share one schema and D, G and H share another, so a reference naming the
+    # wrong scenario *within* a group passes it. The check catches a registry
+    # that changed under a stored manifest, not a mistyped scenario id.
+    wrong_schema = build_scenario("A").generate(
+        n_units=200, rng=np.random.default_rng(0)
+    ).dataset.schema
+
+    with pytest.raises(ValueError, match="does not match"):
+        resolve_scenario_reference(reference, wrong_schema)

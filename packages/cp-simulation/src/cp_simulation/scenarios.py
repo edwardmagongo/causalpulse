@@ -10,6 +10,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 
+import numpy as np
+from cp_core.dataset import CausalDataset, CausalSchema
+from cp_core.manifest import ScenarioReference
+
 from cp_simulation.components import (
     BaselineSelectionAssignment,
     ConstantEffect,
@@ -224,3 +228,59 @@ def build_scenario(
         missingness=missingness if missingness is not None else dgp.missingness,
         outcome_proxy=outcome_proxy,
     )
+
+
+_SUPPORTED_REFERENCE_PARAMS = frozenset({"n_units", "confounding_strength"})
+
+
+def resolve_scenario_reference(
+    reference: ScenarioReference, schema: CausalSchema
+) -> CausalDataset:
+    """Regenerate the dataset a `ScenarioReference` names.
+
+    Lives here rather than in `cp_core.manifest` beside the reference type
+    itself because it needs `build_scenario`, and `.importlinter`'s
+    `estimators-cannot-see-truth` contract forbids `cp_core` from importing
+    this package.
+
+    Supports only what every `build_scenario(...).generate(...)` call in this
+    project's own test suite varies: `n_units` (required) and
+    `confounding_strength` (optional). A reference built from a scenario with a
+    `negative_control`, `misclassification`, `missingness`, or `outcome_proxy`
+    override cannot be reconstructed from those two params alone, and is
+    refused rather than silently regenerating a different dataset -- see
+    `ScenarioReference`'s own docstring.
+
+    The schema comparison guards against the scenario registry changing under a
+    stored manifest, and is weaker than it may look: several scenarios share a
+    schema (A, B and C carry one; D, G and H carry another), so a reference
+    naming a different scenario *within* one of those groups passes it. Nothing
+    here can distinguish those; only the recorded scenario id can.
+    """
+    unknown = set(reference.params) - _SUPPORTED_REFERENCE_PARAMS
+    if unknown:
+        raise ValueError(
+            f"ScenarioReference.params has unsupported keys {sorted(unknown)}; only "
+            f"{sorted(_SUPPORTED_REFERENCE_PARAMS)} can be regenerated from a reference "
+            "alone. A scenario built with a negative_control, misclassification, "
+            "missingness, or outcome_proxy override cannot be reconstructed this way."
+        )
+    if "n_units" not in reference.params:
+        raise KeyError(
+            "ScenarioReference.params must include 'n_units' to regenerate a dataset"
+        )
+    n_units = int(reference.params["n_units"])  # type: ignore[call-overload]
+    confounding_strength = float(
+        reference.params.get("confounding_strength", 1.0)  # type: ignore[arg-type]
+    )
+
+    dgp = build_scenario(reference.scenario, confounding_strength)
+    generated = dgp.generate(n_units=n_units, rng=np.random.default_rng(reference.seed))
+    dataset = generated.dataset
+    if dataset.schema != schema:
+        raise ValueError(
+            f"regenerating scenario {reference.scenario!r} produced a schema that does "
+            "not match the manifest's recorded schema -- the scenario registry may have "
+            "changed since this reference was built"
+        )
+    return dataset
