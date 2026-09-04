@@ -13,8 +13,7 @@ from cp_simulation.components import MissingnessMechanism
 from cp_simulation.scenarios import build_scenario
 
 
-def _dataset(*, missing_rows=(0, 1), auxiliary=False, single_class=False):
-    n = 40
+def _dataset(*, missing_rows=(0, 1), auxiliary=False, single_class=False, n=40):
     rng = np.random.default_rng(0)
     outcome = np.zeros(n) if single_class else np.tile([0.0, 1.0], n // 2)
     frame = pd.DataFrame(
@@ -118,7 +117,16 @@ def test_the_auxiliary_enters_the_imputation_model():
     # distinguishes an imputation that uses the auxiliary from one that
     # silently ignores it -- the failure mode that would collapse the whole
     # phase's efficiency result into a no-op.
-    dataset = _dataset(missing_rows=tuple(range(0, 30)), auxiliary=True)
+    #
+    # 170 observed rows rather than the 10 this started with. The proxy is
+    # drawn on a +/-5 scale, and on raw columns that scale bought it an
+    # effective exemption from the L2 penalty `LogisticRegression` applies by
+    # default -- so ten rows were enough to clear this bar only because the
+    # model was reading the proxy's units as evidence. Standardised, the proxy
+    # has to earn its coefficient against the same penalty as every other
+    # column, and needs a training set to earn it on. Measured across ten rng
+    # seeds the correlation here is 0.87 at worst, against 0.61 at n=40.
+    dataset = _dataset(n=200, missing_rows=tuple(range(0, 30)), auxiliary=True)
     frame = dataset.frame.copy()
     frame["outcome_proxy"] = np.where(np.arange(len(frame)) % 2 == 0, -5.0, 5.0)
     steered = CausalDataset(frame=frame, schema=dataset.schema)
@@ -646,3 +654,107 @@ def test_a_complete_dataset_gets_a_reason_and_no_comparison():
     assert report.missing_data is None
     assert report.missing_data_reason is not None
     assert "nothing to impute" in report.missing_data_reason
+
+
+def _dollar_dataset(*, scale=1.0, n=800, missing_fraction=0.4, seed=0):
+    """A dataset carrying two collinear dollar-denominated covariates.
+
+    `scale` divides both earnings columns, so `scale=1000.0` is the very same
+    data recorded in thousands rather than dollars. Every draw upstream of that
+    division is identical, so the two datasets differ in nothing but the unit
+    the earnings happen to be written in.
+    """
+    rng = np.random.default_rng(seed)
+    sd = 800.0
+    treated = rng.binomial(1, 0.5, n).astype(float)
+    indicator = rng.binomial(1, 0.4, n).astype(float)
+    earlier = rng.normal(2.5 * sd, sd, n)
+    later = 0.87 * earlier + 0.493 * rng.normal(2.5 * sd, sd, n)
+    logit = (
+        0.8 * treated
+        + 1.5 * indicator
+        + (4.0 / sd) * (earlier - 2.5 * sd)
+        + (4.0 / sd) * (later - 2.5 * sd)
+    )
+    outcome = rng.binomial(1, 1.0 / (1.0 + np.exp(-logit))).astype(float)
+    outcome[rng.permutation(n)[: int(n * missing_fraction)]] = np.nan
+    frame = pd.DataFrame(
+        {
+            "unit_id": np.arange(n),
+            "treated": treated,
+            "indicator": indicator,
+            "earnings_earlier": earlier / scale,
+            "earnings_later": later / scale,
+            "outcome": outcome,
+        }
+    )
+    schema = CausalSchema(
+        unit="unit_id",
+        treatment="treated",
+        outcome="outcome",
+        covariates=("indicator", "earnings_earlier", "earnings_later"),
+        outcome_type="binary",
+    )
+    return CausalDataset(frame=frame, schema=schema)
+
+
+def test_imputed_values_do_not_depend_on_a_covariate_s_units():
+    """Re-expressing a covariate in different units must not move the fills.
+
+    Whether earnings are recorded in dollars or in thousands of dollars is a
+    fact about the file, not about what the missing outcomes were. sklearn's
+    LogisticRegression applies an L2 penalty by default (C=1.0), which falls on
+    each coefficient in inverse proportion to its column's scale: a
+    dollar-denominated column's coefficient is small enough to be effectively
+    unpenalised, while a 0/1 indicator's is penalised in full. On raw columns
+    the imputation model therefore reads the file's units as evidence, and the
+    Bernoulli draws it feeds move with them.
+    """
+    in_dollars = impute_once(
+        _dollar_dataset(), np.random.default_rng(11), draw_parameters=False
+    )
+    in_thousands = impute_once(
+        _dollar_dataset(scale=1000.0), np.random.default_rng(11), draw_parameters=False
+    )
+
+    difference = np.abs(
+        in_dollars.frame["outcome"].to_numpy()
+        - in_thousands.frame["outcome"].to_numpy()
+    )
+    assert difference.max() < 1e-6
+
+
+def test_drawn_parameter_imputations_do_not_depend_on_a_covariate_s_units():
+    # The `draw_parameters=True` path fits on a bootstrap resample of the
+    # observed rows rather than on all of them, so the invariance has to hold
+    # against a training set that is not the whole sample -- which is also
+    # where a scaler fitted across every row rather than across the fitted rows
+    # would start leaking.
+    in_dollars = impute_once(
+        _dollar_dataset(), np.random.default_rng(11), draw_parameters=True
+    )
+    in_thousands = impute_once(
+        _dollar_dataset(scale=1000.0), np.random.default_rng(11), draw_parameters=True
+    )
+
+    difference = np.abs(
+        in_dollars.frame["outcome"].to_numpy()
+        - in_thousands.frame["outcome"].to_numpy()
+    )
+    assert difference.max() < 1e-6
+
+
+def test_pooled_imputation_estimate_does_not_depend_on_a_covariate_s_units():
+    # The single-fill tests above read one draw each. This reads what a caller
+    # actually receives: twenty completions pooled through Rubin's rules. The
+    # point estimate is continuous, so it registers a shift in the imputation
+    # model that individual 0/1 fills are too coarse to show.
+    in_dollars = multiple_impute(
+        _dollar_dataset(), "difference_in_means", CONFIG, seed=5
+    )
+    in_thousands = multiple_impute(
+        _dollar_dataset(scale=1000.0), "difference_in_means", CONFIG, seed=5
+    )
+
+    assert in_dollars is not None and in_thousands is not None
+    assert abs(in_dollars.point - in_thousands.point) < 1e-6

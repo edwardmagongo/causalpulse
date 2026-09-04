@@ -29,6 +29,7 @@ from cp_core.values import Diagnostic, EstimatorConfig, Interval
 from cp_statistics.pooling import PooledEstimate, pool_rubin
 from scipy import stats
 from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import StandardScaler
 
 from cp_causal._support import config_hash
 from cp_causal.registry import get_estimator
@@ -104,6 +105,26 @@ def impute_once(
     of treating imputed values as observed can be measured rather than
     asserted. It draws a value rather than taking the most likely one, which
     would push every imputed unit to the majority outcome and bias the arm.
+
+    The design is standardised before the logistic fit, which is a correctness
+    requirement rather than a convenience -- the same one `fit_propensity`
+    carries, for the same reason. `LogisticRegression` applies an L2 penalty by
+    default (`C=1.0`), so on raw columns that penalty falls on each coefficient
+    in inverse proportion to its column's scale: a dollar-denominated column
+    takes a coefficient small enough to go effectively unpenalised, while a 0/1
+    indicator alongside it is penalised in full. Whether earnings are recorded
+    in dollars or in thousands is a fact about the file, not about what the
+    missing outcomes were, and without scaling it moves the fitted
+    probabilities and the Bernoulli draws they feed -- measured here at ~2% of
+    the pooled point estimate on a synthetic dollar-scale fixture.
+
+    The same geometry governs how fast lbfgs converges, and `max_iter=1000` was
+    never tested against covariates this project does not itself simulate. That
+    half is not reproducible synthetically: a sweep over sample size, column
+    scale, collinearity and zero-inflation peaked at 127 iterations, against the
+    1557 the real LaLonde covariates needed in `fit_propensity`. It is guarded
+    only in the sense that the suite turns `ConvergenceWarning` into an error,
+    so any test touching a badly scaled fixture would fail rather than warn.
     """
     schema = dataset.schema
     frame = dataset.frame
@@ -162,14 +183,23 @@ def impute_once(
                 "observed outcomes are too close to constant to impute from"
             )
 
-    model = LogisticRegression(max_iter=1000).fit(design[rows], outcome[rows])
+    # Fitted on `rows`, not on the whole design. Under `draw_parameters=True`
+    # `rows` is a bootstrap resample, and that resample is the training sample
+    # for this draw: a scaler fitted across every row would hand each draw the
+    # same fixed moments and quietly damp the between-imputation variance
+    # Rubin's rules exist to read. The missing rows are held out of the fit
+    # entirely, so their moments must not reach it either.
+    scaler = StandardScaler().fit(design[rows])
+    model = LogisticRegression(max_iter=1000).fit(
+        scaler.transform(design[rows]), outcome[rows]
+    )
     # `predict_proba` orders its columns by `classes_`, which is sorted, so
     # column 1 is P(outcome = 1) given the guard above that both classes are
     # present. Asserted rather than assumed: a silent reversal here would
     # invert every imputed value.
     if not np.array_equal(model.classes_, np.array([0.0, 1.0])):
         raise ValueError(f"unexpected outcome classes {model.classes_!r}")
-    probability = model.predict_proba(design[missing])[:, 1]
+    probability = model.predict_proba(scaler.transform(design[missing]))[:, 1]
 
     filled = outcome.copy()
     filled[missing] = (rng.random(probability.size) < probability).astype(float)

@@ -51,14 +51,38 @@ does not assert an efficiency result at noise_sd=1.0.
 SE calibration (mean reported SE / empirical SD; 1.0 is honest),
 `lin_regression` MAR, 40 seeds:
 
-  noise_sd  complete_case  single  mi_no_aux  mi_aux
-  0.25      0.9377         0.8406  0.9455     0.9278
-  0.5       0.9377         0.7927  0.9455     0.8946
-  1.0       0.9377         0.7532  0.9455     0.9034
+  noise_sd  complete_case  single   mi_no_aux  mi_aux
+  0.25      0.9377         0.8735*  0.9455     0.9278
+  0.5       0.9377         0.7879*  0.9455     0.8946
+  1.0       0.9377         0.7530*  0.9455     0.9034
 
-Single imputation is monotonically more dishonest as the imputation grows
-less certain. The prototype reported 0.959 / 0.995 / 0.843 -- non-monotone.
-The shipped result supports a stronger claim than the spec pre-registered.
+* RE-MEASURED 2026-09-04, same protocol, after `impute_once` began
+standardising its design (see that function's docstring). The `single` column
+was 0.8406 / 0.7927 / 0.7532 before. Only noise_sd=0.25 moved, and it moved
+UP -- toward 1.0, meaning single imputation became slightly MORE honest where
+the proxy is most informative. That is the expected direction: standardising
+lets the proxy earn its coefficient against the same L2 penalty as every other
+column instead of through one scaled by its own units, so the imputation is
+better and understates its uncertainty less. `complete_case` never reaches
+`impute_once` and is unaffected by construction. `mi_no_aux` and `mi_aux` were
+NOT re-measured -- no assertion here reads them, and re-measuring two m=20 arms
+across three noise levels costs 4800 fits -- so those two columns still carry
+the 2026-09-01 figures and should be read as stale, not as confirmed.
+
+Single imputation is more dishonest as the imputation grows less certain, and
+the prototype's 0.959 / 0.995 / 0.843 was non-monotone. But the strict
+three-term ordering is NOT well determined at 40 seeds, and the original claim
+that this "supports a stronger claim than the spec pre-registered" overstated
+it. Paired bootstrap over the shared seeds (B=4000), which is the right
+comparison because all three levels share seeds and datasets:
+
+  cal[0.25] - cal[0.5] = +0.0856  MCSE 0.0458  |t|=1.87  P(<=0)=0.010
+  cal[0.5]  - cal[1.0] = +0.0349  MCSE 0.0404  |t|=0.86  P(<=0)=0.153
+  P(the full strict ordering holds) = 0.838
+
+The first step separates; the second does not. What this harness can support
+at 40 seeds is that single imputation is less honest than complete-case, and
+more so at noise_sd=1.0 than at 0.25 -- not each adjacent step in turn.
 
 ## Expectation 5 -- FALSIFIED as written
 
@@ -266,13 +290,30 @@ def test_expectation_3_mi_with_an_auxiliary_beats_complete_case():
 
 
 def test_expectation_4_single_imputation_grows_more_dishonest_as_noise_rises():
-    # MEASURED single-imputation calibration 0.8406 / 0.7927 / 0.7532 at
-    # noise_sd 0.25 / 0.5 / 1.0 -- strictly decreasing, against complete_case
-    # at a constant 0.9377. Asserted as a strict monotone decrease (an
-    # ordering, not a magnitude, so no MCSE-derived margin applies) plus a
-    # ceiling on the best case with real headroom: 0.8406 rounded up to 0.87
-    # leaves about 3 percentage points of slack before the ceiling would
-    # accept complete_case-level honesty.
+    # RE-MEASURED 2026-09-04 single-imputation calibration 0.8735 / 0.7879 /
+    # 0.7530 at noise_sd 0.25 / 0.5 / 1.0, against complete_case at a constant
+    # 0.9377. Was 0.8406 / 0.7927 / 0.7532 before `impute_once` began
+    # standardising its design; only the 0.25 level moved, and upward.
+    #
+    # Both assertions below are deterministic tripwires at this fixed 40-seed
+    # protocol, NOT MCSE-separated findings, and the comment they replace
+    # claimed a margin that was never there. Two measurements say so:
+    #
+    #   - The calibration ratio's own MCSE is ~0.13 (its denominator is an SD
+    #     from 40 points, ~11% relative uncertainty before the numerator's
+    #     contribution). The old 0.8406 therefore sat 0.25 MCSE below its 0.87
+    #     ceiling, not "about 3 percentage points" of real slack. At this seed
+    #     count the ceiling cannot establish separation from complete_case's
+    #     0.9377 either -- the two are within 1 MCSE of each other. It is a
+    #     guard against a large regression, and should be read as nothing more.
+    #   - The strict ordering is better determined than those marginals suggest,
+    #     because the three levels share seeds and datasets, but still not well
+    #     determined: paired bootstrap gives P(<=0) = 0.010 for the first step
+    #     and 0.153 for the second, and P(the whole chain holds) = 0.838.
+    #
+    # The ceiling is set at 0.90: above the measured 0.8735 with room for the
+    # kind of drift a refactor produces, and still below 0.9377 so a change
+    # that made single imputation as honest as complete-case would fire it.
     calibrations = []
     for noise_sd in (0.25, 0.5, 1.0):
         proxy = OutcomeProxy(noise_sd=noise_sd)
@@ -285,7 +326,7 @@ def test_expectation_4_single_imputation_grows_more_dishonest_as_noise_rises():
             ses.append(fit.se)
         calibrations.append(float(np.mean(ses)) / float(np.std(points, ddof=1)))
     assert calibrations[0] > calibrations[1] > calibrations[2]
-    assert calibrations[0] <= 0.87
+    assert calibrations[0] <= 0.90
 
 
 def test_expectation_5_mi_repairs_most_but_not_all_of_the_mnar_gap():
