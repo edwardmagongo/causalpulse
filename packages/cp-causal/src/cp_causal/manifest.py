@@ -62,13 +62,15 @@ def dataset_resolver(
 ) -> Resolver:
     """Combine a scenario resolver and a fixture resolver into one `Resolver`.
 
-    Lives here, rather than as a bare dispatch inside `replay`, because
-    `cp_causal` cannot import `cp_simulation.resolve_scenario_reference`
-    directly -- `.importlinter`'s `estimators-cannot-see-truth` contract names
-    this package alongside `cp_core` and `cp_statistics`. The caller supplies
-    it instead: a test, or eventually Phase 15's CLI, both of which are free to
-    import both packages since neither is a member of the contract's
-    `source_modules`.
+    Lives here, rather than as a bare dispatch inside `replay`, because this
+    package cannot import the scenario resolver directly: it sits in the
+    simulation package, which holds ground truth, and `.importlinter`'s
+    `estimators-cannot-see-truth` contract names `cp_causal` alongside
+    `cp_core` and `cp_statistics`. (`tests/test_boundaries.py` enforces the
+    same rule by grepping this source tree for that package's name, so it is
+    not written out here.) The caller supplies the resolver instead: a test,
+    or eventually Phase 15's CLI, both of which are free to import both
+    packages since neither is a member of the contract's `source_modules`.
     """
 
     def resolve(reference: DatasetReference, schema: CausalSchema) -> CausalDataset:

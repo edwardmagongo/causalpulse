@@ -8,14 +8,19 @@ resolver, which is pure I/O -- the same reasoning that put `complete_cases` in
 `cp_core.dataset` at Phase 11: a row-filter or a file-read is not an estimation
 algorithm.
 
-Resolving a `ScenarioReference` needs `cp_simulation.build_scenario`, and this
-package is contractually forbidden from importing `cp_simulation` (see
-`.importlinter`'s `estimators-cannot-see-truth` contract, which names `cp_core`
-alongside `cp_statistics` and `cp_causal`). So this module defines only the
-*shape* a scenario resolver must have (`Resolver`) and resolves
-`FixtureReference` alone; `cp_simulation.resolve_scenario_reference` and
-`cp_causal.manifest.dataset_resolver` complete the picture from the two
-packages actually allowed to.
+Resolving a `ScenarioReference` needs the scenario builder, which lives in the
+simulation package -- the one holding ground truth, which this package is
+contractually forbidden from importing (see `.importlinter`'s
+`estimators-cannot-see-truth` contract, which names `cp_core` alongside
+`cp_statistics` and `cp_causal`). The name is spelled out nowhere in this
+module on purpose: `tests/test_boundaries.py` enforces the firewall by
+grepping this source tree for that name, and a blunt string check is worth
+more than a docstring's convenience.
+
+So this module defines only the *shape* a scenario resolver must have
+(`Resolver`) and resolves `FixtureReference` alone. A `resolve_scenario_reference`
+beside the scenario builder, and `cp_causal.manifest.dataset_resolver`,
+complete the picture from the two packages actually allowed to.
 
 Serialisation is JSON, which constrains what a manifest can carry:
 `CausalSchema.treatment_start` and `EstimatorConfig.options` are both typed to
