@@ -233,3 +233,69 @@ def test_unconfoundedness_is_always_reported_as_not_testable():
     checks = {c.name: c for c in overlap_checks(fitted.scores, treatment, smd)}
 
     assert checks["unconfoundedness"].status == "NOT_TESTABLE"
+
+
+def test_propensity_scores_do_not_depend_on_a_covariate_s_units():
+    """Re-expressing a covariate in different units must not move the scores.
+
+    Whether earnings are recorded in dollars or thousands of dollars is a fact
+    about the file, not about who was likely to be treated. Two things break
+    that invariance on raw covariates. sklearn's LogisticRegression applies an
+    L2 penalty by default (C=1.0), which falls on each coefficient in inverse
+    proportion to its covariate's scale -- a dollar-denominated column's
+    coefficient is ~1e-4 and effectively unpenalised, while a 0/1 indicator's
+    is ~4 and fully penalised. And lbfgs' iteration count depends on the same
+    geometry: measured on the LaLonde fixture, the raw fit needs 1557
+    iterations against 20 standardised, silently exceeding `max_iter=1000`.
+    """
+    rng = np.random.default_rng(0)
+    n = 4000
+    indicator = rng.binomial(1, 0.4, n).astype(float)
+    money = rng.normal(20000.0, 8000.0, n)
+    covariates = np.column_stack([indicator, money])
+    logit = 1.5 * indicator + 0.00006 * (money - 20000.0)
+    treatment = rng.binomial(1, 1.0 / (1.0 + np.exp(-logit)))
+
+    in_dollars = fit_propensity(covariates, treatment).scores
+    rescaled = covariates.copy()
+    rescaled[:, 1] /= 1000.0  # the same covariate, in thousands
+    in_thousands = fit_propensity(rescaled, treatment).scores
+
+    assert np.abs(in_dollars - in_thousands).max() < 1e-6
+
+
+def test_fit_propensity_converges_on_badly_scaled_covariates():
+    # Under the suite's `filterwarnings = ["error"]` an unconverged lbfgs fit
+    # raises ConvergenceWarning, so calling it is itself the assertion. The
+    # real reproduction is tests/causal/test_real_data_lalonde.py, whose
+    # fixture needs 1557 iterations raw; this pins the cheap synthetic case.
+    rng = np.random.default_rng(1)
+    n = 4000
+    covariates = np.column_stack(
+        [rng.binomial(1, 0.4, n), rng.normal(50000.0, 20000.0, n)]
+    )
+    treatment = rng.binomial(1, 0.3, n)
+
+    fitted = fit_propensity(covariates, treatment)
+
+    assert np.all(np.isfinite(fitted.scores))
+
+
+def test_cross_fitted_propensity_scores_do_not_depend_on_a_covariate_s_units():
+    rng = np.random.default_rng(0)
+    n = 4000
+    indicator = rng.binomial(1, 0.4, n).astype(float)
+    money = rng.normal(20000.0, 8000.0, n)
+    covariates = np.column_stack([indicator, money])
+    treatment = rng.binomial(1, 1.0 / (1.0 + np.exp(-(1.5 * indicator))))
+
+    in_dollars = fit_propensity(
+        covariates, treatment, cross_fit_folds=5, rng=np.random.default_rng(7)
+    ).scores
+    rescaled = covariates.copy()
+    rescaled[:, 1] /= 1000.0
+    in_thousands = fit_propensity(
+        rescaled, treatment, cross_fit_folds=5, rng=np.random.default_rng(7)
+    ).scores
+
+    assert np.abs(in_dollars - in_thousands).max() < 1e-6

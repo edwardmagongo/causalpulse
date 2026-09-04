@@ -13,6 +13,7 @@ from dataclasses import dataclass
 import numpy as np
 from cp_core.results import AssumptionCheck, AssumptionStatus
 from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import StandardScaler
 
 # Standard applied threshold: |SMD| under 0.1 is conventionally read as
 # adequate balance on a covariate.
@@ -68,6 +69,24 @@ def fit_propensity(
     saw it. That matters for doubly-robust estimation, where reusing in-sample
     predictions reintroduces the overfitting bias the estimator exists to
     remove.
+
+    Covariates are standardised before the logistic fit, which is a
+    correctness requirement rather than a convenience. `LogisticRegression`
+    applies an L2 penalty by default (`C=1.0`), so on raw covariates the
+    penalty falls on each coefficient in inverse proportion to that
+    covariate's scale: fitted on LaLonde, a dollar-denominated earnings column
+    takes a coefficient near 2e-4 and is effectively unpenalised, while a 0/1
+    indicator takes ~3.9 and is penalised in full. Whether earnings are
+    recorded in dollars or thousands is a fact about the file, not about who
+    was likely to be treated, and without scaling it changes the scores.
+
+    The same geometry governs how fast lbfgs converges. Every simulated
+    scenario in this project draws covariates that are already O(1), so
+    `max_iter=1000` was never tested against anything else; measured on the
+    LaLonde fixture, the raw fit needs 1557 iterations against 20 standardised
+    -- silently over budget, and only visible at all because this suite turns
+    warnings into errors. Two collinear dollar-scale columns are what compound
+    it: either of `re74`/`re75` alone needs 400-600, neither needs 65.
     """
     if covariates.shape[0] != treatment.shape[0]:
         raise ValueError(
@@ -90,13 +109,22 @@ def fit_propensity(
         for fold in range(cross_fit_folds):
             held_out = order[fold::cross_fit_folds]
             train = np.setdiff1d(order, held_out)
+            # The scaler is fitted on the training fold alone, not on the whole
+            # sample. Cross-fitting exists so a unit's score comes from a model
+            # that never saw it, and a scaler fitted across all rows would leak
+            # the held-out units' moments back into their own score.
+            scaler = StandardScaler().fit(covariates[train])
             model = LogisticRegression(max_iter=1000).fit(
-                covariates[train], treatment[train]
+                scaler.transform(covariates[train]), treatment[train]
             )
-            scores[held_out] = model.predict_proba(covariates[held_out])[:, 1]
+            scores[held_out] = model.predict_proba(
+                scaler.transform(covariates[held_out])
+            )[:, 1]
     else:
-        model = LogisticRegression(max_iter=1000).fit(covariates, treatment)
-        scores = model.predict_proba(covariates)[:, 1]
+        scaler = StandardScaler().fit(covariates)
+        scaled = scaler.transform(covariates)
+        model = LogisticRegression(max_iter=1000).fit(scaled, treatment)
+        scores = model.predict_proba(scaled)[:, 1]
 
     clipped = np.clip(scores, trim, 1.0 - trim)
     return PropensityFit(
