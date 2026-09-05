@@ -1,14 +1,17 @@
 import numpy as np
 import pandas as pd
 import pytest
+from cp_core.values import EstimatorConfig
 from cp_evaluation.grid import CrossSectionAxes, GridConfig, PanelAxes
 from cp_evaluation.run import ROW_COLUMNS, run_grid
 
 
-def _tiny_cross_section(scenarios=("A",), n_units=(400,), replications=2) -> GridConfig:
+def _tiny_cross_section(
+    scenarios=("A",), n_units=(400,), confounding_strength=(1.0,), replications=2
+) -> GridConfig:
     return GridConfig(
         cross_section=CrossSectionAxes(
-            scenarios=scenarios, n_units=n_units, confounding_strength=(1.0,)
+            scenarios=scenarios, n_units=n_units, confounding_strength=confounding_strength
         ),
         panel=None,
         replications=replications,
@@ -83,15 +86,51 @@ def test_a_panel_grid_fits_panel_estimators():
 
 def test_results_do_not_depend_on_the_order_cells_are_evaluated_in():
     # The property that makes a later move to a process pool safe.
-    config = _tiny_cross_section(scenarios=("A", "D"), n_units=(400,), replications=2)
+    #
+    # Sweeping a single confounding_strength value would make this test pass
+    # by construction rather than by the property holding: every cell would
+    # already be unique on (scenario, n_units, seed), so `run_grid`'s final
+    # sort would never need to break a tie and a sort key that omitted
+    # confounding_strength entirely would go uncaught. Two confounding
+    # values produce genuinely tied cells -- e.g. (A, 400, strength=1.0,
+    # seed=0) and (A, 400, strength=2.0, seed=0) -- that agree on every other
+    # column, which is exactly the case a total sort key must resolve.
+    # Sweeping two scenarios keeps that tie exercised alongside more than one
+    # scenario, as the previous version of this test already did.
+    config = _tiny_cross_section(
+        scenarios=("A", "D"),
+        n_units=(400,),
+        confounding_strength=(1.0, 2.0),
+        replications=2,
+    )
 
     straight = run_grid(config)
     shuffled = run_grid(config, _shuffle=np.random.default_rng(0))
 
+    # Deliberately omits confounding_strength: this comparison key must still
+    # leave the two confounding_strength values tied for a given (scenario,
+    # n_units, seed, method), so that a non-total sort key inside `run_grid`
+    # surfaces here as a mismatched row order instead of being silently
+    # resolved by this test's own sort.
     key = ["scenario", "n_units", "seed", "method"]
     left = straight.sort_values(key).reset_index(drop=True).drop(columns=["runtime_seconds"])
     right = shuffled.sort_values(key).reset_index(drop=True).drop(columns=["runtime_seconds"])
     pd.testing.assert_frame_equal(left, right)
+
+
+def test_a_configuration_error_is_not_recorded_as_a_refusal():
+    # `causal_forest.fit` raises `ValueError` for a non-positive `n_trees`
+    # tuning option -- a caller passing a bad `fit_config` on a perfectly
+    # clean dataset, not the documented missing-data refusal. If `run_grid`
+    # classified every `ValueError` as that refusal, it would record
+    # status="refused" here and keep going: every downstream metric would
+    # then be computed over the surviving estimators and reported as a
+    # result, silently hiding a real configuration bug behind a benchmark row
+    # that looks like an ordinary, uninteresting non-result.
+    bad_config = EstimatorConfig(random_seed=0, options={"n_trees": 0})
+
+    with pytest.raises(ValueError, match="n_trees"):
+        run_grid(_tiny_cross_section(replications=1), fit_config=bad_config)
 
 
 def test_an_unexpected_exception_propagates_rather_than_becoming_a_row():

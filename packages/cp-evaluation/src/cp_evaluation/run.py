@@ -23,11 +23,22 @@ from cp_evaluation.grid import Cell, CrossSectionCell, GridConfig, expand_cells
 from cp_evaluation.resolve import ResolvedCell, resolve_cell, truth_for
 
 if TYPE_CHECKING:
+    from cp_core.dataset import CausalDataset
     from cp_core.results import EffectEstimate
 
 # The refusal `fit` raises when a column it needs carries missing values. Only
 # this is caught; anything else propagates, because a benchmark that turns a
 # crash into a row reports a number over the survivors and calls it a result.
+#
+# `ValueError` alone is not a reliable signal of that refusal: `cp_causal`
+# also raises it for ordinary configuration and programming errors that have
+# nothing to do with missing data -- `causal_forest.py` raises it for a
+# non-positive tuning option, for instance. So "the documented refusal" is
+# not determined by the exception type at all. A caught `ValueError` is
+# classified as the refusal only when the dataset itself genuinely carries
+# missing values in a column the schema requires
+# (`_missing_a_required_column`, which mirrors the check `require_no_missing`
+# performs before raising); otherwise it is a bug and is re-raised.
 _REFUSAL = ValueError
 
 ROW_COLUMNS: tuple[str, ...] = (
@@ -54,6 +65,18 @@ ROW_COLUMNS: tuple[str, ...] = (
     "n_control",
     "runtime_seconds",
 )
+
+
+def _missing_a_required_column(dataset: CausalDataset) -> bool:
+    """Whether the dataset is missing values in a column its schema requires.
+
+    Mirrors the check `cp_causal._support.require_no_missing` performs before
+    raising, without raising itself: this is used to tell a genuine refusal
+    apart from an ordinary `ValueError` that happens to be raised on the same
+    dataset for an unrelated reason.
+    """
+    frame = dataset.frame
+    return any(frame[column].isna().any() for column in dataset.schema.required_columns)
 
 
 def _cell_columns(cell: Cell) -> dict[str, object]:
@@ -140,10 +163,29 @@ def run_grid(
             try:
                 estimate = get_estimator(method)().fit(resolved.dataset, fit_config)
             except _REFUSAL as exc:
+                if not _missing_a_required_column(resolved.dataset):
+                    raise
                 rows.append(_blank_row(cell, method, "refused", str(exc)))
                 continue
             rows.append(_fitted_row(cell, method, estimate, resolved))
 
     frame = pd.DataFrame(rows, columns=list(ROW_COLUMNS))
-    sort_key = ["shape", "scenario", "n_units", "n_periods", "seed", "method"]
+    # `confounding_strength` sits right after `n_units`, matching where
+    # `grid.cell_sort_key` places it for cross-sectional cells. Without it,
+    # two cells that only differ in confounding_strength -- which
+    # `expand_cells` assigns the same `seed` range independently for each
+    # confounding value -- tie on every other column, and pandas' stable sort
+    # would then leave their relative order wherever evaluation happened to
+    # visit them: the output would depend on the order cells were evaluated
+    # in, exactly what `_shuffle` exists to disprove. Listing it here makes
+    # the key total over the rows a grid can produce.
+    sort_key = [
+        "shape",
+        "scenario",
+        "n_units",
+        "confounding_strength",
+        "n_periods",
+        "seed",
+        "method",
+    ]
     return frame.sort_values(sort_key).reset_index(drop=True)
