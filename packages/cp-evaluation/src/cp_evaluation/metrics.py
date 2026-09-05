@@ -224,3 +224,117 @@ def se_calibration(
         )
         mcse = float(np.std(resample_ratios, ddof=1))
     return MetricValue(value=ratio, mcse=mcse, n_used=n)
+
+
+def _significant(rows: pd.DataFrame) -> np.ndarray:
+    """Whether each interval excludes zero.
+
+    Read off the interval rather than the p-value, matching
+    `EffectEstimate.is_significant`, so estimators whose inference is
+    permutation- or posterior-based and carry no p-value are still counted.
+    """
+    lower = rows["ci_lower"].to_numpy(dtype=float)
+    upper = rows["ci_upper"].to_numpy(dtype=float)
+    usable = np.isfinite(lower) & np.isfinite(upper)
+    excludes = ~((lower <= 0.0) & (upper >= 0.0))
+    return (usable & excludes).astype(float)[usable]
+
+
+def sign_and_magnitude(frame: pd.DataFrame) -> dict[str, MetricValue]:
+    """Type S (sign error) rate and Type M (exaggeration) ratio.
+
+    Both are conditional on significance, which is what makes them the
+    interesting pair in small-sample cells: an estimator that only reaches
+    significance when it has overshot will show a Type M well above 1.
+
+    Both are undefined when the truth is zero. There is no sign to get wrong
+    and no magnitude to exaggerate, and `|point| / 0` would be infinite rather
+    than meaningful -- so the null cells report nan here and their false
+    positive rate in `detection_metrics` instead.
+    """
+    rows = _fitted(frame)
+    lower = rows["ci_lower"].to_numpy(dtype=float)
+    upper = rows["ci_upper"].to_numpy(dtype=float)
+    point = rows["point"].to_numpy(dtype=float)
+    truth = rows["truth"].to_numpy(dtype=float)
+
+    usable = np.isfinite(lower) & np.isfinite(upper) & np.isfinite(point)
+    significant = usable & ~((lower <= 0.0) & (upper >= 0.0))
+
+    finite_truth = truth[np.isfinite(truth)]
+    mean_truth = float(np.mean(finite_truth)) if finite_truth.size else float("nan")
+    if not np.isfinite(mean_truth) or mean_truth == 0.0:
+        return {"type_s": _EMPTY, "type_m": _EMPTY}
+
+    chosen = point[significant]
+    if chosen.size == 0:
+        return {"type_s": _EMPTY, "type_m": _EMPTY}
+
+    wrong_sign = (np.sign(chosen) != np.sign(mean_truth)).astype(float)
+    type_s = _share_with_mcse(wrong_sign)
+    type_m = _mean_with_mcse(np.abs(chosen) / abs(mean_truth))
+    return {"type_s": type_s, "type_m": type_m}
+
+
+def detection_metrics(frame: pd.DataFrame) -> dict[str, MetricValue]:
+    """Power in non-null cells, false-positive rate in null ones.
+
+    The same underlying share, split by whether the truth is zero, because the
+    two answer different questions and only one of them is meaningful per cell.
+    The design document calls the false-positive rate under the null scenarios
+    the falsifiability test of the whole system: it must come out near 0.05.
+    """
+    rows = _fitted(frame)
+    hits = _significant(rows)
+
+    truth = rows["truth"].to_numpy(dtype=float)
+    finite_truth = truth[np.isfinite(truth)]
+    mean_truth = float(np.mean(finite_truth)) if finite_truth.size else float("nan")
+    is_null = np.isfinite(mean_truth) and mean_truth == 0.0
+
+    share = _share_with_mcse(hits)
+    if is_null:
+        return {"power": _EMPTY, "false_positive_rate": share}
+    return {"power": share, "false_positive_rate": _EMPTY}
+
+
+_GROUP_COLUMNS = ("shape", "scenario", "n_units", "n_periods", "confounding_strength")
+
+
+def summarise(frame: pd.DataFrame) -> pd.DataFrame:
+    """Every metric family, per (method x cell identity), one row each.
+
+    Status counts travel with the metrics rather than being computed
+    separately, so a reader can never see a bias without also seeing how many
+    of that group's fits were refused or ineligible.
+    """
+    group_columns = ["method", *(c for c in _GROUP_COLUMNS if c in frame.columns)]
+    records: list[dict[str, object]] = []
+
+    for keys, group in frame.groupby(group_columns, dropna=False, sort=True):
+        record: dict[str, object] = dict(
+            zip(group_columns, keys if isinstance(keys, tuple) else (keys,), strict=True)
+        )
+        record["n_fitted"] = int((group["status"] == "fitted").sum())
+        record["n_ineligible"] = int((group["status"] == "ineligible").sum())
+        record["n_refused"] = int((group["status"] == "refused").sum())
+
+        fitted_runtime = _fitted(group)["runtime_seconds"].to_numpy(dtype=float)
+        families: dict[str, MetricValue] = {
+            **accuracy_metrics(group),
+            **coverage_metrics(group),
+            **sign_and_magnitude(group),
+            **detection_metrics(group),
+            "se_calibration": se_calibration(group),
+            "runtime_seconds": _mean_with_mcse(
+                fitted_runtime[np.isfinite(fitted_runtime)]
+            ),
+        }
+        for name, metric in families.items():
+            record[name] = metric.value
+            record[f"{name}_mcse"] = metric.mcse
+            record[f"{name}_n_used"] = metric.n_used
+
+        records.append(record)
+
+    return pd.DataFrame(records)

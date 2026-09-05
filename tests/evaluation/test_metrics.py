@@ -1,7 +1,15 @@
 import numpy as np
 import pandas as pd
 import pytest
-from cp_evaluation.metrics import MetricValue, accuracy_metrics, coverage_metrics, se_calibration
+from cp_evaluation.metrics import (
+    MetricValue,
+    accuracy_metrics,
+    coverage_metrics,
+    detection_metrics,
+    se_calibration,
+    sign_and_magnitude,
+    summarise,
+)
 from cp_evaluation.run import ROW_COLUMNS
 
 
@@ -228,3 +236,89 @@ def test_mean_ci_width_is_reported():
     frame = _covered_frame([0.0, 1.0], [2.0, 5.0], truth=1.0)
 
     assert coverage_metrics(frame)["mean_ci_width"].value == pytest.approx(3.0)
+
+
+def test_type_s_is_the_share_of_significant_estimates_with_the_wrong_sign():
+    # truth is +1. Two significant estimates: one positive, one negative.
+    frame = _covered_frame([0.5, -2.0], [1.5, -0.5], truth=1.0)
+    frame["point"] = [1.0, -1.25]
+
+    result = sign_and_magnitude(frame)
+
+    assert result["type_s"].value == pytest.approx(0.5)
+    assert result["type_s"].n_used == 2
+
+
+def test_type_m_is_the_exaggeration_ratio_among_significant_estimates():
+    # truth +1; significant estimates of magnitude 2 and 4 -> ratio 3.0
+    frame = _covered_frame([1.5, 3.5], [2.5, 4.5], truth=1.0)
+    frame["point"] = [2.0, 4.0]
+
+    assert sign_and_magnitude(frame)["type_m"].value == pytest.approx(3.0)
+
+
+def test_type_s_and_type_m_are_undefined_when_truth_is_zero():
+    # A null cell has no true sign to get wrong and no magnitude to exaggerate.
+    frame = _covered_frame([0.5, 1.5], [2.5, 3.5], truth=0.0)
+    frame["point"] = [1.0, 2.0]
+
+    result = sign_and_magnitude(frame)
+
+    assert np.isnan(result["type_s"].value)
+    assert np.isnan(result["type_m"].value)
+
+
+def test_type_s_and_type_m_are_undefined_when_nothing_is_significant():
+    frame = _covered_frame([-1.0, -1.0], [3.0, 3.0], truth=1.0)
+    frame["point"] = [1.0, 1.0]
+
+    result = sign_and_magnitude(frame)
+
+    assert result["type_s"].n_used == 0
+    assert np.isnan(result["type_m"].value)
+
+
+def test_power_is_the_share_of_intervals_excluding_zero():
+    frame = _covered_frame([0.5, -1.0, 0.2], [1.5, 3.0, 2.0], truth=1.0)
+
+    assert detection_metrics(frame)["power"].value == pytest.approx(2.0 / 3.0)
+
+
+def test_a_null_cell_reports_a_false_positive_rate_not_power():
+    frame = _covered_frame([0.5, -1.0], [1.5, 3.0], truth=0.0)
+
+    result = detection_metrics(frame)
+
+    assert result["false_positive_rate"].value == pytest.approx(0.5)
+    assert np.isnan(result["power"].value)
+
+
+def test_summarise_groups_by_method_and_cell_identity():
+    left = _frame([1.0, 2.0], truth=2.0)
+    left["method"] = "a"
+    left["scenario"] = "A"
+    right = _frame([5.0, 6.0], truth=2.0)
+    right["method"] = "b"
+    right["scenario"] = "A"
+    frame = pd.concat([left, right], ignore_index=True)
+
+    summary = summarise(frame)
+
+    assert set(summary["method"]) == {"a", "b"}
+    assert "bias" in summary.columns
+    assert "bias_mcse" in summary.columns
+    assert "bias_n_used" in summary.columns
+
+
+def test_summarise_carries_status_counts_so_absence_is_visible():
+    fitted = _frame([1.0, 2.0], truth=2.0)
+    fitted["method"] = "a"
+    refused = _frame([np.nan], truth=2.0, status="refused")
+    refused["method"] = "a"
+    frame = pd.concat([fitted, refused], ignore_index=True)
+
+    summary = summarise(frame)
+
+    assert summary["n_fitted"].iloc[0] == 2
+    assert summary["n_refused"].iloc[0] == 1
+    assert summary["n_ineligible"].iloc[0] == 0
