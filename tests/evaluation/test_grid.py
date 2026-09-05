@@ -174,7 +174,7 @@ def test_a_cell_s_stream_does_not_depend_on_the_rest_of_the_grid():
     # every index and silently changes every other cell's data.
     small = GridConfig(
         cross_section=CrossSectionAxes(
-            scenarios=("A",), n_units=(500,), confounding_strength=(1.0,)
+            scenarios=("D",), n_units=(500,), confounding_strength=(1.0,)
         ),
         panel=None,
         replications=1,
@@ -187,9 +187,24 @@ def test_a_cell_s_stream_does_not_depend_on_the_rest_of_the_grid():
         replications=4,
     )
 
-    target = CrossSectionCell(scenario="A", n_units=500, confounding_strength=1.0, seed=0)
-    from_small = next(c for c in expand_cells(small) if c == target)
-    from_larger = next(c for c in expand_cells(larger) if c == target)
+    target = CrossSectionCell(scenario="D", n_units=500, confounding_strength=1.0, seed=0)
+    cells_small = expand_cells(small)
+    cells_larger = expand_cells(larger)
+    from_small = next(c for c in cells_small if c == target)
+    from_larger = next(c for c in cells_larger if c == target)
+
+    # cell_sort_key orders by (shape_tag, scenario, n_units,
+    # confounding_strength, seed), and every "A" cell sorts ahead of every "D"
+    # cell. `small` has only "D" cells, so the target sits at index 0; adding
+    # the "A" scenario in `larger` pushes it later. This assertion guards the
+    # test itself: if both indices coincided, a position-indexed cell_rng
+    # (SeedSequence(root).spawn(cell_index), the scheme this test exists to
+    # reject) would produce matching streams purely by accident of shared
+    # position, and the assertion below would pass without ever exercising
+    # the property that the stream depends on cell identity, not location.
+    index_small = cells_small.index(from_small)
+    index_larger = cells_larger.index(from_larger)
+    assert index_small != index_larger
 
     assert np.array_equal(
         cell_rng(from_small, root_entropy=7).normal(size=5),
