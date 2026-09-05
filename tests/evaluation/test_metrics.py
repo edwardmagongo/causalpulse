@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 import pytest
-from cp_evaluation.metrics import MetricValue, accuracy_metrics
+from cp_evaluation.metrics import MetricValue, accuracy_metrics, coverage_metrics, se_calibration
 from cp_evaluation.run import ROW_COLUMNS
 
 
@@ -104,3 +104,98 @@ def test_rmse_mcse_is_nan_when_mean_squared_error_is_exactly_zero():
 
     assert result["rmse"].value == pytest.approx(0.0)
     assert np.isnan(result["rmse"].mcse)
+
+
+def _covered_frame(lowers, uppers, truth=1.0, **overrides) -> pd.DataFrame:
+    frame = _frame([1.0] * len(lowers), truth=truth, **overrides)
+    frame["ci_lower"] = list(lowers)
+    frame["ci_upper"] = list(uppers)
+    return frame
+
+
+def test_analytic_coverage_is_the_share_of_intervals_containing_truth():
+    frame = _covered_frame([0.0, 0.0, 2.0, 2.5], [2.0, 2.0, 3.0, 3.0], truth=1.0)
+
+    result = coverage_metrics(frame)
+
+    assert result["coverage_analytic"].value == pytest.approx(0.5)
+    assert result["coverage_analytic"].n_used == 4
+
+
+def test_coverage_mcse_is_binomial():
+    frame = _covered_frame([0.0, 0.0, 2.0, 2.5], [2.0, 2.0, 3.0, 3.0], truth=1.0)
+
+    # sqrt(p(1-p)/n) = sqrt(0.25/4) = 0.25
+    assert coverage_metrics(frame)["coverage_analytic"].mcse == pytest.approx(0.25)
+
+
+def test_unanimous_coverage_uses_the_rule_of_three_not_zero():
+    # A 4-of-4 share has a binomial MCSE of exactly 0.0, which reads as
+    # infinite precision from four observations. The rule of three gives
+    # 3/n as the usable upper bound on the unobserved tail.
+    frame = _covered_frame([0.0] * 4, [2.0] * 4, truth=1.0)
+
+    result = coverage_metrics(frame)
+
+    assert result["coverage_analytic"].value == pytest.approx(1.0)
+    assert result["coverage_analytic"].mcse == pytest.approx(3.0 / 4.0)
+
+
+def test_unanimous_non_coverage_also_uses_the_rule_of_three():
+    frame = _covered_frame([5.0] * 4, [6.0] * 4, truth=1.0)
+
+    result = coverage_metrics(frame)
+
+    assert result["coverage_analytic"].value == pytest.approx(0.0)
+    assert result["coverage_analytic"].mcse == pytest.approx(3.0 / 4.0)
+
+
+def test_bootstrap_coverage_is_reported_separately_and_skips_missing_intervals():
+    frame = _covered_frame([0.0, 0.0], [2.0, 2.0], truth=1.0)
+    frame["bootstrap_ci_lower"] = [0.0, np.nan]
+    frame["bootstrap_ci_upper"] = [2.0, np.nan]
+
+    result = coverage_metrics(frame)
+
+    assert result["coverage_bootstrap"].value == pytest.approx(1.0)
+    assert result["coverage_bootstrap"].n_used == 1
+
+
+def test_se_calibration_is_mean_reported_se_over_empirical_sd():
+    frame = _frame([1.0, 2.0, 3.0], truth=2.0)
+    frame["se"] = [1.0, 1.0, 1.0]
+
+    # empirical sd of [1,2,3] with ddof=1 is 1.0, so the ratio is 1.0
+    assert se_calibration(frame).value == pytest.approx(1.0)
+
+
+def test_se_calibration_detects_an_understated_standard_error():
+    frame = _frame([1.0, 2.0, 3.0], truth=2.0)
+    frame["se"] = [0.5, 0.5, 0.5]
+
+    assert se_calibration(frame).value == pytest.approx(0.5)
+
+
+def test_se_calibration_excludes_rows_reporting_no_standard_error():
+    frame = _frame([1.0, 2.0, 3.0, 4.0], truth=2.0)
+    frame["se"] = [1.0, 1.0, 1.0, np.nan]
+
+    result = se_calibration(frame)
+
+    assert result.n_used == 3
+
+
+def test_se_calibration_is_undefined_with_fewer_than_two_usable_rows():
+    frame = _frame([1.0], truth=2.0)
+    frame["se"] = [1.0]
+
+    result = se_calibration(frame)
+
+    assert np.isnan(result.value)
+    assert result.n_used == 1
+
+
+def test_mean_ci_width_is_reported():
+    frame = _covered_frame([0.0, 1.0], [2.0, 5.0], truth=1.0)
+
+    assert coverage_metrics(frame)["mean_ci_width"].value == pytest.approx(3.0)
