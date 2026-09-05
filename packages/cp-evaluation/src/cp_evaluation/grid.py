@@ -129,7 +129,7 @@ def expand_cells(config: GridConfig) -> tuple[Cell, ...]:
             for seed in range(config.replications)
         )
 
-    return tuple(sorted(cells, key=cell_sort_key))
+    return tuple(sorted(set(cells), key=cell_sort_key))
 
 
 def cell_sort_key(cell: Cell) -> tuple[object, ...]:

@@ -109,3 +109,25 @@ def test_replications_must_be_positive():
             panel=None,
             replications=0,
         )
+
+
+def test_repeated_axis_values_are_deduplicated_to_prevent_double_weighting():
+    # Duplicate cells would silently count twice in averaged metrics downstream,
+    # double-weighting their contribution to the benchmark results. This test
+    # verifies that repeated values in any axis are deduplicated.
+    config = GridConfig(
+        cross_section=CrossSectionAxes(
+            scenarios=("A", "A"), n_units=(500,), confounding_strength=(1.0,)
+        ),
+        panel=None,
+        replications=2,
+    )
+
+    cells = expand_cells(config)
+
+    # Without deduplication, we would get 2 (repeated scenarios) * 1 * 1 * 2 = 4 cells.
+    # With deduplication, repeated scenario "A" should merge to 1 unique cell per
+    # combination of other dimensions, giving us 1 * 1 * 1 * 2 = 2 cells.
+    assert len(cells) == 2
+    assert all(c.scenario == "A" for c in cells)
+    assert {c.seed for c in cells} == {0, 1}
