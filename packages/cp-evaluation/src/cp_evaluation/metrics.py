@@ -159,7 +159,9 @@ def coverage_metrics(frame: pd.DataFrame) -> dict[str, MetricValue]:
     }
 
 
-def se_calibration(frame: pd.DataFrame) -> MetricValue:
+def se_calibration(
+    frame: pd.DataFrame, *, n_bootstrap: int = 1000, seed: int = 0
+) -> MetricValue:
     """Mean reported standard error divided by the empirical SD of estimates.
 
     A ratio near 1 means the reported standard errors describe the actual
@@ -167,6 +169,25 @@ def se_calibration(frame: pd.DataFrame) -> MetricValue:
     built from them will under-cover. Estimators reporting no standard error
     at all (permutation and posterior inference) are excluded rather than
     counted as zero -- `n_used` says how many rows survived.
+
+    The MCSE is bootstrapped rather than closed-form. The ratio's
+    denominator, the empirical SD, is itself a random quantity estimated
+    from these same rows, and in practice it carries most of the ratio's
+    sampling variability -- a closed-form MCSE that propagates only the
+    numerator's uncertainty (`std(se, ddof=1) / sqrt(n) / empirical_sd`)
+    treats that denominator as fixed. For an estimator reporting a
+    *constant* `se` across replications -- common, and entirely legitimate
+    -- that closed-form MCSE comes out to exactly 0.0 regardless of how much
+    the point estimates themselves vary, which is a metric reading as
+    infinite precision when it has none. Resampling rows with replacement
+    and recomputing the ratio on each resample makes no distributional
+    assumption and reflects the variability of both numerator and
+    denominator together.
+
+    Resamples whose resampled points are all identical give an empirical SD
+    of exactly 0.0 and are dropped rather than divided by; if fewer than two
+    resamples remain usable, the MCSE is nan rather than a number fabricated
+    from too little information.
     """
     rows = _fitted(frame)
     se = rows["se"].to_numpy(dtype=float)
@@ -187,5 +208,19 @@ def se_calibration(frame: pd.DataFrame) -> MetricValue:
         return MetricValue(value=float("nan"), mcse=float("nan"), n_used=n)
 
     ratio = float(np.mean(se)) / empirical_sd
-    mcse = float(np.std(se, ddof=1) / np.sqrt(n) / empirical_sd)
+
+    rng = np.random.default_rng(np.random.SeedSequence(seed))
+    resample_indices = rng.integers(0, n, size=(n_bootstrap, n))
+    se_resamples = se[resample_indices]
+    point_resamples = point[resample_indices]
+    resample_sds = np.std(point_resamples, ddof=1, axis=1)
+    resample_valid = resample_sds > 0.0
+    if int(np.count_nonzero(resample_valid)) < 2:
+        mcse = float("nan")
+    else:
+        resample_ratios = (
+            np.mean(se_resamples[resample_valid], axis=1)
+            / resample_sds[resample_valid]
+        )
+        mcse = float(np.std(resample_ratios, ddof=1))
     return MetricValue(value=ratio, mcse=mcse, n_used=n)

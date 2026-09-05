@@ -193,6 +193,35 @@ def test_se_calibration_is_undefined_with_fewer_than_two_usable_rows():
 
     assert np.isnan(result.value)
     assert result.n_used == 1
+    # Too few usable rows for a standard error at all -- nan, not 0.0.
+    assert np.isnan(result.mcse)
+
+
+def test_se_calibration_mcse_is_bootstrapped_not_a_fixed_denominator_formula():
+    # A constant reported se across replications, with point estimates that
+    # vary. The old closed-form mcse, std(se, ddof=1) / sqrt(n) / empirical_sd,
+    # has a zero numerator whenever se is constant, so it returned exactly
+    # 0.0 here -- reading as infinite precision from a handful of rows, even
+    # though the ratio's true sampling sd under these conditions is around
+    # 2.7. The bootstrap propagates the denominator's own sampling
+    # variability and must be finite and strictly positive instead.
+    frame = _frame([1.0, 2.0, 3.0, 10.0, -4.0], truth=2.0)
+    frame["se"] = [1.0, 1.0, 1.0, 1.0, 1.0]
+
+    result = se_calibration(frame)
+
+    assert np.isfinite(result.mcse)
+    assert result.mcse > 0.0
+
+
+def test_se_calibration_mcse_is_reproducible_for_the_same_seed():
+    frame = _frame([1.0, 2.0, 3.0, 10.0, -4.0], truth=2.0)
+    frame["se"] = [1.0, 1.0, 1.0, 1.0, 1.0]
+
+    first = se_calibration(frame, seed=7)
+    second = se_calibration(frame, seed=7)
+
+    assert first.mcse == second.mcse
 
 
 def test_mean_ci_width_is_reported():
