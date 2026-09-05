@@ -1,3 +1,8 @@
+import json
+import os
+import subprocess
+import sys
+
 import numpy as np
 import pytest
 from cp_evaluation.grid import (
@@ -182,16 +187,48 @@ def test_a_cell_s_stream_does_not_depend_on_the_rest_of_the_grid():
         replications=4,
     )
 
-    shared = CrossSectionCell(
-        scenario="A", n_units=500, confounding_strength=1.0, seed=0
-    )
-    assert shared in expand_cells(small)
-    assert shared in expand_cells(larger)
+    target = CrossSectionCell(scenario="A", n_units=500, confounding_strength=1.0, seed=0)
+    from_small = next(c for c in expand_cells(small) if c == target)
+    from_larger = next(c for c in expand_cells(larger) if c == target)
 
     assert np.array_equal(
-        cell_rng(shared, root_entropy=7).normal(size=5),
-        cell_rng(shared, root_entropy=7).normal(size=5),
+        cell_rng(from_small, root_entropy=7).normal(size=5),
+        cell_rng(from_larger, root_entropy=7).normal(size=5),
     )
+
+
+def test_cell_rng_reproduces_across_processes_with_a_non_default_hash_seed():
+    # cell_rng derives its stream from hashlib.sha256 over the cell's
+    # identity, not from the builtin hash(), precisely because hash() is
+    # salted per process by PYTHONHASHSEED and would not reproduce across
+    # runs. This test guards against a regression back to hash(): it runs
+    # cell_rng in a subprocess with an explicit, non-default PYTHONHASHSEED
+    # and checks the draws still match the in-process draws. If cell_rng ever
+    # started hashing with the salted builtin, the two would disagree.
+    cell = CrossSectionCell(scenario="D", n_units=500, confounding_strength=1.0, seed=0)
+    expected = cell_rng(cell, root_entropy=12345).normal(size=5).tolist()
+
+    script = (
+        "import json\n"
+        "from cp_evaluation.grid import CrossSectionCell, cell_rng\n"
+        "cell = CrossSectionCell(\n"
+        "    scenario='D', n_units=500, confounding_strength=1.0, seed=0\n"
+        ")\n"
+        "draws = cell_rng(cell, root_entropy=12345).normal(size=5)\n"
+        "print(json.dumps(draws.tolist()))\n"
+    )
+    env = dict(os.environ, PYTHONHASHSEED="12345")
+
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    from_subprocess = json.loads(result.stdout)
+
+    assert np.array_equal(expected, from_subprocess)
 
 
 def test_the_two_shapes_cannot_collide_on_one_stream():
