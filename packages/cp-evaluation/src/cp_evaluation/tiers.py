@@ -53,6 +53,37 @@ another.
 `run_grid` took 96.7s, produced 600 rows (300 fitted, 300 ineligible, 0
 refused), and `summarise` took under 0.1s. Comfortably inside the ~2 minute
 budget.
+
+**Discriminating power is proportional to each arm's effect size, not
+absolute.** The comment above `TOLERANCE_BANDS` checks every shipped band
+against Task 9's `seeded_biased` instrument, a constant `+0.25` shift
+(`tests/evaluation/test_instrument.py`, `BIAS = 0.25`) added to the point
+estimate regardless of scale. That defect is not proportionally comparable
+across arms: the cross-sectional scenarios' true effects are ~0.05, so 0.25
+is a ~500% relative shift there, while panel scenario P1's true effect is
+~1.0, so the same 0.25 is a ~25% relative shift there. "Rejects a 0.25
+shift" therefore means something much easier in the panel arm than in the
+cross-sectional arm.
+
+Scaled to the same ~25%-of-effect severity that justified rejecting the two
+panel bands (`callaway_santanna`/`event_study` on P1, see below), a
+proportionally comparable cross-sectional defect is ~0.0125 (25% of the
+~0.05 true effect). Every shipped cross-sectional bias band's +/-4-mcse
+half-width (0.028-0.059, across scenarios A and D) is 2.2x-4.7x *wider*
+than that. So at 15 replications, the cross-sectional bands catch gross
+defects -- several times the true effect -- but not a proportionally subtle
+one. The panel `did_2x2`/`twfe` bands on P1, by contrast, have a half-width
+of 0.2005 (4 * mcse 0.05013, same absolute units as bias), which is
+narrower than their own 25%-of-effect defect (0.25): they do pass the
+proportional check.
+
+This is a consequence of the ~2 minute runtime budget, not of the metric
+itself: MCSE scales as `1 / sqrt(replications)`, so tightening the
+cross-sectional bands to resolve a ~0.0125 defect would need roughly
+`(2.2)**2 ~ 5x` (best case) to `(4.7)**2 ~ 22x` (worst case) today's 15
+replications -- on the order of 75 to 330 replications per cell -- which
+does not fit inside a ~2 minute gate. `full`, which carries no such
+budget, is where that resolution belongs.
 """
 
 from __future__ import annotations
@@ -161,6 +192,15 @@ def ci_config() -> GridConfig:
 # these two estimators on P1 -- not a gap to paper over with a wider
 # replication count inside this tier's time budget -- and `full` is where
 # a tier with enough replications to narrow their MCSE belongs.
+#
+# "ships" below means only "rejects this absolute +/-0.25 shift" -- it is
+# not a claim that the cross-sectional and panel arms are discriminating
+# proportionally to the same degree. They are not: see the module
+# docstring's "Discriminating power is proportional to each arm's effect
+# size, not absolute" section for the proportional comparison (the
+# cross-sectional bands resolve only a several-times-true-effect defect;
+# the panel did_2x2/twfe bands on P1 also resolve a proportionally-scaled
+# one).
 #
 # The null scenarios (B, P2, true effect 0) are not exempted from this
 # check even though "0.25 relative to a true effect of 0" has no ratio to
