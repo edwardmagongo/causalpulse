@@ -322,3 +322,67 @@ def test_summarise_carries_status_counts_so_absence_is_visible():
     assert summary["n_fitted"].iloc[0] == 2
     assert summary["n_refused"].iloc[0] == 1
     assert summary["n_ineligible"].iloc[0] == 0
+
+
+def _se_calibration_frame(method: str, scenario: str) -> pd.DataFrame:
+    # A constant reported se with varying points, same shape as the frame
+    # used above to prove the bootstrap mcse is finite and positive.
+    frame = _frame([1.0, 2.0, 3.0, 10.0, -4.0], truth=2.0)
+    frame["se"] = [1.0, 1.0, 1.0, 1.0, 1.0]
+    frame["method"] = method
+    frame["scenario"] = scenario
+    return frame
+
+
+def test_summarise_gives_identical_groups_independent_bootstrap_seeds():
+    # Two groups built from the exact same data but with different group
+    # keys (different scenario). With the old shared seed=0, every group in
+    # one summarise() call bootstraps identically-shaped data with the same
+    # resample indices, so identical data would produce identical MCSEs --
+    # an artifact of the shared stream, not a fact about the data. Deriving
+    # each group's seed from its own identity must break that tie.
+    left = _se_calibration_frame("a", "A")
+    right = _se_calibration_frame("a", "B")
+    frame = pd.concat([left, right], ignore_index=True)
+
+    summary = summarise(frame)
+
+    mcses = summary.set_index("scenario")["se_calibration_mcse"]
+    assert mcses.loc["A"] != mcses.loc["B"]
+
+
+def test_summarise_gives_different_data_different_mcse_too():
+    left = _se_calibration_frame("a", "A")
+    right = _frame([1.0, 5.0, 3.0, -8.0, 9.0], truth=2.0)
+    right["se"] = [1.0, 1.0, 1.0, 1.0, 1.0]
+    right["method"] = "a"
+    right["scenario"] = "B"
+    frame = pd.concat([left, right], ignore_index=True)
+
+    summary = summarise(frame)
+
+    mcses = summary.set_index("scenario")["se_calibration_mcse"]
+    assert mcses.loc["A"] != mcses.loc["B"]
+
+
+def test_summarise_is_reproducible():
+    left = _se_calibration_frame("a", "A")
+    right = _se_calibration_frame("b", "B")
+    frame = pd.concat([left, right], ignore_index=True)
+
+    first = summarise(frame)
+    second = summarise(frame)
+
+    pd.testing.assert_frame_equal(first, second)
+
+
+def test_summarise_root_seed_changes_se_calibration_mcse():
+    frame = _se_calibration_frame("a", "A")
+
+    default_seed = summarise(frame)
+    other_seed = summarise(frame, seed=12345)
+
+    assert (
+        default_seed["se_calibration_mcse"].iloc[0]
+        != other_seed["se_calibration_mcse"].iloc[0]
+    )

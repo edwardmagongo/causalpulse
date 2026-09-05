@@ -12,6 +12,9 @@ two statuses quietly become a number nobody chose.
 
 from __future__ import annotations
 
+import hashlib
+import json
+import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -301,20 +304,69 @@ def detection_metrics(frame: pd.DataFrame) -> dict[str, MetricValue]:
 _GROUP_COLUMNS = ("shape", "scenario", "n_units", "n_periods", "confounding_strength")
 
 
-def summarise(frame: pd.DataFrame) -> pd.DataFrame:
+def _seed_component(value: object) -> object:
+    """One group-key value, made JSON-total for hashing.
+
+    Group keys legitimately contain `float('nan')` -- the grid puts it in
+    `n_periods` for cross-sectional cells and in `confounding_strength` for
+    panel cells, since those axes don't apply to that shape. `json.dumps`
+    would otherwise fall back to emitting the bare token `NaN`, which is not
+    valid JSON text, and every NaN would collapse onto that one token
+    regardless of *which* column it came from. Swapping it for a sentinel
+    tagged with its own type keeps the JSON strict and keeps a NaN in one
+    column from hashing identically to a NaN in another, or to a real string
+    that happened to read "nan".
+    """
+    if isinstance(value, float) and math.isnan(value):
+        return "__nan__"
+    return value
+
+
+def _group_seed(root_seed: int, group_columns: list[str], key: tuple[object, ...]) -> int:
+    """A per-group bootstrap seed, derived from the group's own identity.
+
+    Without this, `se_calibration`'s default `seed=0` is shared by every
+    group `summarise` computes in one call, so any two groups with the same
+    number of fitted rows draw the literal same bootstrap resample indices --
+    an artificial correlation between their MCSEs that has nothing to do with
+    the data. Deriving the seed from the group's own key gives each group an
+    independent stream while keeping the same group's seed stable run to run.
+
+    This follows `cp_evaluation.grid.cell_rng`'s precedent for the same
+    problem: sha256 over sorted JSON, not `hash()`, because `hash()` is
+    salted per process and anything built from it fails to reproduce across
+    runs (see `cp_simulation._hashing`). Deriving from identity rather than
+    position in the table also means adding or removing a method or cell
+    leaves every other group's seed untouched.
+    """
+    payload: dict[str, object] = {"root_seed": root_seed}
+    payload.update(
+        {
+            column: _seed_component(value)
+            for column, value in zip(group_columns, key, strict=True)
+        }
+    )
+    encoded = json.dumps(payload, sort_keys=True, allow_nan=False, default=str).encode()
+    digest = hashlib.sha256(encoded).digest()
+    return int.from_bytes(digest[:8], "big")
+
+
+def summarise(frame: pd.DataFrame, *, seed: int = 0) -> pd.DataFrame:
     """Every metric family, per (method x cell identity), one row each.
 
     Status counts travel with the metrics rather than being computed
     separately, so a reader can never see a bias without also seeing how many
     of that group's fits were refused or ineligible.
+
+    `seed` roots `se_calibration`'s per-group bootstrap seeds (see
+    `_group_seed`); it does not otherwise affect any metric.
     """
     group_columns = ["method", *(c for c in _GROUP_COLUMNS if c in frame.columns)]
     records: list[dict[str, object]] = []
 
     for keys, group in frame.groupby(group_columns, dropna=False, sort=True):
-        record: dict[str, object] = dict(
-            zip(group_columns, keys if isinstance(keys, tuple) else (keys,), strict=True)
-        )
+        key_tuple = keys if isinstance(keys, tuple) else (keys,)
+        record: dict[str, object] = dict(zip(group_columns, key_tuple, strict=True))
         record["n_fitted"] = int((group["status"] == "fitted").sum())
         record["n_ineligible"] = int((group["status"] == "ineligible").sum())
         record["n_refused"] = int((group["status"] == "refused").sum())
@@ -325,7 +377,9 @@ def summarise(frame: pd.DataFrame) -> pd.DataFrame:
             **coverage_metrics(group),
             **sign_and_magnitude(group),
             **detection_metrics(group),
-            "se_calibration": se_calibration(group),
+            "se_calibration": se_calibration(
+                group, seed=_group_seed(seed, group_columns, key_tuple)
+            ),
             "runtime_seconds": _mean_with_mcse(
                 fitted_runtime[np.isfinite(fitted_runtime)]
             ),
