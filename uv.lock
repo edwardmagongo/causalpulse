@@ -25,6 +25,7 @@ members = [
     "causalpulse",
     "cp-causal",
     "cp-core",
+    "cp-evaluation",
     "cp-simulation",
     "cp-statistics",
 ]
@@ -100,6 +101,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "cp-causal" },
     { name = "cp-core" },
+    { name = "cp-evaluation" },
     { name = "cp-simulation" },
     { name = "cp-statistics" },
 ]
@@ -124,6 +126,7 @@ dev = [
 requires-dist = [
     { name = "cp-causal", editable = "packages/cp-causal" },
     { name = "cp-core", editable = "packages/cp-core" },
+    { name = "cp-evaluation", editable = "packages/cp-evaluation" },
     { name = "cp-simulation", editable = "packages/cp-simulation" },
     { name = "cp-statistics", editable = "packages/cp-statistics" },
 ]
@@ -377,6 +380,29 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "numpy", specifier = ">=2.0" },
+    { name = "pandas", specifier = ">=2.2" },
+]
+
+[[package]]
+name = "cp-evaluation"
+version = "0.1.0"
+source = { editable = "packages/cp-evaluation" }
+dependencies = [
+    { name = "cp-causal" },
+    { name = "cp-core" },
+    { name = "cp-simulation" },
+    { name = "cp-statistics" },
+    { name = "numpy" },
+    { name = "pandas" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "cp-causal", editable = "packages/cp-causal" },
+    { name = "cp-core", editable = "packages/cp-core" },
+    { name = "cp-simulation", editable = "packages/cp-simulation" },
+    { name = "cp-statistics", editable = "packages/cp-statistics" },
     { name = "numpy", specifier = ">=2.0" },
     { name = "pandas", specifier = ">=2.2" },
 ]

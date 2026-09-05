@@ -4,11 +4,13 @@ root_packages =
     cp_statistics
     cp_simulation
     cp_causal
+    cp_evaluation
 
 [importlinter:contract:layers]
 name = Package layering
 type = layers
 layers =
+    cp_evaluation
     cp_causal
     cp_statistics
     cp_core

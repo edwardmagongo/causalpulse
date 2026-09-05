@@ -95,3 +95,31 @@ def test_cp_core_contains_no_algorithms():
     dependencies = tomllib.loads(manifest.decode())["project"]["dependencies"]
 
     assert not any(dep.startswith("scipy") for dep in dependencies)
+
+
+@pytest.mark.parametrize("module_name", ["cp_core", "cp_statistics", "cp_causal"])
+def test_nothing_may_import_the_evaluator(module_name):
+    # cp_evaluation is the one package allowed to see both ground truth and
+    # estimators. If any of these three could import it, the ground-truth
+    # firewall would be reachable transitively -- forbidden from importing the
+    # simulation package directly, but able to import something that does.
+    # Closing this door is the whole reason the evaluator sits above cp_causal
+    # in the layers contract.
+    module = __import__(module_name)
+
+    source_root = module.__path__[0]
+    offenders = subprocess.run(
+        ["grep", "-rn", "cp_evaluation", source_root], capture_output=True, text=True
+    )
+    assert offenders.returncode in (0, 1), offenders.stderr
+    assert offenders.stdout == "", (
+        f"{module_name} must never reference cp_evaluation:\n" + offenders.stdout
+    )
+
+
+def test_the_evaluator_is_importable_and_sees_both_sides():
+    # The positive half: the package exists and the two imports that define
+    # what a benchmark is are legal from it.
+    import cp_evaluation  # noqa: F401
+    from cp_causal.registry import all_estimators  # noqa: F401
+    from cp_simulation.scenarios import build_scenario  # noqa: F401
