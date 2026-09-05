@@ -148,3 +148,41 @@ def test_an_unexpected_exception_propagates_rather_than_becoming_a_row():
             run_grid(_tiny_cross_section(replications=1))
     finally:
         run_module.get_estimator = original
+
+
+def test_restricting_to_two_estimators_yields_rows_for_exactly_those_two():
+    names = ["difference_in_means", "lin_regression"]
+    frame = run_grid(_tiny_cross_section(replications=1), estimators=names)
+
+    assert set(frame.method) == {"difference_in_means", "lin_regression"}
+    assert len(frame) == 2
+
+
+def test_an_unknown_estimator_name_is_refused_by_name():
+    names = ["difference_in_means", "bogus_estimator"]
+    with pytest.raises(ValueError, match="bogus_estimator"):
+        run_grid(_tiny_cross_section(replications=1), estimators=names)
+
+
+def test_restricting_estimators_does_not_change_the_values_of_the_rows_that_remain():
+    # Cheap config: one scenario, small n_units, few replications, and two
+    # fast analytic estimators -- no bootstrapped forest fits here.
+    config = _tiny_cross_section(n_units=(200,), replications=2)
+    names = ["difference_in_means", "lin_regression"]
+
+    full = run_grid(config)
+    restricted = run_grid(config, estimators=names)
+
+    subset = full[full.method.isin(names)].sort_values(["seed", "method"]).reset_index(drop=True)
+    restricted = restricted.sort_values(["seed", "method"]).reset_index(drop=True)
+
+    # check_dtype=False: `full` also carries ineligible/refused rows from
+    # other estimators, so its otherwise-integer columns (e.g. n_treated)
+    # are upcast to float64 by the NaNs those rows introduce. `restricted`
+    # has no such rows and keeps its integer dtype. The values themselves
+    # are what this test is about, not the incidental dtype.
+    pd.testing.assert_frame_equal(
+        subset.drop(columns=["runtime_seconds"]),
+        restricted.drop(columns=["runtime_seconds"]),
+        check_dtype=False,
+    )

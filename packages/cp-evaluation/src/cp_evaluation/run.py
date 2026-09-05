@@ -11,11 +11,12 @@ rather than as *fine*.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
-from cp_causal.registry import get_estimator
+from cp_causal.registry import all_estimators, get_estimator
 from cp_causal.router import route
 from cp_core.values import EstimatorConfig
 
@@ -136,9 +137,20 @@ def run_grid(
     *,
     root_entropy: int = 0,
     fit_config: EstimatorConfig | None = None,
+    estimators: Sequence[str] | None = None,
     _shuffle: np.random.Generator | None = None,
 ) -> pd.DataFrame:
     """Fit every eligible estimator in every cell, and record what happened.
+
+    `estimators`, if given, restricts the run to those estimator names rather
+    than every estimator in `cp_causal.registry.all_estimators()`. This
+    changes which rows exist: `ineligible` counts are then relative to the
+    requested set, not to the whole registry, so a run restricted to two
+    estimators reports at most two rows per cell rather than one per
+    registered estimator. An unknown name is refused by name rather than
+    silently dropped, matching `expand_cells`' refusal of an unknown
+    scenario -- a typo'd estimator name should not quietly produce a
+    benchmark that omits the method someone thought they were measuring.
 
     `_shuffle` exists only so a test can prove the output does not depend on
     evaluation order; it permutes the order cells are visited and nothing else.
@@ -150,10 +162,21 @@ def run_grid(
 
     fit_config = EstimatorConfig(random_seed=0) if fit_config is None else fit_config
 
+    registry = all_estimators()
+    if estimators is None:
+        candidates = None
+    else:
+        unknown = sorted(set(estimators) - set(registry))
+        if unknown:
+            raise ValueError(
+                f"unknown estimators {unknown}; available: {sorted(registry)}"
+            )
+        candidates = {name: registry[name] for name in estimators}
+
     rows: list[dict[str, object]] = []
     for cell in cells:
         resolved = resolve_cell(cell, root_entropy)
-        for decision in route(resolved.dataset):
+        for decision in route(resolved.dataset, candidates):
             method = decision.estimator_name
             if not decision.eligible:
                 rows.append(
