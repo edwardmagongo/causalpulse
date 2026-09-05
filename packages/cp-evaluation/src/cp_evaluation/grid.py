@@ -10,9 +10,12 @@ mean a field that is meaningless for half its instances.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+import numpy as np
 from cp_simulation.panel_scenarios import PANEL_SCENARIOS
 from cp_simulation.scenarios import SCENARIOS
 
@@ -141,3 +144,49 @@ def cell_sort_key(cell: Cell) -> tuple[object, ...]:
     if isinstance(cell, CrossSectionCell):
         return (0, cell.scenario, cell.n_units, cell.confounding_strength, cell.seed)
     return (1, cell.scenario, cell.n_units, cell.n_periods, cell.seed)
+
+
+def _identity_payload(cell: Cell) -> dict[str, object]:
+    """A cell's identity as JSON-serialisable data, tagged by shape.
+
+    The shape tag is part of the payload, not just of the sort key: without it
+    a `CrossSectionCell` and a `PanelCell` whose numbers coincide would hash to
+    the same stream.
+    """
+    if isinstance(cell, CrossSectionCell):
+        return {
+            "shape": "cross_section",
+            "scenario": cell.scenario,
+            "n_units": cell.n_units,
+            "confounding_strength": cell.confounding_strength,
+            "seed": cell.seed,
+        }
+    return {
+        "shape": "panel",
+        "scenario": cell.scenario,
+        "n_units": cell.n_units,
+        "n_periods": cell.n_periods,
+        "seed": cell.seed,
+    }
+
+
+def cell_rng(cell: Cell, root_entropy: int) -> np.random.Generator:
+    """The generator for one cell, derived from the cell's own identity.
+
+    Deliberately not `SeedSequence(root).spawn(i)` indexed by position in the
+    grid, which the parent spec's §8.1 suggests. Position-indexed spawning
+    gives order-independence but not configuration-stability: adding one value
+    to one axis renumbers every index, so every other cell's data changes even
+    though nothing about those cells did. Deriving from identity gives both,
+    and removes the migration a content-addressed cache would otherwise force.
+
+    sha256 over sorted JSON, not `hash()`, for the reason
+    `cp_simulation._hashing` already documents: `hash()` is salted per process,
+    so a stream derived from it would not reproduce across runs at all.
+    """
+    encoded = json.dumps(_identity_payload(cell), sort_keys=True).encode()
+    digest = hashlib.sha256(encoded).digest()
+    # Four 32-bit words is ample entropy to distinguish cells, and keeps the
+    # SeedSequence entropy vector short enough to stay readable when logged.
+    words = [int.from_bytes(digest[i : i + 4], "big") for i in range(0, 16, 4)]
+    return np.random.default_rng(np.random.SeedSequence([root_entropy, *words]))

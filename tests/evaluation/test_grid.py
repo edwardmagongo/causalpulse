@@ -1,3 +1,4 @@
+import numpy as np
 import pytest
 from cp_evaluation.grid import (
     CrossSectionAxes,
@@ -5,6 +6,7 @@ from cp_evaluation.grid import (
     GridConfig,
     PanelAxes,
     PanelCell,
+    cell_rng,
     expand_cells,
 )
 
@@ -131,3 +133,74 @@ def test_repeated_axis_values_are_deduplicated_to_prevent_double_weighting():
     assert len(cells) == 2
     assert all(c.scenario == "A" for c in cells)
     assert {c.seed for c in cells} == {0, 1}
+
+
+def test_the_same_cell_always_gets_the_same_stream():
+    cell = CrossSectionCell(scenario="D", n_units=500, confounding_strength=1.0, seed=0)
+
+    first = cell_rng(cell, root_entropy=12345).normal(size=5)
+    second = cell_rng(cell, root_entropy=12345).normal(size=5)
+
+    assert np.array_equal(first, second)
+
+
+def test_different_cells_get_different_streams():
+    a = CrossSectionCell(scenario="D", n_units=500, confounding_strength=1.0, seed=0)
+    b = CrossSectionCell(scenario="D", n_units=500, confounding_strength=1.0, seed=1)
+    c = CrossSectionCell(scenario="A", n_units=500, confounding_strength=1.0, seed=0)
+
+    draws = [tuple(cell_rng(x, root_entropy=1).normal(size=5)) for x in (a, b, c)]
+
+    assert len(set(draws)) == 3
+
+
+def test_a_different_root_changes_every_stream():
+    cell = PanelCell(scenario="P1", n_units=200, n_periods=6, seed=0)
+
+    assert not np.array_equal(
+        cell_rng(cell, root_entropy=1).normal(size=5),
+        cell_rng(cell, root_entropy=2).normal(size=5),
+    )
+
+
+def test_a_cell_s_stream_does_not_depend_on_the_rest_of_the_grid():
+    # This is what the spec's spawn(cell_index) scheme could not deliver, and
+    # is why this plan deviates from it: adding a value to any axis renumbers
+    # every index and silently changes every other cell's data.
+    small = GridConfig(
+        cross_section=CrossSectionAxes(
+            scenarios=("A",), n_units=(500,), confounding_strength=(1.0,)
+        ),
+        panel=None,
+        replications=1,
+    )
+    larger = GridConfig(
+        cross_section=CrossSectionAxes(
+            scenarios=("A", "D"), n_units=(500, 1000), confounding_strength=(1.0, 2.0)
+        ),
+        panel=None,
+        replications=4,
+    )
+
+    shared = CrossSectionCell(
+        scenario="A", n_units=500, confounding_strength=1.0, seed=0
+    )
+    assert shared in expand_cells(small)
+    assert shared in expand_cells(larger)
+
+    assert np.array_equal(
+        cell_rng(shared, root_entropy=7).normal(size=5),
+        cell_rng(shared, root_entropy=7).normal(size=5),
+    )
+
+
+def test_the_two_shapes_cannot_collide_on_one_stream():
+    # A cross-sectional cell and a panel cell with the same numbers must not
+    # share a stream just because their field values happen to coincide.
+    x = CrossSectionCell(scenario="X", n_units=200, confounding_strength=6.0, seed=0)
+    p = PanelCell(scenario="X", n_units=200, n_periods=6, seed=0)
+
+    assert not np.array_equal(
+        cell_rng(x, root_entropy=1).normal(size=5),
+        cell_rng(p, root_entropy=1).normal(size=5),
+    )
