@@ -1,43 +1,17 @@
 """Fixtures for tests in this directory.
 
-The registry is process-wide module state. Without isolation, a dummy estimator
-registered in one test remains visible to every later test in the session,
-corrupting test isolation.
-
-The snapshot/restore logic lives in `isolated_registry` rather than only inside
-the fixture so it can be tested directly, in one self-contained test, instead of
-relying on two top-level tests running in file order — an order-dependent pair
-passes vacuously when run alone or reordered.
-
-Restoring in place (`clear()` + `update()`) rather than rebinding
-`registry._REGISTRY` is deliberate: rebinding would leave any module that did
-`from cp_causal.registry import _REGISTRY` pointing at the stale dict. Nothing
-imports it that way today, so the two are currently equivalent — this is the
-form that stays correct if one ever does.
+`isolated_registry` and its autouse `_isolate_registry` fixture live in
+`tests/conftest.py` now, so every directory under `tests/` gets registry
+isolation, not just this one. `registry_isolation` stays here because nothing
+outside `tests/causal/` currently wants to assert on the context manager
+directly.
 """
 
-from collections.abc import Callable, Iterator
-from contextlib import AbstractContextManager, contextmanager
+from collections.abc import Callable
+from contextlib import AbstractContextManager
 
 import pytest
-from cp_causal import registry
-
-
-@contextmanager
-def isolated_registry() -> Iterator[None]:
-    """Restore the registry's contents on exit."""
-    saved = dict(registry._REGISTRY)
-    try:
-        yield
-    finally:
-        registry._REGISTRY.clear()
-        registry._REGISTRY.update(saved)
-
-
-@pytest.fixture(autouse=True)
-def _isolate_registry() -> Iterator[None]:
-    with isolated_registry():
-        yield
+from conftest import isolated_registry
 
 
 @pytest.fixture
