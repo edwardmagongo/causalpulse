@@ -11,6 +11,8 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 
+from cp_cli.commands import simulate
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -18,7 +20,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subcommands = parser.add_subparsers(dest="command", required=True)
 
-    subcommands.add_parser("simulate", help="Generate a scenario to CSV.")
+    simulate_parser = subcommands.add_parser("simulate", help="Generate a scenario to CSV.")
+    simulate.add_arguments(simulate_parser)
+    simulate_parser.set_defaults(handler=simulate.run)
+
     subcommands.add_parser("analyze", help="Fit estimators and record how to redo it.")
     subcommands.add_parser("replay", help="Refit from a manifest and compare.")
 
@@ -32,5 +37,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
-    parser.parse_args(argv)
-    return 0
+    args = parser.parse_args(argv)
+    handler = getattr(args, "handler", None)
+    if handler is None:
+        parser.error("no handler for that command")
+    result = handler(args)
+    assert isinstance(result, int)
+    return result
