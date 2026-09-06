@@ -11,7 +11,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 
-from cp_cli.commands import simulate
+from cp_cli.commands import analyze, simulate
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -24,7 +24,12 @@ def build_parser() -> argparse.ArgumentParser:
     simulate.add_arguments(simulate_parser)
     simulate_parser.set_defaults(handler=simulate.run)
 
-    subcommands.add_parser("analyze", help="Fit estimators and record how to redo it.")
+    analyze_parser = subcommands.add_parser(
+        "analyze", help="Fit estimators and record how to redo it."
+    )
+    analyze.add_arguments(analyze_parser)
+    analyze_parser.set_defaults(handler=analyze.run)
+
     subcommands.add_parser("replay", help="Refit from a manifest and compare.")
 
     bench = subcommands.add_parser("bench", help="Run and report the benchmark grid.")
