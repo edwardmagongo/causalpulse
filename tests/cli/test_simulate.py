@@ -71,6 +71,14 @@ def test_a_cross_sectional_scenario_with_n_periods_is_refused(tmp_path):
               "--seed", "0", "--out", str(tmp_path / "x.csv")])
 
 
+def test_a_panel_scenario_with_confounding_strength_is_refused(tmp_path):
+    # A panel generator has no confounding parameter; accepting the flag and
+    # ignoring it would let someone believe their --confounding-strength had an effect.
+    with pytest.raises(ValueError, match="--confounding-strength"):
+        main(["simulate", "--scenario", "P1", "--n-units", "100", "--n-periods", "6",
+              "--confounding-strength", "2.0", "--seed", "0", "--out", str(tmp_path / "x.csv")])
+
+
 def test_the_reference_suffix_replaces_only_the_final_dot(tmp_path):
     # A guess like `out.with_suffix("").with_suffix(".reference.json")` strips
     # every dot-segment, not just the extension: `my.data.csv` would become

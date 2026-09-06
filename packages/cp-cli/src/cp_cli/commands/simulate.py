@@ -35,7 +35,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--confounding-strength",
         type=float,
-        default=1.0,
+        default=None,
         help="Cross-sectional scenarios only.",
     )
     parser.add_argument("--n-periods", type=int, default=None, help="Panel scenarios only.")
@@ -57,6 +57,11 @@ def run(args: argparse.Namespace) -> int:
             f"cross-sectional scenario {scenario!r} has no period axis; --n-periods "
             "does not apply to it"
         )
+    if is_panel and args.confounding_strength is not None:
+        raise ValueError(
+            f"panel scenario {scenario!r} has no confounding parameter; --confounding-strength "
+            "does not apply to it"
+        )
 
     rng = np.random.default_rng(args.seed)
     out = Path(args.out)
@@ -70,12 +75,13 @@ def run(args: argparse.Namespace) -> int:
         )
         params = {"n_units": args.n_units, "n_periods": args.n_periods}
     else:
-        simulated = build_scenario(scenario, args.confounding_strength).generate(
+        confounding_strength = args.confounding_strength or 1.0
+        simulated = build_scenario(scenario, confounding_strength).generate(
             n_units=args.n_units, rng=rng
         )
         params = {
             "n_units": args.n_units,
-            "confounding_strength": args.confounding_strength,
+            "confounding_strength": confounding_strength,
         }
 
     simulated.dataset.frame.to_csv(out, index=False)
