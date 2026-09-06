@@ -400,3 +400,114 @@ TOLERANCE_BANDS: Mapping[tuple[str, str], tuple[Band, ...]] = {
     # size this phase already knows how to seed. Shipping it would read as
     # coverage while providing none.
 }
+
+
+# The estimators `ci` drops on cost are back: `full` runs on demand and has no
+# two-minute budget. synthetic_control and bsts stay out -- they need a
+# donor-pool cell shape this phase does not add, and would contribute nothing
+# but `ineligible` rows (see the module docstring's discussion of the same
+# exclusion for `ci`).
+FULL_ESTIMATORS: tuple[str, ...] = (
+    "difference_in_means",
+    "lin_regression",
+    "ipw",
+    "aipw",
+    "causal_forest",
+    "did_2x2",
+    "twfe",
+    "event_study",
+    "callaway_santanna",
+    "hierarchical_did",
+)
+
+# The EstimatorConfig default. `ci`'s 200 is a concession to its two-minute
+# runtime budget, and a tier run on demand should not inherit it.
+FULL_FIT_CONFIG = EstimatorConfig(random_seed=0, bootstrap_reps=1000)
+
+
+def full_config() -> GridConfig:
+    """The full study grid: every registered estimator against a wide axis set,
+    at `bootstrap_reps=1000`, run on demand rather than on every change.
+
+    This grid was measured in this tree (2026-09-05/06), not copied from the
+    parent spec's own §5 proposal, because running that proposal exposed three
+    problems in it:
+
+    1. **`n_periods=6` is invalid for four of the seven panel scenarios.**
+       The spec proposes `periods in {6, 10}` uniformly. Probing each
+       scenario's registry found the minimum viable `n_periods` is 5 for P1,
+       P2, and P6, but 7 for P3, P4, and P5, and 16 for P7. At
+       `n_periods=6`, P3/P4/P5 raise `ValueError: adoption periods must each
+       lie in [2, 6] so that at least one pre-period and one post-period
+       exist`. This tier therefore uses `n_periods=(7, 10)`, the smallest
+       pair that is valid for every scenario it keeps.
+
+    2. **Scenario P7 cannot share an axis with P1-P6 and is excluded.** Its
+       own registry docstring documents that it is generated "at this
+       scenario's own longer protocol: HIER_N_UNITS=600, HIER_N_PERIODS=20"
+       (`cp_simulation/panel_scenarios.py`), and needs `n_periods >= 16`.
+       `PanelAxes` carries one `n_periods` list applied to every scenario in
+       it -- there is no per-scenario override -- so including P7 would force
+       P1-P6 onto a 16+-period protocol they were not designed for, at a
+       large multiple of their measured cost, purely to accommodate one
+       scenario. P7 is dropped from `full_config()` instead; a reader
+       wondering where it went should read this paragraph. `ci_config()`
+       never surfaced this because it only ever used P1 and P2.
+
+    3. **The spec's 50 replications, n_units=(150, 500), and n_periods=(6, 10)
+       do not fit inside a reasonable on-demand budget.** Measured per-fit
+       cost at `bootstrap_reps=1000` in this tree: most estimators are
+       sub-second to ~2s/fit, but `aipw` is 6.47s, `causal_forest` 2.01s,
+       `twfe` 11.92s, `event_study` 12.32s, and `hierarchical_did` (a NUTS
+       sampler) is 24.8s/fit at panel n_units=150 and 79.7s/fit at
+       n_units=500. Extrapolating the spec's proposed grid from these
+       per-fit numbers puts one full run at roughly 35 hours, about 30 of
+       them from the panel arm alone. Two axes were reduced in response:
+
+       - **Panel `n_units=500` is dropped**, keeping only `n_units=(150,)`.
+         `hierarchical_did` alone costs 79.7s/fit at n_units=500 against
+         24.8s/fit at n_units=150 -- more than tripling the panel arm's cost
+         for one axis value, on top of already dropping P7 and moving to
+         `n_periods=(7, 10)`.
+       - **Replications is 10, not the spec's 50.** At 10 replications this
+         tier measures roughly 772.5s (353.4s cross-sectional + 419.1s
+         panel) per replication in this tree, i.e. about 2.1 hours total --
+         inside the brief's roughly-three-hour ceiling. 50 replications at
+         the same per-replication cost would be roughly 10.7 hours; even 20
+         would be 4.3 hours. 10 was chosen as the largest round number that
+         clears the ceiling with headroom.
+
+    MEASURED 2026-09-06, this tree, `run_grid(config, estimators=list(
+    FULL_ESTIMATORS), fit_config=FULL_FIT_CONFIG)` at `replications=1`: the
+    cross-sectional arm (7 scenarios x n_units=(500, 2000) x
+    confounding_strength=(0.5, 1.0, 2.0) = 42 cells) took 353.4s and
+    produced 420 rows (180 fitted, 210 ineligible, 30 refused -- the
+    refusals are scenario H's missing outcomes, exactly as expected); the
+    panel arm (6 scenarios x n_units=(150,) x n_periods=(7, 10) = 12 cells)
+    took 419.1s and produced 120 rows (54 fitted, 66 ineligible, 0 refused
+    -- the ineligible rows are the five cross-sectional-only estimators
+    routed away from every panel cell, plus a handful of panel-estimator/
+    cell-shape mismatches). Combined: 772.5s/replication across 540 rows
+    (234 fitted, 276 ineligible, 30 refused), extrapolating to ~2.1 hours
+    at the 10 replications shipped here. Neither arm raised.
+
+    Scenario H (missing outcomes) is included, unlike in `ci_config()`: its
+    rows are all refusals, which contributes no fitted rows to any band but
+    is worth recording once in a full study even though `ci` leaves it out
+    to save cost. `synthetic_control` and `bsts` are excluded from
+    `FULL_ESTIMATORS` above for the same donor-pool reason `ci` excludes
+    them.
+    """
+    return GridConfig(
+        cross_section=CrossSectionAxes(
+            scenarios=("A", "B", "C", "D", "F", "G", "H"),
+            n_units=(500, 2000),
+            confounding_strength=(0.5, 1.0, 2.0),
+        ),
+        panel=PanelAxes(
+            scenarios=("P1", "P2", "P3", "P4", "P5", "P6"),
+            n_units=(150,),
+            n_periods=(7, 10),
+        ),
+        replications=10,
+    )
