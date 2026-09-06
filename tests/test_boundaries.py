@@ -123,3 +123,24 @@ def test_the_evaluator_is_importable_and_sees_both_sides():
     import cp_evaluation  # noqa: F401
     from cp_causal.registry import all_estimators  # noqa: F401
     from cp_simulation.scenarios import build_scenario  # noqa: F401
+
+
+@pytest.mark.parametrize(
+    "module_name", ["cp_core", "cp_statistics", "cp_causal", "cp_evaluation"]
+)
+def test_nothing_may_import_the_cli(module_name):
+    # The CLI imports cp_evaluation, which sits at the top of the layers
+    # contract precisely so nothing can reach ground truth transitively
+    # through it. Placing cp_cli above the evaluator closes the same door one
+    # level higher; without this, an estimator could reach truth by importing
+    # the CLI.
+    module = __import__(module_name)
+
+    source_root = module.__path__[0]
+    offenders = subprocess.run(
+        ["grep", "-rn", "cp_cli", source_root], capture_output=True, text=True
+    )
+    assert offenders.returncode in (0, 1), offenders.stderr
+    assert offenders.stdout == "", (
+        f"{module_name} must never reference cp_cli:\n" + offenders.stdout
+    )
