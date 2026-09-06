@@ -166,14 +166,14 @@ class AnalysisManifest:
         # duplicating it. Imported inside the method, not at module scope,
         # because `cp_core.results` imports nothing from here but this module
         # would otherwise sit above it in import order for no reason.
-        from cp_core.results import _git_commit, _package_versions
+        from cp_core.results import git_commit, package_versions
 
         return cls(
             dataset=dataset,
             schema=schema,
             estimators=tuple(estimators),
-            package_versions=_package_versions(),
-            git_commit=_git_commit(),
+            package_versions=package_versions(),
+            git_commit=git_commit(),
             created_at=datetime.now(UTC),
         )
 

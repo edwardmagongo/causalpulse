@@ -11,7 +11,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 
-from cp_cli.commands import analyze, replay, simulate
+from cp_cli.commands import analyze, bench, replay, simulate
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -34,10 +34,16 @@ def build_parser() -> argparse.ArgumentParser:
     replay.add_arguments(replay_parser)
     replay_parser.set_defaults(handler=replay.run)
 
-    bench = subcommands.add_parser("bench", help="Run and report the benchmark grid.")
-    bench_commands = bench.add_subparsers(dest="bench_command", required=True)
-    bench_commands.add_parser("run", help="Run a tier and write its results.")
-    bench_commands.add_parser("report", help="Summarise a stored run.")
+    bench_parser = subcommands.add_parser("bench", help="Run and report the benchmark grid.")
+    bench_commands = bench_parser.add_subparsers(dest="bench_command", required=True)
+
+    bench_run = bench_commands.add_parser("run", help="Run a tier and write its results.")
+    bench.add_run_arguments(bench_run)
+    bench_run.set_defaults(handler=bench.run_tier)
+
+    bench_report = bench_commands.add_parser("report", help="Summarise a stored run.")
+    bench.add_report_arguments(bench_report)
+    bench_report.set_defaults(handler=bench.report)
 
     return parser
 

@@ -157,8 +157,8 @@ class FitMetadata:
     ) -> FitMetadata:
         return cls(
             estimator=estimator,
-            package_versions=_package_versions(),
-            git_commit=_git_commit(),
+            package_versions=package_versions(),
+            git_commit=git_commit(),
             config_hash=config_hash,
             platform=platform_module.platform(),
             runtime_seconds=runtime_seconds,
@@ -167,7 +167,15 @@ class FitMetadata:
         )
 
 
-def _package_versions() -> dict[str, str]:
+def package_versions() -> dict[str, str]:
+    """The installed version of every package tracked for reproduction.
+
+    Public because more than `FitMetadata.capture` needs to record what
+    produced a result -- `AnalysisManifest.capture` (`cp_core.manifest`) does
+    the same for an analysis, and a benchmark run's own provenance sidecar
+    does it for a stored benchmark. All such callers should read the one
+    implementation rather than each growing (and drifting from) their own.
+    """
     versions: dict[str, str] = {}
     for name in _TRACKED_PACKAGES:
         try:
@@ -177,7 +185,7 @@ def _package_versions() -> dict[str, str]:
     return versions
 
 
-def _git_commit() -> str | None:
+def git_commit() -> str | None:
     """Best-effort commit capture; absence is recorded rather than raising."""
     try:
         result = subprocess.run(
