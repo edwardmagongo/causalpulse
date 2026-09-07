@@ -27,6 +27,7 @@ members = [
     "cp-cli",
     "cp-core",
     "cp-evaluation",
+    "cp-figures",
     "cp-simulation",
     "cp-statistics",
 ]
@@ -104,6 +105,7 @@ dependencies = [
     { name = "cp-cli" },
     { name = "cp-core" },
     { name = "cp-evaluation" },
+    { name = "cp-figures" },
     { name = "cp-simulation" },
     { name = "cp-statistics" },
 ]
@@ -130,6 +132,7 @@ requires-dist = [
     { name = "cp-cli", editable = "packages/cp-cli" },
     { name = "cp-core", editable = "packages/cp-core" },
     { name = "cp-evaluation", editable = "packages/cp-evaluation" },
+    { name = "cp-figures", editable = "packages/cp-figures" },
     { name = "cp-simulation", editable = "packages/cp-simulation" },
     { name = "cp-statistics", editable = "packages/cp-statistics" },
 ]
@@ -433,6 +436,25 @@ requires-dist = [
     { name = "cp-core", editable = "packages/cp-core" },
     { name = "cp-simulation", editable = "packages/cp-simulation" },
     { name = "cp-statistics", editable = "packages/cp-statistics" },
+    { name = "numpy", specifier = ">=2.0" },
+    { name = "pandas", specifier = ">=2.2" },
+]
+
+[[package]]
+name = "cp-figures"
+version = "0.1.0"
+source = { editable = "packages/cp-figures" }
+dependencies = [
+    { name = "cp-core" },
+    { name = "matplotlib" },
+    { name = "numpy" },
+    { name = "pandas" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "cp-core", editable = "packages/cp-core" },
+    { name = "matplotlib", specifier = ">=3.9" },
     { name = "numpy", specifier = ">=2.0" },
     { name = "pandas", specifier = ">=2.2" },
 ]

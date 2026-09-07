@@ -144,3 +144,22 @@ def test_nothing_may_import_the_cli(module_name):
     assert offenders.stdout == "", (
         f"{module_name} must never reference cp_cli:\n" + offenders.stdout
     )
+
+
+@pytest.mark.parametrize(
+    "module_name", ["cp_core", "cp_statistics", "cp_causal", "cp_evaluation"]
+)
+def test_nothing_below_may_import_the_figures(module_name):
+    # Plotting is a presentation concern. If an estimator could import the
+    # figures package it would acquire a matplotlib dependency, and the layer
+    # that exists to keep estimation free of presentation would mean nothing.
+    module = __import__(module_name)
+
+    source_root = module.__path__[0]
+    offenders = subprocess.run(
+        ["grep", "-rn", "cp_figures", source_root], capture_output=True, text=True
+    )
+    assert offenders.returncode in (0, 1), offenders.stderr
+    assert offenders.stdout == "", (
+        f"{module_name} must never reference cp_figures:\n" + offenders.stdout
+    )
