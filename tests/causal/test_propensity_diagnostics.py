@@ -26,11 +26,34 @@ def test_it_exposes_the_scores_it_actually_weighted_with(name):
     assert np.all(np.isfinite(scores))
 
 
+def _fit_with_extreme_overlap(name):
+    # Scenario D at its default confounding_strength=1.0 (what `_fit` above
+    # uses) never actually trims on this seed: the raw logistic scores land
+    # in [0.0267, 0.9723], comfortably inside [POSITIVITY_THRESHOLD,
+    # 1 - POSITIVITY_THRESHOLD]. A test built on that fixture would pass
+    # identically whether `per_unit_propensity` carried the trimmed or the
+    # raw scores, because there would be nothing to tell them apart.
+    #
+    # Doubling the confounding strength sharpens assignment enough that some
+    # raw scores fall outside the trim bounds. Measured directly: at
+    # strength=2.0, n_units=200, seed=1, 8 of 200 units get clipped for both
+    # ipw and aipw, and the exposed scores sit exactly on the trim bounds
+    # (0.01 / 0.99) -- so this fixture actually exercises trimming.
+    dataset = build_scenario("D", 2.0).generate(
+        n_units=200, rng=np.random.default_rng(1)
+    ).dataset
+    return dataset, get_estimator(name)().fit(dataset, CONFIG)
+
+
 @pytest.mark.parametrize("name", ["ipw", "aipw"])
 def test_the_exposed_scores_are_the_trimmed_ones(name):
     # The figure must show the scores the estimate was built from. Untrimmed
     # scores would display an overlap problem the estimate did not face.
-    _, estimate = _fit(name)
+    _, estimate = _fit_with_extreme_overlap(name)
+
+    # Guard the fixture itself: if a future change stops it from trimming,
+    # the assertions below would pass vacuously again. Fail loudly instead.
+    assert estimate.diagnostics["n_trimmed"].value > 0
 
     scores = estimate.diagnostics["per_unit_propensity"].value
 
