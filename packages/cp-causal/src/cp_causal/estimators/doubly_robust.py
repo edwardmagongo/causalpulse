@@ -231,6 +231,7 @@ class AugmentedIPW:
         weights = np.where(
             treatment == 1, 1.0 / fitted.scores, 1.0 / (1.0 - fitted.scores)
         )
+        smd_before = standardised_mean_differences(covariates, treatment)
         smd_after = standardised_mean_differences(covariates, treatment, weights)
         control_mean = float(outcome[treatment == 1].mean()) - point
 
@@ -272,6 +273,36 @@ class AugmentedIPW:
                 ),
                 "bootstrap_degenerate_replicates": degeneracy_diagnostic(
                     bootstrap_result.n_degenerate, min_arm_size=25
+                ),
+                "per_unit_propensity": Diagnostic(
+                    name="per_unit_propensity",
+                    value=fitted.scores,
+                    unit="probability",
+                    interpretation=(
+                        "Estimated P(treated | covariates) per unit, after "
+                        f"clipping to the trim bounds {fitted.trim_bounds}. These "
+                        "are the scores the weights were built from, not an "
+                        "untrimmed refit."
+                    ),
+                ),
+                "smd_before": Diagnostic(
+                    name="smd_before",
+                    value=smd_before,
+                    unit="standard deviations",
+                    interpretation=(
+                        "Per-covariate standardised mean difference between arms "
+                        "before weighting, in schema covariate order."
+                    ),
+                ),
+                "smd_after": Diagnostic(
+                    name="smd_after",
+                    value=smd_after,
+                    unit="standard deviations",
+                    interpretation=(
+                        "The same comparison after weighting. The pair is what a "
+                        "love plot shows; the gap between them is what the "
+                        "weighting corrected."
+                    ),
                 ),
             },
             assumptions=overlap_checks(fitted.scores, treatment, smd_after),
