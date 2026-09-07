@@ -445,6 +445,7 @@ name = "cp-figures"
 version = "0.1.0"
 source = { editable = "packages/cp-figures" }
 dependencies = [
+    { name = "cp-causal" },
     { name = "cp-core" },
     { name = "matplotlib" },
     { name = "numpy" },
@@ -454,6 +455,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cp-causal", editable = "packages/cp-causal" },
     { name = "cp-core", editable = "packages/cp-core" },
     { name = "matplotlib", specifier = ">=3.9" },
     { name = "numpy", specifier = ">=2.0" },
