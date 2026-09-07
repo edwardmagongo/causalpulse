@@ -131,33 +131,37 @@ class OverlapData:
     and a generated `__eq__` would raise on the ambiguous truth value of an
     array comparison rather than compare.
 
-    `trimmed` records that `treated_scores`/`control_scores` were read from
-    the `per_unit_propensity` diagnostic -- which, at every point it is
-    produced in `cp_causal` (`weighting.py`, `doubly_robust.py`), is
-    documented to always hold the post-clip scores the weights were
-    actually built from, never an unclipped refit. It is a claim about
-    *which* diagnostic these scores came from, not an empirical claim that
-    this particular fit clipped at least one unit -- `overlap_data` has no
-    way to test the latter, since `per_unit_propensity` never exposes an
-    unclipped counterpart to compare against.
+    `n_trimmed` is the count of units the estimator's own `n_trimmed`
+    `Diagnostic` reports as clipped to the trim bounds (see
+    `weighting.py`/`doubly_robust.py`, where it is computed as
+    `fitted.trimmed_mask.sum()` on the same fit that produced
+    `treated_scores`/`control_scores`). It is an empirical claim -- "this
+    many units actually hit a bound" -- not a claim that the scores shown
+    are the trimmed ones; that provenance claim is always true regardless of
+    this count and belongs on the axis label in `draw_overlap`, not here.
+    `n_trimmed` can legitimately be zero: on a fit with no extreme scores,
+    reading `per_unit_propensity` is still correct, and this field says so
+    honestly rather than claiming trimming occurred when it did not.
 
-    `trim_bounds` is the realized `(min, max)` of the combined
-    `per_unit_propensity` array. `cp_causal`'s estimators do not expose the
-    propensity clip point as a structured diagnostic -- it is only
-    interpolated into a free-text interpretation string
-    (`PropensityFit.trim_bounds`, via `Diagnostic.interpretation`) -- so
-    there is no typed field `overlap_data` can read it from. This realized
-    range equals the estimator's configured clip point only where at least
-    one unit landed exactly on that bound; otherwise it is merely the
-    tightest range this fit actually produced. It is still an honest fact
-    about the scores being drawn, and does not risk disagreeing with a
-    non-default `trim` option the way a hardcoded default would.
+    `score_range` is the realized `(min, max)` of the combined
+    `per_unit_propensity` array actually drawn. `cp_causal`'s estimators do
+    not expose the propensity clip point itself as a structured
+    diagnostic -- it is only interpolated into a free-text interpretation
+    string (`PropensityFit.trim_bounds`, via `Diagnostic.interpretation`),
+    and the clip point is configurable per fit (`EstimatorConfig.options`,
+    read through `resolve_trim`), so it cannot be assumed to equal
+    `POSITIVITY_THRESHOLD` either. There is no typed field `overlap_data`
+    can read the configured clip point from, so this field deliberately does
+    not claim to be that clip point -- it is named for what it actually is,
+    the range of the scores on the axes, which equals the configured clip
+    point only where at least one unit on each side landed exactly on that
+    bound.
     """
 
     treated_scores: np.ndarray
     control_scores: np.ndarray
-    trim_bounds: tuple[float, float]
-    trimmed: bool
+    score_range: tuple[float, float]
+    n_trimmed: int
 
 
 def overlap_data(estimate: EffectEstimate, treatment: np.ndarray) -> OverlapData:
@@ -171,6 +175,11 @@ def overlap_data(estimate: EffectEstimate, treatment: np.ndarray) -> OverlapData
     Refuses when `treatment` does not have one entry per score: a mismatched
     length would split the scores at the wrong index silently rather than
     refuse.
+
+    `n_trimmed` is read from the estimator's own `n_trimmed` diagnostic
+    (a `KeyError` propagates the same way as for `per_unit_propensity` if it
+    is absent), not recomputed here, so it always reflects the same fit that
+    produced `treated_scores`/`control_scores`.
     """
     scores = np.asarray(estimate.diagnostics["per_unit_propensity"].value, dtype=float)
     treatment = np.asarray(treatment)
@@ -184,18 +193,21 @@ def overlap_data(estimate: EffectEstimate, treatment: np.ndarray) -> OverlapData
     return OverlapData(
         treated_scores=scores[treatment == 1],
         control_scores=scores[treatment == 0],
-        trim_bounds=(float(scores.min()), float(scores.max())),
-        trimmed=True,
+        score_range=(float(scores.min()), float(scores.max())),
+        n_trimmed=int(estimate.diagnostics["n_trimmed"].value),
     )
 
 
 def draw_overlap(data: OverlapData, ax: Axes) -> Axes:
     """Draw both arms' propensity-score distributions on `ax`, with a legend.
 
-    The x-axis label states the scores are trimmed (see `OverlapData.trimmed`
-    and the module docstring): an untrimmed distribution would display an
-    overlap problem the estimate did not actually face, so the label makes
-    clear these are the scores the estimator weighted with, not a raw refit.
+    The x-axis label states the scores are trimmed (see the module
+    docstring): an untrimmed distribution would display an overlap problem
+    the estimate did not actually face, so the label makes clear these are
+    the scores the estimator weighted with, not a raw refit. That claim is
+    about provenance -- which diagnostic the scores were read from -- and is
+    always true regardless of `OverlapData.n_trimmed`, which is a separate,
+    empirical claim about how many units actually hit a bound on this fit.
     """
     ax.hist(data.treated_scores, bins=20, alpha=0.5, label="treated")
     ax.hist(data.control_scores, bins=20, alpha=0.5, label="control")
