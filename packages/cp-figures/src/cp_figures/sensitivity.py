@@ -10,13 +10,14 @@ module exists to close off:
   specification space was actually explored, so `draw_specification_curve`
   states it in the title whenever `capped` is `True`.
 - `PlaceboTestResult.p_value` is not one statistic across every producer of
-  that type, and the type's own docstring says so directly: three of
-  `FalsificationResult`'s four slots (`placebo_dates`, `randomization_inference`,
-  and the negative-control-adjacent uses) rank the absolute effect against
-  absolute placebo effects, while the fourth, `placebo_units` on a donor
-  pool, carries Abadie's post-to-pre-period RMSPE ratio rank instead. Both
-  read the same way on their own -- a rank p-value on `[0, 1]` -- but they
-  are not comparable to each other as measurements of the same quantity.
+  that type, and the type's own docstring says so directly: of
+  `FalsificationResult`'s three `PlaceboTestResult`-typed slots, two
+  (`placebo_dates`, `randomization_inference`) rank the absolute effect
+  against absolute placebo effects, while the third, `placebo_units` on a
+  donor pool, carries Abadie's post-to-pre-period RMSPE ratio rank instead.
+  Both read the same way on their own -- a rank p-value on `[0, 1]` -- but
+  they are not comparable to each other as measurements of the same
+  quantity.
   `placebo_data` therefore takes the statistic's name from its caller as a
   required, keyword-only argument with no default, so a caller cannot forget
   to say which one it is, and `draw_placebo` names it in the figure rather
