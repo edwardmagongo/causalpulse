@@ -80,13 +80,46 @@ def test_drawing_a_forest_plot_puts_the_points_on_the_axes(ax):
 
 
 def test_drawing_a_forest_plot_labels_every_row_with_its_estimand(ax):
+    # Presence checks (any(...)) cannot catch a mispaired zip: if the
+    # drawing code paired estimand and method out of order, "ATE" and "ATT"
+    # would both still be present somewhere in the label list even though
+    # each row now names the wrong estimand for its method. Assert the
+    # pairing itself, per row.
     data = forest_plot_data([_estimate("ipw", "ATE"), _estimate("twfe", "ATT")])
 
     draw_forest_plot(data, ax)
 
     labels = [t.get_text() for t in ax.get_yticklabels()]
-    assert any("ATE" in label for label in labels)
-    assert any("ATT" in label for label in labels)
+    assert labels == ["ipw (ATE)", "twfe (ATT)"]
+    for method, estimand, label in zip(data.methods, data.estimands, labels, strict=True):
+        assert label == f"{method} ({estimand})"
+
+
+def test_drawing_a_forest_plot_draws_the_error_bars_spanning_the_interval(ax):
+    # The lower_err/upper_err computation lives only inside draw_forest_plot
+    # (by design), so the only way to catch a swapped xerr construction is
+    # to inspect the drawn whisker geometry. Bounds are deliberately
+    # asymmetric around each point -- a symmetric fixture would render
+    # identically whether or not lower_err/upper_err were swapped.
+    data = forest_plot_data(
+        [
+            _estimate("ipw", point=0.25, lo=0.05, hi=0.45),
+            _estimate("twfe", point=0.30, lo=0.20, hi=0.33),
+        ]
+    )
+
+    draw_forest_plot(data, ax)
+
+    # ax.errorbar's ErrorbarContainer.lines is (points, caps, bar_LineCollections);
+    # lines[2][0] is the horizontal-error LineCollection, whose segments are
+    # [[x_min, y], [x_max, y]] per row, in input order (verified empirically
+    # on matplotlib 3.11.1).
+    segments = ax.containers[0].lines[2][0].get_segments()
+    assert len(segments) == len(data.methods)
+    for segment, lo, hi in zip(segments, data.lower, data.upper, strict=True):
+        (x_min, _), (x_max, _) = segment
+        assert x_min == pytest.approx(lo)
+        assert x_max == pytest.approx(hi)
 
 
 def test_drawing_returns_the_axes_it_was_given(ax):
