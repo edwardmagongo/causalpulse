@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 from cp_core.results import EffectEstimate, FitMetadata
 from cp_core.values import Diagnostic, Interval
-from cp_figures.panel import draw_event_study, event_study_data
+from cp_figures.panel import EventStudyData, draw_event_study, event_study_data
 from scipy.stats import norm
 
 # Independently computed rather than imported from `cp_figures.panel`: the
@@ -207,6 +207,54 @@ def test_drawing_marks_the_reference_horizon_without_an_error_bar(ax):
     # An empty bar-line collection is what proves "no error bar" -- not
     # merely that this point lives in a different container from the rest.
     assert len(reference_container.lines[2]) == 0
+
+
+def _asymmetric_event_study_data():
+    # Constructed directly rather than through event_study_data: that
+    # function always builds `lower`/`upper` as a symmetric
+    # `coefficient +/- critical_value * se`, so it can never produce the
+    # asymmetric margins this test needs. Each estimated horizon's lower
+    # and upper margins differ from each other (asymmetric within a
+    # horizon) and from every other horizon's margins (not a shared
+    # constant) -- so a swapped `(lower_err, upper_err)` construction and a
+    # constant-margin substitution both change the asserted numbers.
+    return EventStudyData(
+        horizons=np.array([-2.0, -1.0, 0.0, 1.0]),
+        coefficients=np.array([0.10, 0.0, 0.40, 0.60]),
+        lower=np.array([0.02, 0.0, 0.10, 0.55]),
+        upper=np.array([0.25, 0.0, 0.50, 0.63]),
+        is_reference=(False, True, False, False),
+        reference_horizon=-1.0,
+    )
+
+
+def test_drawing_draws_error_bars_spanning_the_stored_interval(ax):
+    # lower_err/upper_err are computed only inside draw_event_study (by
+    # design), so the only way to catch a wrong magnitude or a swapped
+    # (lower_err, upper_err) construction is to inspect the drawn whisker
+    # geometry itself. See _asymmetric_event_study_data for why the fixture
+    # must be asymmetric: a symmetric fixture would render identically
+    # whether or not lower_err and upper_err were swapped.
+    data = _asymmetric_event_study_data()
+
+    draw_event_study(data, ax)
+
+    estimated_container = ax.containers[0]
+    # `lines[2][0]` is the vertical-error LineCollection; each segment is
+    # [[x, y_min], [x, y_max]] per point, in input order (verified
+    # empirically on matplotlib 3.11.1, the same way test_effects.py
+    # verified the horizontal-error case).
+    segments = estimated_container.lines[2][0].get_segments()
+    is_reference = np.asarray(data.is_reference, dtype=bool)
+    estimated = ~is_reference
+    expected_lower = data.lower[estimated]
+    expected_upper = data.upper[estimated]
+
+    assert len(segments) == int(np.sum(estimated))
+    for segment, lo, hi in zip(segments, expected_lower, expected_upper, strict=True):
+        (_, y_min), (_, y_max) = segment
+        assert y_min == pytest.approx(lo)
+        assert y_max == pytest.approx(hi)
 
 
 def test_drawing_draws_a_zero_reference_line(ax):
