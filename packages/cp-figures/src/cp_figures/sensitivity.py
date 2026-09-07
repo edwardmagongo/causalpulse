@@ -167,7 +167,22 @@ def placebo_data(result: PlaceboTestResult, *, statistic: str) -> PlaceboData:
     module docstring), so there is no reasonable default to fall back on,
     and a caller must say which rank statistic this particular result's
     `p_value` is.
+
+    Refuses when `placebo_effects` is empty. `cp_causal.sensitivity._rank_p_value`
+    stacks the real effect with the placebo effects and ranks the real effect
+    within that stack, so a zero-placebo run always produces the same
+    deterministic `p_value` of `1.0` regardless of what the real effect was --
+    it reports nothing about how extreme the real effect is, because there is
+    nothing to rank it against. Drawing that case would put up a histogram
+    with no visible bars next to a real-effect marker and a p-value that
+    reads as an ordinary result, which misstates what was measured; refusing
+    here says so instead of drawing it.
     """
+    if result.placebo_effects.size == 0:
+        raise ValueError(
+            "cannot draw a placebo distribution with zero placebo effects: "
+            "there is nothing to rank the real effect against"
+        )
     return PlaceboData(
         placebo_effects=np.asarray(result.placebo_effects, dtype=float),
         real_effect=result.real_effect,

@@ -176,6 +176,14 @@ def overlap_data(estimate: EffectEstimate, treatment: np.ndarray) -> OverlapData
     length would split the scores at the wrong index silently rather than
     refuse.
 
+    Also refuses when either arm has zero units after the split -- e.g. a
+    dataset where every unit was treated. `draw_overlap` histograms each arm
+    independently; an empty arm would still add a legend entry for that arm
+    while drawing no visible bars behind it, which reads as an ordinary
+    (if narrow) distribution rather than the total absence of a comparison
+    group that it actually is. There is no overlap to display when one side
+    is empty, so this refuses rather than drawing that.
+
     `n_trimmed` is read from the estimator's own `n_trimmed` diagnostic
     (a `KeyError` propagates the same way as for `per_unit_propensity` if it
     is absent), not recomputed here, so it always reflects the same fit that
@@ -190,9 +198,18 @@ def overlap_data(estimate: EffectEstimate, treatment: np.ndarray) -> OverlapData
             f"has {scores.shape[0]}"
         )
 
+    treated_scores = scores[treatment == 1]
+    control_scores = scores[treatment == 0]
+    if treated_scores.size == 0 or control_scores.size == 0:
+        empty_arm = "treated" if treated_scores.size == 0 else "control"
+        raise ValueError(
+            f"cannot draw an overlap figure: the {empty_arm} arm has zero units, "
+            "so there is no overlap between arms to display"
+        )
+
     return OverlapData(
-        treated_scores=scores[treatment == 1],
-        control_scores=scores[treatment == 0],
+        treated_scores=treated_scores,
+        control_scores=control_scores,
         score_range=(float(scores.min()), float(scores.max())),
         n_trimmed=int(estimate.diagnostics["n_trimmed"].value),
     )

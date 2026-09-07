@@ -146,16 +146,44 @@ def draw_counterfactual_path(data: CounterfactualPathData, ax: Axes) -> Axes:
     that says what would have happened without treatment, not the treatment
     effect itself. Calling it the effect's interval would misstate what it
     shows.
+
+    Both series are drawn with a point marker, not a bare line: `ax.plot`
+    with the default style draws nothing visible for a single-period path --
+    a lone point with no marker is not a rendered line segment -- which
+    would silently produce a blank axes while still succeeding. A marker
+    keeps a single period visible without changing how a longer path reads.
+
+    A length-one path's band gets the same treatment for the same reason:
+    `ax.fill_between` needs at least two x-positions to have any width, so at
+    one period it would fill a zero-width sliver -- invisible, despite
+    `Axes.legend` still carrying its label as if something had been drawn.
+    `ax.vlines` draws that one period's band as a visible vertical segment
+    instead; a path of two or more periods keeps the filled band.
     """
-    ax.plot(data.periods, data.observed, label="observed")
-    ax.plot(data.periods, data.predicted, label="counterfactual (predicted absent treatment)")
-    ax.fill_between(
+    ax.plot(data.periods, data.observed, marker="o", label="observed")
+    ax.plot(
         data.periods,
-        data.lower,
-        data.upper,
-        alpha=0.2,
-        label="counterfactual uncertainty band",
+        data.predicted,
+        marker="o",
+        label="counterfactual (predicted absent treatment)",
     )
+    if len(data.periods) == 1:
+        ax.vlines(
+            data.periods,
+            data.lower,
+            data.upper,
+            alpha=0.4,
+            linewidth=6,
+            label="counterfactual uncertainty band",
+        )
+    else:
+        ax.fill_between(
+            data.periods,
+            data.lower,
+            data.upper,
+            alpha=0.2,
+            label="counterfactual uncertainty band",
+        )
     ax.set_xlabel("period")
     ax.set_ylabel("outcome")
     ax.legend()
