@@ -1,9 +1,9 @@
 import dataclasses
 
 import pytest
-from cp_core.results import EffectEstimate, FitMetadata
+from cp_core.results import EffectEstimate, FitMetadata, SpecificationPoint
 from cp_core.values import Interval
-from cp_figures.guards import require_interval
+from cp_figures.guards import require_interval, require_specification_interval
 
 
 def _estimate(**overrides):
@@ -67,3 +67,45 @@ def test_a_degenerate_interval_is_not_treated_as_missing():
     estimate = _estimate(ci=Interval(lower=0.25, upper=0.25, level=0.95))
 
     assert require_interval(estimate, "forest plot").lower == 0.25
+
+
+def _specification_point(**overrides):
+    base = dict(
+        specification={"trim": 0.01},
+        point=0.20,
+        ci=Interval(lower=0.05, upper=0.35, level=0.95),
+    )
+    base.update(overrides)
+    return SpecificationPoint(**base)
+
+
+def test_require_specification_interval_returns_the_interval_when_one_is_present():
+    point = _specification_point()
+
+    assert require_specification_interval(point, 0, "specification curve") is point.ci
+
+
+def test_require_specification_interval_raises_when_the_interval_is_missing():
+    # SpecificationPoint.ci carries the identical hazard as EffectEstimate.ci
+    # (see the guards module docstring): it is typed Interval, not
+    # Interval | None, and SpecificationCurve.__post_init__ never inspects
+    # it, so dataclasses.replace(..., ci=None) constructs successfully
+    # despite the static type.
+    point = dataclasses.replace(_specification_point(), ci=None)
+
+    with pytest.raises(ValueError, match="without an interval"):
+        require_specification_interval(point, 0, "specification curve")
+
+
+def test_require_specification_interval_names_the_figure_and_the_index():
+    point = dataclasses.replace(_specification_point(), ci=None)
+
+    with pytest.raises(ValueError, match="specification curve") as excinfo:
+        require_specification_interval(point, 2, "specification curve")
+    assert "2" in str(excinfo.value)
+
+
+def test_require_specification_interval_degenerate_interval_is_not_missing():
+    point = _specification_point(ci=Interval(lower=0.25, upper=0.25, level=0.95))
+
+    assert require_specification_interval(point, 0, "specification curve").lower == 0.25

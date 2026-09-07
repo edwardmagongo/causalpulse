@@ -32,6 +32,8 @@ import numpy as np
 from cp_core.results import PlaceboTestResult, SpecificationCurve
 from matplotlib.axes import Axes
 
+from cp_figures.guards import require_specification_interval
+
 
 @dataclass(frozen=True)
 class SpecificationCurveData:
@@ -67,15 +69,25 @@ def specification_curve_data(curve: SpecificationCurve) -> SpecificationCurveDat
     `original_index` landed in that sorted order -- rather than sorting the
     point values and searching for a match, which a tie would make
     ambiguous. See `SpecificationCurveData.original_position`.
+
+    Calls `require_specification_interval` for every row before anything is
+    drawn, so a specification hand-built or `dataclasses.replace`-mutated to
+    carry `ci=None` (see `cp_figures.guards`) fails here with a clear error
+    naming which specification, rather than crashing inside `draw_specification_curve`
+    with an unhelpful `AttributeError`.
     """
     order = sorted(
         range(len(curve.specifications)), key=lambda i: curve.specifications[i].point
     )
     original_position = order.index(curve.original_index)
 
+    intervals = [
+        require_specification_interval(curve.specifications[i], i, "specification curve")
+        for i in order
+    ]
     points = tuple(curve.specifications[i].point for i in order)
-    lower = tuple(curve.specifications[i].ci.lower for i in order)
-    upper = tuple(curve.specifications[i].ci.upper for i in order)
+    lower = tuple(interval.lower for interval in intervals)
+    upper = tuple(interval.upper for interval in intervals)
 
     return SpecificationCurveData(
         points=points,

@@ -1,3 +1,5 @@
+import dataclasses
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
@@ -91,6 +93,22 @@ def test_ties_in_point_estimate_do_not_break_original_tracking():
     assert data.original_position == 2
     assert data.lower[data.original_position] == pytest.approx(0.15)
     assert data.upper[data.original_position] == pytest.approx(0.25)
+
+
+def test_specification_curve_data_raises_without_an_interval():
+    # SpecificationPoint.ci is typed Interval, not Interval | None, and
+    # SpecificationCurve.__post_init__ validates only `specifications` and
+    # `original_index`, never any specification's `ci` -- the same hazard
+    # `cp_figures.guards.require_interval` closes for EffectEstimate. Without
+    # a matching guard here, this would instead crash inside
+    # specification_curve_data with an unhelpful `AttributeError` on
+    # `NoneType.lower`.
+    specs = list(_curve().specifications)
+    specs[0] = dataclasses.replace(specs[0], ci=None)
+    curve = SpecificationCurve(specifications=tuple(specs), original_index=1, capped=False)
+
+    with pytest.raises(ValueError, match="without an interval"):
+        specification_curve_data(curve)
 
 
 def test_a_capped_curve_says_so():

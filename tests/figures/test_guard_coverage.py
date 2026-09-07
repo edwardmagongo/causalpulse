@@ -48,7 +48,13 @@ verified by reading every `*_data` function in `cp_figures.effects`,
   `CounterfactualPath`, not an `EffectEstimate` at all.
 - `specification_curve_data` (`cp_figures.sensitivity`) takes a
   `SpecificationCurve`, whose rows are `SpecificationPoint` -- a distinct
-  type with its own `ci: Interval` field -- not `EffectEstimate`.
+  type with its own `ci: Interval` field -- not `EffectEstimate`, so it does
+  not belong in `ESTIMATE_CONSUMERS` below. It carries the identical hazard
+  under a different type, though, and is guarded by
+  `guards.require_specification_interval`, `require_interval`'s sibling for
+  that type; `tests/figures/test_sensitivity.py` proves that guard is
+  actually reached, the way this file proves `require_interval` is reached
+  for `ESTIMATE_CONSUMERS`.
   `placebo_data` (`cp_figures.sensitivity`) takes a `PlaceboTestResult`,
   which carries no `ci` field at all.
 - `heatmap_data` (`cp_figures.benchmark`) takes a `pandas.DataFrame`
