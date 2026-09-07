@@ -30,6 +30,22 @@ TINY_SCHEMA = CausalSchema(
 )
 
 
+def _assert_diagnostics_match(replayed, original):
+    # Diagnostic.value is typed `float | np.ndarray` (per_unit_propensity,
+    # smd_before, smd_after are arrays). Diagnostic keeps the dataclass
+    # default eq=True since most diagnostics are scalar, but `==` on a pair
+    # holding arrays returns an array rather than a bool, so a dict-level
+    # `==` over `diagnostics` raises "truth value of an array is ambiguous"
+    # instead of comparing. Compared field-by-field here instead.
+    assert replayed.keys() == original.keys()
+    for key, replayed_diag in replayed.items():
+        original_diag = original[key]
+        assert replayed_diag.name == original_diag.name, key
+        assert replayed_diag.unit == original_diag.unit, key
+        assert replayed_diag.interpretation == original_diag.interpretation, key
+        assert np.array_equal(replayed_diag.value, original_diag.value), key
+
+
 def _assert_estimates_match_except_provenance(replayed, original):
     # EffectEstimate and FitMetadata both declare eq=False (an unhashable
     # package_versions mapping forced the choice), so `==` on either is
@@ -46,12 +62,12 @@ def _assert_estimates_match_except_provenance(replayed, original):
         "n_treated",
         "n_control",
         "scale",
-        "diagnostics",
         "assumptions",
         "counterfactual",
         "subgroup_findings",
     ):
         assert getattr(replayed, name) == getattr(original, name), name
+    _assert_diagnostics_match(replayed.diagnostics, original.diagnostics)
     rmeta, ometa = replayed.fit_metadata, original.fit_metadata
     assert rmeta.estimator == ometa.estimator
     assert rmeta.package_versions == ometa.package_versions
