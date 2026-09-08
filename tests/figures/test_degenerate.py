@@ -126,7 +126,7 @@ def test_a_single_estimate_forest_plot_still_draws_with_its_interval(ax):
     (x_min, _), (x_max, _) = segments[0]
     assert x_min == pytest.approx(0.05)
     assert x_max == pytest.approx(0.45)
-    assert [t.get_text() for t in ax.get_yticklabels()] == ["ipw (ATE)"]
+    assert [t.get_text() for t in ax.get_yticklabels()] == ["ipw (ATE, analytic)"]
 
 
 # --- A heatmap whose every cell is absent -----------------------------------------------------
