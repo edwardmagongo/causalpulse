@@ -2,8 +2,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 from cp_causal.registry import get_estimator
-from cp_core.values import EstimatorConfig
+from cp_core.results import EffectEstimate, FitMetadata
+from cp_core.values import Diagnostic, EstimatorConfig, Interval
 from cp_figures.balance import (
+    LovePlotData,
     draw_love_plot,
     draw_overlap,
     love_plot_data,
@@ -13,6 +15,41 @@ from cp_simulation.scenarios import build_scenario
 from matplotlib.collections import PathCollection
 
 CONFIG = EstimatorConfig(random_seed=0, bootstrap_reps=50)
+
+
+def _estimate_with_smds(before, after):
+    # Constructed directly rather than through a real fit: no scenario in
+    # this repo's simulation module produces a zero-variance covariate, so
+    # the NaN standardised_mean_differences emits for one (propensity.py:161)
+    # can only be reached here by building the diagnostic arrays by hand.
+    def diag(name, values):
+        return Diagnostic(
+            name=name, value=np.asarray(values, dtype=float), unit="smd", interpretation=name
+        )
+
+    return EffectEstimate(
+        estimand="ATE",
+        method="ipw",
+        point=0.25,
+        se=0.1,
+        ci=Interval(lower=0.05, upper=0.45, level=0.95),
+        ci_basis="analytic",
+        bootstrap_ci=None,
+        p_value=0.01,
+        n_treated=100,
+        n_control=100,
+        scale="percentage_point",
+        diagnostics={
+            "smd_before": diag("smd_before", before),
+            "smd_after": diag("smd_after", after),
+        },
+        assumptions=(),
+        counterfactual=None,
+        fit_metadata=FitMetadata.capture(
+            estimator="ipw", config_hash="h", runtime_seconds=0.1, random_seed=0
+        ),
+        subgroup_findings=(),
+    )
 
 
 @pytest.fixture(scope="module")
@@ -55,6 +92,25 @@ def test_love_data_carries_the_threshold_from_the_project_not_a_literal(fitted):
     data = love_plot_data(estimate, dataset.schema.covariates)
 
     assert data.threshold == pytest.approx(0.1)
+
+
+def test_love_data_marks_a_covariate_with_a_nan_smd_not_computable():
+    # propensity.py:161 emits NaN for a zero-variance covariate's SMD (its
+    # pooled standard deviation is zero, so the ratio would otherwise read
+    # as an infinite SMD). No simulated scenario in this repo produces one,
+    # but a constant covariate column is ordinary in real data -- so the
+    # NaN case is built directly rather than hoped for from a fit.
+    estimate = _estimate_with_smds(before=[0.5, 0.3], after=[0.2, float("nan")])
+
+    data = love_plot_data(estimate, ["x1", "x2_constant"])
+
+    assert data.not_computable == (False, True)
+    # A NaN before value also flags the row, independent of after.
+    other = love_plot_data(
+        _estimate_with_smds(before=[float("nan"), 0.3], after=[0.2, 0.1]),
+        ["x1", "x2"],
+    )
+    assert other.not_computable == (True, False)
 
 
 def test_weighting_improves_balance_on_a_confounded_scenario(fitted):
@@ -121,6 +177,57 @@ def test_drawing_a_love_plot_scatters_before_and_after_at_their_own_values(fitte
 
     assert before_x == pytest.approx(data.before)
     assert after_x == pytest.approx(data.after)
+
+
+def test_drawing_a_love_plot_marks_a_not_computable_row_instead_of_dropping_it(ax):
+    # Verified against the pre-fix behaviour (see the module docstring's
+    # hazard): passing a NaN straight to ax.scatter/ax.hlines draws nothing
+    # for that row -- no marker, no segment, no note -- while its y-tick
+    # label stays in place, which reads as a labelled row with a silently
+    # missing measurement rather than an honest refusal or annotation.
+    # Constructed directly (not through love_plot_data) so the geometry can
+    # be pinned without depending on how not_computable gets computed.
+    data = LovePlotData(
+        covariates=("x1", "x2_constant"),
+        before=(0.5, float("nan")),
+        after=(0.2, float("nan")),
+        threshold=0.1,
+        not_computable=(False, True),
+    )
+
+    draw_love_plot(data, ax)
+
+    # The computable row (x1) is the only one that reaches the scatter
+    # calls: each ax.scatter call contributes exactly one point, not two.
+    path_collections = [c for c in ax.collections if isinstance(c, PathCollection)]
+    assert len(path_collections) == 2
+    for collection in path_collections:
+        assert len(collection.get_offsets()) == 1
+
+    # The not-computable row still gets its y-tick label...
+    labels = [t.get_text() for t in ax.get_yticklabels()]
+    assert labels == ["x1", "x2_constant"]
+    # ...and a visible annotation naming why nothing is plotted there, at
+    # that row's y-position specifically (not merely present somewhere).
+    annotations = [
+        child for child in ax.texts if "not computable" in child.get_text().lower()
+    ]
+    assert len(annotations) == 1
+    assert annotations[0].xy[1] == 1  # row index of x2_constant
+
+
+def test_drawing_a_love_plot_does_not_annotate_a_fully_computable_row(fitted, ax):
+    # Paired with the not-computable test above: on an ordinary fixture with
+    # no NaN anywhere, no annotation should appear at all. Without this, a
+    # drawing function that always annotates every row (regardless of
+    # not_computable) could still pass the not-computable test above.
+    dataset, estimate = fitted
+    data = love_plot_data(estimate, dataset.schema.covariates)
+    assert not any(data.not_computable)
+
+    draw_love_plot(data, ax)
+
+    assert len(ax.texts) == 0
 
 
 def test_overlap_data_splits_the_scores_by_arm(fitted):

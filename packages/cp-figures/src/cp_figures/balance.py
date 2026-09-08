@@ -10,6 +10,20 @@ effect estimate, so `cp_figures.guards.require_interval` does not apply here
   names of their own; if the caller's name list does not line up one-to-one
   with the arrays, every label attaches to the wrong bar and the figure is
   silently wrong. `love_plot_data` refuses rather than guess.
+- `cp_causal.propensity.standardised_mean_differences` deliberately emits
+  NaN for a zero-variance covariate (division by a zero pooled standard
+  deviation would otherwise read as an infinite SMD). A NaN dropped
+  straight into `ax.scatter`/`ax.hlines` draws nothing for that row --
+  no marker, no connecting segment, no note, and no refusal -- which is
+  the exact "could not be computed rendered as nothing" hazard
+  `cp_figures.benchmark`'s module docstring is built to prevent. This
+  module holds `benchmark.py`'s standard rather than a weaker one:
+  `love_plot_data` marks such a covariate `not_computable`, and
+  `draw_love_plot` renders that row visibly (an annotation naming why)
+  instead of silently dropping it. A zero-variance covariate is ordinary
+  in real data even though it is not producible by this repo's simulated
+  scenarios, so refusing to draw the whole figure over one such covariate
+  would be worse than marking the one row.
 - The overlap figure must show the *trimmed* propensity scores the
   estimator actually weighted with (`per_unit_propensity`), not an
   unclipped refit -- an untrimmed distribution would display an overlap
@@ -44,12 +58,22 @@ class LovePlotData:
     -- the tuple recorded here is exactly the order the caller supplied it
     in, which `love_plot_data` has already checked lines up with the
     diagnostic arrays index for index (see the module docstring).
+
+    `not_computable[i]` is `True` exactly when `before[i]` or `after[i]` is
+    NaN -- `cp_causal.propensity.standardised_mean_differences`'s own
+    signal that the covariate had zero variance (see the module docstring).
+    `before[i]`/`after[i]` may themselves still be NaN on such a row: this
+    field is what a drawing function must consult to decide whether a row
+    is plottable, the same role `HeatmapData.absent` plays in
+    `cp_figures.benchmark` -- never `math.isnan` on `before`/`after`
+    directly, so the two figures share one standard for the same hazard.
     """
 
     covariates: tuple[str, ...]
     before: tuple[float, ...]
     after: tuple[float, ...]
     threshold: float
+    not_computable: tuple[bool, ...]
 
 
 def love_plot_data(estimate: EffectEstimate, covariate_names: Sequence[str]) -> LovePlotData:
@@ -73,6 +97,12 @@ def love_plot_data(estimate: EffectEstimate, covariate_names: Sequence[str]) -> 
     `threshold` is read from `cp_causal.propensity.BALANCE_THRESHOLD` (see
     the module docstring), never a local literal, so this figure cannot
     disagree with the project's own balance assumption check.
+
+    A covariate whose `before` or `after` value is NaN -- which
+    `standardised_mean_differences` emits for a zero-variance covariate,
+    never for an ordinary one -- is flagged in `not_computable` rather than
+    silently carried through to a drawing function that would render it as
+    an empty row (see the module docstring).
     """
     before = np.asarray(estimate.diagnostics["smd_before"].value, dtype=float)
     after = np.asarray(estimate.diagnostics["smd_after"].value, dtype=float)
@@ -89,6 +119,9 @@ def love_plot_data(estimate: EffectEstimate, covariate_names: Sequence[str]) -> 
         before=tuple(float(v) for v in before),
         after=tuple(float(v) for v in after),
         threshold=BALANCE_THRESHOLD,
+        not_computable=tuple(
+            bool(np.isnan(b) or np.isnan(a)) for b, a in zip(before, after, strict=True)
+        ),
     )
 
 
@@ -103,14 +136,44 @@ def draw_love_plot(data: LovePlotData, ax: Axes) -> Axes:
 
     |SMD| is a two-sided criterion, so the reference line is drawn at both
     `+threshold` and `-threshold`, not just one.
+
+    A `not_computable` row is excluded from the `scatter`/`hlines` calls --
+    its `before`/`after` may be NaN, and passing NaN through would draw
+    nothing for that row while leaving its y-tick label in place, exactly
+    the silent-omission hazard the module docstring describes. Instead each
+    such row gets a visible annotation ("not computable (zero variance)")
+    placed in axes-fraction x so it reads correctly regardless of the SMD
+    scale, keeping the row present -- labelled and explained -- rather than
+    blank.
     """
     y = np.arange(len(data.covariates))
     before = np.asarray(data.before)
     after = np.asarray(data.after)
+    not_computable = np.asarray(data.not_computable, dtype=bool)
+    computable = ~not_computable
 
-    ax.hlines(y, before, after, colors="grey", linewidth=0.8, zorder=1)
-    ax.scatter(before, y, marker="o", color="tab:red", label="before weighting", zorder=2)
-    ax.scatter(after, y, marker="o", color="tab:blue", label="after weighting", zorder=2)
+    ax.hlines(
+        y[computable], before[computable], after[computable], colors="grey", linewidth=0.8, zorder=1
+    )
+    ax.scatter(
+        before[computable], y[computable], marker="o", color="tab:red",
+        label="before weighting", zorder=2,
+    )
+    ax.scatter(
+        after[computable], y[computable], marker="o", color="tab:blue",
+        label="after weighting", zorder=2,
+    )
+
+    for row in np.flatnonzero(not_computable):
+        ax.annotate(
+            "not computable (zero variance)",
+            xy=(1.02, y[row]),
+            xycoords=("axes fraction", "data"),
+            va="center",
+            ha="left",
+            fontsize=8,
+            color="dimgray",
+        )
 
     ax.axvline(data.threshold, color="grey", linewidth=0.8, linestyle="--")
     ax.axvline(-data.threshold, color="grey", linewidth=0.8, linestyle="--")
