@@ -33,11 +33,23 @@ verified by reading every `*_data` function in `cp_figures.effects`,
   `EffectEstimate` and reads `estimate.ci` through `require_interval` for
   every row before drawing a point. It belongs here.
 - `event_study_data` (`cp_figures.panel`) takes a single `EffectEstimate`
-  but never reads `estimate.ci` at all -- its module docstring says so
+  and never reads `estimate.ci`'s *bounds* -- its module docstring says so
   directly. It builds each horizon's interval from
   `event_time_standard_errors`, a per-horizon diagnostic distinct from the
   single averaged post-treatment interval `estimate.ci` bounds. Calling
-  `require_interval` there would be answering the wrong question.
+  `require_interval` there would be answering the wrong question, and it
+  does not belong in `ESTIMATE_CONSUMERS`, which is about that exact
+  hazard: drawing an estimate's point without its interval. It does read
+  `estimate.ci`'s *level*, though, to build every horizon's margin at the
+  confidence level the fit was actually run at -- a different hazard
+  (labelling uncertainty at the wrong level, or crashing outright if
+  `estimate.ci` is `None`) from the one `require_interval` guards
+  (drawing uncertainty not at all). That read goes through its own guard,
+  `cp_figures.guards.require_ci_level`, refused the same way
+  `require_interval` refuses a missing interval; `tests/figures/test_panel.py`
+  and `tests/figures/test_guards.py` prove that guard is actually reached,
+  the same way this file proves `require_interval` is reached for
+  `ESTIMATE_CONSUMERS`.
 - `love_plot_data` and `overlap_data` (`cp_figures.balance`) take an
   `EffectEstimate` but read `smd_before`/`smd_after` and
   `per_unit_propensity` diagnostics -- balance and propensity information,

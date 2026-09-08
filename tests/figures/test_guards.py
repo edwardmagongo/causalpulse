@@ -3,7 +3,7 @@ import dataclasses
 import pytest
 from cp_core.results import EffectEstimate, FitMetadata, SpecificationPoint
 from cp_core.values import Interval
-from cp_figures.guards import require_interval, require_specification_interval
+from cp_figures.guards import require_ci_level, require_interval, require_specification_interval
 
 
 def _estimate(**overrides):
@@ -109,3 +109,28 @@ def test_require_specification_interval_degenerate_interval_is_not_missing():
     point = _specification_point(ci=Interval(lower=0.25, upper=0.25, level=0.95))
 
     assert require_specification_interval(point, 0, "specification curve").lower == 0.25
+
+
+def test_require_ci_level_returns_the_level_when_an_interval_is_present():
+    estimate = _estimate(ci=Interval(lower=0.05, upper=0.45, level=0.90))
+
+    assert require_ci_level(estimate, "event study") == pytest.approx(0.90)
+
+
+def test_require_ci_level_raises_when_the_interval_is_missing():
+    # Same hazard require_interval guards against (EffectEstimate.ci is
+    # typed Interval, not Interval | None, and __post_init__ never checks
+    # it -- see the module docstring), reached through a caller that only
+    # ever needs the level, not the bounds.
+    estimate = dataclasses.replace(_estimate(method="event_study"), ci=None)
+
+    with pytest.raises(ValueError, match="without a confidence level"):
+        require_ci_level(estimate, "event study")
+
+
+def test_require_ci_level_names_the_figure_and_the_method():
+    estimate = dataclasses.replace(_estimate(method="event_study"), ci=None)
+
+    with pytest.raises(ValueError, match="event_study") as excinfo:
+        require_ci_level(estimate, "event study")
+    assert "event study" in str(excinfo.value)

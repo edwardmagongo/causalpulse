@@ -21,8 +21,18 @@ too is typed `Interval` rather than `Interval | None`, and
 `cp_figures.sensitivity.specification_curve_data`, which reads
 `specifications[i].ci` for every row.
 
-Both guards live in this one module rather than in each figure so that a
-figure added later cannot quietly omit them.
+`require_ci_level` closes a narrower version of the same gap for
+`cp_figures.panel.event_study_data`, which never reads `estimate.ci`'s
+*bounds* (see that module's own docstring for why) but does read its
+*level*, to build every per-horizon interval at the same confidence level
+the fit was actually run at. `estimate.ci` being `None` is exactly as fatal
+to that read as it is to `require_interval`'s -- with no level to build a
+margin from, every horizon would draw as a bare point -- so it is refused
+the same way, distinctly from `require_interval` so a missing level is
+never described as a missing interval when only the level was ever needed.
+
+All three guards live in this one module rather than in each figure so that
+a figure added later cannot quietly omit them.
 """
 
 from __future__ import annotations
@@ -68,3 +78,26 @@ def require_specification_interval(
             "without an interval",
         )
     return interval
+
+
+def require_ci_level(estimate: EffectEstimate, figure: str) -> float:
+    """Return the estimate's confidence level, or refuse to let it be drawn.
+
+    Distinct from `require_interval`: a caller here reads only the *level*
+    `estimate.ci` was computed at, never its bounds (see the module
+    docstring). But building any interval at all -- even one this function's
+    caller assembles itself from other diagnostics -- still needs a level to
+    compute a critical value from, and `estimate.ci` is the only place one is
+    recorded. A missing `estimate.ci` is therefore exactly as fatal here as
+    it is to `require_interval`, so it is refused the same way.
+    """
+    interval = estimate.ci
+    if interval is None:
+        # "the {figure}" rather than "a {figure}" (require_interval's form):
+        # this guard's one caller passes "event study", and "a event study"
+        # is bad grammar -- the definite article reads correctly regardless
+        # of what figure name a future caller passes.
+        raise _refuse_to_draw(
+            f"cannot draw the {figure} for {estimate.method!r}", "without a confidence level"
+        )
+    return interval.level

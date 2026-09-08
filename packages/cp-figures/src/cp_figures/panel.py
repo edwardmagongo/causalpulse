@@ -22,6 +22,16 @@ is configurable rather than fixed at 0.95. Reading the level carries none of
 the hazard reading the bounds would: it is a single scalar the whole fit
 shares, not a value specific to the post-treatment average this module must
 not conflate with a per-horizon coefficient.
+
+That read still needs `estimate.ci` to exist, though: `EffectEstimate.ci` is
+typed `Interval`, not `Interval | None`, and nothing in
+`EffectEstimate.__post_init__` checks it (`cp_figures.guards`'s module
+docstring), so a hand-built or `dataclasses.replace`-mutated estimate can
+carry `ci=None` despite the type. `event_study_data` reads the level through
+`cp_figures.guards.require_ci_level` rather than `estimate.ci.level`
+directly, so that case is refused with a `ValueError` naming this figure
+rather than raising an unhelpful `AttributeError` for want of `.level` on
+`None`.
 """
 
 from __future__ import annotations
@@ -32,6 +42,8 @@ import numpy as np
 from cp_core.results import EffectEstimate
 from matplotlib.axes import Axes
 from scipy.stats import norm
+
+from cp_figures.guards import require_ci_level
 
 
 def _critical_value(level: float) -> float:
@@ -45,6 +57,20 @@ def _critical_value(level: float) -> float:
     used.
     """
     return float(norm.ppf(1 - (1 - level) / 2))
+
+
+def _format_level(level: float) -> str:
+    """Render `level` as a percentage without ever rounding it up to 100%.
+
+    `f"{level:.0%}"` rounds to the nearest whole percent, so a level of
+    0.999 -- reachable, since `EstimatorConfig.ci_level` is validated only
+    as `0.0 < ci_level < 1.0` -- renders as "100%", claiming a certainty the
+    fit was never actually run at. `:g`'s default precision (six
+    significant digits) keeps whatever digits `level * 100` actually has,
+    so it prints "95%" for the common case and "99.9%" for 0.999, but never
+    rounds a level strictly less than 1.0 up to 100.
+    """
+    return f"{level * 100:g}%"
 
 
 @dataclass(frozen=True, eq=False)
@@ -91,6 +117,15 @@ def event_study_data(estimate: EffectEstimate) -> EventStudyData:
     at a non-default `EstimatorConfig.ci_level` is therefore drawn at that
     same level here, rather than silently widened or narrowed to 95%.
 
+    The level is read through `guards.require_ci_level` rather than
+    `estimate.ci.level` directly: `estimate.ci` can be `None` on a
+    hand-built or `dataclasses.replace`-mutated estimate despite its
+    non-optional type (see the module docstring and `cp_figures.guards`),
+    and without a level there is no critical value to build any horizon's
+    margin from -- every horizon would draw as a bare point. That refuses
+    with a `ValueError` naming this figure and the method, rather than
+    raising an unhelpful `AttributeError` for `None.level`.
+
     The reference horizon is identified empirically, not assumed at a fixed
     index or offset: it is the one horizon whose coefficient *and* standard
     error are both exactly zero. Verified against a real `EventStudy.fit`
@@ -123,7 +158,7 @@ def event_study_data(estimate: EffectEstimate) -> EventStudyData:
             f"and standard error both exactly zero), found {matches}"
         )
 
-    level = estimate.ci.level
+    level = require_ci_level(estimate, "event study")
     margin = _critical_value(level) * standard_errors
     return EventStudyData(
         horizons=horizons,
@@ -150,7 +185,11 @@ def draw_event_study(data: EventStudyData, ax: Axes) -> Axes:
     The estimated-horizons legend entry names `data.level` (e.g. "estimated
     (90% CI)") rather than just "estimated": a band with no stated level
     leaves a reader unable to say what was actually rendered, and
-    `EstimatorConfig.ci_level` is not always the project's 95% default.
+    `EstimatorConfig.ci_level` is not always the project's 95% default. The
+    level is rendered by `_format_level`, not `f"{level:.0%}"` directly --
+    `.0%`'s round-to-nearest-whole-percent would print "100%" for a
+    reachable level like 0.999, claiming a certainty the fit never actually
+    ran at.
     """
     horizons = np.asarray(data.horizons)
     coefficients = np.asarray(data.coefficients)
@@ -168,7 +207,7 @@ def draw_event_study(data: EventStudyData, ax: Axes) -> Axes:
         fmt="o",
         capsize=3,
         color="tab:blue",
-        label=f"estimated ({data.level:.0%} CI)",
+        label=f"estimated ({_format_level(data.level)} CI)",
     )
     ax.errorbar(
         [data.reference_horizon],

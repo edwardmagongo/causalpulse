@@ -1,3 +1,5 @@
+import dataclasses
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
@@ -172,6 +174,23 @@ def test_the_reference_horizon_is_flagged_rather_than_given_an_interval():
     assert all(v is False for i, v in enumerate(data.is_reference) if i != index)
 
 
+def test_an_estimate_with_no_confidence_interval_is_refused_not_an_attributeerror():
+    # event_study_data reads only estimate.ci.level (see the module
+    # docstring), but that read still needs estimate.ci to exist.
+    # EffectEstimate.ci is typed Interval, not Interval | None, and
+    # __post_init__ never checks it, so dataclasses.replace(..., ci=None)
+    # constructs successfully despite the static type -- the same hazard
+    # cp_figures.guards.require_interval catches for forest_plot_data.
+    # Verified empirically before this guard existed: event_study_data(
+    # dataclasses.replace(estimate, ci=None)) raised a bare
+    # "AttributeError: 'NoneType' object has no attribute 'level'" instead
+    # of a clear refusal naming the figure.
+    bare = dataclasses.replace(_event_study_estimate(), ci=None)
+
+    with pytest.raises(ValueError, match="without a confidence level"):
+        event_study_data(bare)
+
+
 def test_an_estimate_without_the_event_time_diagnostics_is_refused():
     estimate = _event_study_estimate()
     stripped = type(estimate)(
@@ -336,6 +355,21 @@ def test_drawing_names_the_interval_level_in_the_legend(ax):
         assert not any("95%" in label for label in labels_90)
     finally:
         plt.close(figure)
+
+
+def test_drawing_does_not_round_a_high_level_up_to_100_percent(ax):
+    # EstimatorConfig.ci_level is validated only as 0.0 < ci_level < 1.0
+    # (packages/cp-core/src/cp_core/values.py), so 0.999 is a reachable
+    # level. f"{0.999:.0%}" rounds to "100%", which claims a certainty the
+    # fit was never actually run at -- a level of 0.999 is not 1.0. The
+    # legend must say "99.9%", not "100%".
+    data = event_study_data(_event_study_estimate(level=0.999))
+
+    draw_event_study(data, ax)
+
+    labels = [t.get_text() for t in ax.get_legend().get_texts()]
+    assert any("99.9%" in label for label in labels)
+    assert not any("100%" in label for label in labels)
 
 
 def test_drawing_returns_the_axes_and_leaves_pyplot_alone(ax):
