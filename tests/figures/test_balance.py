@@ -185,24 +185,40 @@ def test_drawing_a_love_plot_marks_a_not_computable_row_instead_of_dropping_it(a
     # for that row -- no marker, no segment, no note -- while its y-tick
     # label stays in place, which reads as a labelled row with a silently
     # missing measurement rather than an honest refusal or annotation.
+    #
+    # before/after on the not-computable row are deliberately finite (0.3,
+    # 0.1), not NaN: LovePlotData's own docstring (balance.py:62-69) says a
+    # drawing function must decide plottability from `not_computable`
+    # alone, never `math.isnan` on `before`/`after` directly. A NaN-valued
+    # fixture here would pass equally for a drawing function that masks on
+    # `not_computable` (correct) and one that masks on `np.isnan(before) |
+    # np.isnan(after)` instead (the exact thing the docstring forbids) --
+    # finite values on this row make the two implementations diverge.
     # Constructed directly (not through love_plot_data) so the geometry can
     # be pinned without depending on how not_computable gets computed.
     data = LovePlotData(
         covariates=("x1", "x2_constant"),
-        before=(0.5, float("nan")),
-        after=(0.2, float("nan")),
+        before=(0.5, 0.3),
+        after=(0.2, 0.1),
         threshold=0.1,
         not_computable=(False, True),
     )
 
     draw_love_plot(data, ax)
 
-    # The computable row (x1) is the only one that reaches the scatter
-    # calls: each ax.scatter call contributes exactly one point, not two.
+    # The computable row (x1) is the only one that reaches the "before
+    # weighting"/"after weighting" scatter calls (one point each). The
+    # not-computable row gets its own distinct marker instead, drawn by a
+    # third, later ax.scatter call -- so three PathCollections total, not
+    # two, and the third's point sits at x=0.0, the not-computable row's y.
     path_collections = [c for c in ax.collections if isinstance(c, PathCollection)]
-    assert len(path_collections) == 2
-    for collection in path_collections:
-        assert len(collection.get_offsets()) == 1
+    assert len(path_collections) == 3
+    before_points, after_points, marker_points = path_collections
+    assert len(before_points.get_offsets()) == 1
+    assert len(after_points.get_offsets()) == 1
+    ((marker_x, marker_y),) = marker_points.get_offsets()
+    assert marker_x == pytest.approx(0.0)
+    assert marker_y == 1  # row index of x2_constant
 
     # The not-computable row still gets its y-tick label...
     labels = [t.get_text() for t in ax.get_yticklabels()]
@@ -214,6 +230,20 @@ def test_drawing_a_love_plot_marks_a_not_computable_row_instead_of_dropping_it(a
     ]
     assert len(annotations) == 1
     assert annotations[0].xy[1] == 1  # row index of x2_constant
+
+    # And it actually renders on the canvas at this figure's default size,
+    # not merely exists somewhere off-screen. An annotation placed with
+    # xy=(1.02, y[row]) in axes-fraction x and ha="left" -- the pre-fix
+    # placement -- spans x=586px to x=764px on this exact fixture at the
+    # default 640px-wide plt.subplots() figure: past the right spine and
+    # roughly a third off the canvas edge. Neither xy=(1, ...) nor a bare
+    # "an Annotation exists in ax.texts" check (the pre-fix coverage) can
+    # tell that apart from this fix; only the drawn pixel extent can.
+    ax.figure.canvas.draw()
+    canvas_width, _ = ax.figure.canvas.get_width_height()
+    extent = annotations[0].get_window_extent()
+    assert extent.x0 >= 0
+    assert extent.x1 <= canvas_width
 
 
 def test_drawing_a_love_plot_does_not_annotate_a_fully_computable_row(fitted, ax):

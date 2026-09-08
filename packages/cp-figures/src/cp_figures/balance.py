@@ -19,11 +19,13 @@ effect estimate, so `cp_figures.guards.require_interval` does not apply here
   `cp_figures.benchmark`'s module docstring is built to prevent. This
   module holds `benchmark.py`'s standard rather than a weaker one:
   `love_plot_data` marks such a covariate `not_computable`, and
-  `draw_love_plot` renders that row visibly (an annotation naming why)
-  instead of silently dropping it. A zero-variance covariate is ordinary
-  in real data even though it is not producible by this repo's simulated
-  scenarios, so refusing to draw the whole figure over one such covariate
-  would be worse than marking the one row.
+  `draw_love_plot` renders that row visibly -- a marker plus an annotation
+  naming why, both placed to stay on the canvas at the package's default
+  figure size (see `draw_love_plot`'s own docstring) -- instead of silently
+  dropping it. A zero-variance covariate is ordinary in real data even
+  though it is not producible by this repo's simulated scenarios, so
+  refusing to draw the whole figure over one such covariate would be worse
+  than marking the one row.
 - The overlap figure must show the *trimmed* propensity scores the
   estimator actually weighted with (`per_unit_propensity`), not an
   unclipped refit -- an untrimmed distribution would display an overlap
@@ -141,10 +143,24 @@ def draw_love_plot(data: LovePlotData, ax: Axes) -> Axes:
     its `before`/`after` may be NaN, and passing NaN through would draw
     nothing for that row while leaving its y-tick label in place, exactly
     the silent-omission hazard the module docstring describes. Instead each
-    such row gets a visible annotation ("not computable (zero variance)")
-    placed in axes-fraction x so it reads correctly regardless of the SMD
-    scale, keeping the row present -- labelled and explained -- rather than
-    blank.
+    such row gets a distinct `x` marker at x=0.0 (a value every SMD axis
+    spans, since |SMD| is centred on and reported either side of zero) and
+    a short annotation ("not computable") anchored at 98% of the axes width
+    with `ha="right"`, so the text renders leftward from just inside the
+    right edge rather than past it.
+
+    An earlier version placed the annotation at `xy=(1.02, y[row])` in
+    axes-fraction x with `ha="left"` -- past the right spine rather than
+    inside it. Verified empirically on matplotlib 3.11.1: on this
+    function's own default-sized figure (`plt.subplots()`, 640px wide) that
+    placement drew from x=586px to x=764px while the canvas itself ends at
+    640px, so roughly a third of the text rendered off-canvas on a plain
+    `fig.savefig(path)` -- correct only for a caller who also passes
+    `bbox_inches="tight"`, which nothing in this package does. The
+    `xy=(0.98, y[row])`/`ha="right"` placement here keeps the same
+    scale-independent axes-fraction x (still correct regardless of what SMD
+    values happen to be on the x-axis) while staying entirely inside the
+    canvas at the default figure size.
     """
     y = np.arange(len(data.covariates))
     before = np.asarray(data.before)
@@ -165,12 +181,13 @@ def draw_love_plot(data: LovePlotData, ax: Axes) -> Axes:
     )
 
     for row in np.flatnonzero(not_computable):
+        ax.scatter(0.0, y[row], marker="x", color="dimgray", zorder=2)
         ax.annotate(
-            "not computable (zero variance)",
-            xy=(1.02, y[row]),
+            "not computable",
+            xy=(0.98, y[row]),
             xycoords=("axes fraction", "data"),
             va="center",
-            ha="left",
+            ha="right",
             fontsize=8,
             color="dimgray",
         )

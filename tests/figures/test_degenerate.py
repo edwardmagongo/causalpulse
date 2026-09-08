@@ -28,7 +28,7 @@ from cp_core.results import (
     SpecificationPoint,
 )
 from cp_core.values import Diagnostic, Interval
-from cp_figures.balance import draw_love_plot, love_plot_data, overlap_data
+from cp_figures.balance import LovePlotData, draw_love_plot, love_plot_data, overlap_data
 from cp_figures.benchmark import draw_heatmap, heatmap_data
 from cp_figures.effects import (
     counterfactual_path_data,
@@ -288,6 +288,34 @@ def test_a_love_plot_with_one_covariate_draws_correctly(ax):
     before_x, after_x = (s.get_offsets()[0][0] for s in scatters)
     assert before_x == pytest.approx(0.5)
     assert after_x == pytest.approx(0.05)
+
+
+# --- A love plot where every row is not computable -----------------------------------------------
+
+
+def test_a_love_plot_with_every_row_not_computable_draws_correctly(ax):
+    # Decision: draws correctly. Not covered by any existing test in this file or
+    # tests/figures/test_balance.py, both of which only ever mark a strict subset of rows
+    # not_computable -- an implementation that special-cases "at least one computable row" (e.g.
+    # to size an axis or index into a nonempty array) could not be told apart from a correct one by
+    # either. Checked empirically before writing this test: with every row not_computable, the
+    # hlines/scatter calls in draw_love_plot all receive empty arrays (matplotlib draws these
+    # without error) and every row instead gets the not-computable marker and annotation, raising
+    # no warning under the same filterwarnings=error the real suite runs under.
+    data = LovePlotData(
+        covariates=("x1", "x2"),
+        before=(0.5, 0.3),
+        after=(0.2, 0.1),
+        threshold=0.1,
+        not_computable=(True, True),
+    )
+
+    draw_love_plot(data, ax)
+
+    assert [t.get_text() for t in ax.get_yticklabels()] == ["x1", "x2"]
+    annotations = [c for c in ax.texts if "not computable" in c.get_text().lower()]
+    assert len(annotations) == 2
+    assert sorted(a.xy[1] for a in annotations) == [0, 1]
 
 
 # --- A counterfactual path of length one --------------------------------------------------------
