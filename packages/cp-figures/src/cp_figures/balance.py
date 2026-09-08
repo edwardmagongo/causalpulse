@@ -61,9 +61,11 @@ class LovePlotData:
     in, which `love_plot_data` has already checked lines up with the
     diagnostic arrays index for index (see the module docstring).
 
-    `not_computable[i]` is `True` exactly when `before[i]` or `after[i]` is
-    NaN -- `cp_causal.propensity.standardised_mean_differences`'s own
+    `love_plot_data` sets `not_computable[i]` when `before[i]` or `after[i]`
+    is NaN -- `cp_causal.propensity.standardised_mean_differences`'s own
     signal that the covariate had zero variance (see the module docstring).
+    A drawing function must consult this field and never re-derive it, so
+    the two are deliberately not the same test.
     `before[i]`/`after[i]` may themselves still be NaN on such a row: this
     field is what a drawing function must consult to decide whether a row
     is plottable, the same role `HeatmapData.absent` plays in
@@ -153,9 +155,9 @@ def draw_love_plot(data: LovePlotData, ax: Axes) -> Axes:
     axes-fraction x with `ha="left"` -- past the right spine rather than
     inside it. Verified empirically on matplotlib 3.11.1: on this
     function's own default-sized figure (`plt.subplots()`, 640px wide) that
-    placement drew from x=586px to x=764px while the canvas itself ends at
-    640px, so roughly a third of the text rendered off-canvas on a plain
-    `fig.savefig(path)` -- correct only for a caller who also passes
+    placement drew the then-longer text from x=586px to x=764px while the
+    canvas itself ends at 640px, so about 70% of it rendered off-canvas on
+    a plain `fig.savefig(path)` -- correct only for a caller who also passes
     `bbox_inches="tight"`, which nothing in this package does. The
     `xy=(0.98, y[row])`/`ha="right"` placement here keeps the same
     scale-independent axes-fraction x (still correct regardless of what SMD

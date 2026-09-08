@@ -67,8 +67,11 @@ def _format_level(level: float) -> str:
     as `0.0 < ci_level < 1.0` -- renders as "100%", claiming a certainty the
     fit was never actually run at. `:g`'s default precision (six
     significant digits) keeps whatever digits `level * 100` actually has,
-    so it prints "95%" for the common case and "99.9%" for 0.999, but never
-    rounds a level strictly less than 1.0 up to 100.
+    so it prints "95%" for the common case and "99.9%" for 0.999 rather
+    than rounding either to 100. It is not an absolute guarantee: a level
+    needing more than six significant digits, such as 0.9999999, still
+    renders as "100%". That is a far-fetched `ci_level` and the six-digit
+    bound is stated here rather than defended against.
     """
     return f"{level * 100:g}%"
 

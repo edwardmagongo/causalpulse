@@ -40,11 +40,11 @@ from __future__ import annotations
 from cp_core.results import EffectEstimate, SpecificationPoint
 from cp_core.values import Interval
 
-# The substantive half of both guards' refusal -- why a missing interval
-# matters, not merely that one is missing -- stated once so the two guards
-# cannot drift apart. Each guard still writes "without an interval" itself
-# (see `_refuse_to_draw`), so the phrase stays visible in each guard's own
-# source, not only inside this shared helper.
+# The substantive half of the refusal -- why missing uncertainty matters,
+# not merely that it is missing -- stated once so the three guards cannot
+# drift apart. Each guard still writes its own reason in its own source
+# ("without an interval", "without a confidence level"), so the phrase a
+# reader greps for stays visible there rather than only in this helper.
 _MISSING_INTERVAL_EXPLANATION = (
     "a point drawn alone states a number with no indication of how well it "
     "is known"
@@ -52,7 +52,7 @@ _MISSING_INTERVAL_EXPLANATION = (
 
 
 def _refuse_to_draw(prefix: str, reason: str) -> ValueError:
-    """Build the `ValueError` both guards raise, from a caller-specific prefix."""
+    """Build the `ValueError` every guard raises, from a caller-specific reason."""
     return ValueError(f"{prefix} {reason}: {_MISSING_INTERVAL_EXPLANATION}")
 
 

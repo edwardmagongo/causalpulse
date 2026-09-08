@@ -231,19 +231,21 @@ def test_drawing_a_love_plot_marks_a_not_computable_row_instead_of_dropping_it(a
     assert len(annotations) == 1
     assert annotations[0].xy[1] == 1  # row index of x2_constant
 
-    # And it actually renders on the canvas at this figure's default size,
-    # not merely exists somewhere off-screen. An annotation placed with
-    # xy=(1.02, y[row]) in axes-fraction x and ha="left" -- the pre-fix
-    # placement -- spans x=586px to x=764px on this exact fixture at the
-    # default 640px-wide plt.subplots() figure: past the right spine and
-    # roughly a third off the canvas edge. Neither xy=(1, ...) nor a bare
-    # "an Annotation exists in ax.texts" check (the pre-fix coverage) can
-    # tell that apart from this fix; only the drawn pixel extent can.
+    # And it actually renders inside the axes at this figure's default size,
+    # not merely exists somewhere off-screen. The pre-fix placement --
+    # xy=(1.02, y[row]) in axes-fraction x with ha="left" -- spans
+    # x=586px to x=674px on this fixture's text at the default 640px-wide
+    # plt.subplots() figure, past the right spine at 576px and off the
+    # canvas edge. Asserting against the AXES box rather than the canvas is
+    # deliberate: a regression to xy=(1.02, ...) with ha="right" would land
+    # at x=498-586px, outside the axes but still inside the canvas, and a
+    # canvas-width check would wave it through. Neither xy=(1, ...) nor a
+    # bare "an Annotation exists in ax.texts" check (the pre-fix coverage)
+    # can tell any of that apart; only the drawn pixel extent can.
     ax.figure.canvas.draw()
-    canvas_width, _ = ax.figure.canvas.get_width_height()
     extent = annotations[0].get_window_extent()
-    assert extent.x0 >= 0
-    assert extent.x1 <= canvas_width
+    assert extent.x0 >= ax.bbox.x0
+    assert extent.x1 <= ax.bbox.x1
 
 
 def test_drawing_a_love_plot_does_not_annotate_a_fully_computable_row(fitted, ax):
