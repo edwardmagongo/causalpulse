@@ -30,15 +30,28 @@ from __future__ import annotations
 from cp_core.results import EffectEstimate, SpecificationPoint
 from cp_core.values import Interval
 
+# The substantive half of both guards' refusal -- why a missing interval
+# matters, not merely that one is missing -- stated once so the two guards
+# cannot drift apart. Each guard still writes "without an interval" itself
+# (see `_refuse_to_draw`), so the phrase stays visible in each guard's own
+# source, not only inside this shared helper.
+_MISSING_INTERVAL_EXPLANATION = (
+    "a point drawn alone states a number with no indication of how well it "
+    "is known"
+)
+
+
+def _refuse_to_draw(prefix: str, reason: str) -> ValueError:
+    """Build the `ValueError` both guards raise, from a caller-specific prefix."""
+    return ValueError(f"{prefix} {reason}: {_MISSING_INTERVAL_EXPLANATION}")
+
 
 def require_interval(estimate: EffectEstimate, figure: str) -> Interval:
     """Return the estimate's interval, or refuse to let it be drawn."""
     interval = estimate.ci
     if interval is None:
-        raise ValueError(
-            f"cannot draw a {figure} for {estimate.method!r} without an interval: "
-            "a point drawn alone states a number with no indication of how well "
-            "it is known"
+        raise _refuse_to_draw(
+            f"cannot draw a {figure} for {estimate.method!r}", "without an interval"
         )
     return interval
 
@@ -49,9 +62,9 @@ def require_specification_interval(
     """Return one specification's interval, or refuse to let it be drawn."""
     interval = point.ci
     if interval is None:
-        raise ValueError(
-            f"cannot draw a {figure} for specification {index} ({point.specification!r}) "
-            "without an interval: a point drawn alone states a number with no "
-            "indication of how well it is known"
+        raise _refuse_to_draw(
+            f"cannot draw a {figure} for specification {index} "
+            f"({point.specification!r})",
+            "without an interval",
         )
     return interval
