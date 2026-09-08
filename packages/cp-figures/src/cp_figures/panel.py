@@ -11,10 +11,17 @@ cannot be false. `event_study_data` flags which horizon that is, and
 `draw_event_study` marks it with a plain point at zero and no error bar,
 while every estimated horizon gets one.
 
-This module deliberately never reads `estimate.ci`: that interval bounds the
-single averaged post-treatment effect, not any individual event-time
-coefficient, and calling `require_interval` here would be answering the
-wrong question.
+This module deliberately never reads the *bounds* of `estimate.ci`: that
+interval bounds the single averaged post-treatment effect, not any
+individual event-time coefficient, and calling `require_interval` here
+would be answering the wrong question. It does read `estimate.ci.level`,
+though -- the confidence level the fit was actually run at, not the bounds
+computed from it -- because that level is what every per-horizon band in
+this figure is built at (see `event_study_data`), and `EstimatorConfig.ci_level`
+is configurable rather than fixed at 0.95. Reading the level carries none of
+the hazard reading the bounds would: it is a single scalar the whole fit
+shares, not a value specific to the post-treatment average this module must
+not conflate with a per-horizon coefficient.
 """
 
 from __future__ import annotations
@@ -26,14 +33,18 @@ from cp_core.results import EffectEstimate
 from matplotlib.axes import Axes
 from scipy.stats import norm
 
-# The two-sided normal critical value at this project's default 95% level,
-# computed the same way `cp_causal._support.critical_value` and
-# `cp_statistics.proportions` compute it: `norm.ppf(1 - (1 - level) / 2)`.
-# Reused as the same formula rather than the textbook-rounded 1.96, so an
-# interval drawn here uses the same convention as every other interval in
-# the project.
-_CI_LEVEL = 0.95
-_CRITICAL_VALUE = float(norm.ppf(1 - (1 - _CI_LEVEL) / 2))
+
+def _critical_value(level: float) -> float:
+    """The two-sided normal critical value at `level`.
+
+    Computed the same way `cp_causal._support.critical_value` and
+    `cp_statistics.proportions` compute it: `norm.ppf(1 - (1 - level) / 2)`.
+    Reused as the same formula rather than a textbook-rounded literal (e.g.
+    1.96 for 95%), so an interval drawn here uses the same convention as
+    every other interval in the project, at whatever level the fit actually
+    used.
+    """
+    return float(norm.ppf(1 - (1 - level) / 2))
 
 
 @dataclass(frozen=True, eq=False)
@@ -47,6 +58,13 @@ class EventStudyData:
     `is_reference` flags the one horizon normalised to zero by construction
     (see the module docstring) so a drawing function never has to recompute
     which one it was; `reference_horizon` names it directly.
+
+    `level` is the confidence level `lower`/`upper` were built at --
+    `estimate.ci.level`, not a hardcoded constant (see the module docstring)
+    -- so a fit run at a non-default level (`EstimatorConfig.ci_level`) is
+    drawn at that level rather than silently widened or narrowed to 95%.
+    `draw_event_study` names it in the legend so a reader is never shown an
+    unlabelled band.
     """
 
     horizons: np.ndarray
@@ -55,6 +73,7 @@ class EventStudyData:
     upper: np.ndarray
     is_reference: tuple[bool, ...]
     reference_horizon: float
+    level: float
 
 
 def event_study_data(estimate: EffectEstimate) -> EventStudyData:
@@ -65,9 +84,12 @@ def event_study_data(estimate: EffectEstimate) -> EventStudyData:
     any is absent: an estimate without them is not an event study, and this
     function does not guess at a substitute.
 
-    Builds a 95% normal interval from each horizon's own standard error --
-    not from `estimate.ci`, which bounds the single averaged post-treatment
-    effect rather than any individual horizon (see the module docstring).
+    Builds a normal interval from each horizon's own standard error, at
+    `estimate.ci.level` -- reading the level, never the bounds, of
+    `estimate.ci`, which bounds the single averaged post-treatment effect
+    rather than any individual horizon (see the module docstring). A fit run
+    at a non-default `EstimatorConfig.ci_level` is therefore drawn at that
+    same level here, rather than silently widened or narrowed to 95%.
 
     The reference horizon is identified empirically, not assumed at a fixed
     index or offset: it is the one horizon whose coefficient *and* standard
@@ -101,7 +123,8 @@ def event_study_data(estimate: EffectEstimate) -> EventStudyData:
             f"and standard error both exactly zero), found {matches}"
         )
 
-    margin = _CRITICAL_VALUE * standard_errors
+    level = estimate.ci.level
+    margin = _critical_value(level) * standard_errors
     return EventStudyData(
         horizons=horizons,
         coefficients=coefficients,
@@ -109,6 +132,7 @@ def event_study_data(estimate: EffectEstimate) -> EventStudyData:
         upper=coefficients + margin,
         is_reference=tuple(bool(flag) for flag in reference_mask),
         reference_horizon=float(horizons[reference_mask][0]),
+        level=level,
     )
 
 
@@ -122,6 +146,11 @@ def draw_event_study(data: EventStudyData, ax: Axes) -> Axes:
     construction, and a band around it would invite a reader to test a
     hypothesis that cannot be false (see the module docstring). A horizontal
     line at zero marks the no-effect baseline.
+
+    The estimated-horizons legend entry names `data.level` (e.g. "estimated
+    (90% CI)") rather than just "estimated": a band with no stated level
+    leaves a reader unable to say what was actually rendered, and
+    `EstimatorConfig.ci_level` is not always the project's 95% default.
     """
     horizons = np.asarray(data.horizons)
     coefficients = np.asarray(data.coefficients)
@@ -139,7 +168,7 @@ def draw_event_study(data: EventStudyData, ax: Axes) -> Axes:
         fmt="o",
         capsize=3,
         color="tab:blue",
-        label="estimated",
+        label=f"estimated ({data.level:.0%} CI)",
     )
     ax.errorbar(
         [data.reference_horizon],

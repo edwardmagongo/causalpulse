@@ -6,11 +6,19 @@ from cp_core.values import Diagnostic, Interval
 from cp_figures.panel import EventStudyData, draw_event_study, event_study_data
 from scipy.stats import norm
 
+
 # Independently computed rather than imported from `cp_figures.panel`: the
-# point of this test is to check the module's constant against the same
-# formula the rest of the project uses (`cp_causal._support.critical_value`,
-# `cp_statistics.proportions`), not against itself.
-_CRITICAL_VALUE = float(norm.ppf(0.975))
+# point of this test is to check the module's formula against the same one
+# the rest of the project uses (`cp_causal._support.critical_value`,
+# `cp_statistics.proportions`), not against itself. A function of `level`,
+# not a single constant, because event_study_data must build its margin from
+# whatever level the fit actually used (EstimatorConfig.ci_level), not a
+# fixed 95%.
+def _critical_value(level):
+    return float(norm.ppf(1 - (1 - level) / 2))
+
+
+_CRITICAL_VALUE = _critical_value(0.95)
 
 
 @pytest.fixture
@@ -24,6 +32,7 @@ def _event_study_estimate(
     horizons=(-3, -2, -1, 0, 1, 2),
     coefficients=(0.1, 0.05, 0.0, 0.4, 0.6, 0.7),
     errors=(0.05, 0.04, 0.0, 0.06, 0.07, 0.08),
+    level=0.95,
 ):
     def diag(name, values, unit):
         return Diagnostic(
@@ -35,7 +44,7 @@ def _event_study_estimate(
         method="event_study",
         point=0.55,
         se=0.07,
-        ci=Interval(lower=0.41, upper=0.69, level=0.95),
+        ci=Interval(lower=0.41, upper=0.69, level=level),
         ci_basis="analytic",
         bootstrap_ci=None,
         p_value=0.001,
@@ -85,6 +94,39 @@ def test_intervals_are_built_from_the_standard_errors():
         data.coefficients - data.lower,
         _CRITICAL_VALUE * np.array([0.05, 0.04, 0.0, 0.06, 0.07, 0.08]),
         atol=1e-9,
+    )
+
+
+def test_it_carries_the_estimates_own_ci_level_not_a_hardcoded_95_percent():
+    # EstimatorConfig.ci_level is configurable and EventStudy.fit honours it
+    # throughout (event_study.py:258, :319, :360) -- a fit run at 90% must
+    # not be silently widened to 95% here. A test that only ever exercises
+    # the default 95% level could not tell a hardcoded constant from a field
+    # actually read off the estimate, so this fixture is deliberately at a
+    # non-default level.
+    data = event_study_data(_event_study_estimate(level=0.90))
+
+    assert data.level == pytest.approx(0.90)
+
+
+def test_intervals_at_a_non_default_level_use_that_levels_critical_value():
+    # Paired with test_intervals_are_built_from_the_standard_errors above at
+    # the default 95% level: the two together are what make the margin
+    # meaningfully level-dependent rather than a constant that happens to
+    # equal the 95% critical value regardless of what estimate.ci.level
+    # says. norm.ppf(0.95) = 1.6448536269514722, measurably narrower than
+    # norm.ppf(0.975) -- a fixed 95% critical value used here by mistake
+    # would produce margins about 19% too wide, not merely off by rounding.
+    errors = np.array([0.05, 0.04, 0.0, 0.06, 0.07, 0.08])
+    data = event_study_data(_event_study_estimate(level=0.90))
+
+    expected_margin = _critical_value(0.90) * errors
+    assert np.allclose(data.upper - data.coefficients, expected_margin, atol=1e-9)
+    assert np.allclose(data.coefficients - data.lower, expected_margin, atol=1e-9)
+    # The margin actually drawn is measurably different from what the
+    # (wrong) hardcoded 95% critical value would have produced.
+    assert not np.allclose(
+        data.upper - data.coefficients, _CRITICAL_VALUE * errors, atol=1e-9
     )
 
 
@@ -225,6 +267,7 @@ def _asymmetric_event_study_data():
         upper=np.array([0.25, 0.0, 0.50, 0.63]),
         is_reference=(False, True, False, False),
         reference_horizon=-1.0,
+        level=0.95,
     )
 
 
@@ -272,6 +315,27 @@ def test_drawing_draws_a_zero_reference_line(ax):
         if len(line.get_xdata()) == 2 and set(line.get_ydata()) == {0.0}
     ]
     assert len(reference_lines) == 1
+
+
+def test_drawing_names_the_interval_level_in_the_legend(ax):
+    # An unlabelled band leaves a reader unable to say what was rendered
+    # (design section 11). The legend must name the actual level drawn, not
+    # just say "estimated" -- and must change when the level does, which is
+    # what distinguishes this from a hardcoded "95%" string in the label.
+    data_95 = event_study_data(_event_study_estimate(level=0.95))
+    draw_event_study(data_95, ax)
+    labels_95 = [t.get_text() for t in ax.get_legend().get_texts()]
+    assert any("95%" in label for label in labels_95)
+
+    figure, ax_90 = plt.subplots()
+    try:
+        data_90 = event_study_data(_event_study_estimate(level=0.90))
+        draw_event_study(data_90, ax_90)
+        labels_90 = [t.get_text() for t in ax_90.get_legend().get_texts()]
+        assert any("90%" in label for label in labels_90)
+        assert not any("95%" in label for label in labels_90)
+    finally:
+        plt.close(figure)
 
 
 def test_drawing_returns_the_axes_and_leaves_pyplot_alone(ax):
