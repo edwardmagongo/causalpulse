@@ -78,11 +78,16 @@ def forest_plot_data(estimates: Sequence[EffectEstimate]) -> ForestPlotData:
 def draw_forest_plot(data: ForestPlotData, ax: Axes) -> Axes:
     """Draw one row per estimate: a point and its interval, on `ax`.
 
-    Each row's y-tick label combines the method with its estimand --
-    `f"{method} ({estimand})"` -- because these estimators do not share an
-    estimand: cross-sectional methods report `ATE`, panel methods report
-    `ATT`. Without the per-row label a reader would take the whole column as
-    one comparable quantity, which it is not.
+    Each row's y-tick label combines the method, its estimand and its
+    interval basis -- `f"{method} ({estimand}, {basis})"` -- because these
+    estimators do not share either: cross-sectional methods report `ATE`,
+    panel methods report `ATT` (see the module docstring), and `ci_basis`
+    distinguishes an analytic Wald interval from a bootstrap or permutation
+    one. A cross-method forest plot is exactly where a reader compares
+    intervals across rows, and an analytic and a permutation interval are no
+    more interchangeable than an ATE and an ATT. Design section 6 states
+    both must be shown per row; omitting the basis would render half the
+    provenance and drop the other half silently.
     """
     y = np.arange(len(data.methods))
     points = np.asarray(data.points)
@@ -99,8 +104,10 @@ def draw_forest_plot(data: ForestPlotData, ax: Axes) -> Axes:
     ax.set_yticks(list(y))
     ax.set_yticklabels(
         [
-            f"{method} ({estimand})"
-            for method, estimand in zip(data.methods, data.estimands, strict=True)
+            f"{method} ({estimand}, {basis})"
+            for method, estimand, basis in zip(
+                data.methods, data.estimands, data.bases, strict=True
+            )
         ]
     )
     ax.axvline(0.0, color="grey", linewidth=0.8, linestyle="--")

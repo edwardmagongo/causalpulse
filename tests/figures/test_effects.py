@@ -13,10 +13,10 @@ from cp_figures.effects import (
 )
 
 
-def _estimate(method="ipw", estimand="ATE", point=0.25, lo=0.05, hi=0.45):
+def _estimate(method="ipw", estimand="ATE", point=0.25, lo=0.05, hi=0.45, ci_basis="analytic"):
     return EffectEstimate(
         estimand=estimand, method=method, point=point, se=0.1,
-        ci=Interval(lower=lo, upper=hi, level=0.95), ci_basis="analytic",
+        ci=Interval(lower=lo, upper=hi, level=0.95), ci_basis=ci_basis,
         bootstrap_ci=None, p_value=0.01, n_treated=100, n_control=100,
         scale="percentage_point", diagnostics={}, assumptions=(),
         counterfactual=None,
@@ -90,9 +90,41 @@ def test_drawing_a_forest_plot_labels_every_row_with_its_estimand(ax):
     draw_forest_plot(data, ax)
 
     labels = [t.get_text() for t in ax.get_yticklabels()]
-    assert labels == ["ipw (ATE)", "twfe (ATT)"]
+    assert labels == ["ipw (ATE, analytic)", "twfe (ATT, analytic)"]
     for method, estimand, label in zip(data.methods, data.estimands, labels, strict=True):
-        assert label == f"{method} ({estimand})"
+        assert label == f"{method} ({estimand}, analytic)"
+
+
+def test_drawing_a_forest_plot_labels_every_row_with_its_interval_basis(ax):
+    # ci_basis distinguishes an analytic Wald interval from a bootstrap or
+    # permutation one -- exactly as consequential to a cross-method
+    # comparison as the estimand (see
+    # test_drawing_a_forest_plot_labels_every_row_with_its_estimand above).
+    # Order-sensitive, and checked pairwise rather than with a presence
+    # check: a mispaired zip (row i's label carrying row j's basis) would
+    # still leave every basis string present *somewhere* in the label list,
+    # so `any(basis in label for ...)` could not catch a swap. Asserting the
+    # exact label list, and then the pairing per row, can.
+    data = forest_plot_data(
+        [
+            _estimate("ipw", "ATE", ci_basis="analytic"),
+            _estimate("twfe", "ATT", ci_basis="bootstrap"),
+            _estimate("aipw", "ATE", ci_basis="permutation"),
+        ]
+    )
+
+    draw_forest_plot(data, ax)
+
+    labels = [t.get_text() for t in ax.get_yticklabels()]
+    assert labels == [
+        "ipw (ATE, analytic)",
+        "twfe (ATT, bootstrap)",
+        "aipw (ATE, permutation)",
+    ]
+    for method, estimand, basis, label in zip(
+        data.methods, data.estimands, data.bases, labels, strict=True
+    ):
+        assert label == f"{method} ({estimand}, {basis})"
 
 
 def test_drawing_a_forest_plot_draws_the_error_bars_spanning_the_interval(ax):
