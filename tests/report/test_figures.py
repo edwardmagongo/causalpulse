@@ -19,6 +19,7 @@ pass even with a naive implementation.
 from __future__ import annotations
 
 import matplotlib.pyplot as plt
+import pytest
 from cp_report.evidence import ReportFigure
 from cp_report.figures import figure_to_file, figure_to_inline_svg
 
@@ -90,6 +91,31 @@ def test_two_figures_do_not_collide_on_one_filename(tmp_path):
     second = figure_to_file(ReportFigure(caption="Two.", draw=_figure().draw), tmp_path)
 
     assert first != second
+
+
+def _raising_figure():
+    def draw(ax):
+        raise ValueError("drawing failed")
+
+    return ReportFigure(caption="Broken.", draw=draw)
+
+
+def test_a_draw_that_raises_still_propagates_and_closes_for_inline_svg():
+    before = plt.get_fignums()
+
+    with pytest.raises(ValueError, match="drawing failed"):
+        figure_to_inline_svg(_raising_figure())
+
+    assert plt.get_fignums() == before
+
+
+def test_a_draw_that_raises_still_propagates_and_closes_for_file(tmp_path):
+    before = plt.get_fignums()
+
+    with pytest.raises(ValueError, match="drawing failed"):
+        figure_to_file(_raising_figure(), tmp_path)
+
+    assert plt.get_fignums() == before
 
 
 def test_captions_differing_only_in_punctuation_do_not_collide(tmp_path):

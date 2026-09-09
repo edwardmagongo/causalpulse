@@ -31,8 +31,9 @@ matplotlib 3.11.1 under `Agg`:**
    accumulates, and the suite turns that warning into a failure far from
    whichever test leaked it. Both rendering functions below create exactly
    one `Figure` via `pyplot` (so it is tracked in `pyplot`'s figure
-   registry) and close it in a `finally`, so an exception from a caller's
-   `draw` cannot leave it open.
+   registry) inside the same `try` whose `finally` closes it, so an
+   exception from a caller's `draw` -- which runs inside that `try` too --
+   cannot leave it open.
 
 **Filenames.** `figure_to_file` derives a filename from the caption: a
 lowercase slug for readability, plus a short hex digest of the caption
@@ -83,17 +84,16 @@ def _strip_xml_preamble(svg: str) -> str:
     return svg[svg.index("<svg") :]
 
 
-def _draw(figure: ReportFigure) -> Figure:
-    fig = plt.figure()
+def _draw(figure: ReportFigure, fig: Figure) -> None:
     ax = fig.add_subplot()
     figure.draw(ax)
-    return fig
 
 
 def figure_to_inline_svg(figure: ReportFigure) -> str:
     """Render `figure` to an SVG fragment safe to inline into an HTML body."""
-    fig = _draw(figure)
+    fig = plt.figure()  # a bare plt.figure() essentially cannot raise
     try:
+        _draw(figure, fig)
         buffer = io.StringIO()
         fig.savefig(buffer, format="svg")
         return _strip_xml_preamble(buffer.getvalue())
@@ -108,8 +108,9 @@ def figure_to_file(figure: ReportFigure, directory: Path) -> Path:
     fragment, it is a whole document, not something embedded into another
     one.
     """
-    fig = _draw(figure)
+    fig = plt.figure()  # a bare plt.figure() essentially cannot raise
     try:
+        _draw(figure, fig)
         path = directory / _filename(figure.caption)
         fig.savefig(path, format="svg")
         return path
