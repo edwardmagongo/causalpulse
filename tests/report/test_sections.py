@@ -214,12 +214,22 @@ def test_limitations_lead_with_the_scores_own_limits():
 
 
 def test_the_comparisons_prose_fragments_carry_method_names():
-    data = comparison_data([_estimate(method="proven_estimator")])
+    data = comparison_data(
+        [_estimate(method="proven_estimator"), _estimate(method="another_estimator")]
+    )
 
-    assert any("proven_estimator" in f for f in data.prose_fragments())
+    fragments = data.prose_fragments()
+    assert any("proven_estimator" in f for f in fragments)
+    assert any("another_estimator" in f for f in fragments)
 
 
-def test_the_limitations_prose_fragments_carry_the_callers_statements():
+def test_the_limitations_prose_fragments_lead_with_the_scores_own_limits():
+    # The class docstring promises a limitations section "always leads with"
+    # the score's own limits sentence -- not merely that it appears
+    # somewhere. Pin the leading position directly: fragments[0] is the only
+    # element, so equality proves both presence and order in one assertion.
     data = limitations_data(_score(), ("The rollout causes the lift.",))
 
-    assert any("causes the lift" in f for f in data.prose_fragments())
+    fragments = data.prose_fragments()
+    assert fragments[0] == VALIDITY_SCORE_LIMITS
+    assert any("causes the lift" in f for f in fragments)
