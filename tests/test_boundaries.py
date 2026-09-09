@@ -163,3 +163,23 @@ def test_nothing_below_may_import_the_figures(module_name):
     assert offenders.stdout == "", (
         f"{module_name} must never reference cp_figures:\n" + offenders.stdout
     )
+
+
+@pytest.mark.parametrize(
+    "module_name",
+    ["cp_core", "cp_statistics", "cp_causal", "cp_evaluation", "cp_figures"],
+)
+def test_nothing_below_may_import_the_report(module_name):
+    # The report composes results into prose. If an estimator or a figure
+    # could import it, the layer that keeps estimation and plotting free of
+    # document generation would mean nothing.
+    module = __import__(module_name)
+
+    source_root = module.__path__[0]
+    offenders = subprocess.run(
+        ["grep", "-rn", "cp_report", source_root], capture_output=True, text=True
+    )
+    assert offenders.returncode in (0, 1), offenders.stderr
+    assert offenders.stdout == "", (
+        f"{module_name} must never reference cp_report:\n" + offenders.stdout
+    )
