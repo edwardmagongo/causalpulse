@@ -93,6 +93,18 @@ def test_lint_reports_the_offending_sentence_not_the_whole_text() -> None:
     assert violations[0].sentence.strip() == "This proves causation."
 
 
+def test_start_is_the_real_offset_of_the_violations_sentence() -> None:
+    # `start` is what a caller composing several fragments into one `text`
+    # (cp-report) relies on to map a violation back to the fragment it came
+    # from. Pinned on a violation in a non-initial sentence so a `start` that
+    # is merely 0, or merely "somewhere in `text`", cannot pass by accident.
+    text = "Overlap is adequate. This proves causation. Trends are parallel."
+    violations = causal_language_lint(text)
+    assert len(violations) == 1
+    violation = violations[0]
+    assert text[violation.start : violation.start + len(violation.sentence)] == violation.sentence
+
+
 def _message_literals(path: pathlib.Path) -> list[str]:
     """Every string constant in a file that is not a docstring.
 

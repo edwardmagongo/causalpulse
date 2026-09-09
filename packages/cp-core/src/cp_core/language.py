@@ -78,6 +78,14 @@ class LanguageViolation:
     term: str
     sentence: str
     reason: str
+    # Appended last, additive: existing positional construction (there is
+    # none outside this module -- checked) and every existing field stay
+    # unchanged. The offset of `sentence` within the `text` passed to
+    # `causal_language_lint`, i.e. `text[start:start + len(sentence)] ==
+    # sentence`. Exists so a caller composing several fragments into one
+    # `text` (as cp-report does) can map a violation back to the fragment
+    # it came from without re-deriving `_SENTENCE`'s own segmentation.
+    start: int
 
 
 def _words(fragment: str) -> list[str]:
@@ -126,13 +134,16 @@ def causal_language_lint(text: str) -> tuple[LanguageViolation, ...]:
             words = _words(clause)
             for index, word in enumerate(words):
                 if word in _ABSOLUTE_TERMS and not _is_negated(words, index):
-                    violations.append(LanguageViolation(word, sentence, _ABSOLUTE_TERMS[word]))
+                    violations.append(
+                        LanguageViolation(word, sentence, _ABSOLUTE_TERMS[word], match.start())
+                    )
                 elif word in _CAUSAL_TERMS and not hedged:
                     violations.append(
                         LanguageViolation(
                             word,
                             sentence,
                             "asserts causation without stating the assumptions it rests on",
+                            match.start(),
                         )
                     )
     return tuple(violations)
