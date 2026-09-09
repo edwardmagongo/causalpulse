@@ -1,5 +1,20 @@
-from cp_core.results import VALIDITY_SCORE_LIMITS, AssumptionCheck, CausalValidityScore
-from cp_report.sections import assumption_table_data, validity_band_data
+import dataclasses
+
+import pytest
+from cp_core.results import (
+    VALIDITY_SCORE_LIMITS,
+    AssumptionCheck,
+    CausalValidityScore,
+    EffectEstimate,
+    FitMetadata,
+)
+from cp_core.values import Interval
+from cp_report.sections import (
+    assumption_table_data,
+    comparison_data,
+    limitations_data,
+    validity_band_data,
+)
 
 
 def _check(name="overlap", kind="identification", status="PASS", statistic=0.04,
@@ -17,6 +32,29 @@ def _score(band="MODERATE", ceiling="STRONG"):
         ceiling=ceiling,
         rationale=("Design provenance is observational, so the band cannot exceed STRONG.",),
         checks=(_check(),),
+    )
+
+
+def _estimate(method="ipw", estimand="ATE", point=0.25, lo=0.05, hi=0.45, basis="analytic"):
+    return EffectEstimate(
+        estimand=estimand,
+        method=method,
+        point=point,
+        se=0.1,
+        ci=Interval(lower=lo, upper=hi, level=0.95),
+        ci_basis=basis,
+        bootstrap_ci=None,
+        p_value=0.01,
+        n_treated=100,
+        n_control=100,
+        scale="percentage_point",
+        diagnostics={},
+        assumptions=(),
+        counterfactual=None,
+        fit_metadata=FitMetadata.capture(
+            estimator=method, config_hash="h", runtime_seconds=0.1, random_seed=0
+        ),
+        subgroup_findings=(),
     )
 
 
@@ -129,3 +167,59 @@ def test_the_validity_bands_prose_fragments_carry_the_limits_and_rationale():
     joined = " ".join(data.prose_fragments())
     assert VALIDITY_SCORE_LIMITS in joined
     assert "Design provenance is observational" in joined
+
+
+def test_the_comparison_carries_one_row_per_estimate():
+    data = comparison_data([_estimate("ipw"), _estimate("aipw", point=0.30)])
+
+    assert data.methods == ("ipw", "aipw")
+    assert data.points == (0.25, 0.30)
+
+
+def test_the_comparison_carries_the_estimand_per_row():
+    # ATE and ATT are different quantities. A table implying one shared
+    # quantity is the defect family this project has hit three times.
+    data = comparison_data([_estimate("ipw", "ATE"), _estimate("twfe", "ATT")])
+
+    assert data.estimands == ("ATE", "ATT")
+
+
+def test_the_comparison_carries_the_interval_basis_per_row():
+    data = comparison_data([_estimate(basis="analytic"), _estimate(basis="bootstrap")])
+
+    assert data.bases == ("analytic", "bootstrap")
+
+
+def test_the_comparison_carries_the_interval_bounds_per_row():
+    data = comparison_data([_estimate(lo=0.05, hi=0.45), _estimate(lo=0.10, hi=0.50)])
+
+    assert data.lower == (0.05, 0.10)
+    assert data.upper == (0.45, 0.50)
+
+
+def test_the_comparison_refuses_an_estimate_without_an_interval():
+    # A number in a table reads as more authoritative than a dot on a chart,
+    # so a bare point here is the worse version of the same defect.
+    bare = dataclasses.replace(_estimate(), ci=None)
+
+    with pytest.raises(ValueError, match="without an interval"):
+        comparison_data([_estimate(), bare])
+
+
+def test_limitations_lead_with_the_scores_own_limits():
+    data = limitations_data(_score(), ("The donor pool is small.",))
+
+    assert data.limits == VALIDITY_SCORE_LIMITS
+    assert data.statements == ("The donor pool is small.",)
+
+
+def test_the_comparisons_prose_fragments_carry_method_names():
+    data = comparison_data([_estimate(method="proven_estimator")])
+
+    assert any("proven_estimator" in f for f in data.prose_fragments())
+
+
+def test_the_limitations_prose_fragments_carry_the_callers_statements():
+    data = limitations_data(_score(), ("The rollout causes the lift.",))
+
+    assert any("causes the lift" in f for f in data.prose_fragments())
