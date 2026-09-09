@@ -130,14 +130,12 @@ def test_a_duplicate_sentence_in_two_non_initial_fragments_is_attributed_correct
 
 
 def test_two_offending_terms_in_one_sentence_both_attribute_to_it():
-    # A naive fix for the duplicate-sentence case -- advance the search
-    # cursor on every violation rather than only when the sentence text
-    # changes -- breaks this case: the second violation from this single
-    # sentence would search past its own occurrence, fail to find a second
-    # copy, and fall back to naming the *first* section. The offending
-    # sentence is deliberately placed in the second section (not the first)
-    # so that fallback would be visibly wrong -- a naive fix could otherwise
-    # pass by accident if the offending sentence happened to sit first.
+    # Both violations come from the same `_SENTENCE` match, so they carry the
+    # identical `LanguageViolation.start` -- attribution must not require
+    # distinct positions to tell two terms in one sentence apart from two
+    # occurrences of the same sentence. The offending sentence is deliberately
+    # placed in the second section (not the first) so that a bug which
+    # defaults to the first section on any ambiguity would be visibly wrong.
     with pytest.raises(ReportLanguageError) as excinfo:
         require_clean_prose(
             [

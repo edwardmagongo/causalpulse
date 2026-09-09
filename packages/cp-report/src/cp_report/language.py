@@ -19,20 +19,11 @@ separately would miss it by construction.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Sequence
 
 from cp_core.language import LanguageViolation, causal_language_lint
 
 _SEPARATOR = "\n\n"
-
-# Mirrors `cp_core.language._SENTENCE` exactly. Duplicated rather than
-# imported -- it is private to that module, and `cp_core.language` must not
-# change for this package's sake. Needed to independently recover each
-# sentence match's *position* in `document`: `LanguageViolation` carries only
-# `sentence` text, and text is not enough to attribute a violation to a
-# section -- see the comment above `_attribute_violations` for why.
-_SENTENCE = re.compile(r"[^.!?]*[.!?]|[^.!?]+$")
 
 
 class ReportLanguageError(ValueError):
@@ -56,101 +47,43 @@ def require_clean_prose(fragments: Sequence[tuple[str, str]]) -> None:
     if not violations:
         return
 
-    lines = _attribute_violations(document, offsets, violations)
+    lines = [_format_violation(offsets, violation) for violation in violations]
     raise ReportLanguageError(
         "refusing to emit a report whose prose asserts more than it can "
         "support:\n" + "\n".join(lines)
     )
 
 
-def _attribute_violations(
-    document: str,
-    offsets: Sequence[tuple[int, str]],
-    violations: Sequence[LanguageViolation],
-) -> list[str]:
-    """Attribute each violation to the section its sentence came from.
+def _format_violation(offsets: Sequence[tuple[int, str]], violation: LanguageViolation) -> str:
+    """Render one violation, attributed to the section its sentence came from.
 
-    An earlier version of this did the attribution by comparing
-    `violation.sentence` text between consecutive violations: if it changed,
-    search `document` for the new text and advance a cursor; if it repeated,
-    assume it was another term from the *same* sentence and reuse the last
-    position. That collapses two genuinely different cases that read
-    identically as text:
+    `violation.start` is the offset of `violation.sentence` within `document`
+    (`cp_core.language.LanguageViolation` guarantees
+    `document[start:start + len(sentence)] == sentence`), so the section
+    lookup is a direct position lookup -- no re-segmentation of `document` is
+    needed here at all.
 
-    - several violations from one sentence (`causal_language_lint` emits one
-      per offending term, and they must all attribute to that one section),
-      and
-    - two *different* sentences, in two *different* sections, that happen to
-      carry byte-identical prose (reused boilerplate limitation text, a
-      hedge phrasing repeated verbatim).
-
-    Comparing raw (unstripped) `sentence` text told these apart only by
-    accident: `_SENTENCE` sweeps the preceding `"\n\n"` separator into every
-    *non-initial* sentence match, so only a sentence at the very start of
-    `document` lacks it. Two non-initial sections sharing one sentence both
-    get the identical swept prefix, so their raw text -- and their stripped
-    text -- are equal too. No text comparison, raw or stripped, can
-    distinguish that pair from "same sentence, second term": both look like
-    "unchanged" to a text-equality check, so the naive fix reintroduces the
-    exact misattribution it exists to close.
-
-    What actually distinguishes the two cases is *position*, not text: one
-    sentence occupies one span in `document`; a repeated sentence occupies
-    two different spans. So this replays `causal_language_lint`'s own
-    sentence segmentation over `document` via `_SENTENCE.finditer` (the
-    identical pattern `causal_language_lint` uses internally), and for each
-    match, re-lints just that match's text to find out how many violations
-    it produced. Feeding a single `_SENTENCE` match's text back through
-    `causal_language_lint` reproduces exactly the violations that match
-    contributed to the original call: a match's text contains no terminator
-    before its own (if any), so `_SENTENCE.finditer` on it in isolation
-    yields exactly one match spanning the whole string, and `_is_hedged` /
-    `_is_negated` are computed purely from that string. `violations` is
-    consumed in that same document order (`re.finditer` visits left to
-    right, and so does `causal_language_lint`'s own loop), so the first
-    `count` remaining violations belong to the current match and the rest
-    belong to later ones. This uses each match's real `match.start()`
-    offset, so it never has to search for text at all -- there is no
-    `document.find` call here, and consequently nothing that can return -1
-    or otherwise fail to locate an occurrence.
+    One correction is still required: `start` is the position of the *raw*
+    match, which for every non-initial sentence includes the `_SEPARATOR`
+    leading whitespace swept into it (`cp_core.language._SENTENCE`'s `[^.!?]`
+    character class does not exclude newlines, so a fragment boundary is
+    consumed as ordinary sentence content rather than ending a match). That
+    raw position can land inside the *previous* fragment's offset span
+    rather than the current one's, so the lookup uses the position of the
+    sentence's actual first character instead.
     """
-    lines: list[str] = []
-    remaining = list(violations)
-    for match in _SENTENCE.finditer(document):
-        if not remaining:
-            break
-        text = match.group()
-        stripped = text.strip()
-        if not stripped:
-            continue
-        count = len(causal_language_lint(text))
-        if count == 0:
-            continue
-        # `match.start()` is the start of the *raw* match, which -- for
-        # every non-initial sentence -- includes the swept-in `_SEPARATOR`
-        # leading whitespace (see the module-level comment on `_SENTENCE`
-        # duplication). That position can land inside the *previous*
-        # fragment's span rather than the current one's, so the section
-        # lookup must use the position of the sentence's first real
-        # character, not the match's raw start.
-        real_start = match.start() + (len(text) - len(text.lstrip()))
-        section = _section_at(offsets, real_start)
-        for violation in remaining[:count]:
-            lines.append(f"  [{section}] {violation.term!r}: {violation.reason}\n    {stripped}")
-        remaining = remaining[count:]
-    return lines
+    stripped = violation.sentence.strip()
+    leading_whitespace = len(violation.sentence) - len(violation.sentence.lstrip())
+    section = _section_at(offsets, violation.start + leading_whitespace)
+    return f"  [{section}] {violation.term!r}: {violation.reason}\n    {stripped}"
 
 
 def _section_at(offsets: Sequence[tuple[int, str]], index: int) -> str:
-    """The section whose text contains `index`, or the first if unlocated."""
+    """The section whose text contains `index`."""
     # `offsets` is empty only when `fragments` is empty, in which case
     # `document` is also empty and `causal_language_lint` returns no
     # violations -- so `require_clean_prose` never reaches this function with
-    # an empty `offsets`. The `"unknown"` fallback is defensive only; it is
-    # not exercised by any test and is not reachable through the public
-    # `require_clean_prose` entry point.
-    if index < 0:
-        return offsets[0][1] if offsets else "unknown"
+    # an empty `offsets`. The `"unknown"` fallback is defensive only.
     section = offsets[0][1] if offsets else "unknown"
     for start, name in offsets:
         if start > index:
