@@ -82,3 +82,47 @@ def test_every_violation_is_reported_not_only_the_first():
     message = str(excinfo.value)
     assert "proves" in message
     assert "causes" in message
+
+
+def test_a_duplicate_sentence_is_attributed_to_its_own_section():
+    # Two sections carrying the byte-identical offending sentence -- reused
+    # boilerplate limitation text is the realistic case. A refusal that sends
+    # a user to the wrong section is worse than one that says nothing, so
+    # `document.find` searched from position 0 (which always returns the
+    # leftmost occurrence) is not good enough: it would attribute both
+    # violations to "validity band" and never mention "limitations" at all.
+    with pytest.raises(ReportLanguageError) as excinfo:
+        require_clean_prose(
+            [
+                ("validity band", "This proves unconfoundedness."),
+                ("limitations", "This proves unconfoundedness."),
+            ]
+        )
+
+    message = str(excinfo.value)
+    assert "[validity band]" in message
+    assert "[limitations]" in message
+
+
+def test_two_offending_terms_in_one_sentence_both_attribute_to_it():
+    # A naive fix for the duplicate-sentence case -- advance the search
+    # cursor on every violation rather than only when the sentence text
+    # changes -- breaks this case: the second violation from this single
+    # sentence would search past its own occurrence, fail to find a second
+    # copy, and fall back to naming the *first* section. The offending
+    # sentence is deliberately placed in the second section (not the first)
+    # so that fallback would be visibly wrong -- a naive fix could otherwise
+    # pass by accident if the offending sentence happened to sit first.
+    with pytest.raises(ReportLanguageError) as excinfo:
+        require_clean_prose(
+            [
+                ("validity band", "A clean opening sentence with no violations."),
+                ("limitations", "This proves unconfoundedness and causes the lift."),
+            ]
+        )
+
+    message = str(excinfo.value)
+    assert message.count("[limitations]") == 2
+    assert "[validity band]" not in message
+    assert "proves" in message
+    assert "causes" in message
