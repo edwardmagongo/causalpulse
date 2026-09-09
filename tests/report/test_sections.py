@@ -1,14 +1,7 @@
 import dataclasses
 
 import pytest
-from cp_core.results import (
-    VALIDITY_SCORE_LIMITS,
-    AssumptionCheck,
-    CausalValidityScore,
-    EffectEstimate,
-    FitMetadata,
-)
-from cp_core.values import Interval
+from cp_core.results import VALIDITY_SCORE_LIMITS
 from cp_report.sections import (
     assumption_table_data,
     comparison_data,
@@ -16,46 +9,7 @@ from cp_report.sections import (
     validity_band_data,
 )
 
-
-def _check(name="overlap", kind="identification", status="PASS", statistic=0.04,
-           threshold=0.1, interpretation="Standardised mean differences are within threshold.",
-           remedy=None):
-    return AssumptionCheck(
-        name=name, kind=kind, status=status, statistic=statistic,
-        threshold=threshold, interpretation=interpretation, remedy=remedy,
-    )
-
-
-def _score(band="MODERATE", ceiling="STRONG"):
-    return CausalValidityScore(
-        band=band,
-        ceiling=ceiling,
-        rationale=("Design provenance is observational, so the band cannot exceed STRONG.",),
-        checks=(_check(),),
-    )
-
-
-def _estimate(method="ipw", estimand="ATE", point=0.25, lo=0.05, hi=0.45, basis="analytic"):
-    return EffectEstimate(
-        estimand=estimand,
-        method=method,
-        point=point,
-        se=0.1,
-        ci=Interval(lower=lo, upper=hi, level=0.95),
-        ci_basis=basis,
-        bootstrap_ci=None,
-        p_value=0.01,
-        n_treated=100,
-        n_control=100,
-        scale="percentage_point",
-        diagnostics={},
-        assumptions=(),
-        counterfactual=None,
-        fit_metadata=FitMetadata.capture(
-            estimator=method, config_hash="h", runtime_seconds=0.1, random_seed=0
-        ),
-        subgroup_findings=(),
-    )
+from report.builders import _check, _estimate, _score
 
 
 def test_the_assumption_table_carries_one_row_per_check():
