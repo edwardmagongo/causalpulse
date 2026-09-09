@@ -104,6 +104,31 @@ def test_a_duplicate_sentence_is_attributed_to_its_own_section():
     assert "[limitations]" in message
 
 
+def test_a_duplicate_sentence_in_two_non_initial_fragments_is_attributed_correctly():
+    # The residual from the first fix: two non-initial fragments both carry
+    # the identical offending sentence. `_SENTENCE` sweeps the preceding
+    # "\n\n" separator into every non-initial sentence match, so both
+    # violations' raw `sentence` text (and their stripped text) are
+    # byte-identical to each other -- unlike the two-fragment case above,
+    # where the first fragment is initial and therefore has no swept-in
+    # whitespace, no text-based comparison between consecutive violations can
+    # tell these two occurrences apart. A fix that only changes *which* text
+    # it compares (raw vs. stripped) does not close this: both are equal
+    # either way.
+    with pytest.raises(ReportLanguageError) as excinfo:
+        require_clean_prose(
+            [
+                ("validity band", "The band scores observable diagnostics, not truth."),
+                ("assumption table", "This proves unconfoundedness."),
+                ("limitations", "This proves unconfoundedness."),
+            ]
+        )
+
+    message = str(excinfo.value)
+    assert "[assumption table]" in message
+    assert "[limitations]" in message
+
+
 def test_two_offending_terms_in_one_sentence_both_attribute_to_it():
     # A naive fix for the duplicate-sentence case -- advance the search
     # cursor on every violation rather than only when the sentence text
