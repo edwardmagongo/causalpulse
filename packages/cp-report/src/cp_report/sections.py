@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from cp_core.results import AssumptionCheck, CausalValidityScore
+from cp_core.results import AssumptionCheck, AssumptionKind, AssumptionStatus, CausalValidityScore
 
 
 @dataclass(frozen=True)
@@ -56,8 +56,8 @@ class AssumptionTableData:
     """
 
     names: tuple[str, ...]
-    kinds: tuple[str, ...]
-    statuses: tuple[str, ...]
+    kinds: tuple[AssumptionKind, ...]
+    statuses: tuple[AssumptionStatus, ...]
     statistics: tuple[float | None, ...]
     thresholds: tuple[float | None, ...]
     interpretations: tuple[str, ...]

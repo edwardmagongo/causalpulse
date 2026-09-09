@@ -21,9 +21,10 @@ def _score(band="MODERATE", ceiling="STRONG"):
 
 
 def test_the_assumption_table_carries_one_row_per_check():
-    data = assumption_table_data((_check("overlap"), _check("balance")))
+    data = assumption_table_data((_check("overlap"), _check("balance", kind="estimation")))
 
     assert data.names == ("overlap", "balance")
+    assert data.kinds == ("identification", "estimation")
 
 
 def test_a_not_testable_check_keeps_its_status():
@@ -64,6 +65,34 @@ def test_a_warned_check_is_counted_and_no_row_is_lost():
     assert data.n_failed == 1
     assert data.n_not_testable == 1
     assert data.n_passed + data.n_warned + data.n_failed + data.n_not_testable == len(data.names)
+
+
+def test_a_not_testable_checks_statistic_and_threshold_stay_none():
+    # A statistic of None (never computed) must not be read as 0.0 (computed
+    # as zero) downstream -- this project has already shipped that exact
+    # confusion in a benchmark heatmap. Pin both directions in one test: the
+    # None stays None, and a real, non-zero value passes through unchanged.
+    data = assumption_table_data(
+        (_check("overlap", status="PASS", statistic=0.04, threshold=0.1),
+         _check("unconfoundedness", status="NOT_TESTABLE", statistic=None, threshold=None))
+    )
+
+    assert data.statistics == (0.04, None)
+    assert data.thresholds == (0.1, None)
+
+
+def test_a_checks_remedy_reaches_prose_fragments():
+    # remedy is free text a caller wrote about how to address a failure --
+    # it must be linted exactly like interpretation, or an unhedged causal
+    # claim could reach the reader through the one field the lint never saw.
+    data = assumption_table_data(
+        (_check(status="FAIL", remedy="Re-estimate propensity scores with additional covariates."),)
+    )
+
+    assert any(
+        "Re-estimate propensity scores with additional covariates." in f
+        for f in data.prose_fragments()
+    )
 
 
 def test_the_validity_band_carries_its_limits_from_the_constant():
