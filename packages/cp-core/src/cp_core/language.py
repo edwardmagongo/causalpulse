@@ -83,8 +83,8 @@ class LanguageViolation:
     # unchanged. The offset of `sentence` within the `text` passed to
     # `causal_language_lint`, i.e. `text[start:start + len(sentence)] ==
     # sentence`. Exists so a caller composing several fragments into one
-    # `text` (as cp-report does) can map a violation back to the fragment
-    # it came from without re-deriving `_SENTENCE`'s own segmentation.
+    # `text` can map a violation back to the fragment it came from without
+    # re-deriving `_SENTENCE`'s own segmentation.
     start: int
 
 
