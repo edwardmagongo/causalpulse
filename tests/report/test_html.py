@@ -88,10 +88,7 @@ def test_the_comparison_renders_the_estimand_beside_every_method():
 
     rendered = render_comparison_html(data)
 
-    assert "ipw" in rendered and "ATE" in rendered
-    assert "twfe" in rendered and "ATT" in rendered
-
-    # Strengthened, order-sensitive, per-row form: string presence alone
+    # Order-sensitive, per-row: string presence alone
     # cannot catch a mispairing such as "ipw (ATT)" / "twfe (ATE)" -- the
     # exact defect Phase 16 shipped in its forest plot. Parse the table
     # body rows and check the pairing directly.

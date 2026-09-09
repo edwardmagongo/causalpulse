@@ -6,7 +6,7 @@ instance so a test only has to override what it cares about. They started
 inside `test_sections.py`; this is the third test file to need them
 (`test_markdown.py` after it, `test_html.py`, `test_degenerate.py` and
 `test_lint_coverage.py` in later tasks), so they live here once and every
-test file imports them explicitly (`from tests.report.builders import
+test file imports them explicitly (`from report.builders import
 _check, _score, _estimate`) rather than each copying its own.
 
 Plain functions, not fixtures: `conftest.py` only auto-injects fixtures, and
