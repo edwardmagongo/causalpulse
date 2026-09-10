@@ -167,7 +167,15 @@ def _render_figures_html(figures: tuple[ReportFigure, ...]) -> str:
     plus an `<img>` reference -- an HTML report is one self-contained
     document, and a caller who saves only the string must still get every
     figure with it.
+
+    Returns the empty string when there are no figures, rather than an empty
+    `<section><h2>Figures</h2></section>` -- a figure-less report is a legal
+    input `Evidence` anticipates, and an empty section is a blemish a
+    publication-quality document should not carry. Checking `len(figures)`
+    is a presence check on data the caller already has, not a computation.
     """
+    if not figures:
+        return ""
     figs = "".join(
         f"<figure>{figure_to_inline_svg(figure)}<figcaption>{escape(figure.caption)}"
         "</figcaption></figure>"

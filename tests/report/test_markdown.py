@@ -200,6 +200,20 @@ def test_the_markdown_report_carries_all_four_sections(evidence, tmp_path):
         assert heading in text
 
 
+def test_the_figures_section_is_omitted_when_there_are_no_figures(evidence, tmp_path):
+    bare = dataclasses.replace(evidence, figures=())
+
+    path = write_markdown_report(bare, tmp_path)
+
+    assert "Figures" not in path.read_text()
+
+
+def test_the_figures_section_appears_when_there_is_a_figure(evidence, tmp_path):
+    path = write_markdown_report(evidence, tmp_path)
+
+    assert "## Figures" in path.read_text()
+
+
 def test_the_markdown_report_writes_its_figures_and_links_them(evidence, tmp_path):
     path = write_markdown_report(evidence, tmp_path)
 

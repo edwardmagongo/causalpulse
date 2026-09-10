@@ -229,6 +229,20 @@ def test_the_html_report_carries_all_four_sections(evidence):
         assert heading in rendered
 
 
+def test_the_figures_section_is_omitted_when_there_are_no_figures(evidence):
+    bare = dataclasses.replace(evidence, figures=())
+
+    rendered = render_html_report(bare)
+
+    assert "Figures" not in rendered
+
+
+def test_the_figures_section_appears_when_there_is_a_figure(evidence):
+    rendered = render_html_report(evidence)
+
+    assert "<h2>Figures</h2>" in rendered
+
+
 def test_the_html_report_refuses_prose_that_fails_the_lint(evidence):
     bad = dataclasses.replace(evidence, limitations=("The rollout causes the lift.",))
 

@@ -128,15 +128,20 @@ def _render_figures_markdown(figures: tuple[ReportFigure, ...], paths: list[Path
     `write_markdown_report` writes both the figure files and the document
     itself into the same directory, so a bare filename resolves relative to
     the document regardless of the caller's own working directory.
+
+    Returns the empty string when there are no figures, rather than a bare
+    "## Figures" heading with nothing under it -- a figure-less report is a
+    legal input `Evidence` anticipates, and an empty section is a blemish a
+    publication-quality document should not carry. Checking `len(figures)`
+    is a presence check on data the caller already has, not a computation.
     """
+    if not figures:
+        return ""
     links = "\n".join(
         f"![{figure.caption}]({path.name})"
         for figure, path in zip(figures, paths, strict=True)
     )
-    parts = ["## Figures"]
-    if links:
-        parts.extend(["", links])
-    return "\n".join(parts)
+    return "\n".join(["## Figures", "", links])
 
 
 def write_markdown_report(evidence: Evidence, directory: Path) -> Path:
@@ -168,7 +173,8 @@ def write_markdown_report(evidence: Evidence, directory: Path) -> Path:
     figure_paths = [figure_to_file(figure, directory) for figure in evidence.figures]
 
     document = "\n\n".join(
-        [
+        part
+        for part in [
             "# Causal Pulse Report",
             render_assumption_table_markdown(assumption),
             render_validity_band_markdown(validity),
@@ -176,6 +182,7 @@ def write_markdown_report(evidence: Evidence, directory: Path) -> Path:
             render_comparison_markdown(comparison),
             render_limitations_markdown(limitations),
         ]
+        if part
     )
     path = directory / _DOCUMENT_NAME
     path.write_text(document)
