@@ -43,10 +43,30 @@ def test_the_inline_svg_has_no_xml_declaration_or_doctype():
 
 
 def test_the_inline_svg_carries_the_drawing():
-    svg = figure_to_inline_svg(_figure())
+    # A blank axes -- no line, no label, nothing drawn -- still serialises to
+    # 11,630 bytes on matplotlib 3.11.1 (ticks, spines, styling all emit
+    # markup), so neither "<svg" presence nor a length floor can tell a real
+    # drawing apart from an empty one. Measured directly by mutating `_draw`
+    # to run the caller's `draw` onto a detached axes: every assertion above
+    # this comment still passed.
+    #
+    # A distinctive `ylabel` is a real lower bound instead. matplotlib 3.11.1
+    # emits label text verbatim inside an XML comment (`<!-- cp-report-probe
+    # -->`) immediately before the glyph paths that render it, even though
+    # `svg.fonttype` defaults to "path" (each character drawn as a path, not
+    # written out as an SVG <text> node) -- confirmed directly against this
+    # module's real output, not assumed from the rcParam's name. So the probe
+    # string can only appear in the saved SVG if `draw` actually ran on the
+    # axes that got saved.
+    def draw(ax):
+        ax.plot([0, 1], [0, 1])
+        ax.set_ylabel("cp-report-probe-label")
+        return ax
+
+    svg = figure_to_inline_svg(ReportFigure(caption="A line.", draw=draw))
 
     assert "<svg" in svg and "</svg>" in svg
-    assert len(svg) > 1000
+    assert "cp-report-probe-label" in svg
 
 
 def test_rendering_a_figure_leaves_no_open_figures():
