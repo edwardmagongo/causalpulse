@@ -22,10 +22,13 @@ def _draw(ax):
 
 @pytest.fixture
 def evidence() -> Evidence:
+    # score.checks matches evidence.checks below -- see Evidence's docstring
+    # for why the two fields can otherwise silently disagree.
+    checks = (_check("overlap"), _check("balance", kind="estimation"))
     return Evidence(
         estimates=(_estimate(),),
-        score=_score(),
-        checks=(_check("overlap"), _check("balance", kind="estimation")),
+        score=_score(checks=checks),
+        checks=checks,
         limitations=("The donor pool is small.",),
         figures=(ReportFigure(caption="Effect estimates.", draw=_draw),),
     )

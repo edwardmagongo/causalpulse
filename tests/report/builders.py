@@ -45,12 +45,12 @@ def _check(
     )
 
 
-def _score(band="MODERATE", ceiling="STRONG"):
+def _score(band="MODERATE", ceiling="STRONG", checks=None):
     return CausalValidityScore(
         band=band,
         ceiling=ceiling,
         rationale=("Design provenance is observational, so the band cannot exceed STRONG.",),
-        checks=(_check(),),
+        checks=checks if checks is not None else (_check(),),
     )
 
 

@@ -56,6 +56,20 @@ class Evidence:
     and linked for Markdown) rather than through a `sections.py` data
     function, since figures are not one of that module's four table/prose
     sections.
+
+    **`checks` and `score.checks` are two independent fields, and nothing in
+    this package reconciles them.** The assumption table renders from
+    `checks` -- the argument on this dataclass. The validity band's rationale,
+    ceiling and band were computed upstream from `score.checks` -- the tuple
+    carried on the `CausalValidityScore` itself ("the table behind" the band,
+    per that class's own docstring). A caller who passes a `checks` tuple
+    that does not match the checks `score` was actually computed from gets a
+    report whose two sections describe different check sets with no error
+    and no warning: an assumption table with, say, two rows sitting directly
+    above a validity band whose band and rationale were derived from a
+    different, one-check table. Keeping the two in agreement is the caller's
+    responsibility -- typically by passing the same `checks` tuple used to
+    build `score` in the first place.
     """
 
     estimates: tuple[EffectEstimate, ...]

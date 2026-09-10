@@ -339,7 +339,7 @@ def test_a_pipe_in_free_text_is_ordinary_text_in_html():
 def test_every_section_degenerate_at_once_still_produces_a_complete_report(tmp_path):
     empty_everywhere = Evidence(
         estimates=(),
-        score=_score(),
+        score=_score(checks=()),  # matches checks=() below -- see Evidence's docstring
         checks=(),
         limitations=(),
         figures=(),
