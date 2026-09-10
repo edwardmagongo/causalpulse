@@ -268,8 +268,19 @@ def test_the_markdown_report_refuses_prose_that_fails_the_lint(evidence, tmp_pat
         write_markdown_report(bad, tmp_path)
 
 
+def test_a_missing_directory_raises_a_clear_error_naming_it(evidence, tmp_path):
+    missing = tmp_path / "does-not-exist"
+
+    with pytest.raises(FileNotFoundError, match=re.escape(str(missing))):
+        write_markdown_report(evidence, missing)
+
+
 def test_a_refused_report_writes_nothing(evidence, tmp_path):
     # A half-written directory after a refusal is worse than no directory.
+    # Note: pytest's tmp_path already exists, so this test only proves the
+    # refusal writes nothing when the directory is pre-existing -- it would
+    # not catch a `directory.mkdir(exist_ok=True)` inserted before the lint
+    # by some later change, since that call would be a silent no-op here.
     bad = dataclasses.replace(evidence, limitations=("The rollout causes the lift.",))
 
     with pytest.raises(ReportLanguageError):

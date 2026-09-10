@@ -172,6 +172,15 @@ def write_markdown_report(evidence: Evidence, directory: Path) -> Path:
     behind, which is what `test_a_refused_report_writes_nothing` pins. Only
     after that call returns does this function write the figure files (via
     `figure_to_file`) and then the document, in that order.
+
+    `directory` must already exist. This function never creates it --
+    silently `mkdir`-ing would change behaviour a caller may be relying on
+    (e.g. a permissions boundary, or an intentional refusal to write into a
+    path that was never set up). Given a missing directory it raises
+    `FileNotFoundError` naming that directory, rather than letting the
+    confusing error `figure_to_file`'s `savefig` would otherwise raise --
+    one naming a `.svg` file, never mentioning that the real problem is the
+    directory above it.
     """
     assumption = assumption_table_data(evidence.checks)
     validity = validity_band_data(evidence.score)
@@ -187,6 +196,11 @@ def write_markdown_report(evidence: Evidence, directory: Path) -> Path:
     ):
         fragments.extend((section_name, text) for text in data.prose_fragments())
     require_clean_prose(fragments)
+
+    if not directory.is_dir():
+        raise FileNotFoundError(
+            f"write_markdown_report requires an existing directory, got {directory!r}"
+        )
 
     figure_paths = [figure_to_file(figure, directory) for figure in evidence.figures]
 
