@@ -214,6 +214,28 @@ def test_the_figures_section_appears_when_there_is_a_figure(evidence, tmp_path):
     assert "## Figures" in path.read_text()
 
 
+def test_a_caption_needing_escape_still_produces_a_well_formed_link(evidence, tmp_path):
+    # "]" would close the `[caption]` bracket early and ")" risks the same
+    # for `(file)`; a renderer that left either raw would truncate the
+    # caption or point the link at the wrong target.
+    caption = "Effects [robust] and (unadjusted) estimates."
+    figure = dataclasses.replace(evidence.figures[0], caption=caption)
+    escaped = dataclasses.replace(evidence, figures=(figure,))
+
+    path = write_markdown_report(escaped, tmp_path)
+    text = path.read_text()
+
+    # A parser that honours backslash escapes (CommonMark's own rule, which
+    # GitHub Markdown follows) sees one link whose caption is the whole
+    # original text and whose target is a real file -- not a caption
+    # truncated at the first unescaped "]".
+    match = re.search(r"!\[((?:\\.|[^\]])*)\]\(([^)]+)\)", text)
+    assert match, "expected one well-formed image link"
+    rendered_caption, target = match.groups()
+    assert rendered_caption == caption.replace("]", "\\]").replace(")", "\\)")
+    assert (path.parent / target).exists()
+
+
 def test_the_markdown_report_writes_its_figures_and_links_them(evidence, tmp_path):
     path = write_markdown_report(evidence, tmp_path)
 

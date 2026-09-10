@@ -121,6 +121,24 @@ def render_limitations_markdown(data: LimitationsData) -> str:
     return "\n".join(parts)
 
 
+def _escape_markdown_caption(caption: str) -> str:
+    """Neutralise the two characters that would break `![caption](file)`.
+
+    GitHub-flavoured Markdown has no general escaping mechanism inside link
+    text the way HTML has `html.escape` -- but a backslash defangs a single
+    character, and CommonMark (which GitHub Markdown follows) honours that
+    inside link text. A literal `]` would close the `[caption]` bracket
+    early, truncating the caption and turning the remainder into stray
+    document text; a literal `)` risks the same for a lenient renderer that
+    treats the first `)` as closing `(file)`. Backslash-escaping both is
+    chosen over a reference-style link (`[caption][ref]` plus a `[ref]:
+    file` definition elsewhere) because it keeps this renderer a one-line
+    format like every other line in this module, with no second, distant
+    piece of syntax to keep in sync.
+    """
+    return caption.replace("]", "\\]").replace(")", "\\)")
+
+
 def _render_figures_markdown(figures: tuple[ReportFigure, ...], paths: list[Path]) -> str:
     """Render the figures section: a heading plus one image link per figure.
 
@@ -138,7 +156,7 @@ def _render_figures_markdown(figures: tuple[ReportFigure, ...], paths: list[Path
     if not figures:
         return ""
     links = "\n".join(
-        f"![{figure.caption}]({path.name})"
+        f"![{_escape_markdown_caption(figure.caption)}]({path.name})"
         for figure, path in zip(figures, paths, strict=True)
     )
     return "\n".join(["## Figures", "", links])
