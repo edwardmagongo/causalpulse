@@ -47,6 +47,12 @@ from cp_report.sections import (
     validity_band_data,
 )
 
+# The four `prose_fragments()`-bearing dataclasses `render_html_report` lints
+# around the figures section -- named so the two grouped tuples below share
+# one annotation instead of mypy narrowing each to just the two variants its
+# own literal happens to contain.
+_SectionData = AssumptionTableData | ValidityBandData | ComparisonData | LimitationsData
+
 _ABSENT = "—"  # em dash: a `None` statistic, threshold or remedy.
 
 _STYLE = (
@@ -187,9 +193,14 @@ def _render_figures_html(figures: tuple[ReportFigure, ...]) -> str:
 def render_html_report(evidence: Evidence) -> str:
     """Render the report as one self-contained HTML document.
 
-    Lints before rendering: the four section data objects are built and
-    their `prose_fragments()` are concatenated (with section names) and
-    handed to `require_clean_prose` before any markup is produced.
+    Lints before rendering: the four section data objects' `prose_fragments()`
+    plus every figure's caption are concatenated (with section names, in the
+    same order the body below renders them) and handed to
+    `require_clean_prose` before any markup is produced. A caption is
+    caller-supplied prose exactly like an interpretation or a limitation
+    statement -- it reaches the reader as a `<figcaption>` -- so it is linted
+    as its own fragment per figure, tagged with the "Figures" section name,
+    rather than folded into one of the other four sections or skipped.
     """
     assumption = assumption_table_data(evidence.checks)
     validity = validity_band_data(evidence.score)
@@ -197,12 +208,18 @@ def render_html_report(evidence: Evidence) -> str:
     limitations = limitations_data(evidence.score, evidence.limitations)
 
     fragments: list[tuple[str, str]] = []
-    for section_name, data in (
+    leading_sections: tuple[tuple[str, _SectionData], ...] = (
         ("Assumption Checks", assumption),
         ("Validity Band", validity),
+    )
+    for section_name, data in leading_sections:
+        fragments.extend((section_name, text) for text in data.prose_fragments())
+    fragments.extend(("Figures", figure.caption) for figure in evidence.figures)
+    trailing_sections: tuple[tuple[str, _SectionData], ...] = (
         ("Cross-Method Comparison", comparison),
         ("Limitations", limitations),
-    ):
+    )
+    for section_name, data in trailing_sections:
         fragments.extend((section_name, text) for text in data.prose_fragments())
     require_clean_prose(fragments)
 

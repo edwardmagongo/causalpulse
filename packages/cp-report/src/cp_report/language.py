@@ -5,10 +5,12 @@ project's language lint. That lint has been in force since Phase 8 over every
 non-docstring string constant under `packages/`, so the prose this package
 hardcodes is already covered before a line of it is written.
 
-What is new here is interpolated text. A covariate name, a scenario id or a
-caller-supplied limitation reaches the reader as running prose and has never
-been linted by anything. A dataset column named for a proven uplift is what
-this refusal exists to catch.
+What is new here is interpolated text. A covariate name, a scenario id, a
+caller-supplied limitation or a figure caption reaches the reader as running
+prose and has never been linted by anything. A dataset column named for a
+proven uplift is what this refusal exists to catch, and a caption is
+arguably the likeliest place for it: it reads like a sentence about what the
+picture shows, which is exactly the shape an unhedged causal claim takes.
 
 The lint runs over the concatenation of every section's prose rather than
 over each fragment alone. Each `interpretation` and `rationale` string in

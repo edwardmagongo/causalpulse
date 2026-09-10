@@ -23,12 +23,17 @@ rather than authored sentences, but their own docstrings say they were
 included deliberately because nothing had ever linted them before Phase 17
 -- a caller's dataset column named for a settled result (`proven_uplift`)
 reaches the table exactly as read as a caller's free-text limitation does.
-A generator that linted only the free-text sources and skipped the two
-identifier-shaped ones would still pass a test that only exercised
-`interpretation`/`remedy`/`rationale`/limitations, so all six are covered
-here, parametrised against both entry points, for a 2x6 matrix that makes
-the coverage explicit rather than implied by a handful of hand-picked
-cases.
+A seventh source sits outside `cp_report.sections` entirely:
+`ReportFigure.caption`, caller-supplied prose that reaches the reader as a
+`<figcaption>` in HTML and as an image's alt text in Markdown. Task 9's
+implementer shipped the other six and missed this one -- the entry points
+built their fragment list from the four sections' `prose_fragments()` and
+never looked at `evidence.figures` at all, so a caption could carry an
+unhedged causal claim straight past the lint. A generator that linted only
+the six `sections.py`-derived sources and skipped the caption would still
+pass a test that only exercised those six, so all seven are covered here,
+parametrised against both entry points, for a 2x7 matrix that makes the
+coverage explicit rather than implied by a handful of hand-picked cases.
 
 The final test is the belt-and-braces check spec Sections 5 and 7 both call
 for: every prose source above is linted *before* rendering, as a fragment
@@ -105,6 +110,12 @@ def _bad_estimate_method(evidence: Evidence) -> Evidence:
     return dataclasses.replace(evidence, estimates=(bad_estimate, *evidence.estimates[1:]))
 
 
+def _bad_figure_caption(evidence: Evidence) -> Evidence:
+    """Corrupts one `ReportFigure.caption`, as a careless caller's prose would."""
+    bad_figure = dataclasses.replace(evidence.figures[0], caption=_UNHEDGED_CLAIM)
+    return dataclasses.replace(evidence, figures=(bad_figure, *evidence.figures[1:]))
+
+
 _PROSE_SOURCES: dict[str, Callable[[Evidence], Evidence]] = {
     "caller limitation": _bad_limitation,
     "check interpretation": _bad_check_interpretation,
@@ -112,6 +123,7 @@ _PROSE_SOURCES: dict[str, Callable[[Evidence], Evidence]] = {
     "score rationale": _bad_score_rationale,
     "check name": _bad_check_name,
     "estimate method": _bad_estimate_method,
+    "figure caption": _bad_figure_caption,
 }
 
 
@@ -140,6 +152,26 @@ def test_every_entry_point_refuses_every_prose_source(
 
     with pytest.raises(ReportLanguageError):
         call(bad_evidence, tmp_path)
+
+
+@pytest.mark.parametrize("prose_source", sorted(_PROSE_SOURCES))
+def test_a_refused_markdown_report_writes_nothing(
+    prose_source: str, evidence: Evidence, tmp_path: Path
+) -> None:
+    # Mirrors test_markdown.py's `test_a_refused_report_writes_nothing`, but
+    # parametrised across every prose source in `_PROSE_SOURCES` -- including
+    # "figure caption" -- rather than one hand-picked limitation. The lint
+    # must run, and the refusal must land, before `write_markdown_report`
+    # makes any filesystem contact regardless of which fragment failed,
+    # matching the ordering `write_markdown_report`'s own docstring commits
+    # to: lint first, figure files and document only after.
+    corrupt = _PROSE_SOURCES[prose_source]
+    bad_evidence = corrupt(evidence)
+
+    with pytest.raises(ReportLanguageError):
+        write_markdown_report(bad_evidence, tmp_path)
+
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_a_fully_rendered_markdown_report_passes_the_lint(

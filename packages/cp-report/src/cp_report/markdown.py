@@ -39,6 +39,12 @@ from cp_report.sections import (
     validity_band_data,
 )
 
+# The four `prose_fragments()`-bearing dataclasses `write_markdown_report`
+# lints around the figures section -- named so the two grouped tuples below
+# share one annotation instead of mypy narrowing each to just the two
+# variants its own literal happens to contain.
+_SectionData = AssumptionTableData | ValidityBandData | ComparisonData | LimitationsData
+
 _ABSENT = "—"  # em dash: a `None` statistic, threshold or remedy.
 _DOCUMENT_NAME = "report.md"
 
@@ -177,13 +183,19 @@ def _render_figures_markdown(figures: tuple[ReportFigure, ...], paths: list[Path
 def write_markdown_report(evidence: Evidence, directory: Path) -> Path:
     """Write the report as a directory: one Markdown document plus its figures.
 
-    Lints before writing anything. The four section data objects are built
-    and their `prose_fragments()` are concatenated (with section names) and
+    Lints before writing anything. The four section data objects'
+    `prose_fragments()` plus every figure's caption are concatenated (with
+    section names, in the same order the document below assembles them) and
     handed to `require_clean_prose` before this function touches the
     filesystem at all -- a refusal must never leave a half-written directory
-    behind, which is what `test_a_refused_report_writes_nothing` pins. Only
-    after that call returns does this function write the figure files (via
-    `figure_to_file`) and then the document, in that order.
+    behind, which is what `test_a_refused_report_writes_nothing` pins. A
+    caption is caller-supplied prose exactly like an interpretation or a
+    limitation statement -- it reaches the reader as the alt text of an
+    embedded image -- so it is linted as its own fragment per figure, tagged
+    with the "Figures" section name, before any figure file or the document
+    itself is written. Only after the lint call returns does this function
+    write the figure files (via `figure_to_file`) and then the document, in
+    that order.
 
     `directory` must already exist. This function never creates it --
     silently `mkdir`-ing would change behaviour a caller may be relying on
@@ -200,12 +212,18 @@ def write_markdown_report(evidence: Evidence, directory: Path) -> Path:
     limitations = limitations_data(evidence.score, evidence.limitations)
 
     fragments: list[tuple[str, str]] = []
-    for section_name, data in (
+    leading_sections: tuple[tuple[str, _SectionData], ...] = (
         ("Assumption Checks", assumption),
         ("Validity Band", validity),
+    )
+    for section_name, data in leading_sections:
+        fragments.extend((section_name, text) for text in data.prose_fragments())
+    fragments.extend(("Figures", figure.caption) for figure in evidence.figures)
+    trailing_sections: tuple[tuple[str, _SectionData], ...] = (
         ("Cross-Method Comparison", comparison),
         ("Limitations", limitations),
-    ):
+    )
+    for section_name, data in trailing_sections:
         fragments.extend((section_name, text) for text in data.prose_fragments())
     require_clean_prose(fragments)
 
