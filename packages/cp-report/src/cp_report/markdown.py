@@ -19,6 +19,23 @@ positions as an em dash (`—`), distinct from both a real zero and the
 literal word "None", so a reader cannot mistake "not computed" for
 "computed as zero" -- the confusion this project already shipped once in a
 benchmark heatmap.
+
+**A literal `|` in a table cell.** `AssumptionCheck.name`, `.interpretation`
+and `.remedy`, and `EffectEstimate.method`, all arrive from a caller's
+dataset or estimator configuration -- a covariate name, free text, a
+registry name -- and none of them is guaranteed pipe-free. An unescaped `|`
+inside a GFM table cell is read as a new column delimiter, not as a literal
+character, so a single stray pipe in a covariate name silently shifts every
+cell after it into the wrong column for the rest of that row. `_escape_pipe`
+backslash-escapes it, the same choice `_escape_markdown_caption` makes for
+brackets below: CommonMark's table extension (which GitHub Markdown
+follows) honours a backslash-escaped pipe inside a cell as a literal
+character rather than a delimiter, so this needs no second syntax (a
+reference-style cell, an HTML entity) to keep in sync with the rest of this
+module's one-line-per-row style. `kind`, `status`, `estimand` and `basis`
+are excluded -- each is drawn from a fixed, already-linted vocabulary that
+cannot contain a pipe, so escaping them would be a no-op dressed up as a
+guard.
 """
 
 from __future__ import annotations
@@ -49,22 +66,51 @@ _ABSENT = "—"  # em dash: a `None` statistic, threshold or remedy.
 _DOCUMENT_NAME = "report.md"
 
 
+def _escape_pipe(text: str) -> str:
+    """Backslash-escape a literal `|` so it cannot be read as a column delimiter.
+
+    See the module docstring's "A literal `|` in a table cell" section for
+    why this is needed and why a backslash escape (rather than a second
+    syntax) is the right fix.
+    """
+    return text.replace("|", "\\|")
+
+
 def _cell(value: object) -> str:
-    """Render one table cell, keeping `None` visibly distinct from `0.00`."""
+    """Render one table cell, keeping `None` visibly distinct from `0.00`.
+
+    The generic branch also escapes a literal `|` (via `_escape_pipe`) --
+    every non-float, non-`None` value this function ever receives is a
+    string (`remedy`), and a `remedy` is exactly the kind of caller-supplied
+    free text the pipe hazard exists for. A formatted float can never
+    contain `|`, so escaping only the generic branch is not a coincidence
+    that could bit-rot: it is the only branch a string ever reaches.
+    """
     if value is None:
         return _ABSENT
     if isinstance(value, float):
         return f"{value:.2f}"
-    return str(value)
+    return _escape_pipe(str(value))
 
 
 def render_assumption_table_markdown(data: AssumptionTableData) -> str:
-    """Render the assumption checks as a heading, a summary line and a table."""
+    """Render the assumption checks as a heading, a summary line and a table.
+
+    An input with no checks at all (`assumption_table_data(())`) renders an
+    explicit "No assumption checks were run." sentence instead of a
+    0/0/0/0 summary sitting over a table with a header row and no data
+    rows -- a reader must be able to tell "nothing to report" apart from "the
+    section silently lost every row", and an all-zero tally under a table
+    that still looks like a table is not that unambiguous on its own.
+    """
+    if not data.names:
+        return "\n".join(["## Assumption Checks", "", "No assumption checks were run."])
+
     header = "| Check | Kind | Status | Statistic | Threshold | Interpretation | Remedy |"
     separator = "| --- | --- | --- | --- | --- | --- | --- |"
     rows = [
-        f"| {name} | {kind} | {status} | {_cell(statistic)} | {_cell(threshold)} | "
-        f"{interpretation} | {_cell(remedy)} |"
+        f"| {_escape_pipe(name)} | {kind} | {status} | {_cell(statistic)} | {_cell(threshold)} | "
+        f"{_escape_pipe(interpretation)} | {_cell(remedy)} |"
         for name, kind, status, statistic, threshold, interpretation, remedy in zip(
             data.names,
             data.kinds,
@@ -100,11 +146,25 @@ def render_validity_band_markdown(data: ValidityBandData) -> str:
 
 
 def render_comparison_markdown(data: ComparisonData) -> str:
-    """Render the cross-method comparison as a heading and a table, one row per estimate."""
+    """Render the cross-method comparison as a heading and a table, one row per estimate.
+
+    An input with no estimates at all (`comparison_data([])`) renders an
+    explicit "No estimates were available for comparison." sentence instead
+    of a table with a header row and no data rows -- unlike the assumption
+    table, this section carries no summary counts to fall back on, so a bare
+    empty table here has nothing at all telling a reader the row count was
+    ever checked, rather than silently lost.
+    """
+    if not data.methods:
+        return "\n".join(
+            ["## Cross-Method Comparison", "", "No estimates were available for comparison."]
+        )
+
     header = "| Method | Estimand | Point | Lower | Upper | Basis |"
     separator = "| --- | --- | --- | --- | --- | --- |"
     rows = [
-        f"| {method} | {estimand} | {point:.2f} | {lower:.2f} | {upper:.2f} | {basis} |"
+        f"| {_escape_pipe(method)} | {estimand} | {point:.2f} | {lower:.2f} | {upper:.2f} | "
+        f"{basis} |"
         for method, estimand, point, lower, upper, basis in zip(
             data.methods,
             data.estimands,

@@ -73,7 +73,24 @@ def _cell(value: object) -> str:
 
 
 def render_assumption_table_html(data: AssumptionTableData) -> str:
-    """Render the assumption checks as a heading, a summary paragraph and a table."""
+    """Render the assumption checks as a heading, a summary paragraph and a table.
+
+    An input with no checks at all (`assumption_table_data(())`) renders an
+    explicit "No assumption checks were run." paragraph instead of a 0/0/0/0
+    summary sitting over an empty table -- mirrors
+    `cp_report.markdown.render_assumption_table_markdown`'s choice; see that
+    function's docstring for why.
+    """
+    if not data.names:
+        return "".join(
+            [
+                "<section>",
+                "<h2>Assumption Checks</h2>",
+                "<p>No assumption checks were run.</p>",
+                "</section>",
+            ]
+        )
+
     header = (
         "<tr><th>Check</th><th>Kind</th><th>Status</th><th>Statistic</th>"
         "<th>Threshold</th><th>Interpretation</th><th>Remedy</th></tr>"
@@ -129,7 +146,25 @@ def render_validity_band_html(data: ValidityBandData) -> str:
 
 
 def render_comparison_html(data: ComparisonData) -> str:
-    """Render the cross-method comparison as a heading and a table, one row per estimate."""
+    """Render the cross-method comparison as a heading and a table, one row per estimate.
+
+    An input with no estimates at all (`comparison_data([])`) renders an
+    explicit "No estimates were available for comparison." paragraph instead
+    of an empty table -- mirrors
+    `cp_report.markdown.render_comparison_markdown`'s choice; see that
+    function's docstring for why this section, unlike the assumption table,
+    has no summary counts to fall back on.
+    """
+    if not data.methods:
+        return "".join(
+            [
+                "<section>",
+                "<h2>Cross-Method Comparison</h2>",
+                "<p>No estimates were available for comparison.</p>",
+                "</section>",
+            ]
+        )
+
     header = (
         "<tr><th>Method</th><th>Estimand</th><th>Point</th><th>Lower</th>"
         "<th>Upper</th><th>Basis</th></tr>"
