@@ -54,6 +54,8 @@ from cp_core.results import (
 )
 from cp_figures.guards import require_interval
 
+from cp_report.evidence import Evidence
+
 
 @dataclass(frozen=True)
 class AssumptionTableData:
@@ -283,3 +285,60 @@ def limitations_data(
     caller's tuple, carried through unmodified.
     """
     return LimitationsData(limits=score.limits, statements=statements)
+
+
+# The four `prose_fragments()`-bearing dataclasses `document_prose_fragments`
+# walks -- named so the two grouped tuples below share one annotation
+# instead of mypy narrowing each to just the two variants its own literal
+# happens to contain.
+_SectionData = AssumptionTableData | ValidityBandData | ComparisonData | LimitationsData
+
+
+def document_prose_fragments(evidence: Evidence) -> list[tuple[str, str]]:
+    """Every fragment of reader-facing prose a report built from `evidence`
+    would show, tagged with the section it came from, in rendering order.
+
+    `render_html_report` and `write_markdown_report` each call
+    `require_clean_prose(document_prose_fragments(evidence))` as their own,
+    individually-removable call site -- this function only assembles the
+    fragment list; it does not lint it and it is not itself called by
+    anything but those two entry points. Keeping the two `require_clean_prose`
+    calls separate (rather than folding the lint in here too) is deliberate:
+    Task 9's removal proofs depend on each entry point carrying its own call,
+    so that a guard removed from one format cannot mask a gap in the other.
+
+    Rebuilds the four section dataclasses from `evidence` itself rather than
+    accepting them as arguments, so a fifth section is a one-place edit --
+    add it to the tuples below and both formats pick it up, with no second
+    list in a sibling module to remember. Each entry point still builds its
+    own copies of the four dataclasses separately, for rendering the body;
+    that duplication is cheap (pure data functions, no I/O) and is not the
+    one this function exists to close -- the drift risk was the *list of
+    what needs linting*, not the objects themselves.
+
+    A caption is caller-supplied prose exactly like an interpretation or a
+    limitation statement -- it reaches the reader as a `<figcaption>` in HTML
+    and as an image's alt text in Markdown -- so it is included as its own
+    fragment per figure, tagged with the "Figures" section name, rather than
+    folded into one of the other four sections or skipped.
+    """
+    assumption = assumption_table_data(evidence.checks)
+    validity = validity_band_data(evidence.score)
+    comparison = comparison_data(evidence.estimates)
+    limitations = limitations_data(evidence.score, evidence.limitations)
+
+    fragments: list[tuple[str, str]] = []
+    leading_sections: tuple[tuple[str, _SectionData], ...] = (
+        ("Assumption Checks", assumption),
+        ("Validity Band", validity),
+    )
+    for section_name, data in leading_sections:
+        fragments.extend((section_name, text) for text in data.prose_fragments())
+    fragments.extend(("Figures", figure.caption) for figure in evidence.figures)
+    trailing_sections: tuple[tuple[str, _SectionData], ...] = (
+        ("Cross-Method Comparison", comparison),
+        ("Limitations", limitations),
+    )
+    for section_name, data in trailing_sections:
+        fragments.extend((section_name, text) for text in data.prose_fragments())
+    return fragments
