@@ -187,6 +187,19 @@ def test_the_limitations_section_renders_every_statement():
     assert "The window is short." in rendered
 
 
+def test_the_markdown_report_carries_all_four_sections(evidence, tmp_path):
+    # Mirrors test_html.py's test_the_html_report_carries_all_four_sections.
+    # Deleting a render_..._markdown call from write_markdown_report's
+    # document body would pass every other test in this file -- the fragment
+    # list that feeds the lint is built independently of the document body
+    # -- so this is the one test that would catch a vanished section.
+    path = write_markdown_report(evidence, tmp_path)
+
+    text = path.read_text()
+    for heading in ("Assumption", "Validity", "Comparison", "Limitations"):
+        assert heading in text
+
+
 def test_the_markdown_report_writes_its_figures_and_links_them(evidence, tmp_path):
     path = write_markdown_report(evidence, tmp_path)
 
