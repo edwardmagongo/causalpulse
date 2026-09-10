@@ -31,9 +31,12 @@ matplotlib 3.11.1 under `Agg`:**
    accumulates, and the suite turns that warning into a failure far from
    whichever test leaked it. Both rendering functions below create exactly
    one `Figure` via `pyplot` (so it is tracked in `pyplot`'s figure
-   registry) inside the same `try` whose `finally` closes it, so an
-   exception from a caller's `draw` -- which runs inside that `try` too --
-   cannot leave it open.
+   registry) and then immediately enter a `try` whose `finally` closes it.
+   Everything that could raise -- adding the axes, the caller's own `draw`,
+   and `savefig` -- runs inside that `try`, so none of them can leave the
+   figure open. The `plt.figure()` call itself sits just outside, because a
+   bare `plt.figure()` has nothing to raise and putting it inside would
+   leave `finally` with no figure to close.
 
 **Filenames.** `figure_to_file` derives a filename from the caption: a
 lowercase slug for readability, plus a short hex digest of the caption
