@@ -6,7 +6,8 @@ was, for whom it differed, and how much the conclusion should be trusted.
 
 ## Status
 
-Phases 1 through 7 of the causal core are implemented.
+All seventeen phases of the causal core are implemented. The core is complete, with four items
+deliberately left open — see the note at the end of this section.
 
 **Phase 1** delivered the foundations: the workspace, data contracts, statistical primitives, and
 a simulation framework whose data-generating processes carry known ground truth.
@@ -54,8 +55,106 @@ causal-language lint that checks the system never asserts more certainty than it
 support, and a comparison layer that reports several methods' agreement without ever pooling their
 estimates into one number.
 
-The sensitivity suite, the benchmark harness, and the CLI, figures, and evidence report are still
-ahead.
+**Phase 9** delivered the sensitivity suite: an E-value bound on unmeasured confounding, computed
+exactly where the estimate's own predicted baseline makes it available and approximated via the
+Chinn (2000) conversion otherwise; a Cinelli–Hazlett robustness value for four of the five
+cross-sectional and panel point estimators; a specification curve across covariate subsets and
+outlier/trim rules for `lin_regression`, `ipw`, and `aipw`; and four falsification techniques —
+randomization inference, leave-one-donor-out, and hull-aware placebo distributions for both
+donor-pool estimators — reported under one `SensitivityReport` and `FalsificationResult` type that
+pairs every absent slot with its reason.
+
+**Phase 10** delivered two more falsification techniques for cross-sectional estimators: a
+negative-control outcome that treatment cannot affect by construction, and a
+non-differential-misclassification correction for the treatment column that moves the estimate away
+from zero, never toward it. Both are validated over 20 seeds against measured ground truth — the
+negative control separates a confounded, unadjusted estimator (fires on 20 of 20 seeds) from an
+adjusted one (0–1 of 20) — and both refuse outright on panel and donor-pool data, which need
+different machinery.
+
+**Phase 11** delivered missing-outcome handling for binary, cross-sectional estimators:
+`arrays()`/`panel_arrays()` now refuse a dataset with a missing required column rather than failing
+late with an unrelated error, complete-case analysis is offered as an explicit, named choice rather
+than a silent default, and `tipping_point` reports Manski-style worst-case bounds and the smallest
+adverse-fill fraction that would overturn a finding's significance and sign. Measured over 20 seeds,
+the worst-case bounds always contained the complete-data estimate, and a real +5pp finding needed
+about 25% adverse filling to break, against 0.7% for a null one.
+
+**Phase 12** delivered imputation for the same binary, cross-sectional case: single and multiple
+imputation of missing outcomes from a logistic model plus an optional auxiliary column, pooled by
+Rubin's rules, and a `compare_missing_data` view that runs complete-case, single imputation,
+multiple imputation, and Phase 11's tipping-point bounds side by side. Two pre-registered
+expectations were falsified by measurement rather than confirmed: imputation with no auxiliary buys
+nothing over complete-case (not the ~8% loss expected), and under MNAR it repairs about two-thirds
+of the complete-case bias rather than leaving it unchanged, because this project's proxy is built
+from the complete outcome and so carries real information about what is missing.
+
+**Phase 13** delivered reproducibility and the project's first real (non-simulated) data:
+`AnalysisManifest` serialises a multi-method run by reference — a regenerable simulated scenario or
+a content-hashed file — rather than embedding the data, and `replay` refits from one and reproduces
+bit-identical numbers outside three declared-nondeterministic provenance fields. Two vendored
+real-data fixtures, LaLonde's NSW/CPS-1 job-training data and Abadie, Diamond & Hainmueller's
+California Proposition 99 panel, are checked against their own published benchmarks. Fitting real
+data for the first time surfaced two defects no simulated scenario could reach — a
+non-scale-invariant propensity fit and a donor-weight solver that silently returned its own starting
+point — both live since Phases 2 and 4 and both caught by checking a scale-invariance property
+rather than a status flag.
+
+**Phase 14** delivered the benchmark grid: a new `cp-evaluation` package, sitting above `cp-causal`
+in the layers contract as the first package allowed to see both ground truth and the estimators, so
+the ground-truth firewall stays closed to everything below it. `run_grid` fits ten of the project's
+twelve estimators — cross-sectional and panel, not yet donor-pool — across the four DGP axes that
+exist, and `summarise` reports bias, coverage, and calibration with Monte Carlo standard error
+rather than a point number that cannot distinguish 94% from 95%. A gating `ci` tier runs in about
+100 seconds; the reviews that shipped it found six defects, four of them in the plan's own draft
+code, including a benchmark whose cells were not order-independent and a false-positive test that
+could not fail.
+
+**Phase 15** delivered the `causalpulse` CLI and result persistence: five commands (`simulate`,
+`analyze`, `replay`, `bench run`, `bench report`) in a new `cp-cli` package sitting above
+`cp-evaluation` in the layers contract, and Parquet-plus-JSON-sidecar persistence for a benchmark
+run, with no cache — a stale cache entry would return a confidently wrong number with no signal.
+This phase also corrected a false claim from Phase 14's own definition of done: Phase 7's
+credible-interval coverage had never actually been measured, because `hierarchical_did` was excluded
+from the gating tier on cost. Measured here at an easier protocol than Phase 7's own, the reported
+undercoverage did not reproduce — stated as "not reproduced at this protocol," not as Phase 7 having
+been wrong.
+
+**Phase 16** delivered eight publication-quality matplotlib figures in a new `cp-figures` package:
+counterfactual path, event study, love plot, propensity overlap, specification curve, placebo
+distribution, cross-method forest plot, and benchmark heatmaps. Every figure is split into a pure
+data function and a thin drawing function, and a shared guard rejects any attempt to plot an effect
+estimate without its interval, enforced by construction rather than by review. Building the love
+plot and propensity-overlap figures required recovering two diagnostics — per-unit propensity scores
+and before/after covariate balance — that `ipw` and `aipw` had always computed and then discarded.
+The package takes live result objects, not a CLI command: most of the eight figures need array data
+that `estimates.csv` never persisted.
+
+**Phase 17** delivered the evidence report generator, `cp-report`, the final piece of the causal
+core. It renders four sections — the assumption table, the validity band with its rationale, the
+cross-method comparison, and stated limitations — to Markdown or a single self-contained HTML
+document with figures inlined as SVG, reusing Phase 16's data functions rather than the estimator
+result types directly. The generator lints its own prose against `causal_language_lint` before
+emitting anything and refuses to return a document that overclaims, naming the offending sentence,
+term, and section. Like the figures, it takes live result objects rather than reading a stored
+analysis: no CLI command currently produces a report, because the arrays most figures need were
+never persisted.
+
+The causal core is complete, with four items deliberately left open rather than built: the four
+benchmark-grid axes that do not yet exist (treatment imbalance, noise level, effect size,
+heterogeneity — DGP work, roughly a phase on its own); the CATE arm of the benchmark grid (CATE
+correlation, RMSE, and calibration slope, which need their own cell shape and array-valued
+diagnostics); the donor-pool arm of the benchmark grid (`synthetic_control` and `bsts`, which need a
+donor-pool cell shape); and a residual from Phases 9 and 10 — `SyntheticControl`'s CI half-width and
+`donor_contamination_check`'s threshold are still calibrated against the simplex placebo spread,
+while `falsify`'s own placebo distribution is convex-hull-aware, and closing that gap is blocked on
+the donor-pool benchmark arm for measurement. Each is recorded as a decision at Phase 16's kickoff,
+not an oversight, and each would be its own phase if wanted.
+
+No CLI command currently produces an evidence report, either: the report generator built in Phase 17
+takes live result objects, the same as the figures do, because the arrays six of the eight figures
+need were never persisted to disk. A user who runs `causalpulse analyze` cannot turn its output into
+a report without writing Python.
 
 ## Packages
 
@@ -65,6 +164,10 @@ ahead.
 | `cp-statistics` | Proportion intervals, robust and cluster-robust covariance, bootstrap engines. |
 | `cp-simulation` | Compositional data-generating processes carrying computed ground truth. |
 | `cp-causal` | Cross-sectional and panel estimators, propensity diagnostics, panel assumption checks, design router. Forbidden from importing `cp-simulation`. |
+| `cp-evaluation` | The benchmark grid: `run_grid` fits estimators across the DGP axes that exist and `summarise` reports bias, coverage, and calibration with Monte Carlo standard error. The first package allowed to import both `cp-simulation` and `cp-causal` together, so it sits above `cp-causal` in the layers contract and nothing below it may import it in turn. |
+| `cp-figures` | Eight publication-quality matplotlib figures — counterfactual path, event study, love plot, propensity overlap, specification curve, placebo distribution, cross-method forest plot, benchmark heatmaps — each a pure data function plus a thin drawing function. Imports only `cp-core` and `cp-causal`. |
+| `cp-report` | The evidence report generator: assumption table, validity band, cross-method comparison, and stated limitations, rendered to Markdown or one self-contained HTML file with figures inlined as SVG. Refuses to emit prose that fails `causal_language_lint`. |
+| `cp-cli` | The `causalpulse` command-line entry point (`simulate`, `analyze`, `replay`, `bench run`, `bench report`) and Parquet-plus-JSON-sidecar result persistence. Sits at the top of the layers contract; nothing imports it. |
 
 ## Why the import boundary matters
 
