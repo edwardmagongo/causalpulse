@@ -180,8 +180,10 @@ def test_the_comparisons_prose_fragments_carry_method_names():
 def test_the_limitations_prose_fragments_lead_with_the_scores_own_limits():
     # The class docstring promises a limitations section "always leads with"
     # the score's own limits sentence -- not merely that it appears
-    # somewhere. Pin the leading position directly: fragments[0] is the only
-    # element, so equality proves both presence and order in one assertion.
+    # somewhere. fragments has two elements here (the limits sentence, then
+    # the caller's statement): pinning fragments[0] by equality proves the
+    # limits sentence is specifically first, while the `any(...)` below
+    # separately confirms the caller's statement is present at all.
     data = limitations_data(_score(), ("The rollout causes the lift.",))
 
     fragments = data.prose_fragments()
