@@ -122,21 +122,33 @@ def render_limitations_markdown(data: LimitationsData) -> str:
 
 
 def _escape_markdown_caption(caption: str) -> str:
-    """Neutralise the two characters that would break `![caption](file)`.
+    """Neutralise every bracket that would break `![caption](file)`.
 
     GitHub-flavoured Markdown has no general escaping mechanism inside link
     text the way HTML has `html.escape` -- but a backslash defangs a single
     character, and CommonMark (which GitHub Markdown follows) honours that
-    inside link text. A literal `]` would close the `[caption]` bracket
-    early, truncating the caption and turning the remainder into stray
-    document text; a literal `)` risks the same for a lenient renderer that
-    treats the first `)` as closing `(file)`. Backslash-escaping both is
-    chosen over a reference-style link (`[caption][ref]` plus a `[ref]:
-    file` definition elsewhere) because it keeps this renderer a one-line
-    format like every other line in this module, with no second, distant
-    piece of syntax to keep in sync.
+    inside link text.
+
+    All four brackets need it, and `[` is the one that is easy to miss.
+    A literal `]` closes the `[caption]` bracket early, truncating the
+    caption; a literal `)` risks the same for `(file)`. But a literal `[`
+    is worse than either, because the renderer always appends one genuine
+    unescaped `]` right before `(file)`: CommonMark's bracket matching
+    pairs the caption's stray `[` with *that* `]`, turning the tail of the
+    caption into a nested link and leaving the outer `![` as literal text.
+    A caption reading "CI [0.05, 0.45] for the ATE." -- ordinary in this
+    domain -- renders as stray `![CI` followed by an unrelated hyperlink,
+    with no image at all. Verified against a CommonMark parser rather than
+    reasoned about.
+
+    Backslash-escaping is chosen over a reference-style link
+    (`[caption][ref]` plus a `[ref]: file` definition elsewhere) because it
+    keeps this renderer a one-line format like every other line in this
+    module, with no second, distant piece of syntax to keep in sync.
     """
-    return caption.replace("]", "\\]").replace(")", "\\)")
+    for bracket in "[]()":
+        caption = caption.replace(bracket, "\\" + bracket)
+    return caption
 
 
 def _render_figures_markdown(figures: tuple[ReportFigure, ...], paths: list[Path]) -> str:

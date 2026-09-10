@@ -218,7 +218,7 @@ def test_a_caption_needing_escape_still_produces_a_well_formed_link(evidence, tm
     # "]" would close the `[caption]` bracket early and ")" risks the same
     # for `(file)`; a renderer that left either raw would truncate the
     # caption or point the link at the wrong target.
-    caption = "Effects [robust] and (unadjusted) estimates."
+    caption = "CI [0.05, 0.45] for the ATE (unadjusted)."
     figure = dataclasses.replace(evidence.figures[0], caption=caption)
     escaped = dataclasses.replace(evidence, figures=(figure,))
 
@@ -229,10 +229,22 @@ def test_a_caption_needing_escape_still_produces_a_well_formed_link(evidence, tm
     # GitHub Markdown follows) sees one link whose caption is the whole
     # original text and whose target is a real file -- not a caption
     # truncated at the first unescaped "]".
-    match = re.search(r"!\[((?:\\.|[^\]])*)\]\(([^)]+)\)", text)
+    match = re.search(r"!\[((?:\\.|[^\[\]])*)\]\(([^)]+)\)", text)
     assert match, "expected one well-formed image link"
     rendered_caption, target = match.groups()
-    assert rendered_caption == caption.replace("]", "\\]").replace(")", "\\)")
+
+    # Every bracket in the caption survives as an escaped pair, and none
+    # survives bare. The bare check is the load-bearing half: a regex alone
+    # has no bracket-matching, so it happily matches source that CommonMark
+    # would parse as a nested link -- which is exactly what an unescaped
+    # "[" produces, since the renderer appends a real "]" before "(file)".
+    unescaped = re.sub(r"\\.", "", rendered_caption)
+    assert not set(unescaped) & set("[]()"), (
+        f"caption carries a bare bracket that would hijack the link: {rendered_caption!r}"
+    )
+    for bracket in "[]()":
+        assert ("\\" + bracket) in rendered_caption or bracket not in caption
+
     assert (path.parent / target).exists()
 
 
