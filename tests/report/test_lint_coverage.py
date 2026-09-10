@@ -144,8 +144,8 @@ _ENTRY_POINTS: dict[str, Callable[[Evidence, Path], object]] = {
 @pytest.mark.parametrize("prose_source", sorted(_PROSE_SOURCES))
 @pytest.mark.parametrize("entry_point", sorted(_ENTRY_POINTS))
 def test_every_entry_point_refuses_every_prose_source(
-    entry_point: str, prose_source: str, evidence: Evidence, tmp_path: Path
-) -> None:
+    entry_point, prose_source, evidence, tmp_path
+):
     corrupt = _PROSE_SOURCES[prose_source]
     call = _ENTRY_POINTS[entry_point]
     bad_evidence = corrupt(evidence)
@@ -155,9 +155,7 @@ def test_every_entry_point_refuses_every_prose_source(
 
 
 @pytest.mark.parametrize("prose_source", sorted(_PROSE_SOURCES))
-def test_a_refused_markdown_report_writes_nothing(
-    prose_source: str, evidence: Evidence, tmp_path: Path
-) -> None:
+def test_a_refused_markdown_report_writes_nothing(prose_source, evidence, tmp_path):
     # Mirrors test_markdown.py's `test_a_refused_report_writes_nothing`, but
     # parametrised across every prose source in `_PROSE_SOURCES` -- including
     # "figure caption" -- rather than one hand-picked limitation. The lint
@@ -174,9 +172,7 @@ def test_a_refused_markdown_report_writes_nothing(
     assert list(tmp_path.iterdir()) == []
 
 
-def test_a_fully_rendered_markdown_report_passes_the_lint(
-    evidence: Evidence, tmp_path: Path
-) -> None:
+def test_a_fully_rendered_markdown_report_passes_the_lint(evidence, tmp_path):
     # The generator lints its sections' prose, not its rendered output --
     # markup would feed tag soup to a sentence splitter tuned on plain text.
     # That leaves one gap: a violation introduced by a renderer's own
