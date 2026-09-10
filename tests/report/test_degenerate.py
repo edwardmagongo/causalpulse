@@ -330,6 +330,57 @@ def test_a_pipe_in_free_text_is_ordinary_text_in_html():
 
 
 # ---------------------------------------------------------------------------
+# The other half of the same defect class: a raw newline in free text splits
+# a GFM row exactly like an unescaped "|" does, and it is worse -- the row
+# does not merely misalign, a trailing cell (here, Remedy) disappears
+# entirely and the remainder becomes stray text outside the table.
+# ---------------------------------------------------------------------------
+
+
+def test_a_newline_in_free_text_does_not_drop_a_table_cell():
+    check = _check(
+        name="overlap",
+        interpretation="Balance is adequate.\nSee the appendix for detail.",
+        status="FAIL",
+        remedy="Add\nan interaction term.",
+    )
+    data = assumption_table_data((check,))
+
+    rendered = render_assumption_table_markdown(data)
+    # If the newline were not neutralised, the row itself would split across
+    # multiple lines and this lookup (and the row count below) would already
+    # betray it.
+    row = next(line for line in rendered.splitlines() if line.startswith("| overlap"))
+    cells = _cells(row)
+
+    # Same 7-column shape as the pipe test above: 9 pieces once split on
+    # unescaped pipes. A dropped Remedy cell would show up here as 8.
+    assert len(cells) == 9, cells
+    assert cells[6] == "Balance is adequate. See the appendix for detail."
+    assert cells[7] == "Add an interaction term."
+    # The row itself is one line -- the document as a whole still has plenty
+    # of newlines between its other lines, so the check is scoped to `row`.
+    assert "\n" not in row
+
+
+def test_a_backslash_immediately_before_a_pipe_does_not_unescape_it():
+    # A naive single-pass "|" -> "\|" substitution turns a source text that
+    # already contains "\|" into "\\|" -- read by GFM as an escaped literal
+    # backslash followed by a *live*, unescaped pipe delimiter. Escaping the
+    # backslash first closes this: "\|" becomes "\\\|", which GFM reads as an
+    # escaped backslash plus an escaped pipe, both literal.
+    check = _check(name="a\\|b")
+    data = assumption_table_data((check,))
+
+    rendered = render_assumption_table_markdown(data)
+    row = next(line for line in rendered.splitlines() if line.startswith("| a"))
+    cells = _cells(row)
+
+    assert len(cells) == 9, cells
+    assert cells[1] == "a\\\\\\|b"
+
+
+# ---------------------------------------------------------------------------
 # Everything degenerate at once, through both entry points: proves the two
 # fixes above compose correctly inside write_markdown_report and
 # render_html_report, not only in the standalone renderer functions.

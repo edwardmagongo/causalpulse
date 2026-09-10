@@ -1,4 +1,4 @@
-"""GitHub-flavoured Markdown renderers for the report's four sections.
+r"""GitHub-flavoured Markdown renderers for the report's four sections.
 
 Each renderer takes exactly one of `cp_report.sections`'s four frozen
 dataclasses and returns a Markdown fragment -- a heading, a table or prose,
@@ -36,6 +36,31 @@ module's one-line-per-row style. `kind`, `status`, `estimand` and `basis`
 are excluded -- each is drawn from a fixed, already-linted vocabulary that
 cannot contain a pipe, so escaping them would be a no-op dressed up as a
 guard.
+
+**A literal newline in the same fields.** A raw `\n` is the same hazard in a
+worse shape: GFM ends a table row at the newline, so a multi-line
+`interpretation` or `remedy` does not shift cells like a stray pipe does --
+it silently terminates the row early and drops every cell after the break
+(the Remedy column, most often), with no error and no visible sign in the
+source. `_escape_pipe` collapses all whitespace runs (newlines included) to
+a single space before escaping the pipe, via `" ".join(text.split())` --
+chosen over a `<br>` or a backslash-newline escape because a table cell has
+no room for a second visual line in this renderer's one-line-per-row style,
+and collapsing is the same fix regardless of which whitespace character
+caused it (`\n`, `\r\n`, a stray tab), so there is nothing further to special
+-case.
+
+**Escaping order.** `_escape_pipe` and `_escape_markdown_caption` both
+backslash-escape a fixed set of characters by replacing each in turn. That
+is only correct if the backslash itself is escaped *first*: escaping `|`
+after inserting a backslash the escaping itself introduced can turn one
+inserted backslash plus a pre-existing backslash into a pair GFM reads as an
+escaped-backslash-then-live-delimiter, undoing the very escape being
+performed. A source value containing `\|` becomes `\\|` under a naive
+single-pass substitution -- one escaped (literal) backslash followed by an
+unescaped, still-live pipe. Escaping `\` to `\\` before escaping `|` (or a
+bracket) avoids this: the same input then becomes `\\\|`, which GFM reads as
+an escaped backslash followed by an escaped pipe, both literal.
 """
 
 from __future__ import annotations
@@ -62,13 +87,19 @@ _DOCUMENT_NAME = "report.md"
 
 
 def _escape_pipe(text: str) -> str:
-    """Backslash-escape a literal `|` so it cannot be read as a column delimiter.
+    """Neutralise everything in `text` that could corrupt a GFM table row.
 
-    See the module docstring's "A literal `|` in a table cell" section for
-    why this is needed and why a backslash escape (rather than a second
-    syntax) is the right fix.
+    Three steps, in the order the module docstring's "A literal `|`",
+    "literal newline" and "Escaping order" sections explain: collapse every
+    whitespace run (a `\\n` included) to a single space, so a multi-line
+    value cannot terminate the row early and drop the cells after it;
+    backslash-escape a literal `\\` first, so an already-escaped source value
+    is not silently unescaped by the next step; then backslash-escape a
+    literal `|` so it cannot be read as a column delimiter.
     """
-    return text.replace("|", "\\|")
+    collapsed = " ".join(text.split())
+    escaped_backslash = collapsed.replace("\\", "\\\\")
+    return escaped_backslash.replace("|", "\\|")
 
 
 def _cell(value: object) -> str:
@@ -206,7 +237,13 @@ def _escape_markdown_caption(caption: str) -> str:
     (`[caption][ref]` plus a `[ref]: file` definition elsewhere) because it
     keeps this renderer a one-line format like every other line in this
     module, with no second, distant piece of syntax to keep in sync.
+
+    The backslash itself is escaped first, before any bracket -- see the
+    module docstring's "Escaping order" section for why looping over the
+    brackets alone, without that first pass, can unescape a caption that
+    already contains a literal `\\` immediately before one.
     """
+    caption = caption.replace("\\", "\\\\")
     for bracket in "[]()":
         caption = caption.replace(bracket, "\\" + bracket)
     return caption
