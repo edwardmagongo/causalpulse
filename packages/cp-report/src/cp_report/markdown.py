@@ -23,14 +23,24 @@ benchmark heatmap.
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from cp_report.evidence import Evidence, ReportFigure
+from cp_report.figures import figure_to_file
+from cp_report.language import require_clean_prose
 from cp_report.sections import (
     AssumptionTableData,
     ComparisonData,
     LimitationsData,
     ValidityBandData,
+    assumption_table_data,
+    comparison_data,
+    limitations_data,
+    validity_band_data,
 )
 
 _ABSENT = "—"  # em dash: a `None` statistic, threshold or remedy.
+_DOCUMENT_NAME = "report.md"
 
 
 def _cell(value: object) -> str:
@@ -109,3 +119,64 @@ def render_limitations_markdown(data: LimitationsData) -> str:
     if statements:
         parts.extend(["", statements])
     return "\n".join(parts)
+
+
+def _render_figures_markdown(figures: tuple[ReportFigure, ...], paths: list[Path]) -> str:
+    """Render the figures section: a heading plus one image link per figure.
+
+    Each link is `![caption](filename)` with a bare filename, not a path --
+    `write_markdown_report` writes both the figure files and the document
+    itself into the same directory, so a bare filename resolves relative to
+    the document regardless of the caller's own working directory.
+    """
+    links = "\n".join(
+        f"![{figure.caption}]({path.name})"
+        for figure, path in zip(figures, paths, strict=True)
+    )
+    parts = ["## Figures"]
+    if links:
+        parts.extend(["", links])
+    return "\n".join(parts)
+
+
+def write_markdown_report(evidence: Evidence, directory: Path) -> Path:
+    """Write the report as a directory: one Markdown document plus its figures.
+
+    Lints before writing anything. The four section data objects are built
+    and their `prose_fragments()` are concatenated (with section names) and
+    handed to `require_clean_prose` before this function touches the
+    filesystem at all -- a refusal must never leave a half-written directory
+    behind, which is what `test_a_refused_report_writes_nothing` pins. Only
+    after that call returns does this function write the figure files (via
+    `figure_to_file`) and then the document, in that order.
+    """
+    assumption = assumption_table_data(evidence.checks)
+    validity = validity_band_data(evidence.score)
+    comparison = comparison_data(evidence.estimates)
+    limitations = limitations_data(evidence.score, evidence.limitations)
+
+    fragments: list[tuple[str, str]] = []
+    for section_name, data in (
+        ("Assumption Checks", assumption),
+        ("Validity Band", validity),
+        ("Cross-Method Comparison", comparison),
+        ("Limitations", limitations),
+    ):
+        fragments.extend((section_name, text) for text in data.prose_fragments())
+    require_clean_prose(fragments)
+
+    figure_paths = [figure_to_file(figure, directory) for figure in evidence.figures]
+
+    document = "\n\n".join(
+        [
+            "# Causal Pulse Report",
+            render_assumption_table_markdown(assumption),
+            render_validity_band_markdown(validity),
+            _render_figures_markdown(evidence.figures, figure_paths),
+            render_comparison_markdown(comparison),
+            render_limitations_markdown(limitations),
+        ]
+    )
+    path = directory / _DOCUMENT_NAME
+    path.write_text(document)
+    return path

@@ -9,8 +9,16 @@ returns it, never creating a `Figure` or touching global pyplot state --
 which is what lets `cp_report.figures` reuse those data functions directly
 instead of reconstructing what they already computed.
 
-`Evidence`, the container Task 8 assembles from a section's data and its
-figures, is added there -- it has no reader here yet.
+`Evidence` is the container `cp_report.html.render_html_report` and
+`cp_report.markdown.write_markdown_report` each consume as their one
+argument. It carries exactly what those two entry points need to build all
+four sections plus the figures: `estimates` for the comparison table,
+`score` for the validity band (and, read as `score.limits`, for the
+limitations section's leading sentence), `checks` for the assumption table,
+`limitations` for the caller's own limitation statements, and `figures` for
+the `ReportFigure`s to embed. It is frozen for the same reason every other
+dataclass in this package is: a report entry point is not a place a caller
+should be able to mutate evidence into after it has been assembled.
 """
 
 from __future__ import annotations
@@ -18,6 +26,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from cp_core.results import AssumptionCheck, CausalValidityScore, EffectEstimate
 from matplotlib.axes import Axes
 
 
@@ -33,3 +42,24 @@ class ReportFigure:
 
     caption: str
     draw: Callable[[Axes], Axes]
+
+
+@dataclass(frozen=True)
+class Evidence:
+    """Everything the report's two entry points need, gathered in one place.
+
+    `estimates` feeds `cp_report.sections.comparison_data`, `checks` feeds
+    `assumption_table_data`, `score` feeds `validity_band_data` and (via
+    `score.limits`) the limitations section, and `limitations` supplies the
+    caller's own statements to `limitations_data`. `figures` is rendered
+    directly by each entry point (inlined as SVG for HTML, written as files
+    and linked for Markdown) rather than through a `sections.py` data
+    function, since figures are not one of that module's four table/prose
+    sections.
+    """
+
+    estimates: tuple[EffectEstimate, ...]
+    score: CausalValidityScore
+    checks: tuple[AssumptionCheck, ...]
+    limitations: tuple[str, ...]
+    figures: tuple[ReportFigure, ...]

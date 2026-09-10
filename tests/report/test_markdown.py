@@ -17,12 +17,18 @@ renderer that rendered `None` as the string `"None"` would also dodge the
 
 from __future__ import annotations
 
+import dataclasses
+import re
+
+import pytest
 from cp_core.results import VALIDITY_SCORE_LIMITS
+from cp_report.language import ReportLanguageError
 from cp_report.markdown import (
     render_assumption_table_markdown,
     render_comparison_markdown,
     render_limitations_markdown,
     render_validity_band_markdown,
+    write_markdown_report,
 )
 from cp_report.sections import (
     assumption_table_data,
@@ -179,3 +185,45 @@ def test_the_limitations_section_renders_every_statement():
 
     assert "The donor pool is small." in rendered
     assert "The window is short." in rendered
+
+
+def test_the_markdown_report_writes_its_figures_and_links_them(evidence, tmp_path):
+    path = write_markdown_report(evidence, tmp_path)
+
+    text = path.read_text()
+    written = [p.name for p in tmp_path.iterdir() if p != path]
+    assert written, "a report with a figure must write that figure"
+    for name in written:
+        assert name in text, f"{name} was written but never linked"
+
+
+def test_a_markdown_link_resolves_relative_to_the_document(evidence, tmp_path):
+    # A link that only works from the caller's cwd is a broken link.
+    path = write_markdown_report(evidence, tmp_path)
+
+    targets = re.findall(r"!\[[^\]]*\]\(([^)]+)\)", path.read_text())
+    # The regex alone proves nothing if it matches zero links -- the fixture
+    # carries one figure, so a genuinely linked report must produce at least
+    # one match. Without this, a renderer using a different link syntax
+    # (e.g. a bare "path" with no "![...]()" wrapper) would make the loop
+    # below execute zero times and the test would pass vacuously.
+    assert targets, "expected at least one markdown image link"
+    for target in targets:
+        assert (path.parent / target).exists(), target
+
+
+def test_the_markdown_report_refuses_prose_that_fails_the_lint(evidence, tmp_path):
+    bad = dataclasses.replace(evidence, limitations=("The rollout causes the lift.",))
+
+    with pytest.raises(ReportLanguageError):
+        write_markdown_report(bad, tmp_path)
+
+
+def test_a_refused_report_writes_nothing(evidence, tmp_path):
+    # A half-written directory after a refusal is worse than no directory.
+    bad = dataclasses.replace(evidence, limitations=("The rollout causes the lift.",))
+
+    with pytest.raises(ReportLanguageError):
+        write_markdown_report(bad, tmp_path)
+
+    assert list(tmp_path.iterdir()) == []

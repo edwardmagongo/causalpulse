@@ -33,14 +33,28 @@ from __future__ import annotations
 
 from html import escape
 
+from cp_report.evidence import Evidence, ReportFigure
+from cp_report.figures import figure_to_inline_svg
+from cp_report.language import require_clean_prose
 from cp_report.sections import (
     AssumptionTableData,
     ComparisonData,
     LimitationsData,
     ValidityBandData,
+    assumption_table_data,
+    comparison_data,
+    limitations_data,
+    validity_band_data,
 )
 
 _ABSENT = "—"  # em dash: a `None` statistic, threshold or remedy.
+
+_STYLE = (
+    "body{font-family:sans-serif;max-width:960px;margin:2rem auto;padding:0 1rem;}"
+    "table{border-collapse:collapse;width:100%;margin:1rem 0;}"
+    "th,td{border:1px solid #ccc;padding:4px 8px;text-align:left;}"
+    "figure{margin:1rem 0;}figcaption{font-style:italic;}"
+)
 
 
 def _cell(value: object) -> str:
@@ -144,3 +158,66 @@ def render_limitations_html(data: LimitationsData) -> str:
         parts.append(f"<ul>{items}</ul>")
     parts.append("</section>")
     return "".join(parts)
+
+
+def _render_figures_html(figures: tuple[ReportFigure, ...]) -> str:
+    """Render the figures section: a heading plus one inlined `<svg>` per figure.
+
+    Each figure is rendered via `figure_to_inline_svg`, never `figure_to_file`
+    plus an `<img>` reference -- an HTML report is one self-contained
+    document, and a caller who saves only the string must still get every
+    figure with it.
+    """
+    figs = "".join(
+        f"<figure>{figure_to_inline_svg(figure)}<figcaption>{escape(figure.caption)}"
+        "</figcaption></figure>"
+        for figure in figures
+    )
+    return f"<section><h2>Figures</h2>{figs}</section>"
+
+
+def render_html_report(evidence: Evidence) -> str:
+    """Render the report as one self-contained HTML document.
+
+    Lints before rendering: the four section data objects are built and
+    their `prose_fragments()` are concatenated (with section names) and
+    handed to `require_clean_prose` before any markup is produced.
+    """
+    assumption = assumption_table_data(evidence.checks)
+    validity = validity_band_data(evidence.score)
+    comparison = comparison_data(evidence.estimates)
+    limitations = limitations_data(evidence.score, evidence.limitations)
+
+    fragments: list[tuple[str, str]] = []
+    for section_name, data in (
+        ("Assumption Checks", assumption),
+        ("Validity Band", validity),
+        ("Cross-Method Comparison", comparison),
+        ("Limitations", limitations),
+    ):
+        fragments.extend((section_name, text) for text in data.prose_fragments())
+    require_clean_prose(fragments)
+
+    body = "".join(
+        [
+            render_assumption_table_html(assumption),
+            render_validity_band_html(validity),
+            _render_figures_html(evidence.figures),
+            render_comparison_html(comparison),
+            render_limitations_html(limitations),
+        ]
+    )
+    return (
+        "<!DOCTYPE html>\n"
+        '<html lang="en">\n'
+        "<head>\n"
+        '<meta charset="utf-8">\n'
+        "<title>Causal Pulse Report</title>\n"
+        f"<style>{_STYLE}</style>\n"
+        "</head>\n"
+        "<body>\n"
+        "<h1>Causal Pulse Report</h1>\n"
+        f"{body}\n"
+        "</body>\n"
+        "</html>\n"
+    )

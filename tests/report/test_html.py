@@ -23,15 +23,19 @@ though every individual string is still present in the document somewhere.
 
 from __future__ import annotations
 
+import dataclasses
 import re
 
+import pytest
 from cp_core.results import VALIDITY_SCORE_LIMITS
 from cp_report.html import (
     render_assumption_table_html,
     render_comparison_html,
+    render_html_report,
     render_limitations_html,
     render_validity_band_html,
 )
+from cp_report.language import ReportLanguageError
 from cp_report.sections import (
     assumption_table_data,
     comparison_data,
@@ -207,3 +211,26 @@ def test_a_limitation_statement_is_escaped():
 
     assert "age&lt;5 &amp; over" in rendered
     assert "age<5 & over" not in rendered
+
+
+def test_the_html_report_is_one_self_contained_document(evidence):
+    rendered = render_html_report(evidence)
+
+    assert rendered.lstrip().startswith("<!DOCTYPE html>")
+    assert "</html>" in rendered
+    assert "<svg" in rendered  # the figure is inlined, not linked
+    assert "<img" not in rendered
+
+
+def test_the_html_report_carries_all_four_sections(evidence):
+    rendered = render_html_report(evidence)
+
+    for heading in ("Assumption", "Validity", "Comparison", "Limitations"):
+        assert heading in rendered
+
+
+def test_the_html_report_refuses_prose_that_fails_the_lint(evidence):
+    bad = dataclasses.replace(evidence, limitations=("The rollout causes the lift.",))
+
+    with pytest.raises(ReportLanguageError):
+        render_html_report(bad)
