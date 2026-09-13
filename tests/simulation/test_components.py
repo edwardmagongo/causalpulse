@@ -1,3 +1,5 @@
+import itertools
+
 import numpy as np
 import pytest
 from cp_simulation.components import (
@@ -207,8 +209,11 @@ def test_the_intercept_is_added_before_strength_scales_the_index():
     assert treated.mean() == pytest.approx(0.69875, abs=1e-9)
 
 
-def test_the_intercept_moves_the_share_monotonically():
+def test_the_intercept_moves_the_share_strictly_monotonically():
     # The axis must do what its name says before any benchmark relies on it.
+    # A plain `shares == sorted(shares)` also passes for a constant sequence
+    # (e.g. a formula that silently drops the intercept term), so this checks
+    # each consecutive pair is strictly greater, not merely non-decreasing.
     covariates = np.random.default_rng(1).normal(size=(4000, 2))
     shares = [
         PropensityAssignment(coefficients=(0.9, 0.7), intercept=c)
@@ -217,4 +222,5 @@ def test_the_intercept_moves_the_share_monotonically():
         for c in (-2.0, -1.0, 0.0, 1.0, 2.0)
     ]
 
-    assert shares == sorted(shares)
+    for lower, higher in itertools.pairwise(shares):
+        assert lower < higher
