@@ -24,10 +24,25 @@ def test_adding_a_field_to_a_hashed_component_changes_the_hash():
     # distinguishes "field doesn't exist" from "field exists at its no-op
     # value" is not a complete function of the configuration any more.
     #
-    # Even at the new field's own default, the hash must move.
+    # Even at the new field's own default, the hash must move -- and the new
+    # field carries the very metadata key the reverted mechanism keyed off.
+    # That tag is load-bearing: an untagged field changes the hash whether or
+    # not the suppression mechanism exists, so a test using one would pass
+    # either way and pin nothing. With the tag, this test passes today
+    # (metadata is ignored) and fails the moment anyone reintroduces the
+    # omission -- which is the whole point of keeping it.
     without_field = dataclasses.make_dataclass("Component", [("x", float, 1.0)], frozen=True)
     with_field = dataclasses.make_dataclass(
-        "Component", [("x", float, 1.0), ("y", float, 0.0)], frozen=True
+        "Component",
+        [
+            ("x", float, 1.0),
+            (
+                "y",
+                float,
+                dataclasses.field(default=0.0, metadata={"hash_omit_at_default": True}),
+            ),
+        ],
+        frozen=True,
     )
 
     before = component_hash(describe_components(component=without_field(x=1.0)))
