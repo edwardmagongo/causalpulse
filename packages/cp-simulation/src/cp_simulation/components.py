@@ -7,7 +7,7 @@ menu of scenarios.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 import numpy as np
@@ -233,10 +233,18 @@ class PropensityAssignment:
 
     `strength` scales the covariate contribution: 0 reduces to random
     assignment, larger values sharpen the dependence and worsen overlap.
+
+    `intercept` shifts the treated share without changing which covariates
+    confound: it moves the linear index by a constant, so it raises or lowers
+    the overall propensity level but does not alter `confounders()` or
+    `provenance()`, both of which depend only on `strength` and
+    `coefficients`. It defaults to 0.0, reproducing the pre-intercept
+    behaviour exactly.
     """
 
     coefficients: tuple[float, ...]
     strength: float = 1.0
+    intercept: float = field(default=0.0, metadata={"hash_omit_at_default": True})
 
     def assign(
         self,
@@ -249,7 +257,7 @@ class PropensityAssignment:
             raise ValueError(
                 f"expected {beta.size} covariates, got {covariates.shape[1]}"
             )
-        propensity = sigmoid(self.strength * (covariates @ beta))
+        propensity = sigmoid(self.intercept + self.strength * (covariates @ beta))
         return rng.binomial(1, propensity), propensity
 
     def confounders(self, covariate_names: tuple[str, ...]) -> tuple[str, ...]:

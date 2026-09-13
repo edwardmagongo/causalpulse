@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+from cp_simulation._hashing import describe_components
 from cp_simulation.components import (
     ConstantEffect,
     HeterogeneousEffect,
@@ -109,6 +110,31 @@ def test_config_hash_changes_when_configuration_changes():
     )
 
     assert first.truth.config_hash != second.truth.config_hash
+
+
+def test_a_default_intercept_is_absent_from_the_config_description():
+    # PropensityAssignment.intercept is new and defaults to a no-op. Every
+    # instance carries the field regardless of whether a caller mentions it,
+    # so comparing two default-intercept instances' hashes can't tell whether
+    # the field is actually excluded -- it has to be checked structurally.
+    # This is exactly the gap that let scenarios D and H drift the first time
+    # the field was added, caught by test_params.py's byte-identical guard.
+    described = describe_components(
+        assignment=PropensityAssignment(coefficients=(0.9, 0.7))
+    )
+
+    assert "intercept" not in described["assignment"]["PropensityAssignment"]
+
+
+def test_a_nonzero_intercept_is_present_in_the_config_description():
+    # The omission above must be specific to the default, not a blanket
+    # exemption for the field -- a real shift in the treated share is a real
+    # configuration change and has to be distinguishable downstream.
+    described = describe_components(
+        assignment=PropensityAssignment(coefficients=(0.9, 0.7), intercept=1.5)
+    )
+
+    assert described["assignment"]["PropensityAssignment"]["intercept"] == 1.5
 
 
 def test_true_att_equals_true_ate_under_random_assignment():

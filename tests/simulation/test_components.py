@@ -8,6 +8,7 @@ from cp_simulation.components import (
     PropensityAssignment,
     RandomAssignment,
     UnitGenerator,
+    sigmoid,
 )
 from cp_simulation.truth import GroundTruth
 
@@ -144,3 +145,50 @@ def test_baseline_selection_at_zero_strength_is_randomised():
     zero = BaselineSelectionAssignment(strength=0.0)
     assert zero.confounders(("x1", "x2")) == ()
     assert zero.provenance() == "randomised"
+
+
+def test_the_default_intercept_reproduces_todays_assignment():
+    # A component stable since Phase 1. At the default this must draw the
+    # same units, from the same generator state, as it always has.
+    rng_old = np.random.default_rng(0)
+    rng_new = np.random.default_rng(0)
+    covariates = np.random.default_rng(1).normal(size=(500, 2))
+
+    old = sigmoid(1.0 * (covariates @ np.array([0.9, 0.7])))
+    expected = rng_old.binomial(1, old)
+
+    assignment = PropensityAssignment(coefficients=(0.9, 0.7))
+    treatment, propensity = assignment.assign(covariates, old, rng_new)
+
+    np.testing.assert_array_equal(treatment, expected)
+    np.testing.assert_allclose(propensity, old)
+
+
+def test_a_positive_intercept_raises_the_treated_share():
+    # Measured at n=4000, coefficients=(0.9, 0.7), rng seed 0 for both draws:
+    # intercept 0.0 -> treated share 0.50075, intercept 1.5 -> 0.7685, a gap
+    # of ~0.268. 0.2 leaves real headroom below that measured gap while
+    # staying well above the ~0.14 a halved (broken) intercept would produce.
+    covariates = np.random.default_rng(1).normal(size=(4000, 2))
+    coefficients = (0.9, 0.7)
+
+    balanced = PropensityAssignment(coefficients=coefficients)
+    shifted = PropensityAssignment(coefficients=coefficients, intercept=1.5)
+
+    base, _ = balanced.assign(covariates, covariates[:, 0], np.random.default_rng(0))
+    more, _ = shifted.assign(covariates, covariates[:, 0], np.random.default_rng(0))
+
+    assert more.mean() > base.mean() + 0.2
+
+
+def test_the_intercept_moves_the_share_monotonically():
+    # The axis must do what its name says before any benchmark relies on it.
+    covariates = np.random.default_rng(1).normal(size=(4000, 2))
+    shares = [
+        PropensityAssignment(coefficients=(0.9, 0.7), intercept=c)
+        .assign(covariates, covariates[:, 0], np.random.default_rng(0))[0]
+        .mean()
+        for c in (-2.0, -1.0, 0.0, 1.0, 2.0)
+    ]
+
+    assert shares == sorted(shares)
