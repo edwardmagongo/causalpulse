@@ -113,7 +113,13 @@ def test_scenario_output_is_byte_identical_to_pre_phase18(scenario_id):
     # actually depend on.
     simulated = build_scenario(scenario_id).generate(n_units=2000, rng=np.random.default_rng(0))
 
-    assert _digest_simulated(simulated) == _PRE_PHASE18_DIGESTS[scenario_id]
+    assert _digest_simulated(simulated) == _PRE_PHASE18_DIGESTS[scenario_id], (
+        f"scenario {scenario_id} no longer generates the data it did before Phase 18. "
+        "These digests were captured from pre-refactor code, so a mismatch means a "
+        "change reached the DEFAULT axis values -- most likely an rng draw consumed "
+        "unconditionally where it should be skipped. Updating the constant is almost "
+        "never the right fix; find what moved first."
+    )
 
 
 def test_build_scenario_still_accepts_a_positional_confounding_strength():
