@@ -286,5 +286,9 @@ def test_noise_adds_variation_the_covariates_do_not_explain():
     p_quiet = quiet.probabilities(covariates, np.random.default_rng(0))
     p_noisy = noisy.probabilities(covariates, np.random.default_rng(0))
 
-    assert p_noisy.std() > p_quiet.std()
+    # Residual variance, not plain spread. A single scalar draw applied to
+    # every unit raises the spread too, so `p_noisy.std() > p_quiet.std()`
+    # passes for an implementation that adds no per-unit variation at all --
+    # measured: std 0.1702 -> 0.1760 while residual variance FALLS, 0.0015681
+    # -> 0.0014052. Only the residual form says what the axis name claims.
     assert _residual_variance(p_noisy, covariates) > _residual_variance(p_quiet, covariates)
