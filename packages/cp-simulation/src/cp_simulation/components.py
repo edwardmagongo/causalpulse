@@ -7,7 +7,7 @@ menu of scenarios.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal
 
 import numpy as np
@@ -244,7 +244,7 @@ class PropensityAssignment:
 
     coefficients: tuple[float, ...]
     strength: float = 1.0
-    intercept: float = field(default=0.0, metadata={"hash_omit_at_default": True})
+    intercept: float = 0.0
 
     def assign(
         self,

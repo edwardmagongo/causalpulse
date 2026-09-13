@@ -63,6 +63,13 @@ def _digest_simulated(simulated):
     Content, not identity: two independently generated but numerically equal
     runs digest the same. Anything that changes a single float anywhere in the
     frame or the truth arrays changes this digest.
+
+    Deliberately excludes `truth.config_hash`: that field is provenance
+    metadata describing the configuration, not generated data, and it can
+    move (e.g. a component gaining a new field) without a single generated
+    value changing. Mixing it into a digest meant to catch drift in *data*
+    makes an unrelated metadata change look like a data regression -- see
+    the Phase 18 Task 2 fix report for the incident this caused.
     """
     frame_bytes = simulated.dataset.frame.to_csv(index=True).encode()
     truth = simulated.truth
@@ -73,7 +80,6 @@ def _digest_simulated(simulated):
         "true_propensity": truth.true_propensity.tolist(),
         "true_confounders": list(truth.true_confounders),
         "scenario_id": truth.scenario_id,
-        "config_hash": truth.config_hash,
         "true_treatment": (
             None if truth.true_treatment is None else truth.true_treatment.tolist()
         ),
@@ -94,14 +100,20 @@ def _digest_simulated(simulated):
 # code this task ships: if this task's refactor changed what a single one of
 # these scenarios generates, every digest below would already have been wrong
 # before this test was ever run against the new code.
+#
+# Recomputed for the Phase 18 Task 2 fix (`config_hash` removed from
+# `_digest_simulated`'s payload above): every constant below changed as a
+# result, because the payload being hashed changed shape for every scenario,
+# not because any scenario's generated data changed. See the Phase 18 Task 2
+# fix report for the before/after values and why this is not a regression.
 _PRE_PHASE18_DIGESTS = {
-    "A": "96efbf0148361e7776e3e0222432a79e3b37197c38490c68b95e142196ae3b91",
-    "B": "e9b86aea995effb4506f7d48f20d1855d493b9ea3972c9ded4ecafa4b5f348d6",
-    "C": "d3ec44fd852688c8a330f15d9c1b3371c821688c95e35d350b9baf9cbe7be61d",
-    "D": "4fcde1cbb65c3bfac4fd8b74f8ac2c035d66921610af31f39c511ea65cf0a54c",
-    "F": "502998f5ddcc2ce437a11092b96f83c0e8b98b5e61519a74eb800a5e96bb9f8d",
-    "G": "ff2bd6376127f7f4a353d54c5d257655a9923930c672c688e1096d3bd36dabe9",
-    "H": "3044a00127222f806244a70ab2f7faaf7dce163fa878d3e7934339c08833fb19",
+    "A": "5112e8a9a3477cf60cf01eccfe997c98b1cf93c7a8a2996e3d65b7ea598cff28",
+    "B": "47e38cfa1c8498e6b39e66ba58dbb4a692deee5fff217aa74846a8a8167d4bd3",
+    "C": "9dba46453432e1d48d46776930c114f1c4642d84f863ffc99657c1cdc443c324",
+    "D": "95b79679f6692e93f4c5acb879f1a07379cddef56188ab1ca11a3ac2b24daa8b",
+    "F": "95976acb5f9dc15804acbc8966ce53ca06709792937bdf7bd7d5f56c259ca6b2",
+    "G": "f9d23466326d8133752d5b701f5f378dd380ba335b229fe6f5624689ac13a424",
+    "H": "e56f2182aa02efe633fc262f6a0f62d262c0b3e0e34edb189b96d3eae709bf63",
 }
 
 

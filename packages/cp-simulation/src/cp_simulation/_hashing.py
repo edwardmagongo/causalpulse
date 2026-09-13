@@ -8,31 +8,14 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, fields, is_dataclass
+from dataclasses import asdict, is_dataclass
 from typing import Any
 
 
 def _describe(component: object) -> dict[str, Any]:
-    """Name a component by its class and its field values.
-
-    A field tagged `metadata={"hash_omit_at_default": True}` is dropped from
-    the description when it holds its declared default. That lets a stable
-    component gain a new field -- defaulting to a no-op -- without perturbing
-    the hash of every configuration that never mentions it: without the
-    filter, the field's mere presence in `asdict()` output changes the
-    recorded fingerprint even though nothing about the configuration changed.
-    A field away from its default is never omitted, so a real configuration
-    change still changes the hash.
-    """
+    """Name a component by its class and its field values."""
     if is_dataclass(component) and not isinstance(component, type):
-        values = asdict(component)
-        for component_field in fields(component):
-            if (
-                component_field.metadata.get("hash_omit_at_default")
-                and values.get(component_field.name) == component_field.default
-            ):
-                del values[component_field.name]
-        return {type(component).__name__: values}
+        return {type(component).__name__: asdict(component)}
     return {type(component).__name__: repr(component)}
 
 
