@@ -3,6 +3,8 @@ import itertools
 import numpy as np
 import pytest
 from cp_simulation.components import (
+    MAX_BASELINE_PROBABILITY,
+    MIN_BASELINE_PROBABILITY,
     BaselineSelectionAssignment,
     ConstantEffect,
     HeterogeneousEffect,
@@ -37,7 +39,7 @@ def test_baseline_probabilities_respect_the_boundary_constraint():
     frame = generator.generate(n_units=5000, rng=np.random.default_rng(1))
     baseline = LogisticBaseline(intercept=-1.0, coefficients=(0.8, 0.5))
 
-    p0 = baseline.probabilities(frame[["x1", "x2"]].to_numpy())
+    p0 = baseline.probabilities(frame[["x1", "x2"]].to_numpy(), np.random.default_rng(2))
 
     assert p0.min() >= 0.05
     assert p0.max() <= 0.85
@@ -224,3 +226,65 @@ def test_the_intercept_moves_the_share_strictly_monotonically():
 
     for lower, higher in itertools.pairwise(shares):
         assert lower < higher
+
+
+def test_a_zero_noise_scale_consumes_no_randomness():
+    # The rng is shared and sequential across an entire generate() call. If
+    # probabilities() drew at the default noise_scale, every downstream draw
+    # would shift and every existing scenario would generate different data
+    # -- silently, at the default, with nothing about it failing.
+    covariates = np.random.default_rng(1).normal(size=(500, 2))
+    baseline = LogisticBaseline(intercept=-1.0, coefficients=(0.8, 0.5))
+
+    rng = np.random.default_rng(0)
+    baseline.probabilities(covariates, rng)
+
+    assert rng.bit_generator.state == np.random.default_rng(0).bit_generator.state
+
+
+def test_a_zero_noise_scale_gives_todays_probabilities():
+    covariates = np.random.default_rng(1).normal(size=(500, 2))
+    baseline = LogisticBaseline(intercept=-1.0, coefficients=(0.8, 0.5))
+
+    expected = np.clip(
+        sigmoid(-1.0 + covariates @ np.array([0.8, 0.5])),
+        MIN_BASELINE_PROBABILITY,
+        MAX_BASELINE_PROBABILITY,
+    )
+
+    np.testing.assert_allclose(
+        baseline.probabilities(covariates, np.random.default_rng(0)), expected
+    )
+
+
+def _residual_variance(values: np.ndarray, covariates: np.ndarray) -> float:
+    """Variance in `values` left over after a linear fit on `covariates`.
+
+    "The covariates do not explain" means what is left after netting out
+    everything a linear function of them accounts for -- not the raw
+    variance, which a wrong implementation could inflate by amplifying the
+    genuine covariate signal (e.g. scaling `coefficients` instead of adding
+    independent noise) rather than by adding anything unexplained.
+    """
+    design = np.column_stack([np.ones(covariates.shape[0]), covariates])
+    coefficients, *_ = np.linalg.lstsq(design, values, rcond=None)
+    residuals = values - design @ coefficients
+    return float(residuals.var())
+
+
+def test_noise_adds_variation_the_covariates_do_not_explain():
+    # A plain std() comparison is weaker than it looks: an implementation
+    # that (wrongly) scaled `coefficients` by noise_scale instead of adding
+    # independent noise would also raise p.std() here, because it would
+    # amplify the real covariate-driven signal -- without ever touching
+    # `rng`. Regressing on the covariates and checking the residual strips
+    # that signal out, so only variation orthogonal to X can make this pass.
+    covariates = np.random.default_rng(1).normal(size=(4000, 2))
+    quiet = LogisticBaseline(intercept=-1.0, coefficients=(0.8, 0.5))
+    noisy = LogisticBaseline(intercept=-1.0, coefficients=(0.8, 0.5), noise_scale=1.0)
+
+    p_quiet = quiet.probabilities(covariates, np.random.default_rng(0))
+    p_noisy = noisy.probabilities(covariates, np.random.default_rng(0))
+
+    assert p_noisy.std() > p_quiet.std()
+    assert _residual_variance(p_noisy, covariates) > _residual_variance(p_quiet, covariates)

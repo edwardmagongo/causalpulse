@@ -95,7 +95,7 @@ class CrossSectionDGP:
         frame = self.unit_generator.generate(n_units, rng)
         covariates = frame[list(names)].to_numpy()
 
-        p0 = self.baseline.probabilities(covariates)
+        p0 = self.baseline.probabilities(covariates, rng)
         tau = self.effect.tau_values(covariates)
         p1 = np.clip(p0 + tau, 0.0, 1.0)
 

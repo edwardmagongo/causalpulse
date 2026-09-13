@@ -45,18 +45,36 @@ class UnitGenerator:
 
 @dataclass(frozen=True)
 class LogisticBaseline:
-    """Untreated outcome probabilities, bounded away from 0 and 1."""
+    """Untreated outcome probabilities, bounded away from 0 and 1.
+
+    `noise_scale` adds a standard-normal offset inside the logit -- variation
+    the covariates do not explain -- rather than scaling `coefficients`:
+    those same covariates drive assignment elsewhere in the DGP, so scaling
+    them would move confounding bias at the same time as signal-to-noise,
+    which is exactly the non-orthogonal axis the benchmark's one-at-a-time
+    grid cannot tolerate (spec section 4.2). It defaults to 0.0, reproducing
+    the pre-noise behaviour exactly.
+
+    `rng` is drawn from only when `noise_scale != 0.0`. The generator is
+    shared and sequential across an entire `CrossSectionDGP.generate` call,
+    so consuming a draw unconditionally would shift every downstream draw and
+    silently change every existing scenario's data at the default.
+    """
 
     intercept: float
     coefficients: tuple[float, ...]
+    noise_scale: float = 0.0
 
-    def probabilities(self, covariates: np.ndarray) -> np.ndarray:
+    def probabilities(self, covariates: np.ndarray, rng: np.random.Generator) -> np.ndarray:
         beta = np.asarray(self.coefficients, dtype=float)
         if covariates.shape[1] != beta.size:
             raise ValueError(
                 f"expected {beta.size} covariates, got {covariates.shape[1]}"
             )
-        raw = sigmoid(self.intercept + covariates @ beta)
+        linear = self.intercept + covariates @ beta
+        if self.noise_scale != 0.0:
+            linear = linear + self.noise_scale * rng.normal(size=covariates.shape[0])
+        raw = sigmoid(linear)
         return np.asarray(np.clip(raw, MIN_BASELINE_PROBABILITY, MAX_BASELINE_PROBABILITY))
 
 

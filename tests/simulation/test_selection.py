@@ -14,7 +14,7 @@ def setup(n: int = 20000, seed: int = 0):
     frame = UnitGenerator(covariate_names=("x1", "x2")).generate(n, rng)
     covariates = frame[["x1", "x2"]].to_numpy()
     baseline = LogisticBaseline(intercept=-1.0, coefficients=(0.8, 0.5)).probabilities(
-        covariates
+        covariates, rng
     )
     return covariates, baseline, rng
 
