@@ -28,6 +28,7 @@ from cp_simulation.components import (
     UnitGenerator,
 )
 from cp_simulation.dgp import CrossSectionDGP
+from cp_simulation.params import ScenarioParams
 
 _COVARIATES = ("x1", "x2")
 _BASELINE = LogisticBaseline(intercept=-1.0, coefficients=(0.8, 0.5))
@@ -46,11 +47,11 @@ class ScenarioSpec:
     name: str
     declared_effect: float
     description: str
-    build: Callable[[float], CrossSectionDGP]
+    build: Callable[[ScenarioParams], CrossSectionDGP]
 
 
-def _randomised(scenario_id: str, tau: float) -> Callable[[float], CrossSectionDGP]:
-    def build(_confounding_strength: float) -> CrossSectionDGP:
+def _randomised(scenario_id: str, tau: float) -> Callable[[ScenarioParams], CrossSectionDGP]:
+    def build(_params: ScenarioParams) -> CrossSectionDGP:
         return CrossSectionDGP(
             unit_generator=UnitGenerator(covariate_names=_COVARIATES),
             baseline=_BASELINE,
@@ -62,14 +63,14 @@ def _randomised(scenario_id: str, tau: float) -> Callable[[float], CrossSectionD
     return build
 
 
-def _confounded(scenario_id: str, tau: float) -> Callable[[float], CrossSectionDGP]:
-    def build(confounding_strength: float) -> CrossSectionDGP:
+def _confounded(scenario_id: str, tau: float) -> Callable[[ScenarioParams], CrossSectionDGP]:
+    def build(params: ScenarioParams) -> CrossSectionDGP:
         return CrossSectionDGP(
             unit_generator=UnitGenerator(covariate_names=_COVARIATES),
             baseline=_BASELINE,
             effect=ConstantEffect(tau=tau),
             assignment=PropensityAssignment(
-                coefficients=(0.9, 0.7), strength=confounding_strength
+                coefficients=(0.9, 0.7), strength=params.confounding_strength
             ),
             scenario_id=scenario_id,
         )
@@ -77,7 +78,7 @@ def _confounded(scenario_id: str, tau: float) -> Callable[[float], CrossSectionD
     return build
 
 
-def _missing_data(scenario_id: str, tau: float) -> Callable[[float], CrossSectionDGP]:
+def _missing_data(scenario_id: str, tau: float) -> Callable[[ScenarioParams], CrossSectionDGP]:
     """Scenario D's confounding, plus missingness that depends on the outcome.
 
     MNAR rather than MAR: the parent spec allows either, and MNAR is the case
@@ -88,9 +89,9 @@ def _missing_data(scenario_id: str, tau: float) -> Callable[[float], CrossSectio
     whether it produces a complete-case bias large enough to test against.
     """
 
-    def build(confounding_strength: float) -> CrossSectionDGP:
+    def build(params: ScenarioParams) -> CrossSectionDGP:
         return replace(
-            _confounded(scenario_id, tau)(confounding_strength),
+            _confounded(scenario_id, tau)(params),
             missingness=MissingnessMechanism(
                 mechanism="MNAR", rate=0.25, strength=2.0
             ),
@@ -99,14 +100,14 @@ def _missing_data(scenario_id: str, tau: float) -> Callable[[float], CrossSectio
     return build
 
 
-def _heterogeneous(scenario_id: str) -> Callable[[float], CrossSectionDGP]:
+def _heterogeneous(scenario_id: str) -> Callable[[ScenarioParams], CrossSectionDGP]:
     """Randomised assignment with an effect that varies by the binary covariate.
 
     x2 is the binary covariate from UnitGenerator, read here as a "new user"
     flag: new users gain 8pp, returning users 1pp.
     """
 
-    def build(_confounding_strength: float) -> CrossSectionDGP:
+    def build(_params: ScenarioParams) -> CrossSectionDGP:
         return CrossSectionDGP(
             unit_generator=UnitGenerator(covariate_names=_COVARIATES),
             baseline=_BASELINE,
@@ -118,13 +119,15 @@ def _heterogeneous(scenario_id: str) -> Callable[[float], CrossSectionDGP]:
     return build
 
 
-def _selected(scenario_id: str, tau: float) -> Callable[[float], CrossSectionDGP]:
-    def build(confounding_strength: float) -> CrossSectionDGP:
+def _selected(scenario_id: str, tau: float) -> Callable[[ScenarioParams], CrossSectionDGP]:
+    def build(params: ScenarioParams) -> CrossSectionDGP:
         return CrossSectionDGP(
             unit_generator=UnitGenerator(covariate_names=_COVARIATES),
             baseline=_BASELINE,
             effect=ConstantEffect(tau=tau),
-            assignment=BaselineSelectionAssignment(strength=8.0 * confounding_strength),
+            assignment=BaselineSelectionAssignment(
+                strength=8.0 * params.confounding_strength
+            ),
             scenario_id=scenario_id,
         )
 
@@ -202,6 +205,12 @@ def build_scenario(
 ) -> CrossSectionDGP:
     """Instantiate a scenario's DGP at a given confounding strength.
 
+    Kept as a positional/keyword `float` rather than accepting `ScenarioParams`
+    directly, because `cp_evaluation.resolve.resolve_cell` and `cp_cli`'s
+    `simulate`/`analyze` commands call it this way today, and this task widens
+    only `cp_simulation`. Internally this builds a `ScenarioParams` from the
+    float and hands it to the registry's now-widened `build`.
+
     The three optional components are attached after the scenario's own
     builder has run, rather than threaded through it, so all six builders stay
     as they were and a scenario that opts into none of them produces exactly
@@ -211,7 +220,8 @@ def build_scenario(
         raise KeyError(
             f"unknown scenario {scenario_id!r}; available: {sorted(SCENARIOS)}"
         )
-    dgp = SCENARIOS[scenario_id].build(confounding_strength)
+    params = ScenarioParams(confounding_strength=confounding_strength)
+    dgp = SCENARIOS[scenario_id].build(params)
     if (
         negative_control is None
         and misclassification is None
