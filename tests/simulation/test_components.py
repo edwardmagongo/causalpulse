@@ -185,6 +185,28 @@ def test_a_positive_intercept_raises_the_treated_share():
     assert more.mean() > base.mean() + 0.2
 
 
+def test_the_intercept_is_added_before_strength_scales_the_index():
+    # At the shipped default strength=1.0 -- what every other test in this
+    # module uses -- `intercept + strength*(X@b)` and
+    # `strength*(X@b + intercept)` are algebraically identical, so no test
+    # above can tell which formula shipped. They diverge sharply at a
+    # non-unit strength, and scenarios.py:72 threads `strength` straight from
+    # `confounding_strength`, with Task 6 planning to vary both axes
+    # together -- so this is the ambiguity most likely to actually bite.
+    #
+    # Measured at n=4000, coefficients=(0.9, 0.7), strength=2.0, intercept=1.5,
+    # rng seed 1 for covariates and seed 0 for the binomial draw: adding the
+    # intercept before the strength multiplier (this module's formula) gives
+    # a treated share of 0.69875; adding it after (intercept scaled along
+    # with the covariate term) gives 0.853 -- not close.
+    covariates = np.random.default_rng(1).normal(size=(4000, 2))
+    assignment = PropensityAssignment(coefficients=(0.9, 0.7), strength=2.0, intercept=1.5)
+
+    treated, _ = assignment.assign(covariates, covariates[:, 0], np.random.default_rng(0))
+
+    assert treated.mean() == pytest.approx(0.69875, abs=1e-9)
+
+
 def test_the_intercept_moves_the_share_monotonically():
     # The axis must do what its name says before any benchmark relies on it.
     covariates = np.random.default_rng(1).normal(size=(4000, 2))
