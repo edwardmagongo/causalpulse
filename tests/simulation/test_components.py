@@ -149,7 +149,10 @@ def test_baseline_selection_at_zero_strength_is_randomised():
 
 def test_the_default_intercept_reproduces_todays_assignment():
     # A component stable since Phase 1. At the default this must draw the
-    # same units, from the same generator state, as it always has.
+    # same units, from the same generator state, as it always has -- checked
+    # both by the drawn array and by the generator's state afterward, so a
+    # change that consumes an extra draw (and so still ends up equal by
+    # coincidence, or diverges downstream) cannot pass silently.
     rng_old = np.random.default_rng(0)
     rng_new = np.random.default_rng(0)
     covariates = np.random.default_rng(1).normal(size=(500, 2))
@@ -162,6 +165,7 @@ def test_the_default_intercept_reproduces_todays_assignment():
 
     np.testing.assert_array_equal(treatment, expected)
     np.testing.assert_allclose(propensity, old)
+    assert rng_old.bit_generator.state == rng_new.bit_generator.state
 
 
 def test_a_positive_intercept_raises_the_treated_share():
