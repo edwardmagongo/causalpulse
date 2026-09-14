@@ -66,6 +66,16 @@ class ScenarioSpec:
     so its advertised label has to be checkable at every point rather than at
     one. See `tests/simulation/test_scenarios.py::test_measured_ate_matches_the_declared_label`
     for the contract this must satisfy.
+
+    `axes` names the grid axes this scenario's `build` actually reads --
+    derived from the builder, not from the scenario's name or description.
+    Without it, a scenario that ignores an axis still produces one cell per
+    value of that axis in the benchmark grid, all identical: the same
+    absent-versus-zero confusion Phase 16's benchmark heatmaps were built to
+    avoid (spec section 5.1). It is checked, not trusted: see
+    `tests/simulation/test_axis_declarations.py`, which measures a property of
+    each scenario's output at a perturbed value of every axis and fails if a
+    declared axis's property does not move or an undeclared one's does.
     """
 
     scenario_id: str
@@ -73,6 +83,7 @@ class ScenarioSpec:
     declared_effect: Callable[[ScenarioParams], float]
     description: str
     build: Callable[[ScenarioParams], CrossSectionDGP]
+    axes: frozenset[str]
 
 
 def _homogeneous_declared_effect(tau: float) -> Callable[[ScenarioParams], float]:
@@ -205,6 +216,10 @@ SCENARIOS: dict[str, ScenarioSpec] = {
         declared_effect=_homogeneous_declared_effect(_TAU_A),
         description="Random assignment, homogeneous +5pp effect.",
         build=_randomised("A", _TAU_A),
+        # `_randomised`'s build ignores `params` entirely -- RandomAssignment
+        # and ConstantEffect are both built from literals closed over at
+        # registration time.
+        axes=frozenset(),
     ),
     "B": ScenarioSpec(
         scenario_id="B",
@@ -213,6 +228,7 @@ SCENARIOS: dict[str, ScenarioSpec] = {
         description="Random assignment, exactly zero effect. Any systematic "
         "positive finding here is a false positive.",
         build=_randomised("B", _TAU_B),
+        axes=frozenset(),
     ),
     "C": ScenarioSpec(
         scenario_id="C",
@@ -220,6 +236,7 @@ SCENARIOS: dict[str, ScenarioSpec] = {
         declared_effect=_homogeneous_declared_effect(_TAU_C),
         description="Random assignment, homogeneous -3pp effect.",
         build=_randomised("C", _TAU_C),
+        axes=frozenset(),
     ),
     "D": ScenarioSpec(
         scenario_id="D",
@@ -228,6 +245,9 @@ SCENARIOS: dict[str, ScenarioSpec] = {
         description="Covariates drive both assignment and outcome, so naive "
         "comparisons are biased upward.",
         build=_confounded("D", _TAU_D),
+        # `_confounded` reads `params.confounding_strength` to set
+        # PropensityAssignment.strength; nothing else in `params` is read.
+        axes=frozenset({"confounding_strength"}),
     ),
     "F": ScenarioSpec(
         scenario_id="F",
@@ -239,6 +259,10 @@ SCENARIOS: dict[str, ScenarioSpec] = {
         "returning users (x2=0). The population average depends on the "
         "covariate mix, so it is measured rather than assumed.",
         build=_heterogeneous("F", _HETEROGENEOUS_BASE_TAU, _HETEROGENEOUS_INCREMENT),
+        # `_heterogeneous`'s build ignores `params` entirely -- base_tau and
+        # increment are literals closed over at registration time, not scaled
+        # by `heterogeneity_scale`.
+        axes=frozenset(),
     ),
     "G": ScenarioSpec(
         scenario_id="G",
@@ -247,6 +271,10 @@ SCENARIOS: dict[str, ScenarioSpec] = {
         description="Treatment is taken up by units with higher untreated "
         "outcome probability, so naive comparison overstates the effect.",
         build=_selected("G", _TAU_G),
+        # `_selected` reads `params.confounding_strength` to scale
+        # BaselineSelectionAssignment.strength; nothing else in `params` is
+        # read.
+        axes=frozenset({"confounding_strength"}),
     ),
     "H": ScenarioSpec(
         scenario_id="H",
@@ -256,6 +284,10 @@ SCENARIOS: dict[str, ScenarioSpec] = {
         "depends on the outcome itself, so complete-case analysis is biased "
         "in a way adjusting for the covariates does not repair.",
         build=_missing_data("H", _TAU_H),
+        # `_missing_data` builds on `_confounded`, which reads
+        # `params.confounding_strength`; the missingness mechanism it adds is
+        # fixed (rate=0.25, strength=2.0), reading nothing from `params`.
+        axes=frozenset({"confounding_strength"}),
     ),
 }
 
