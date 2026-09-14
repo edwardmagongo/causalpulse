@@ -51,7 +51,7 @@ def test_naive_estimator_is_biased_upward_under_confounding():
     # the naive estimator were unbiased here, the DGP would not be confounded.
     estimates = [
         naive_difference_in_means(
-            build_scenario("D", confounding_strength=1.0)
+            build_scenario("D", params=1.0)
             .generate(n_units=8000, rng=np.random.default_rng(seed))
             .dataset
         )
@@ -66,7 +66,7 @@ def test_naive_bias_grows_with_confounding_strength():
     def mean_bias(strength: float) -> float:
         estimates = [
             naive_difference_in_means(
-                build_scenario("D", confounding_strength=strength)
+                build_scenario("D", params=strength)
                 .generate(n_units=8000, rng=np.random.default_rng(seed))
                 .dataset
             )

@@ -170,10 +170,10 @@ def test_scenario_a_has_no_confounders_but_scenario_d_does():
 
 
 def test_confounding_strength_controls_treatment_covariate_dependence():
-    weak = build_scenario("D", confounding_strength=0.2).generate(
+    weak = build_scenario("D", params=0.2).generate(
         n_units=20000, rng=np.random.default_rng(4)
     )
-    strong = build_scenario("D", confounding_strength=2.0).generate(
+    strong = build_scenario("D", params=2.0).generate(
         n_units=20000, rng=np.random.default_rng(4)
     )
 

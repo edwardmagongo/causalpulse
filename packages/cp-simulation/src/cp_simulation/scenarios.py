@@ -386,7 +386,7 @@ SCENARIOS: dict[str, ScenarioSpec] = {
 
 def build_scenario(
     scenario_id: str,
-    confounding_strength: float | ScenarioParams = 1.0,
+    params: float | ScenarioParams = 1.0,
     *,
     negative_control: NegativeControlOutcome | None = None,
     misclassification: NonDifferentialMisclassification | None = None,
@@ -405,6 +405,12 @@ def build_scenario(
     point every caller goes through. A bare float is equivalent to
     `ScenarioParams(confounding_strength=that_float)`: this is exactly what
     `test_build_scenario_float_facade_matches_the_widened_params_path` pins.
+    The parameter is named `params`, not `confounding_strength`, precisely
+    because it accepts either shape: under the old name,
+    `build_scenario("D", confounding_strength=ScenarioParams(confounding_strength=3.0))`
+    was a legal call that read as a category error -- a `ScenarioParams` handed
+    to something named `confounding_strength`. `params` makes both accepted
+    shapes equally at home under the keyword.
 
     The three optional components are attached after the scenario's own
     builder has run, rather than threaded through it, so all six builders stay
@@ -415,12 +421,12 @@ def build_scenario(
         raise KeyError(
             f"unknown scenario {scenario_id!r}; available: {sorted(SCENARIOS)}"
         )
-    params = (
-        confounding_strength
-        if isinstance(confounding_strength, ScenarioParams)
-        else ScenarioParams(confounding_strength=confounding_strength)
+    resolved_params = (
+        params
+        if isinstance(params, ScenarioParams)
+        else ScenarioParams(confounding_strength=params)
     )
-    dgp = SCENARIOS[scenario_id].build(params)
+    dgp = SCENARIOS[scenario_id].build(resolved_params)
     if (
         negative_control is None
         and misclassification is None

@@ -86,7 +86,7 @@ def test_reports_effective_sample_size_below_the_row_count():
 def test_severe_non_overlap_downgrades_the_assumptions_without_refusing():
     # The estimator still returns a number; it marks the assumption instead.
     # Refusing to answer is not the contract — reporting honestly is.
-    simulated = build_scenario("D", confounding_strength=8.0).generate(
+    simulated = build_scenario("D", params=8.0).generate(
         n_units=3000, rng=np.random.default_rng(2)
     )
 
