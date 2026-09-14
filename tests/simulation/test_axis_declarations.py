@@ -176,6 +176,69 @@ def test_declared_axes_move_and_undeclared_axes_do_not(scenario_id, axis_name):
         )
 
 
+# Axes with a well-defined *direction*, not just a move. `confounding_strength`
+# is left out (Task 5's original scope, unchanged here) and so is
+# `heterogeneity_scale` (only F declares it, and the brief's Step 1 names only
+# these three).
+_DIRECTIONAL_AXES = ("effect_scale", "noise_scale", "treatment_intercept")
+
+
+def _expected_direction(scenario_id: str, axis_name: str) -> int:
+    """+1 if a scenario's declared property should rise under the perturbed
+    value, -1 if it should fall.
+
+    `noise_scale` and `treatment_intercept` are unconditionally +1: the
+    perturbed value is larger than the default for both (more injected noise,
+    a more positive propensity intercept), and both `_residual_outcome_variation`
+    and `_treated_share` are monotonically increasing in their axis for every
+    assignment mechanism this project wires (independent additive noise before
+    clipping; a pointwise-monotonic sigmoid link before averaging).
+
+    `effect_scale` cannot be a blanket +1: Scenario C's declared effect is
+    negative, so scaling it up makes `true_ate` more negative, not less. The
+    expected sign is read off `declared_effect` -- an independently-written
+    and separately-tested label (Task 4), not the builder under test here --
+    rather than hardcoded per scenario, so this stays correct even if a
+    scenario's tau sign changes later.
+    """
+    if axis_name == "effect_scale":
+        spec = SCENARIOS[scenario_id]
+        base = ScenarioParams()
+        perturbed = replace(base, effect_scale=_PERTURBED_VALUE["effect_scale"])
+        delta = spec.declared_effect(perturbed) - spec.declared_effect(base)
+        assert delta != 0.0, (
+            f"scenario {scenario_id!r} declares effect_scale but its own label "
+            "does not move under it -- this test cannot infer a direction"
+        )
+        return 1 if delta > 0 else -1
+    return 1
+
+
+@pytest.mark.parametrize("axis_name", _DIRECTIONAL_AXES)
+@pytest.mark.parametrize("scenario_id", sorted(SCENARIOS))
+def test_declared_axes_move_in_the_correct_direction(scenario_id, axis_name):
+    # "Moves" alone would pass an axis wired backwards -- e.g. `tau / scale`
+    # instead of `tau * scale`, which still moves `true_ate` but the wrong
+    # way as `scale` grows. This checks the sign of the move, not just its
+    # magnitude.
+    if axis_name not in SCENARIOS[scenario_id].axes:
+        pytest.skip(f"scenario {scenario_id!r} does not declare axis {axis_name!r}")
+
+    base_params = ScenarioParams()
+    perturbed_params = replace(base_params, **{axis_name: _PERTURBED_VALUE[axis_name]})
+    measure = _PROPERTY[axis_name]
+
+    base_value = measure(_generate(scenario_id, base_params))
+    perturbed_value = measure(_generate(scenario_id, perturbed_params))
+    expected = _expected_direction(scenario_id, axis_name)
+    actual = 1 if perturbed_value > base_value else -1
+
+    assert actual == expected, (
+        f"scenario {scenario_id!r} axis {axis_name!r} moved the wrong way: "
+        f"{base_value!r} -> {perturbed_value!r} (expected direction {expected:+d})"
+    )
+
+
 # The explicit truth table Step 1 derived from reading each builder, locked in
 # separately from the measured-behaviour test above: that test would also
 # pass if every scenario declared nothing and every property happened to be
