@@ -4,6 +4,7 @@ from cp_core.dataset import CausalDataset
 from cp_evaluation.grid import CrossSectionCell, PanelCell
 from cp_evaluation.resolve import resolve_cell, truth_for
 from cp_simulation.panel_scenarios import PANEL_SCENARIOS
+from cp_simulation.params import ScenarioParams
 from cp_simulation.scenarios import SCENARIOS
 
 
@@ -77,7 +78,7 @@ def test_truth_is_measured_not_declared():
     cell = CrossSectionCell(scenario="D", n_units=500, confounding_strength=1.0, seed=0)
     resolved = resolve_cell(cell, root_entropy=1)
 
-    declared = SCENARIOS["D"].declared_effect
+    declared = SCENARIOS["D"].declared_effect(ScenarioParams())
     assert resolved.truth["ATE"] != declared
 
 

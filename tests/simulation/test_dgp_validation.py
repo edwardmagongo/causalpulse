@@ -3,6 +3,7 @@ import pandas as pd
 import pytest
 from cp_core.dataset import CausalDataset, CausalSchema
 from cp_simulation.oracle import naive_difference_in_means, oracle_ate, oracle_att
+from cp_simulation.params import ScenarioParams
 from cp_simulation.scenarios import SCENARIOS, build_scenario
 from cp_simulation.truth import GroundTruth, SimulatedDataset
 
@@ -14,7 +15,9 @@ def test_oracle_recovers_the_declared_effect(scenario_id: str):
         n_units=40000, rng=np.random.default_rng(0)
     )
 
-    assert oracle_ate(simulated) == pytest.approx(spec.declared_effect, abs=0.002)
+    assert oracle_ate(simulated) == pytest.approx(
+        spec.declared_effect(ScenarioParams()), abs=0.002
+    )
 
 
 @pytest.mark.parametrize("scenario_id", sorted(SCENARIOS))
@@ -40,7 +43,7 @@ def test_naive_estimator_is_unbiased_under_randomisation(scenario_id: str):
     mean_estimate = float(np.mean(estimates))
     monte_carlo_se = float(np.std(estimates, ddof=1) / np.sqrt(len(estimates)))
 
-    assert abs(mean_estimate - spec.declared_effect) < 4 * monte_carlo_se
+    assert abs(mean_estimate - spec.declared_effect(ScenarioParams())) < 4 * monte_carlo_se
 
 
 def test_naive_estimator_is_biased_upward_under_confounding():
@@ -54,7 +57,7 @@ def test_naive_estimator_is_biased_upward_under_confounding():
         )
         for seed in range(40)
     ]
-    bias = float(np.mean(estimates)) - SCENARIOS["D"].declared_effect
+    bias = float(np.mean(estimates)) - SCENARIOS["D"].declared_effect(ScenarioParams())
 
     assert bias > 0.05
 
@@ -69,7 +72,7 @@ def test_naive_bias_grows_with_confounding_strength():
             )
             for seed in range(20)
         ]
-        return float(np.mean(estimates)) - SCENARIOS["D"].declared_effect
+        return float(np.mean(estimates)) - SCENARIOS["D"].declared_effect(ScenarioParams())
 
     assert mean_bias(2.0) > mean_bias(1.0) > mean_bias(0.25)
 

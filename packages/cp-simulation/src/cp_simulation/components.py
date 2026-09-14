@@ -20,6 +20,12 @@ from scipy.special import expit, logit
 MIN_BASELINE_PROBABILITY = 0.05
 MAX_BASELINE_PROBABILITY = 0.85
 
+# The probability every binary covariate `UnitGenerator` draws is fixed at.
+# Named so a scenario's label -- e.g. a heterogeneous effect's population
+# mean CATE, which depends on P(x = 1) -- can read the generator's own
+# configuration directly instead of estimating it from a generated sample.
+BINARY_COVARIATE_PROBABILITY = 0.4
+
 
 def sigmoid(z: np.ndarray) -> np.ndarray:
     return expit(z)
@@ -39,7 +45,9 @@ class UnitGenerator:
             if index % 2 == 0:
                 data[name] = rng.normal(size=n_units)
             else:
-                data[name] = rng.binomial(1, 0.4, size=n_units).astype(float)
+                data[name] = rng.binomial(
+                    1, BINARY_COVARIATE_PROBABILITY, size=n_units
+                ).astype(float)
         return pd.DataFrame(data)
 
 

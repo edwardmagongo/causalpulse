@@ -1,29 +1,81 @@
+from dataclasses import replace
+
 import numpy as np
 import pandas as pd
 import pytest
 from cp_core.manifest import ScenarioReference
+from cp_simulation.components import ConstantEffect, HeterogeneousEffect
+from cp_simulation.params import ScenarioParams
 from cp_simulation.scenarios import (
     SCENARIOS,
     build_scenario,
     resolve_scenario_reference,
 )
 
+# A small set that exercises `declared_effect` as a function rather than at
+# one point: below 1 (scaling down), the pre-Phase-18 default, and above 1
+# (scaling up, where clipping at the probability bounds has the most room to
+# bite). Task 8 measures the grid's real values; this set only has to move
+# the label.
+_EFFECT_SCALES = (0.5, 1.0, 2.0)
+
+# Measured across every scenario x _EFFECT_SCALES combination (30 seeds,
+# n_units=40000): the worst |measured - declared| was 0.00088, at scenario F
+# (the only scenario with real sampling variance in the mean — a homogeneous
+# scenario's cate is constant across units, so its mean has none) and
+# effect_scale=2.0 (where clipping at the probability bounds bites hardest).
+# 0.003 keeps about 3.4x headroom over that worst case, and about 6x headroom
+# over the seed=0 deviation this test itself sees (0.0005).
+_DECLARED_EFFECT_TOLERANCE = 0.003
+
 
 def test_all_scenarios_are_registered():
     assert sorted(SCENARIOS) == ["A", "B", "C", "D", "F", "G", "H"]
 
 
-@pytest.mark.parametrize(
-    ("scenario_id", "declared"),
-    [("A", 0.05), ("B", 0.0), ("C", -0.03), ("D", 0.05)],
-)
-def test_measured_ate_matches_the_declared_label(scenario_id: str, declared: float):
-    # A scenario advertising "+5pp" must actually deliver +5pp, or every
-    # downstream bias number is wrong.
-    dgp = build_scenario(scenario_id)
-    simulated = dgp.generate(n_units=40000, rng=np.random.default_rng(0))
+def _scaled_ground_truth(scenario_id: str, effect_scale: float) -> float:
+    """Measured true_ate for `scenario_id` with its effect scaled by hand.
 
-    assert simulated.truth.true_ate == pytest.approx(declared, abs=0.002)
+    `build_scenario` does not yet read `effect_scale` -- Task 6 wires that in
+    -- so this reconstructs, independently of `declared_effect`, the DGP that
+    wiring will produce: it reads the unscaled tau (or base_tau/increment)
+    values off the scenario's own `build` and multiplies them by
+    `effect_scale` itself, rather than calling anything `declared_effect`
+    computes. That keeps this measurement and the label under test on
+    separate code paths, so the assertion below binds today rather than only
+    once Task 6 lands.
+    """
+    dgp = SCENARIOS[scenario_id].build(ScenarioParams())
+    effect = dgp.effect
+    if isinstance(effect, ConstantEffect):
+        scaled_effect = ConstantEffect(tau=effect.tau * effect_scale)
+    elif isinstance(effect, HeterogeneousEffect):
+        scaled_effect = replace(
+            effect,
+            base_tau=effect.base_tau * effect_scale,
+            increment=effect.increment * effect_scale,
+        )
+    else:
+        raise TypeError(f"unhandled effect type {type(effect)!r} for scenario {scenario_id!r}")
+
+    scaled_dgp = replace(dgp, effect=scaled_effect)
+    simulated = scaled_dgp.generate(n_units=40000, rng=np.random.default_rng(0))
+    return float(simulated.truth.true_ate)
+
+
+@pytest.mark.parametrize("effect_scale", _EFFECT_SCALES)
+@pytest.mark.parametrize("scenario_id", sorted(SCENARIOS))
+def test_measured_ate_matches_the_declared_label(scenario_id: str, effect_scale: float):
+    # A scenario advertising "+5pp" must actually deliver +5pp, or every
+    # downstream bias number is wrong -- and that has to hold at every point
+    # on the effect_scale axis now that effect size is a grid axis, not only
+    # at the one point a scenario used to have.
+    params = ScenarioParams(effect_scale=effect_scale)
+    declared = SCENARIOS[scenario_id].declared_effect(params)
+
+    measured = _scaled_ground_truth(scenario_id, effect_scale)
+
+    assert measured == pytest.approx(declared, abs=_DECLARED_EFFECT_TOLERANCE)
 
 
 def test_scenario_f_is_registered_with_a_heterogeneous_effect():
@@ -43,7 +95,9 @@ def test_scenario_f_declared_effect_is_the_population_average():
     spec = SCENARIOS["F"]
     simulated = build_scenario("F").generate(n_units=40000, rng=np.random.default_rng(1))
 
-    assert simulated.truth.true_ate == pytest.approx(spec.declared_effect, abs=0.002)
+    assert simulated.truth.true_ate == pytest.approx(
+        spec.declared_effect(ScenarioParams()), abs=0.002
+    )
     assert 0.01 < simulated.truth.true_ate < 0.08
 
 
@@ -170,7 +224,7 @@ def test_scenario_h_is_registered():
     from cp_simulation.scenarios import SCENARIOS
 
     assert "H" in SCENARIOS
-    assert SCENARIOS["H"].declared_effect == 0.05
+    assert SCENARIOS["H"].declared_effect(ScenarioParams()) == 0.05
 
 
 def test_scenario_h_produces_missing_outcomes():
