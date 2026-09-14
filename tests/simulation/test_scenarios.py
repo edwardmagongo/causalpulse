@@ -101,6 +101,46 @@ def test_scenario_f_declared_effect_is_the_population_average():
     assert 0.01 < simulated.truth.true_ate < 0.08
 
 
+# Spans below (0.0, collapsing the effect to fully homogeneous),
+# at (1.0, the pre-Phase-18 default, already covered elsewhere) and above
+# (3.0, the perturbed value `tests/simulation/test_axis_declarations.py`
+# uses) the default, so this exercises the compensation formula's shape
+# rather than one point on it.
+_HETEROGENEITY_SCALES = (0.0, 1.0, 3.0)
+
+
+@pytest.mark.parametrize("heterogeneity_scale", _HETEROGENEITY_SCALES)
+def test_scenario_f_declared_effect_matches_measured_across_heterogeneity_scale(
+    heterogeneity_scale: float,
+):
+    # Hazard 3 (spec section 4.4): scaling `increment` by `heterogeneity_scale`
+    # without compensating `base_tau` moves the population mean CATE, silently
+    # turning `heterogeneity_scale` into a second `effect_scale`.
+    # `declared_effect` does not take `heterogeneity_scale` as an input at all
+    # -- the compensation is what makes that omission correct -- so if a
+    # scenario F implementation ever dropped it, `measured` would move away
+    # from `declared` here while `declared` stayed fixed.
+    #
+    # This is the check `test_measured_ate_matches_the_declared_label` above
+    # cannot be, despite touching the same label: it holds `heterogeneity_scale`
+    # at its default (1.0) in every one of its cases, and at exactly 1.0 the
+    # compensation term `(k - 1) * increment * P(x=1)` is zero regardless of
+    # whether the implementation computes it at all. Confirmed by deliberately
+    # dropping the compensation (`compensated_base_tau = base_tau`) and
+    # re-running: this test fails at heterogeneity_scale=3.0 while
+    # `test_measured_ate_matches_the_declared_label` stays green throughout.
+    params = ScenarioParams(heterogeneity_scale=heterogeneity_scale)
+    declared = SCENARIOS["F"].declared_effect(params)
+
+    simulated = SCENARIOS["F"].build(params).generate(
+        n_units=40000, rng=np.random.default_rng(3)
+    )
+
+    assert float(simulated.truth.true_ate) == pytest.approx(
+        declared, abs=_DECLARED_EFFECT_TOLERANCE
+    )
+
+
 def test_scenario_f_has_no_confounders():
     simulated = build_scenario("F").generate(n_units=1000, rng=np.random.default_rng(2))
 
