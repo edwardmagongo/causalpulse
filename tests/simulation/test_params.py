@@ -1,10 +1,13 @@
 """`ScenarioParams` and the widened `ScenarioSpec.build`.
 
-`build_scenario` keeps its pre-Phase-18 signature -- a positional/keyword
-`confounding_strength: float` -- because `cp_evaluation.resolve.resolve_cell`
-and `cp_cli`'s `simulate`/`analyze` commands call it that way, and this task
-does not touch those packages. Internally it now builds a `ScenarioParams`
-and hands it to the widened registry callable.
+`build_scenario`'s second parameter, `params`, accepts either a bare
+`confounding_strength: float` -- the pre-Phase-18 call shape used all over
+this project's existing suite, `cp_evaluation.resolve.resolve_cell` and
+`cp_cli`'s `simulate`/`analyze` commands -- or a complete `ScenarioParams`,
+so every caller keeps working unchanged while the union branch is the one
+path a `ScenarioParams` reaches a scenario's builder through. A bare float is
+internally converted to `ScenarioParams(confounding_strength=that_float)`
+before being handed to the registry callable.
 
 The equivalence test below is Phase 18's baseline: every later task threading
 an axis into a builder must leave a scenario's *default* output untouched, and
@@ -135,10 +138,10 @@ def test_scenario_output_is_byte_identical_to_pre_phase18(scenario_id):
 
 
 def test_build_scenario_still_accepts_a_positional_confounding_strength():
-    # build_scenario's own public signature keeps the pre-Phase-18 float form
-    # -- see scenarios.py's docstring for why -- so this call shape, used all
-    # over the existing suite and by cp_evaluation/cp_cli, must keep working
-    # unchanged.
+    # build_scenario's `params` argument still accepts a bare float
+    # positionally -- see scenarios.py's docstring for why -- so this call
+    # shape, used all over the existing suite and by cp_evaluation/cp_cli,
+    # must keep working unchanged.
     strong = build_scenario("D", 4.0)
     weak = build_scenario("D", 0.5)
 
@@ -150,10 +153,37 @@ def test_build_scenario_float_facade_matches_the_widened_params_path():
     # The one thing that could silently break in translating the compat
     # facade to ScenarioParams: threading the float into the wrong field, or
     # applying it with the wrong operation. Same seed, same scenario, two call
-    # paths -- their generated frames must agree exactly.
+    # paths -- their generated frames must agree exactly. Both go through
+    # build_scenario itself, not SCENARIOS["D"].build directly, so this
+    # exercises the isinstance branch in build_scenario's own body -- the
+    # branch that is the public entry point's actual widening -- rather than
+    # only the registry callable underneath it.
     via_float = build_scenario("D", 3.0).generate(n_units=500, rng=np.random.default_rng(7))
-    via_params = SCENARIOS["D"].build(ScenarioParams(confounding_strength=3.0)).generate(
+    via_params = build_scenario("D", ScenarioParams(confounding_strength=3.0)).generate(
         n_units=500, rng=np.random.default_rng(7)
     )
 
     assert _digest_simulated(via_float) == _digest_simulated(via_params)
+
+
+def test_build_scenario_passes_a_full_scenario_params_through_unabridged():
+    # The isinstance(params, ScenarioParams) branch is the headline deliverable
+    # of widening build_scenario -- it is the one thing that makes the four
+    # axes this phase adds reachable from the public entry point at all -- and
+    # nothing else in this suite calls build_scenario with a full
+    # ScenarioParams. A build_scenario that silently narrowed a passed-in
+    # ScenarioParams down to just confounding_strength (e.g.
+    # `ScenarioParams(confounding_strength=params.confounding_strength)`)
+    # would still satisfy every other test in this repo, because every other
+    # caller that reaches this branch only ever sets confounding_strength.
+    #
+    # Confirmed to fail under exactly that mutation and to pass again once
+    # reverted -- see task-6-report.md for the exact command and output.
+    params = ScenarioParams(effect_scale=2.0, noise_scale=1.5, heterogeneity_scale=2.0)
+
+    via_facade = build_scenario("F", params).generate(n_units=500, rng=np.random.default_rng(5))
+    via_registry = SCENARIOS["F"].build(params).generate(
+        n_units=500, rng=np.random.default_rng(5)
+    )
+
+    assert _digest_simulated(via_facade) == _digest_simulated(via_registry)
