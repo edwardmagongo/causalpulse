@@ -26,6 +26,7 @@ from cp_core.dataset import CausalDataset
 from cp_core.manifest import DatasetReference, FixtureReference, ScenarioReference
 from cp_core.values import EstimatorConfig
 from cp_simulation.panel_scenarios import PANEL_SCENARIOS
+from cp_simulation.params import ScenarioParams
 from cp_simulation.scenarios import SCENARIOS, build_scenario
 
 from cp_cli.io import write_estimates
@@ -70,9 +71,11 @@ def _load(args: argparse.Namespace) -> tuple[CausalDataset, DatasetReference]:
             )
         if args.n_units is None:
             raise ValueError("--scenario requires --n-units")
-        dataset = build_scenario(scenario, args.confounding_strength).generate(
-            n_units=args.n_units, rng=np.random.default_rng(args.seed)
-        ).dataset
+        # Routed through `ScenarioParams`, not the bare-float facade -- see
+        # `cp_evaluation.resolve.resolve_cell` for why.
+        dataset = build_scenario(
+            scenario, ScenarioParams(confounding_strength=args.confounding_strength)
+        ).generate(n_units=args.n_units, rng=np.random.default_rng(args.seed)).dataset
         reference: DatasetReference = ScenarioReference(
             scenario=scenario,
             seed=args.seed,

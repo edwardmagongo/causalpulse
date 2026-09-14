@@ -23,6 +23,7 @@ import numpy as np
 from cp_core.manifest import ScenarioReference
 from cp_simulation.panel_scenarios import PANEL_SCENARIOS, build_panel_scenario
 from cp_simulation.panel_truth import SimulatedPanel
+from cp_simulation.params import ScenarioParams
 from cp_simulation.scenarios import SCENARIOS, build_scenario
 from cp_simulation.truth import SimulatedDataset
 
@@ -76,9 +77,14 @@ def run(args: argparse.Namespace) -> int:
         params = {"n_units": args.n_units, "n_periods": args.n_periods}
     else:
         confounding_strength = args.confounding_strength or 1.0
-        simulated = build_scenario(scenario, confounding_strength).generate(
-            n_units=args.n_units, rng=rng
-        )
+        # Routed through `ScenarioParams`, not the bare-float facade -- see
+        # `cp_evaluation.resolve.resolve_cell` for why: `build_scenario` is
+        # the one entry point every caller goes through, and this command has
+        # no flags yet for the other three Phase 18 axes, so it fills in
+        # their defaults explicitly rather than through the float shorthand.
+        simulated = build_scenario(
+            scenario, ScenarioParams(confounding_strength=confounding_strength)
+        ).generate(n_units=args.n_units, rng=rng)
         params = {
             "n_units": args.n_units,
             "confounding_strength": confounding_strength,

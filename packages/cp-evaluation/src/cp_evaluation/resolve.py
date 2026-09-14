@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from cp_core.dataset import CausalDataset
 from cp_simulation.oracle import oracle_ate, oracle_att
 from cp_simulation.panel_scenarios import build_panel_scenario
+from cp_simulation.params import ScenarioParams
 from cp_simulation.scenarios import build_scenario
 
 from cp_evaluation.grid import Cell, CrossSectionCell, cell_rng
@@ -44,7 +45,15 @@ def resolve_cell(cell: Cell, root_entropy: int) -> ResolvedCell:
     rng = cell_rng(cell, root_entropy)
 
     if isinstance(cell, CrossSectionCell):
-        dgp = build_scenario(cell.scenario, cell.confounding_strength)
+        # Routed through `ScenarioParams` explicitly, not the bare-float
+        # facade: `CrossSectionCell` carries only `confounding_strength`
+        # today, so this is behaviourally identical to the float form, but it
+        # is the path a widened `CrossSectionCell` (Task 9) plugs its other
+        # axes into -- `build_scenario` is the one entry point every caller
+        # goes through, never `SCENARIOS[id].build` directly.
+        dgp = build_scenario(
+            cell.scenario, ScenarioParams(confounding_strength=cell.confounding_strength)
+        )
         simulated = dgp.generate(n_units=cell.n_units, rng=rng)
         return ResolvedCell(
             dataset=simulated.dataset,
