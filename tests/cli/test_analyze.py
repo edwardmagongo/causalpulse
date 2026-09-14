@@ -3,6 +3,7 @@ import json
 import pandas as pd
 import pytest
 from cp_cli.__main__ import main
+from cp_simulation.params import AXIS_NAMES
 
 
 def _simulate(tmp_path, scenario="D", n_units=400, seed=0):
@@ -30,6 +31,31 @@ def test_analyzing_a_scenario_writes_estimates_and_a_manifest(tmp_path):
     assert [e["name"] for e in manifest["estimators"]] == [
         "difference_in_means", "lin_regression"
     ]
+
+
+def test_the_written_manifest_names_every_axis_not_just_the_two_that_predate_them(tmp_path):
+    # The writer's job is to record every axis explicitly, so a replay is
+    # exact no matter what a ScenarioParams default does later. Nothing else
+    # in the suite can catch a regression here: resolve_scenario_reference now
+    # fills a missing axis from its default, and `analyze` never varies these
+    # axes away from their defaults, so a writer that reverted to the old
+    # two-key shape would still round-trip to an identical dataset and every
+    # replay test would stay green. Only reading the manifest catches it.
+    out = tmp_path / "results"
+
+    code = main(
+        ["analyze", "--scenario", "D", "--n-units", "400", "--seed", "0",
+         "--estimators", "difference_in_means", "--out", str(out)]
+    )
+
+    assert code == 0
+    manifest = json.loads((out / "manifest.json").read_text())
+    recorded = set(manifest["dataset"]["params"])
+
+    assert recorded >= {"n_units", *AXIS_NAMES}, (
+        f"manifest records {sorted(recorded)}; a replay of this run would fall back to "
+        f"ScenarioParams defaults for {sorted({*AXIS_NAMES} - recorded)}"
+    )
 
 
 def test_analyzing_a_csv_records_a_fixture_reference_with_its_hash(tmp_path):
