@@ -8,14 +8,15 @@ module is what holds it honest: for every scenario x axis pair, a measured
 property of the generated output must move when the axis is declared and must
 not move at all when it is not.
 
-As of this task, `build_scenario`'s builders read only `confounding_strength`
--- Task 6 wires `treatment_intercept`, `noise_scale`, `effect_scale` and
-`heterogeneity_scale` into the builders that should read them. Declaring only
-what is wired today (rather than the full intended set, xfail'd or red) keeps
-this suite green and growing: as Task 6 wires each axis into a scenario, that
-scenario's declaration -- and this test's "must move" branch for it -- grows
-too. See the Phase 18 working notes for the full reasoning
-and the measurements behind every threshold below.
+As of Task 6, every scenario's builder reads `treatment_intercept`,
+`noise_scale` and `effect_scale`, and `heterogeneity_scale` is wired into
+scenario F (the only scenario with an `increment` for it to scale). Declaring
+only what is actually wired (rather than the full intended set, xfail'd or
+red) keeps this suite meaningful: a scenario's declaration -- and this test's
+"must move" branch for it -- reflects what its builder reads, not what a
+later task still owes it. See the Phase 18 working notes for
+the full reasoning and the measurements behind every threshold below, and
+the Phase 18 working notes for how each axis was wired.
 """
 
 from dataclasses import replace
@@ -135,10 +136,11 @@ _PERTURBED_VALUE = {
 
 # Measured floors for "the property moved" at n_units=10_000, seed=0 -- see
 # task-5-report.md for the sweep. Each sits comfortably below the smallest
-# delta observed for a mechanism that genuinely reads the axis (confirmed
-# directly for `confounding_strength`, the only axis any scenario wires
-# today; the rest were confirmed by wiring the underlying component by hand,
-# bypassing the scenario registry, since no scenario wires them yet).
+# delta observed for a mechanism that genuinely reads the axis. Captured
+# before Task 6 wired the four new axes into the scenario builders, by wiring
+# the underlying component by hand and bypassing the scenario registry --
+# still valid now that the scenarios themselves read these axes, since the
+# floors describe the mechanism's sensitivity, not the registry wiring.
 _MOVE_THRESHOLD = {
     "confounding_strength": 0.02,
     "treatment_intercept": 0.05,
@@ -230,12 +232,46 @@ def test_declared_axes_move_in_the_correct_direction(scenario_id, axis_name):
 
     base_value = measure(_generate(scenario_id, base_params))
     perturbed_value = measure(_generate(scenario_id, perturbed_params))
+    # `1 if perturbed_value > base_value else -1` maps "did not move at all"
+    # onto -1, which would let a dead axis pass here whenever the expected
+    # direction also happens to be -1 (e.g. scenario C's effect_scale) --
+    # `test_declared_axes_move_and_undeclared_axes_do_not` checks movement,
+    # but this test must not silently rely on it never regressing.
+    assert perturbed_value != base_value, (
+        f"scenario {scenario_id!r} axis {axis_name!r} did not move the measured "
+        f"property at all ({base_value!r}) -- this test cannot infer a direction "
+        "from no movement"
+    )
     expected = _expected_direction(scenario_id, axis_name)
     actual = 1 if perturbed_value > base_value else -1
 
     assert actual == expected, (
         f"scenario {scenario_id!r} axis {axis_name!r} moved the wrong way: "
         f"{base_value!r} -> {perturbed_value!r} (expected direction {expected:+d})"
+    )
+
+
+def test_heterogeneity_scale_increases_scenario_fs_cate_spread():
+    # heterogeneity_scale is excluded from _DIRECTIONAL_AXES above -- only F
+    # declares it, and the brief's Step 1 named only the other three -- but
+    # its direction is still checkable and still worth pinning: a reciprocal
+    # wiring (`increment / k` with base_tau compensated consistently) also
+    # keeps the mean CATE invariant and clears _MOVE_THRESHOLD (measured
+    # spread 0.035 -> 0.0117, |delta| = 0.023 > 0.01), so it would pass every
+    # other check in this module while scaling the spread the wrong way.
+    # Perturbing k upward (3.0, the same value used elsewhere in this module)
+    # must make the CATE spread larger, not smaller.
+    base_params = ScenarioParams()
+    perturbed_params = replace(
+        base_params, heterogeneity_scale=_PERTURBED_VALUE["heterogeneity_scale"]
+    )
+
+    base_spread = _cate_spread(_generate("F", base_params))
+    perturbed_spread = _cate_spread(_generate("F", perturbed_params))
+
+    assert perturbed_spread > base_spread, (
+        f"scenario 'F' heterogeneity_scale did not increase the CATE spread: "
+        f"{base_spread!r} -> {perturbed_spread!r}"
     )
 
 
