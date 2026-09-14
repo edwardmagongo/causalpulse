@@ -150,6 +150,16 @@ def _heterogeneous_declared_effect(
     generated sample, keeps this label deterministic by construction and
     independent of whatever sample a caller -- including a test checking this
     very label against measured ground truth -- generates and measures.
+
+    `heterogeneity_scale` does not appear in this formula, and that is by
+    construction rather than an omission: spec section 4.4 compensates
+    `base_tau` whenever `increment` is scaled by `heterogeneity_scale`
+    (`base_tau' = base_tau - (k - 1) * increment * P(x = 1)`), specifically so
+    the population mean is invariant to it --
+    `base_tau' + increment' * P(x = 1) == base_tau + increment * P(x = 1)`
+    for every `k`. `heterogeneity_scale` moves the spread of the effect, not
+    its level, which is exactly what makes it a distinct axis from
+    `effect_scale` rather than a second copy of it.
     """
 
     def declared_effect(params: ScenarioParams) -> float:
@@ -222,16 +232,32 @@ def _heterogeneous(
 
     x2 is the binary covariate from UnitGenerator, read here as a "new user"
     flag: new users gain 8pp, returning users 1pp.
+
+    `heterogeneity_scale` scales `increment` and compensates `base_tau` in the
+    same motion (spec section 4.4), so the population mean CATE this
+    generates is unaffected by it -- only the spread across x2 moves. Only
+    this scenario's effect has an `increment` to scale at all: every other
+    scenario uses `ConstantEffect`, whose CATE is the same for every unit
+    regardless of `heterogeneity_scale`, which is why this is the only
+    scenario that declares that axis. `effect_scale` then scales the
+    already-compensated `base_tau` and `increment` together, preserving shape,
+    exactly as `_heterogeneous_declared_effect` computes it.
     """
 
-    def build(_params: ScenarioParams) -> CrossSectionDGP:
+    def build(params: ScenarioParams) -> CrossSectionDGP:
+        k = params.heterogeneity_scale
+        scaled_increment = k * increment
+        compensated_base_tau = base_tau - (k - 1.0) * increment * BINARY_COVARIATE_PROBABILITY
+        scale = params.effect_scale
         return CrossSectionDGP(
             unit_generator=UnitGenerator(covariate_names=_COVARIATES),
-            baseline=_BASELINE,
+            baseline=_baseline_for(params),
             effect=HeterogeneousEffect(
-                base_tau=base_tau, covariate_index=1, increment=increment
+                base_tau=compensated_base_tau * scale,
+                covariate_index=1,
+                increment=scaled_increment * scale,
             ),
-            assignment=RandomAssignment(share=0.5),
+            assignment=RandomAssignment(share=_treatment_share(params.treatment_intercept)),
             scenario_id=scenario_id,
         )
 
@@ -315,10 +341,14 @@ SCENARIOS: dict[str, ScenarioSpec] = {
         "returning users (x2=0). The population average depends on the "
         "covariate mix, so it is measured rather than assumed.",
         build=_heterogeneous("F", _HETEROGENEOUS_BASE_TAU, _HETEROGENEOUS_INCREMENT),
-        # `_heterogeneous`'s build ignores `params` entirely -- base_tau and
-        # increment are literals closed over at registration time, not scaled
-        # by `heterogeneity_scale`.
-        axes=frozenset(),
+        # `_heterogeneous` reads all four wired axes. It is the only scenario
+        # with a real `increment` to scale, so it is the only one that can
+        # ever respond to `heterogeneity_scale` -- every other scenario's
+        # effect is `ConstantEffect`, whose CATE spread is structurally zero
+        # regardless of scale.
+        axes=frozenset(
+            {"effect_scale", "treatment_intercept", "noise_scale", "heterogeneity_scale"}
+        ),
     ),
     "G": ScenarioSpec(
         scenario_id="G",

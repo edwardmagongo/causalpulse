@@ -183,10 +183,10 @@ def test_declared_axes_move_and_undeclared_axes_do_not(scenario_id, axis_name):
 #
 # `effect_scale` is absent from B: its tau is exactly 0.0, and 0.0 times any
 # scale is still exactly 0.0, so the axis moves nothing for that scenario even
-# though the builder still reads it. F is not yet wired to any of the four new
-# axes -- that lands separately, since it is the only scenario with a real
-# `increment` for `heterogeneity_scale` to scale and needs the base_tau
-# compensation from spec section 4.4.
+# though the builder still reads it. `heterogeneity_scale` is present only for
+# F: every other scenario's effect is `ConstantEffect`, which has no
+# `increment` for that axis to scale, so its CATE spread is structurally zero
+# regardless -- see task-5-report.md finding 1 and task-6-report.md.
 _EXPECTED_AXES = {
     "A": frozenset({"effect_scale", "treatment_intercept", "noise_scale"}),
     "B": frozenset({"treatment_intercept", "noise_scale"}),
@@ -194,7 +194,9 @@ _EXPECTED_AXES = {
     "D": frozenset(
         {"confounding_strength", "treatment_intercept", "noise_scale", "effect_scale"}
     ),
-    "F": frozenset(),
+    "F": frozenset(
+        {"effect_scale", "treatment_intercept", "noise_scale", "heterogeneity_scale"}
+    ),
     "G": frozenset(
         {"confounding_strength", "treatment_intercept", "noise_scale", "effect_scale"}
     ),
