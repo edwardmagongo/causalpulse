@@ -30,7 +30,7 @@ from cp_simulation.components import (
     sigmoid,
 )
 from cp_simulation.dgp import CrossSectionDGP
-from cp_simulation.params import ScenarioParams
+from cp_simulation.params import AXIS_NAMES, ScenarioParams
 
 _COVARIATES = ("x1", "x2")
 _BASELINE = LogisticBaseline(intercept=-1.0, coefficients=(0.8, 0.5))
@@ -445,7 +445,7 @@ def build_scenario(
     )
 
 
-_SUPPORTED_REFERENCE_PARAMS = frozenset({"n_units", "confounding_strength"})
+_SUPPORTED_REFERENCE_PARAMS = frozenset({"n_units", *AXIS_NAMES})
 
 
 def resolve_scenario_reference(
@@ -458,13 +458,22 @@ def resolve_scenario_reference(
     `estimators-cannot-see-truth` contract forbids `cp_core` from importing
     this package.
 
-    Supports only what every `build_scenario(...).generate(...)` call in this
-    project's own test suite varies: `n_units` (required) and
-    `confounding_strength` (optional). A reference built from a scenario with a
+    Supports `n_units` (required) plus every name in `ScenarioParams.AXIS_NAMES`
+    (each optional). A reference built from a scenario with a
     `negative_control`, `misclassification`, `missingness`, or `outcome_proxy`
-    override cannot be reconstructed from those two params alone, and is
-    refused rather than silently regenerating a different dataset -- see
+    override cannot be reconstructed from those params alone, and is refused
+    rather than silently regenerating a different dataset -- see
     `ScenarioReference`'s own docstring.
+
+    An axis absent from `reference.params` falls back to `ScenarioParams`'
+    own default for it -- this is what lets a manifest written before Phase
+    18 (recording only `n_units` and, optionally, `confounding_strength`)
+    keep replaying unchanged: every new axis it never mentions is missing,
+    not present-and-zero, and must resolve to whatever `ScenarioParams`
+    already used for it. That makes each default in `ScenarioParams` a
+    compatibility surface, not a convenience: changing one changes what
+    every manifest already on disk that omits that axis replays as, silently
+    and without the manifest itself changing at all.
 
     The schema comparison guards against the scenario registry changing under a
     stored manifest, and is weaker than it may look: several scenarios share a
@@ -485,11 +494,15 @@ def resolve_scenario_reference(
             "ScenarioReference.params must include 'n_units' to regenerate a dataset"
         )
     n_units = int(reference.params["n_units"])  # type: ignore[call-overload]
-    confounding_strength = float(
-        reference.params.get("confounding_strength", 1.0)  # type: ignore[arg-type]
+    scenario_params = ScenarioParams(
+        **{
+            axis: float(reference.params[axis])  # type: ignore[arg-type]
+            for axis in AXIS_NAMES
+            if axis in reference.params
+        }
     )
 
-    dgp = build_scenario(reference.scenario, confounding_strength)
+    dgp = build_scenario(reference.scenario, scenario_params)
     generated = dgp.generate(n_units=n_units, rng=np.random.default_rng(reference.seed))
     dataset = generated.dataset
     if dataset.schema != schema:

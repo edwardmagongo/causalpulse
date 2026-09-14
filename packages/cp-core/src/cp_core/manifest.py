@@ -52,14 +52,16 @@ MANIFEST_SCHEMA_VERSION = 1
 class ScenarioReference:
     """Names a simulated dataset by how to regenerate it, not by its content.
 
-    `params` supports exactly `"n_units"` (required) and
-    `"confounding_strength"` (optional, defaulting to `build_scenario`'s own
-    default of 1.0) -- the two arguments every `build_scenario(...).generate(...)`
-    call in this project's test suite varies. A scenario built with a
-    `negative_control`, `misclassification`, `missingness`, or `outcome_proxy`
-    override cannot be reconstructed from a `ScenarioReference` alone;
-    `resolve_scenario_reference` refuses rather than silently reconstructing a
-    different dataset.
+    `params` supports `"n_units"` (required) plus every axis name in
+    `cp_simulation.params.ScenarioParams` (each optional, defaulting to that
+    axis's own default there). A manifest written from Phase 18 onward
+    records every axis explicitly; one written before it named only
+    `"n_units"` and, optionally, `"confounding_strength"` -- and still
+    replays, with the axes it never mentions filled from `ScenarioParams`'
+    defaults at resolve time. A scenario built with a `negative_control`,
+    `misclassification`, `missingness`, or `outcome_proxy` override cannot be
+    reconstructed from a `ScenarioReference` alone; `resolve_scenario_reference`
+    refuses rather than silently reconstructing a different dataset.
     """
 
     scenario: str

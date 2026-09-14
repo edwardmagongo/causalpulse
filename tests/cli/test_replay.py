@@ -88,10 +88,11 @@ def test_a_mismatch_exits_non_zero(tmp_path, monkeypatch, capsys):
 
 
 def test_a_panel_scenario_reference_is_refused_by_the_resolver(tmp_path):
-    # resolve_scenario_reference supports n_units and confounding_strength
-    # only, and refuses every other key by name rather than silently
-    # regenerating different data. A panel reference carries n_periods, so it
-    # cannot round-trip. Pinned here so the limit is visible.
+    # resolve_scenario_reference supports n_units plus every ScenarioParams
+    # axis, and refuses every other key by name rather than silently
+    # regenerating different data. A panel reference carries n_periods, which
+    # is none of those, so it cannot round-trip. Pinned here so the limit is
+    # visible.
     import numpy as np
     from cp_core.manifest import ScenarioReference
     from cp_simulation.panel_scenarios import build_panel_scenario

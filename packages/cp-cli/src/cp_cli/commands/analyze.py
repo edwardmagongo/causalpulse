@@ -6,17 +6,18 @@ Two dataset sources with different provenance. A `--scenario` is named by a
 if it changed. Neither embeds the frame.
 
 Only cross-sectional scenarios are accepted here. `resolve_scenario_reference`
-(the function Task 6's `replay` will call to regenerate a scenario dataset)
-supports only `n_units` and `confounding_strength`, and refuses every other
-`params` key by name -- a panel scenario needs `n_periods`, which that
-resolver has no way to carry. Writing a manifest `replay` cannot honour would
-defeat the point of a manifest, so panel scenario ids are refused here rather
-than accepted and left to fail later.
+(the function `replay` calls to regenerate a scenario dataset) supports
+`n_units` plus every `ScenarioParams` axis, and refuses every other `params`
+key by name -- a panel scenario needs `n_periods`, which that resolver has no
+way to carry. Writing a manifest `replay` cannot honour would defeat the point
+of a manifest, so panel scenario ids are refused here rather than accepted and
+left to fail later.
 """
 
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict
 from pathlib import Path
 
 import numpy as np
@@ -73,16 +74,19 @@ def _load(args: argparse.Namespace) -> tuple[CausalDataset, DatasetReference]:
             raise ValueError("--scenario requires --n-units")
         # Routed through `ScenarioParams`, not the bare-float facade -- see
         # `cp_evaluation.resolve.resolve_cell` for why.
-        dataset = build_scenario(
-            scenario, ScenarioParams(confounding_strength=args.confounding_strength)
-        ).generate(n_units=args.n_units, rng=np.random.default_rng(args.seed)).dataset
+        scenario_params = ScenarioParams(confounding_strength=args.confounding_strength)
+        dataset = build_scenario(scenario, scenario_params).generate(
+            n_units=args.n_units, rng=np.random.default_rng(args.seed)
+        ).dataset
+        # Every axis field is recorded explicitly, via `asdict`, rather than
+        # only the ones this command exposes a flag for -- so a manifest
+        # written here does not lean on `resolve_scenario_reference` filling
+        # anything in from `ScenarioParams`' defaults at replay time, and
+        # keeps replaying the same way even if those defaults ever change.
         reference: DatasetReference = ScenarioReference(
             scenario=scenario,
             seed=args.seed,
-            params={
-                "n_units": args.n_units,
-                "confounding_strength": args.confounding_strength,
-            },
+            params={"n_units": args.n_units, **asdict(scenario_params)},
         )
         return dataset, reference
 

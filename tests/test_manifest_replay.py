@@ -9,6 +9,8 @@ composition has nowhere else to be proved. `tests/test_determinism.py` is the
 existing precedent for a whole-system test living directly under `tests/`.
 """
 
+from dataclasses import asdict
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -21,6 +23,7 @@ from cp_core.manifest import (
     resolve_fixture_reference,
 )
 from cp_core.values import EstimatorConfig
+from cp_simulation.params import ScenarioParams
 from cp_simulation.scenarios import build_scenario, resolve_scenario_reference
 
 RESOLVE = dataset_resolver(resolve_scenario_reference)
@@ -133,3 +136,51 @@ def test_replay_refuses_when_a_fixture_changed_since_the_manifest_was_built(tmp_
 
     with pytest.raises(ValueError, match="does not match its recorded content"):
         replay(manifest, RESOLVE)
+
+
+def test_a_manifest_recording_every_axis_replays_exactly():
+    # Scenario F is the only one wired to all four axes Phase 18 adds:
+    # `treatment_intercept`, `noise_scale`, `effect_scale` and
+    # `heterogeneity_scale` (see `_heterogeneous`'s docstring in
+    # scenarios.py). Every value below is off its `ScenarioParams` default,
+    # so a resolver that silently dropped any one of them back to its
+    # default -- instead of threading it through from `reference.params` --
+    # would regenerate a different frame and this test would catch it.
+    params = ScenarioParams(
+        confounding_strength=1.6,
+        treatment_intercept=0.35,
+        noise_scale=0.8,
+        effect_scale=1.4,
+        heterogeneity_scale=2.2,
+    )
+    direct = build_scenario("F", params).generate(n_units=400, rng=np.random.default_rng(7)).dataset
+    reference = ScenarioReference(scenario="F", seed=7, params={"n_units": 400, **asdict(params)})
+
+    resolved = resolve_scenario_reference(reference, direct.schema)
+
+    pd.testing.assert_frame_equal(resolved.frame, direct.frame)
+    # And the axes actually did something -- otherwise a resolver that
+    # ignored every one of them (always building at defaults) would also
+    # pass the frame-equality check above by pure coincidence.
+    at_defaults = build_scenario("F").generate(n_units=400, rng=np.random.default_rng(7)).dataset
+    assert not direct.frame.equals(at_defaults.frame)
+
+
+def test_a_manifest_from_before_this_phase_still_replays():
+    # Phase 15 shipped replay; a manifest already on disk must keep working.
+    # Built from a literal ScenarioReference, not by round-tripping today's
+    # writer: this reference carries only the two keys a pre-Phase-18
+    # manifest could ever have recorded (`n_units`, `confounding_strength`),
+    # with every new axis key entirely absent -- not present-and-default,
+    # absent -- which is the actual shape a manifest written before this
+    # phase has. A resolver that requires every axis key to be present
+    # (instead of filling the missing ones from `ScenarioParams`' defaults)
+    # would raise KeyError here.
+    reference = ScenarioReference(
+        scenario="D", params={"n_units": 500, "confounding_strength": 1.0}, seed=0
+    )
+    direct = build_scenario("D", 1.0).generate(n_units=500, rng=np.random.default_rng(0)).dataset
+
+    resolved = resolve_scenario_reference(reference, direct.schema)
+
+    pd.testing.assert_frame_equal(resolved.frame, direct.frame)
