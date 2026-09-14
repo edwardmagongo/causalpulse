@@ -294,20 +294,25 @@ SCENARIOS: dict[str, ScenarioSpec] = {
 
 def build_scenario(
     scenario_id: str,
-    confounding_strength: float = 1.0,
+    confounding_strength: float | ScenarioParams = 1.0,
     *,
     negative_control: NegativeControlOutcome | None = None,
     misclassification: NonDifferentialMisclassification | None = None,
     missingness: MissingnessMechanism | None = None,
     outcome_proxy: OutcomeProxy | None = None,
 ) -> CrossSectionDGP:
-    """Instantiate a scenario's DGP at a given confounding strength.
+    """Instantiate a scenario's DGP, at a confounding strength or a full grid point.
 
-    Kept as a positional/keyword `float` rather than accepting `ScenarioParams`
-    directly, because `cp_evaluation.resolve.resolve_cell` and `cp_cli`'s
-    `simulate`/`analyze` commands call it this way today, and this task widens
-    only `cp_simulation`. Internally this builds a `ScenarioParams` from the
-    float and hands it to the registry's now-widened `build`.
+    The second positional/keyword argument accepts either a bare
+    `confounding_strength: float` -- the pre-Phase-18 call shape used all over
+    this project's existing suite, `cp_evaluation.resolve.resolve_cell` and
+    `cp_cli`'s `simulate`/`analyze` commands -- or a complete `ScenarioParams`,
+    which is what lets the four axes Phase 18 adds
+    (`treatment_intercept`, `noise_scale`, `effect_scale`,
+    `heterogeneity_scale`) reach a scenario through this, the one public entry
+    point every caller goes through. A bare float is equivalent to
+    `ScenarioParams(confounding_strength=that_float)`: this is exactly what
+    `test_build_scenario_float_facade_matches_the_widened_params_path` pins.
 
     The three optional components are attached after the scenario's own
     builder has run, rather than threaded through it, so all six builders stay
@@ -318,7 +323,11 @@ def build_scenario(
         raise KeyError(
             f"unknown scenario {scenario_id!r}; available: {sorted(SCENARIOS)}"
         )
-    params = ScenarioParams(confounding_strength=confounding_strength)
+    params = (
+        confounding_strength
+        if isinstance(confounding_strength, ScenarioParams)
+        else ScenarioParams(confounding_strength=confounding_strength)
+    )
     dgp = SCENARIOS[scenario_id].build(params)
     if (
         negative_control is None
