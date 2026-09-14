@@ -1,10 +1,7 @@
-from dataclasses import replace
-
 import numpy as np
 import pandas as pd
 import pytest
 from cp_core.manifest import ScenarioReference
-from cp_simulation.components import ConstantEffect, HeterogeneousEffect
 from cp_simulation.params import ScenarioParams
 from cp_simulation.scenarios import (
     SCENARIOS,
@@ -34,32 +31,17 @@ def test_all_scenarios_are_registered():
 
 
 def _scaled_ground_truth(scenario_id: str, effect_scale: float) -> float:
-    """Measured true_ate for `scenario_id` with its effect scaled by hand.
+    """Measured true_ate for `scenario_id` with `effect_scale` wired through the builder.
 
-    `build_scenario` does not yet read `effect_scale` -- Task 6 wires that in
-    -- so this reconstructs, independently of `declared_effect`, the DGP that
-    wiring will produce: it reads the unscaled tau (or base_tau/increment)
-    values off the scenario's own `build` and multiplies them by
-    `effect_scale` itself, rather than calling anything `declared_effect`
-    computes. That keeps this measurement and the label under test on
-    separate code paths, so the assertion below binds today rather than only
-    once Task 6 lands.
+    Goes through the scenario's own `build(ScenarioParams(effect_scale=...))`
+    -- the real wiring under test -- rather than a hand-scaled reconstruction
+    of it. A hand-scaled `ConstantEffect`/`HeterogeneousEffect` built here
+    would measure this function's own arithmetic, not the builder's; passing
+    `effect_scale` into `build` is what makes the assertion below bind the
+    builder itself.
     """
-    dgp = SCENARIOS[scenario_id].build(ScenarioParams())
-    effect = dgp.effect
-    if isinstance(effect, ConstantEffect):
-        scaled_effect = ConstantEffect(tau=effect.tau * effect_scale)
-    elif isinstance(effect, HeterogeneousEffect):
-        scaled_effect = replace(
-            effect,
-            base_tau=effect.base_tau * effect_scale,
-            increment=effect.increment * effect_scale,
-        )
-    else:
-        raise TypeError(f"unhandled effect type {type(effect)!r} for scenario {scenario_id!r}")
-
-    scaled_dgp = replace(dgp, effect=scaled_effect)
-    simulated = scaled_dgp.generate(n_units=40000, rng=np.random.default_rng(0))
+    dgp = SCENARIOS[scenario_id].build(ScenarioParams(effect_scale=effect_scale))
+    simulated = dgp.generate(n_units=40000, rng=np.random.default_rng(0))
     return float(simulated.truth.true_ate)
 
 
@@ -111,7 +93,7 @@ _HETEROGENEITY_SCALES = (0.0, 1.0, 3.0)
 
 @pytest.mark.parametrize("heterogeneity_scale", _HETEROGENEITY_SCALES)
 def test_scenario_f_declared_effect_matches_measured_across_heterogeneity_scale(
-    heterogeneity_scale: float,
+    heterogeneity_scale,
 ):
     # Hazard 3 (spec section 4.4): scaling `increment` by `heterogeneity_scale`
     # without compensating `base_tau` moves the population mean CATE, silently
@@ -132,7 +114,7 @@ def test_scenario_f_declared_effect_matches_measured_across_heterogeneity_scale(
     params = ScenarioParams(heterogeneity_scale=heterogeneity_scale)
     declared = SCENARIOS["F"].declared_effect(params)
 
-    simulated = SCENARIOS["F"].build(params).generate(
+    simulated = build_scenario("F", params).generate(
         n_units=40000, rng=np.random.default_rng(3)
     )
 
