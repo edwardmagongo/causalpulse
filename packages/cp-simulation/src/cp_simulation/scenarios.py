@@ -27,12 +27,50 @@ from cp_simulation.components import (
     PropensityAssignment,
     RandomAssignment,
     UnitGenerator,
+    sigmoid,
 )
 from cp_simulation.dgp import CrossSectionDGP
 from cp_simulation.params import ScenarioParams
 
 _COVARIATES = ("x1", "x2")
 _BASELINE = LogisticBaseline(intercept=-1.0, coefficients=(0.8, 0.5))
+
+
+def _baseline_for(params: ScenarioParams) -> LogisticBaseline:
+    """The shared baseline, with this cell's noise added.
+
+    `_BASELINE` is a single module-level instance reused by every scenario's
+    registration; it cannot itself carry a per-cell `noise_scale` without
+    every other scenario seeing the same value. `replace` builds a fresh
+    instance at build time instead, leaving `_BASELINE`'s own `noise_scale`
+    (its dataclass default, 0.0) untouched as the shared template. At the
+    default `noise_scale = 0.0` this reproduces `_BASELINE` exactly -- an
+    equal dataclass, not merely an equivalent one -- so it does not disturb
+    `config_hash` or the pre-Phase-18 digest guard.
+    """
+    return replace(_BASELINE, noise_scale=params.noise_scale)
+
+
+def _treatment_share(intercept: float) -> float:
+    """Map a logit-scale intercept onto a Bernoulli share.
+
+    `treatment_intercept` is a logit shift by construction -- it is exactly
+    what `PropensityAssignment.intercept` already means -- so a confounded
+    scenario reads it unconverted. A randomised or baseline-selection
+    scenario instead exposes a `share` in [0, 1], so the same intercept has
+    to pass through a link function to mean the same thing there: sigmoid is
+    the natural choice, since it is the inverse of the logit `share` itself
+    is defined on (`BaselineSelectionAssignment` solves for its own intercept
+    via `logit(share)`). At the axis's default of 0.0 this returns exactly
+    0.5, reproducing every scenario's pre-Phase-18 default share unchanged.
+    Checked across the axis's perturbed value and a wider spread --
+    sigmoid(-2)=0.12, sigmoid(-1)=0.27, sigmoid(0)=0.50, sigmoid(1)=0.73,
+    sigmoid(2)=0.88, sigmoid(3)=0.95 -- every value lands well inside (0, 1)
+    and moves monotonically, so the mapping stays sane across the intercept
+    range the grid is expected to explore.
+    """
+    return float(sigmoid(np.asarray(intercept)))
+
 
 # Homogeneous effect sizes, named once so a scenario's `build` and its
 # `declared_effect` label read the same value rather than two copies of the
@@ -122,12 +160,12 @@ def _heterogeneous_declared_effect(
 
 
 def _randomised(scenario_id: str, tau: float) -> Callable[[ScenarioParams], CrossSectionDGP]:
-    def build(_params: ScenarioParams) -> CrossSectionDGP:
+    def build(params: ScenarioParams) -> CrossSectionDGP:
         return CrossSectionDGP(
             unit_generator=UnitGenerator(covariate_names=_COVARIATES),
-            baseline=_BASELINE,
-            effect=ConstantEffect(tau=tau),
-            assignment=RandomAssignment(share=0.5),
+            baseline=_baseline_for(params),
+            effect=ConstantEffect(tau=tau * params.effect_scale),
+            assignment=RandomAssignment(share=_treatment_share(params.treatment_intercept)),
             scenario_id=scenario_id,
         )
 
@@ -138,10 +176,16 @@ def _confounded(scenario_id: str, tau: float) -> Callable[[ScenarioParams], Cros
     def build(params: ScenarioParams) -> CrossSectionDGP:
         return CrossSectionDGP(
             unit_generator=UnitGenerator(covariate_names=_COVARIATES),
-            baseline=_BASELINE,
-            effect=ConstantEffect(tau=tau),
+            baseline=_baseline_for(params),
+            effect=ConstantEffect(tau=tau * params.effect_scale),
             assignment=PropensityAssignment(
-                coefficients=(0.9, 0.7), strength=params.confounding_strength
+                coefficients=(0.9, 0.7),
+                strength=params.confounding_strength,
+                # Unconverted: `PropensityAssignment.intercept` is already a
+                # logit shift, which is exactly what `treatment_intercept`
+                # means -- no link function needed here, unlike the `share`
+                # mechanisms below.
+                intercept=params.treatment_intercept,
             ),
             scenario_id=scenario_id,
         )
@@ -198,10 +242,11 @@ def _selected(scenario_id: str, tau: float) -> Callable[[ScenarioParams], CrossS
     def build(params: ScenarioParams) -> CrossSectionDGP:
         return CrossSectionDGP(
             unit_generator=UnitGenerator(covariate_names=_COVARIATES),
-            baseline=_BASELINE,
-            effect=ConstantEffect(tau=tau),
+            baseline=_baseline_for(params),
+            effect=ConstantEffect(tau=tau * params.effect_scale),
             assignment=BaselineSelectionAssignment(
-                strength=8.0 * params.confounding_strength
+                strength=8.0 * params.confounding_strength,
+                share=_treatment_share(params.treatment_intercept),
             ),
             scenario_id=scenario_id,
         )
@@ -216,10 +261,12 @@ SCENARIOS: dict[str, ScenarioSpec] = {
         declared_effect=_homogeneous_declared_effect(_TAU_A),
         description="Random assignment, homogeneous +5pp effect.",
         build=_randomised("A", _TAU_A),
-        # `_randomised`'s build ignores `params` entirely -- RandomAssignment
-        # and ConstantEffect are both built from literals closed over at
-        # registration time.
-        axes=frozenset(),
+        # `_randomised` reads `effect_scale`, `treatment_intercept` and
+        # `noise_scale`. `confounding_strength` is meaningless under
+        # RandomAssignment, and there is no `increment` here for
+        # `heterogeneity_scale` to scale (ConstantEffect's CATE is the same
+        # for every unit, so its spread is exactly 0 regardless).
+        axes=frozenset({"effect_scale", "treatment_intercept", "noise_scale"}),
     ),
     "B": ScenarioSpec(
         scenario_id="B",
@@ -228,7 +275,12 @@ SCENARIOS: dict[str, ScenarioSpec] = {
         description="Random assignment, exactly zero effect. Any systematic "
         "positive finding here is a false positive.",
         build=_randomised("B", _TAU_B),
-        axes=frozenset(),
+        # Same wiring as A, but `_TAU_B == 0.0`: `effect_scale` still
+        # multiplies it, but zero times any scale is still exactly zero, so
+        # the axis moves nothing and is not declared. `treatment_intercept`
+        # and `noise_scale` are independent of tau and still move their
+        # properties.
+        axes=frozenset({"treatment_intercept", "noise_scale"}),
     ),
     "C": ScenarioSpec(
         scenario_id="C",
@@ -236,7 +288,7 @@ SCENARIOS: dict[str, ScenarioSpec] = {
         declared_effect=_homogeneous_declared_effect(_TAU_C),
         description="Random assignment, homogeneous -3pp effect.",
         build=_randomised("C", _TAU_C),
-        axes=frozenset(),
+        axes=frozenset({"effect_scale", "treatment_intercept", "noise_scale"}),
     ),
     "D": ScenarioSpec(
         scenario_id="D",
@@ -245,9 +297,13 @@ SCENARIOS: dict[str, ScenarioSpec] = {
         description="Covariates drive both assignment and outcome, so naive "
         "comparisons are biased upward.",
         build=_confounded("D", _TAU_D),
-        # `_confounded` reads `params.confounding_strength` to set
-        # PropensityAssignment.strength; nothing else in `params` is read.
-        axes=frozenset({"confounding_strength"}),
+        # `_confounded` reads `confounding_strength` (PropensityAssignment's
+        # strength), `treatment_intercept` (its intercept, unconverted),
+        # `effect_scale` and `noise_scale`. No `increment` exists here for
+        # `heterogeneity_scale` to scale.
+        axes=frozenset(
+            {"confounding_strength", "treatment_intercept", "noise_scale", "effect_scale"}
+        ),
     ),
     "F": ScenarioSpec(
         scenario_id="F",
@@ -271,10 +327,14 @@ SCENARIOS: dict[str, ScenarioSpec] = {
         description="Treatment is taken up by units with higher untreated "
         "outcome probability, so naive comparison overstates the effect.",
         build=_selected("G", _TAU_G),
-        # `_selected` reads `params.confounding_strength` to scale
-        # BaselineSelectionAssignment.strength; nothing else in `params` is
-        # read.
-        axes=frozenset({"confounding_strength"}),
+        # `_selected` reads `confounding_strength` (scaling
+        # BaselineSelectionAssignment.strength), `treatment_intercept` (via
+        # its `share`, since BaselineSelectionAssignment exposes a
+        # probability rather than a raw logit shift), `effect_scale` and
+        # `noise_scale`.
+        axes=frozenset(
+            {"confounding_strength", "treatment_intercept", "noise_scale", "effect_scale"}
+        ),
     ),
     "H": ScenarioSpec(
         scenario_id="H",
@@ -284,10 +344,12 @@ SCENARIOS: dict[str, ScenarioSpec] = {
         "depends on the outcome itself, so complete-case analysis is biased "
         "in a way adjusting for the covariates does not repair.",
         build=_missing_data("H", _TAU_H),
-        # `_missing_data` builds on `_confounded`, which reads
-        # `params.confounding_strength`; the missingness mechanism it adds is
-        # fixed (rate=0.25, strength=2.0), reading nothing from `params`.
-        axes=frozenset({"confounding_strength"}),
+        # `_missing_data` builds on `_confounded`, so it inherits every axis
+        # `_confounded` reads; the missingness mechanism it adds is fixed
+        # (rate=0.25, strength=2.0), reading nothing from `params`.
+        axes=frozenset(
+            {"confounding_strength", "treatment_intercept", "noise_scale", "effect_scale"}
+        ),
     ),
 }
 

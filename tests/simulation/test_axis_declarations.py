@@ -180,14 +180,27 @@ def test_declared_axes_move_and_undeclared_axes_do_not(scenario_id, axis_name):
 # separately from the measured-behaviour test above: that test would also
 # pass if every scenario declared nothing and every property happened to be
 # insensitive, so this pins the actual, reasoned-through set.
+#
+# `effect_scale` is absent from B: its tau is exactly 0.0, and 0.0 times any
+# scale is still exactly 0.0, so the axis moves nothing for that scenario even
+# though the builder still reads it. F is not yet wired to any of the four new
+# axes -- that lands separately, since it is the only scenario with a real
+# `increment` for `heterogeneity_scale` to scale and needs the base_tau
+# compensation from spec section 4.4.
 _EXPECTED_AXES = {
-    "A": frozenset(),
-    "B": frozenset(),
-    "C": frozenset(),
-    "D": frozenset({"confounding_strength"}),
+    "A": frozenset({"effect_scale", "treatment_intercept", "noise_scale"}),
+    "B": frozenset({"treatment_intercept", "noise_scale"}),
+    "C": frozenset({"effect_scale", "treatment_intercept", "noise_scale"}),
+    "D": frozenset(
+        {"confounding_strength", "treatment_intercept", "noise_scale", "effect_scale"}
+    ),
     "F": frozenset(),
-    "G": frozenset({"confounding_strength"}),
-    "H": frozenset({"confounding_strength"}),
+    "G": frozenset(
+        {"confounding_strength", "treatment_intercept", "noise_scale", "effect_scale"}
+    ),
+    "H": frozenset(
+        {"confounding_strength", "treatment_intercept", "noise_scale", "effect_scale"}
+    ),
 }
 
 
