@@ -130,6 +130,24 @@ def _homogeneous_declared_effect(tau: float) -> Callable[[ScenarioParams], float
     `effect_scale` is the only grid axis this label responds to today: the
     other axes this phase adds do not move a homogeneous scenario's mean
     effect.
+
+    **This label is a pre-clipping quantity, and outside a measured range it
+    is simply wrong.** `CrossSectionDGP.generate` forms the treated
+    probability as `np.clip(p0 + tau, 0.0, 1.0)`, so once `effect_scale` is
+    large enough to push `p0 + tau` past a bound, the realised effect is
+    smaller than `tau * effect_scale` and this formula keeps advertising the
+    unclipped value. Ground truth is unaffected -- it is measured from the
+    realised potential outcomes precisely so it cannot inherit this (see
+    `dgp.py`'s own comment at the clip), and `cp_evaluation` scores against
+    that measurement, never against this label. What breaks is the label
+    alone. Measured, n=20000, 8 seeds, against the 0.003 tolerance the label
+    contract uses: the gap first exceeds it at `effect_scale` ~4.3 (scenario
+    C, whose tau is negative and whose baseline sits nearer the floor), ~4.9
+    (F) and ~7.0 (A, D, G, H); scenario B never diverges because its tau is
+    0. `heterogeneity_scale` erodes the same way from ~6.5. Every value the
+    shipped grid uses is far inside this -- worst gap 0.00035 across all four
+    axes -- and `tests/simulation/test_degenerate_axes.py` pins both the
+    safety of the shipped values and the divergence beyond them.
     """
 
     def declared_effect(params: ScenarioParams) -> float:
@@ -160,6 +178,24 @@ def _heterogeneous_declared_effect(
     for every `k`. `heterogeneity_scale` moves the spread of the effect, not
     its level, which is exactly what makes it a distinct axis from
     `effect_scale` rather than a second copy of it.
+
+    **This label is a pre-clipping quantity, and outside a measured range it
+    is simply wrong.** `CrossSectionDGP.generate` forms the treated
+    probability as `np.clip(p0 + tau, 0.0, 1.0)`, so once `effect_scale` is
+    large enough to push `p0 + tau` past a bound, the realised effect is
+    smaller than `tau * effect_scale` and this formula keeps advertising the
+    unclipped value. Ground truth is unaffected -- it is measured from the
+    realised potential outcomes precisely so it cannot inherit this (see
+    `dgp.py`'s own comment at the clip), and `cp_evaluation` scores against
+    that measurement, never against this label. What breaks is the label
+    alone. Measured, n=20000, 8 seeds, against the 0.003 tolerance the label
+    contract uses: the gap first exceeds it at `effect_scale` ~4.3 (scenario
+    C, whose tau is negative and whose baseline sits nearer the floor), ~4.9
+    (F) and ~7.0 (A, D, G, H); scenario B never diverges because its tau is
+    0. `heterogeneity_scale` erodes the same way from ~6.5. Every value the
+    shipped grid uses is far inside this -- worst gap 0.00035 across all four
+    axes -- and `tests/simulation/test_degenerate_axes.py` pins both the
+    safety of the shipped values and the divergence beyond them.
     """
 
     def declared_effect(params: ScenarioParams) -> float:
