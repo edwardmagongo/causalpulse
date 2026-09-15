@@ -469,27 +469,71 @@ def full_config() -> GridConfig:
          24.8s/fit at n_units=150 -- more than tripling the panel arm's cost
          for one axis value, on top of already dropping P7 and moving to
          `n_periods=(7, 10)`.
-       - **Replications is 10, not the spec's 50.** At 10 replications this
-         tier measures roughly 772.5s (353.4s cross-sectional + 419.1s
-         panel) per replication in this tree, i.e. about 2.1 hours total --
-         inside the brief's roughly-three-hour ceiling. 50 replications at
-         the same per-replication cost would be roughly 10.7 hours; even 20
-         would be 4.3 hours. 10 was chosen as the largest round number that
-         clears the ceiling with headroom.
+       - **Replications is 10, not the spec's 50.** This was chosen as the
+         largest round number that kept the tier's runtime to a self-chosen
+         few hours, not because a ceiling is owed to it -- see the next
+         paragraph.
+
+    **Task 8/9: the four axes Phase 18 adds** (`treatment_intercept`,
+    `noise_scale`, `effect_scale`, `heterogeneity_scale`) are set here at
+    three measured points each -- a low, a baseline, and a high value -- per
+    the Phase 18 Task 8 measurements, with one revision
+    recorded in that file's Task 9 addendum: `noise_scale`'s high point is
+    **1.3**, not the 1.0 Task 8 adopted. 0.9 and 1.0 move residual outcome
+    variation by +0.011 and +0.012 respectively -- a gap roughly a tenth of
+    either one's gap from the 0.0 baseline -- so as a three-point axis they
+    resolved two levels, not three, and the axis could show only *whether* an
+    estimator degrades with noise rather than the shape of it. 1.3 moves it
+    by +0.018, spacing the three points about evenly, while saturating the
+    `[0.05, 0.85]` baseline clip at 8.2%/5.4% -- still well under the
+    15.7%/12.2% that had `noise_scale >= 2.0` rejected for reading as
+    "mostly pinned at a clip bound" rather than as noisier. Each axis is
+    varied
+    **one at a time** against the other three sitting at their
+    `ScenarioParams` default (see `grid._expand_cross_section`), and only for
+    the scenarios that declare it (`SCENARIOS[id].axes`), so this widens the
+    cross-sectional arm from 42 to **84 cells**: the original 42 (7
+    scenarios x n_units=(500, 2000) x confounding_strength=(0.5, 1.0, 2.0),
+    unaffected -- that cross-product is unchanged), plus 42 new cells, 2 per
+    axis per scenario that declares it (A: 6, B: 4, C: 6, D: 6, F: 8, G: 6,
+    H: 6; see task-8-measurements.md Step 3 for the full derivation and the
+    per-axis headroom/degenerate-value checks behind each chosen value).
+    `ci_config()` is untouched by this: its own four new-axis fields stay at
+    their single-valued `CrossSectionAxes` default, so it keeps producing
+    exactly the pre-Phase-18 grid its `TOLERANCE_BANDS` were measured
+    against.
+
+    There is no runtime ceiling this widening needs to clear: this tier
+    "runs on demand and has no two-minute budget" (that budget belongs to
+    `ci_config()`, and "a tier run on demand should not inherit it" -- see
+    this function's own return value and `CI_FIT_CONFIG` above). It is
+    reported for planning purposes only. 20 of the 42 new cells were
+    directly timed at `n_units=2000`/`FULL_ESTIMATORS`/`FULL_FIT_CONFIG`,
+    landing in an 11.68s-12.75s band regardless of which axis or value was
+    varied; the remaining 22 (scenarios A, C, G, H) are extrapolated at the
+    same 12.09s/cell average. Extra cross-sectional cost: ~507.8s/replication
+    (42 x 12.09s). Combined with the pre-existing arms (MEASURED 2026-09-06,
+    below): 353.4s (original 42 cross-sectional cells) + 507.8s (42 new
+    cells) + 419.1s (panel, unchanged) = ~1280.3s/replication, or ~3.56
+    hours at the 10 replications shipped here -- up from ~2.1 hours before
+    this widening.
 
     MEASURED 2026-09-06, this tree, `run_grid(config, estimators=list(
-    FULL_ESTIMATORS), fit_config=FULL_FIT_CONFIG)` at `replications=1`: the
-    cross-sectional arm (7 scenarios x n_units=(500, 2000) x
-    confounding_strength=(0.5, 1.0, 2.0) = 42 cells) took 353.4s and
-    produced 420 rows (180 fitted, 210 ineligible, 30 refused -- the
-    refusals are scenario H's missing outcomes, exactly as expected); the
-    panel arm (6 scenarios x n_units=(150,) x n_periods=(7, 10) = 12 cells)
-    took 419.1s and produced 120 rows (54 fitted, 66 ineligible, 0 refused
-    -- the ineligible rows are the five cross-sectional-only estimators
-    routed away from every panel cell, plus a handful of panel-estimator/
-    cell-shape mismatches). Combined: 772.5s/replication across 540 rows
-    (234 fitted, 276 ineligible, 30 refused), extrapolating to ~2.1 hours
-    at the 10 replications shipped here. Neither arm raised.
+    FULL_ESTIMATORS), fit_config=FULL_FIT_CONFIG)` at `replications=1`, for
+    the pre-Task-9 42-cell cross-sectional arm (7 scenarios x
+    n_units=(500, 2000) x confounding_strength=(0.5, 1.0, 2.0)): 353.4s,
+    420 rows (180 fitted, 210 ineligible, 30 refused -- the refusals are
+    scenario H's missing outcomes, exactly as expected); the panel arm (6
+    scenarios x n_units=(150,) x n_periods=(7, 10) = 12 cells) took 419.1s
+    and produced 120 rows (54 fitted, 66 ineligible, 0 refused -- the
+    ineligible rows are the five cross-sectional-only estimators routed
+    away from every panel cell, plus a handful of panel-estimator/
+    cell-shape mismatches). Neither arm raised. The 42 new cross-sectional
+    cells this widening adds were not re-run through this exact harness;
+    their cost is the Task 8 extrapolation described above, not a fresh
+    measurement of this exact `FULL_ESTIMATORS`/`FULL_FIT_CONFIG`
+    combination -- see task-8-measurements.md for what was and was not
+    directly timed.
 
     Scenario H (missing outcomes) is included, unlike in `ci_config()`: its
     rows are all refusals, which contributes no fitted rows to any band but
@@ -503,6 +547,10 @@ def full_config() -> GridConfig:
             scenarios=("A", "B", "C", "D", "F", "G", "H"),
             n_units=(500, 2000),
             confounding_strength=(0.5, 1.0, 2.0),
+            treatment_intercept=(-1.5, 0.0, 1.5),
+            noise_scale=(0.0, 0.9, 1.3),
+            effect_scale=(0.5, 1.0, 2.0),
+            heterogeneity_scale=(0.0, 1.0, 2.0),
         ),
         panel=PanelAxes(
             scenarios=("P1", "P2", "P3", "P4", "P5", "P6"),

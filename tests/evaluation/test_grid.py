@@ -14,6 +14,8 @@ from cp_evaluation.grid import (
     cell_rng,
     expand_cells,
 )
+from cp_simulation.params import ScenarioParams
+from cp_simulation.scenarios import SCENARIOS
 
 
 def test_cross_section_axes_expand_to_a_cross_product():
@@ -256,3 +258,202 @@ def test_the_two_shapes_cannot_collide_on_one_stream():
         cell_rng(x, root_entropy=1).normal(size=5),
         cell_rng(p, root_entropy=1).normal(size=5),
     )
+
+
+def test_a_default_valued_cell_hashes_the_same_stream_as_before_phase_18():
+    # Pinned 2026-09-15, on `causal-core-phase18` HEAD a2fe1b2, before any
+    # Task 9 edit landed: `cell_rng(CrossSectionCell(scenario="D",
+    # n_units=500, confounding_strength=1.0, seed=0), root_entropy=1)
+    # .normal(size=5)`. `ci_config()`'s cells never carry a non-default value
+    # for any of the four new axes (its own axes are single-valued, matching
+    # `ScenarioParams()`'s defaults), so its `TOLERANCE_BANDS` -- measured
+    # against the pre-Task-9 stream -- stay valid only if a cell whose new
+    # axes are all at their default hashes identically to how it did before
+    # those fields existed. A version that always folds every new axis into
+    # the hash payload, even at its default value, breaks this.
+    cell = CrossSectionCell(scenario="D", n_units=500, confounding_strength=1.0, seed=0)
+
+    draws = cell_rng(cell, root_entropy=1).normal(size=5)
+
+    expected = [
+        -1.8698984549736246,
+        -0.0009888440217891046,
+        0.3048303293574386,
+        -0.9543127874991957,
+        -1.5253624498096867,
+    ]
+    assert np.allclose(draws, expected)
+
+
+def test_a_scenario_is_not_crossed_against_an_axis_it_does_not_declare():
+    # Scenario B is a ConstantEffect scenario with tau == 0: `effect_scale`
+    # still multiplies it, but zero times any scale is zero, so B's builder
+    # never reads `heterogeneity_scale` at all (only scenario F has an
+    # `increment` for that axis to scale). Perturbing heterogeneity_scale in
+    # the axes must not generate a single cell for B at a non-default value
+    # -- without this, the grid would report the axis as varied for B when
+    # every cell it produced was identical (spec section 5.1's
+    # absent-versus-zero confusion).
+    assert "heterogeneity_scale" not in SCENARIOS["B"].axes
+
+    config = GridConfig(
+        cross_section=CrossSectionAxes(
+            scenarios=("B",),
+            n_units=(500,),
+            confounding_strength=(1.0,),
+            heterogeneity_scale=(0.0, 1.0, 2.0),
+        ),
+        panel=None,
+        replications=1,
+    )
+
+    cells = expand_cells(config)
+
+    default_heterogeneity_scale = ScenarioParams().heterogeneity_scale
+    assert all(c.heterogeneity_scale == default_heterogeneity_scale for c in cells)
+    # And the axis being declared-away must not shrink the grid to nothing:
+    # B's one baseline cell (n_units x confounding_strength, both
+    # single-valued here) still has to exist.
+    assert len(cells) == 1
+
+
+def test_the_new_axes_do_not_multiply_the_grid():
+    # Hand-computed against spec section 5's enumeration rule: n_units x
+    # confounding_strength stays a full cross-product (unaffected by the new
+    # axes), and each new axis crosses one non-baseline value at a time,
+    # only for the scenarios that declare it (SCENARIOS[id].axes).
+    #
+    # Scenario A declares {effect_scale, treatment_intercept, noise_scale}
+    # (not heterogeneity_scale -- ConstantEffect has no `increment`).
+    # Scenario B declares {treatment_intercept, noise_scale} only (its tau is
+    # 0, so effect_scale moves nothing and heterogeneity_scale doesn't exist
+    # for it either). Both declarations are asserted here so this count
+    # cannot silently drift from what the registry actually declares.
+    assert SCENARIOS["A"].axes == frozenset(
+        {"effect_scale", "treatment_intercept", "noise_scale"}
+    )
+    assert SCENARIOS["B"].axes == frozenset({"treatment_intercept", "noise_scale"})
+
+    config = GridConfig(
+        cross_section=CrossSectionAxes(
+            scenarios=("A", "B"),
+            n_units=(500, 2000),
+            confounding_strength=(1.0,),
+            treatment_intercept=(-1.5, 0.0, 1.5),
+            noise_scale=(0.0, 0.9, 1.0),
+            effect_scale=(0.5, 1.0, 2.0),
+            heterogeneity_scale=(0.0, 1.0, 2.0),
+        ),
+        panel=None,
+        replications=1,
+    )
+
+    cells = expand_cells(config)
+
+    # Baseline cross-product: 2 scenarios x 2 n_units x 1 confounding value,
+    # each new axis sitting at its ScenarioParams default -> 4 cells.
+    baseline = len(("A", "B")) * len((500, 2000)) * len((1.0,))
+    # A declares 3 of the 4 new axes, each contributing 2 non-baseline
+    # values (treatment_intercept: -1.5/1.5; noise_scale: 0.9/1.0 -- its
+    # baseline is 0.0; effect_scale: 0.5/2.0) -> 3 * 2 = 6 extra cells.
+    extra_a = 3 * 2
+    # B declares 2 of the 4 -> 2 * 2 = 4 extra cells.
+    extra_b = 2 * 2
+    expected = baseline + extra_a + extra_b
+
+    assert baseline == 4
+    assert expected == 14
+    assert len(cells) == expected
+
+
+def test_a_new_axis_cell_holds_every_other_new_axis_at_its_default():
+    # The "one at a time" half of the enumeration rule: a cell that varies
+    # one axis away from baseline must leave every other new axis, and
+    # n_units/confounding_strength, at a single fixed anchor point -- not
+    # crossed against the whole existing grid, which is what keeps the extra
+    # cell count linear in (scenarios x axes x values) rather than
+    # multiplied by every n_units/confounding_strength combination too.
+    config = GridConfig(
+        cross_section=CrossSectionAxes(
+            scenarios=("A",),
+            n_units=(500, 2000),
+            confounding_strength=(1.0, 2.0),
+            treatment_intercept=(-1.5, 0.0, 1.5),
+        ),
+        panel=None,
+        replications=1,
+    )
+
+    cells = expand_cells(config)
+    default = ScenarioParams()
+    perturbed = [c for c in cells if c.treatment_intercept != default.treatment_intercept]
+
+    assert perturbed
+    for cell in perturbed:
+        assert cell.noise_scale == default.noise_scale
+        assert cell.effect_scale == default.effect_scale
+        assert cell.heterogeneity_scale == default.heterogeneity_scale
+        assert cell.n_units == max(config.cross_section.n_units)
+        assert cell.confounding_strength == default.confounding_strength
+
+
+def test_a_widened_axis_needs_its_anchor_present_on_the_confounding_axis():
+    # The one-at-a-time cells are pinned to confounding_strength=1.0
+    # (ScenarioParams' default). If the config's own confounding axis does not
+    # contain 1.0, those cells land at a strength the grid was never asked for
+    # and have no baseline twin to be compared against -- the comparison the
+    # whole one-at-a-time design exists to support. Refuse it at configuration
+    # time rather than emitting cells nothing downstream can interpret.
+    config = GridConfig(
+        cross_section=CrossSectionAxes(
+            scenarios=("A",),
+            n_units=(500,),
+            confounding_strength=(0.5, 2.0),
+            treatment_intercept=(-1.5, 0.0, 1.5),
+        ),
+        panel=None,
+        replications=1,
+    )
+
+    with pytest.raises(ValueError, match="no.*baseline cell"):
+        expand_cells(config)
+
+
+def test_an_unwidened_grid_does_not_need_the_anchor_present():
+    # The check must not fire on a config that widens nothing: a pre-Phase-18
+    # grid is free to omit confounding_strength=1.0, and always was. Without
+    # this, the fix above would break every existing caller that happens not
+    # to include the default strength.
+    config = GridConfig(
+        cross_section=CrossSectionAxes(
+            scenarios=("A",), n_units=(500,), confounding_strength=(0.5, 2.0)
+        ),
+        panel=None,
+        replications=1,
+    )
+
+    cells = expand_cells(config)
+
+    assert {c.confounding_strength for c in cells} == {0.5, 2.0}
+
+
+def test_the_anchor_check_ignores_an_axis_no_scenario_declares():
+    # Scenario B does not declare heterogeneity_scale, so widening it produces
+    # no cells at all for B -- and therefore needs no anchor. A check that
+    # fired on the axis's *values* rather than on whether a cell would
+    # actually be produced would reject this config for a cell that never
+    # gets built.
+    assert "heterogeneity_scale" not in SCENARIOS["B"].axes
+
+    config = GridConfig(
+        cross_section=CrossSectionAxes(
+            scenarios=("B",),
+            n_units=(500,),
+            confounding_strength=(0.5, 2.0),
+            heterogeneity_scale=(0.0, 1.0, 2.0),
+        ),
+        panel=None,
+        replications=1,
+    )
+
+    assert len(expand_cells(config)) == 2

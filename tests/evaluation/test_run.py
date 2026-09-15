@@ -4,6 +4,9 @@ import pytest
 from cp_core.values import EstimatorConfig
 from cp_evaluation.grid import CrossSectionAxes, GridConfig, PanelAxes
 from cp_evaluation.run import ROW_COLUMNS, run_grid
+from cp_simulation.params import ScenarioParams
+
+_NEW_AXIS_COLUMNS = ("treatment_intercept", "noise_scale", "effect_scale", "heterogeneity_scale")
 
 
 def _tiny_cross_section(
@@ -186,3 +189,75 @@ def test_restricting_estimators_does_not_change_the_values_of_the_rows_that_rema
         restricted.drop(columns=["runtime_seconds"]),
         check_dtype=False,
     )
+
+
+def test_cross_section_rows_carry_the_new_axis_columns_at_their_cell_values():
+    frame = run_grid(_tiny_cross_section(replications=1))
+
+    for column in _NEW_AXIS_COLUMNS:
+        assert column in frame.columns
+    # This config never perturbs a new axis, so every row sits at
+    # ScenarioParams' own default for each of the four -- not NaN, and not
+    # some other placeholder.
+    default = ScenarioParams()
+    assert (frame["treatment_intercept"] == default.treatment_intercept).all()
+    assert (frame["noise_scale"] == default.noise_scale).all()
+    assert (frame["effect_scale"] == default.effect_scale).all()
+    assert (frame["heterogeneity_scale"] == default.heterogeneity_scale).all()
+
+
+def test_cross_section_rows_carry_the_realised_treated_share_not_the_intercept():
+    # Spec section 4.1: treatment_intercept sets a logit-scale intercept, but
+    # a reader of the results thinks in a treated fraction, not a logit
+    # shift. This must be a real, measured value in [0, 1] -- not the raw
+    # intercept relabelled.
+    frame = run_grid(_tiny_cross_section(replications=1))
+
+    assert "realised_treated_share" in frame.columns
+    assert frame["realised_treated_share"].between(0.0, 1.0).all()
+    # One cell (replications=1, one scenario/n_units/confounding value) ->
+    # every method's row must report the same measured share, since it is a
+    # property of the generated dataset, not of which estimator read it.
+    assert frame["realised_treated_share"].nunique() == 1
+    # And it must not equal the (unconverted) intercept itself -- that would
+    # be the intercept relabelled, not a measured share.
+    assert not np.isclose(
+        frame["realised_treated_share"].iloc[0], ScenarioParams().treatment_intercept
+    )
+
+
+def test_the_realised_treated_share_moves_with_treatment_intercept():
+    config = GridConfig(
+        cross_section=CrossSectionAxes(
+            scenarios=("A",),
+            n_units=(2000,),
+            confounding_strength=(1.0,),
+            treatment_intercept=(-1.5, 0.0, 1.5),
+        ),
+        panel=None,
+        replications=1,
+    )
+
+    frame = run_grid(config, estimators=["difference_in_means"])
+    by_intercept = frame.set_index("treatment_intercept")["realised_treated_share"]
+
+    assert by_intercept.loc[-1.5] < by_intercept.loc[0.0] < by_intercept.loc[1.5]
+
+
+def test_panel_rows_carry_nan_for_the_new_axis_columns_and_realised_share():
+    # run.py already writes confounding_strength=np.nan for panel cells,
+    # since the panel arm has no such axis. The four axes Phase 18 adds, and
+    # the realised treated share derived from them, are cross-sectional-only
+    # in exactly the same way and must follow the same convention rather
+    # than inventing a second one (e.g. a sentinel float, or 0.0).
+    config = GridConfig(
+        cross_section=None,
+        panel=PanelAxes(scenarios=("P1",), n_units=(150,), n_periods=(6,)),
+        replications=1,
+    )
+
+    frame = run_grid(config)
+
+    for column in (*_NEW_AXIS_COLUMNS, "realised_treated_share"):
+        assert column in frame.columns
+        assert frame[column].isna().all()

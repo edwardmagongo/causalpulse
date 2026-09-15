@@ -1,5 +1,5 @@
 import pytest
-from cp_evaluation.grid import expand_cells
+from cp_evaluation.grid import CrossSectionCell, expand_cells
 from cp_evaluation.tiers import (
     CI_ESTIMATORS,
     FULL_ESTIMATORS,
@@ -57,3 +57,22 @@ def test_every_named_estimator_is_registered(name):
     from cp_causal.registry import all_estimators
 
     assert name in all_estimators()
+
+
+def test_full_config_produces_task_8s_measured_84_cross_sectional_cells():
+    # The Phase 18 Task 8 measurements, Step 3: the original
+    # 42 cells (7 scenarios x n_units=(500, 2000) x
+    # confounding_strength=(0.5, 1.0, 2.0)) plus 42 new one-at-a-time cells,
+    # 2 per axis per scenario that declares it (A: 6, B: 4, C: 6, D: 6, F: 8,
+    # G: 6, H: 6). Counted at seed == 0 only: replications multiplies every
+    # distinct cell identically, so it would inflate this count without
+    # testing the enumeration itself.
+    config = full_config()
+
+    distinct_cells = {
+        cell
+        for cell in expand_cells(config)
+        if isinstance(cell, CrossSectionCell) and cell.seed == 0
+    }
+
+    assert len(distinct_cells) == 84

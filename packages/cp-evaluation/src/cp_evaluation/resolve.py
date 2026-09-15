@@ -46,13 +46,19 @@ def resolve_cell(cell: Cell, root_entropy: int) -> ResolvedCell:
 
     if isinstance(cell, CrossSectionCell):
         # Routed through `ScenarioParams` explicitly, not the bare-float
-        # facade: `CrossSectionCell` carries only `confounding_strength`
-        # today, so this is behaviourally identical to the float form, but it
-        # is the path a widened `CrossSectionCell` (Task 9) plugs its other
-        # axes into -- `build_scenario` is the one entry point every caller
-        # goes through, never `SCENARIOS[id].build` directly.
+        # facade: `CrossSectionCell` now carries all four axes Phase 18
+        # adds, alongside `confounding_strength`, and `build_scenario` is
+        # the one entry point every caller goes through, never
+        # `SCENARIOS[id].build` directly.
         dgp = build_scenario(
-            cell.scenario, ScenarioParams(confounding_strength=cell.confounding_strength)
+            cell.scenario,
+            ScenarioParams(
+                confounding_strength=cell.confounding_strength,
+                treatment_intercept=cell.treatment_intercept,
+                noise_scale=cell.noise_scale,
+                effect_scale=cell.effect_scale,
+                heterogeneity_scale=cell.heterogeneity_scale,
+            ),
         )
         simulated = dgp.generate(n_units=cell.n_units, rng=rng)
         return ResolvedCell(

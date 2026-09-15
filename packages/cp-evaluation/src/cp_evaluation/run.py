@@ -47,6 +47,11 @@ ROW_COLUMNS: tuple[str, ...] = (
     "scenario",
     "n_units",
     "confounding_strength",
+    "treatment_intercept",
+    "noise_scale",
+    "effect_scale",
+    "heterogeneity_scale",
+    "realised_treated_share",
     "n_periods",
     "seed",
     "method",
@@ -80,13 +85,34 @@ def _missing_a_required_column(dataset: CausalDataset) -> bool:
     return any(frame[column].isna().any() for column in dataset.schema.required_columns)
 
 
-def _cell_columns(cell: Cell) -> dict[str, object]:
+def _realised_treated_share(resolved: ResolvedCell) -> float:
+    """The measured treated fraction of this cell's own generated dataset.
+
+    Spec section 4.1: `treatment_intercept` sets a logit-scale intercept, but
+    an intercept is not a quantity a reader of the results thinks in. This is
+    measured from the realised data -- the same property
+    `tests/simulation/test_axis_declarations.py::_treated_share` checks the
+    axis against -- rather than read off `cell.treatment_intercept` or
+    recomputed via `_treatment_share`'s sigmoid, either of which would be the
+    *declared* mechanism relabelled, not a measured quantity.
+    """
+    frame = resolved.dataset.frame
+    schema = resolved.dataset.schema
+    return float(frame[schema.treatment].mean())
+
+
+def _cell_columns(cell: Cell, resolved: ResolvedCell) -> dict[str, object]:
     if isinstance(cell, CrossSectionCell):
         return {
             "shape": "cross_section",
             "scenario": cell.scenario,
             "n_units": cell.n_units,
             "confounding_strength": cell.confounding_strength,
+            "treatment_intercept": cell.treatment_intercept,
+            "noise_scale": cell.noise_scale,
+            "effect_scale": cell.effect_scale,
+            "heterogeneity_scale": cell.heterogeneity_scale,
+            "realised_treated_share": _realised_treated_share(resolved),
             "n_periods": np.nan,
             "seed": cell.seed,
         }
@@ -95,14 +121,26 @@ def _cell_columns(cell: Cell) -> dict[str, object]:
         "scenario": cell.scenario,
         "n_units": cell.n_units,
         "confounding_strength": np.nan,
+        # The four axes Phase 18 adds, and the treated share measured from
+        # them, are cross-sectional-only -- `ScenarioParams` reaches a
+        # scenario through `build_scenario`, which the panel arm never
+        # calls. Follows the same np.nan convention as
+        # `confounding_strength` above, rather than inventing a second one.
+        "treatment_intercept": np.nan,
+        "noise_scale": np.nan,
+        "effect_scale": np.nan,
+        "heterogeneity_scale": np.nan,
+        "realised_treated_share": np.nan,
         "n_periods": cell.n_periods,
         "seed": cell.seed,
     }
 
 
-def _blank_row(cell: Cell, method: str, status: str, reason: str) -> dict[str, object]:
+def _blank_row(
+    cell: Cell, resolved: ResolvedCell, method: str, status: str, reason: str
+) -> dict[str, object]:
     row: dict[str, object] = dict.fromkeys(ROW_COLUMNS, np.nan)
-    row.update(_cell_columns(cell))
+    row.update(_cell_columns(cell, resolved))
     row.update({"method": method, "status": status, "reason": reason})
     return row
 
@@ -111,7 +149,7 @@ def _fitted_row(
     cell: Cell, method: str, estimate: EffectEstimate, resolved: ResolvedCell
 ) -> dict[str, object]:
     bootstrap = estimate.bootstrap_ci
-    row = _blank_row(cell, method, "fitted", "")
+    row = _blank_row(cell, resolved, method, "fitted", "")
     row.update(
         {
             "estimand": estimate.estimand,
@@ -180,7 +218,9 @@ def run_grid(
             method = decision.estimator_name
             if not decision.eligible:
                 rows.append(
-                    _blank_row(cell, method, "ineligible", "; ".join(decision.reasons))
+                    _blank_row(
+                        cell, resolved, method, "ineligible", "; ".join(decision.reasons)
+                    )
                 )
                 continue
             try:
@@ -188,25 +228,31 @@ def run_grid(
             except _REFUSAL as exc:
                 if not _missing_a_required_column(resolved.dataset):
                     raise
-                rows.append(_blank_row(cell, method, "refused", str(exc)))
+                rows.append(_blank_row(cell, resolved, method, "refused", str(exc)))
                 continue
             rows.append(_fitted_row(cell, method, estimate, resolved))
 
     frame = pd.DataFrame(rows, columns=list(ROW_COLUMNS))
-    # `confounding_strength` sits right after `n_units`, matching where
-    # `grid.cell_sort_key` places it for cross-sectional cells. Without it,
-    # two cells that only differ in confounding_strength -- which
-    # `expand_cells` assigns the same `seed` range independently for each
-    # confounding value -- tie on every other column, and pandas' stable sort
-    # would then leave their relative order wherever evaluation happened to
-    # visit them: the output would depend on the order cells were evaluated
-    # in, exactly what `_shuffle` exists to disprove. Listing it here makes
-    # the key total over the rows a grid can produce.
+    # `confounding_strength` and the four axes Phase 18 adds sit right after
+    # `n_units`, matching where `grid.cell_sort_key` places them for
+    # cross-sectional cells. Without them, two cells that only differ in one
+    # of these -- which `expand_cells` assigns the same `seed` range
+    # independently for each value, including the one-at-a-time extra cells
+    # `_expand_cross_section` adds that share every other column and differ
+    # only in a single new axis -- tie on every other column, and pandas'
+    # stable sort would then leave their relative order wherever evaluation
+    # happened to visit them: the output would depend on the order cells
+    # were evaluated in, exactly what `_shuffle` exists to disprove. Listing
+    # them here makes the key total over the rows a grid can produce.
     sort_key = [
         "shape",
         "scenario",
         "n_units",
         "confounding_strength",
+        "treatment_intercept",
+        "noise_scale",
+        "effect_scale",
+        "heterogeneity_scale",
         "n_periods",
         "seed",
         "method",
