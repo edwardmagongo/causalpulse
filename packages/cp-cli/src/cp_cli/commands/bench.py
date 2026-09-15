@@ -12,9 +12,11 @@ silently disagree with the run it claims to describe.
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict
 from pathlib import Path
 
 from cp_core.results import git_commit, package_versions
+from cp_evaluation.grid import CrossSectionAxes, PanelAxes
 from cp_evaluation.metrics import summarise
 from cp_evaluation.run import run_grid
 from cp_evaluation.tiers import (
@@ -61,20 +63,19 @@ def run_tier(args: argparse.Namespace) -> int:
         "random_seed": fit_config.random_seed,
         "root_entropy": args.root_entropy,
         "replications": config.replications,
-        "cross_section": None
-        if config.cross_section is None
-        else {
-            "scenarios": list(config.cross_section.scenarios),
-            "n_units": list(config.cross_section.n_units),
-            "confounding_strength": list(config.cross_section.confounding_strength),
-        },
-        "panel": None
-        if config.panel is None
-        else {
-            "scenarios": list(config.panel.scenarios),
-            "n_units": list(config.panel.n_units),
-            "n_periods": list(config.panel.n_periods),
-        },
+        # Both axis blocks are read off the dataclass rather than transcribed
+        # field by field. The sidecar is the run's provenance record -- `bench
+        # report` hands it straight back to a reader as the description of the
+        # grid that produced these rows -- so an axis the dataclass has and
+        # this block does not is a run.json that actively misdescribes its own
+        # parquet. Phase 18 added four axes to `CrossSectionAxes`; a
+        # transcribed block would have kept reporting the pre-Phase-18 grid
+        # for every `--tier full` run, silently, since nothing downstream
+        # cross-checks the two. Deriving means a fifth axis cannot repeat it.
+        "cross_section": (
+            None if config.cross_section is None else _axis_block(config.cross_section)
+        ),
+        "panel": None if config.panel is None else _axis_block(config.panel),
         "package_versions": package_versions(),
         "git_commit": git_commit(),
     }
@@ -84,6 +85,12 @@ def run_tier(args: argparse.Namespace) -> int:
     fitted = int((frame["status"] == "fitted").sum())
     print(f"wrote {len(frame)} rows ({fitted} fitted) to {out}")
     return 0
+
+
+
+def _axis_block(axes: CrossSectionAxes | PanelAxes) -> dict[str, list[object]]:
+    """One axis dataclass, as JSON-ready lists, every field included."""
+    return {name: list(values) for name, values in asdict(axes).items()}
 
 
 def add_report_arguments(parser: argparse.ArgumentParser) -> None:

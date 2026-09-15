@@ -1,6 +1,8 @@
 import pytest
 from cp_cli.__main__ import main
 from cp_cli.io import read_benchmark
+from cp_evaluation.tiers import ci_config
+from cp_simulation.params import AXIS_NAMES
 
 
 @pytest.fixture(scope="module")
@@ -25,6 +27,23 @@ def test_bench_run_writes_parquet_and_a_sidecar(ci_run):
     assert sidecar["estimators"]
     assert sidecar["bootstrap_reps"] == 200
     assert "package_versions" in sidecar
+
+
+def test_the_sidecar_records_every_axis_the_grid_can_vary(ci_run):
+    # The sidecar is the run's provenance: `bench report` hands it back as the
+    # description of the grid that produced the parquet beside it. An axis the
+    # grid varies but the sidecar omits makes run.json misdescribe its own
+    # rows, and nothing downstream cross-checks the two -- so the failure is
+    # silent. Asserted against AXIS_NAMES rather than a written-out list, so a
+    # future axis is covered by this test on the day it is added.
+    _, sidecar = read_benchmark(ci_run)
+
+    block = sidecar["cross_section"]
+    for name in AXIS_NAMES:
+        assert name in block, f"{name} is a grid axis but the sidecar does not record it"
+    assert {"scenarios", "n_units"} <= set(block)
+    # The recorded values must be the tier's own, not a placeholder.
+    assert block["confounding_strength"] == list(ci_config().cross_section.confounding_strength)
 
 
 def test_bench_run_uses_the_gated_ci_config_itself():

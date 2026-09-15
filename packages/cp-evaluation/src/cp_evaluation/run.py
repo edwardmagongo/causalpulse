@@ -102,6 +102,7 @@ def _realised_treated_share(resolved: ResolvedCell) -> float:
 
 
 def _cell_columns(cell: Cell, resolved: ResolvedCell) -> dict[str, object]:
+    """This cell's identity columns. Computed once per cell, not once per row."""
     if isinstance(cell, CrossSectionCell):
         return {
             "shape": "cross_section",
@@ -137,19 +138,22 @@ def _cell_columns(cell: Cell, resolved: ResolvedCell) -> dict[str, object]:
 
 
 def _blank_row(
-    cell: Cell, resolved: ResolvedCell, method: str, status: str, reason: str
+    cell_columns: dict[str, object], method: str, status: str, reason: str
 ) -> dict[str, object]:
     row: dict[str, object] = dict.fromkeys(ROW_COLUMNS, np.nan)
-    row.update(_cell_columns(cell, resolved))
+    row.update(cell_columns)
     row.update({"method": method, "status": status, "reason": reason})
     return row
 
 
 def _fitted_row(
-    cell: Cell, method: str, estimate: EffectEstimate, resolved: ResolvedCell
+    cell_columns: dict[str, object],
+    method: str,
+    estimate: EffectEstimate,
+    resolved: ResolvedCell,
 ) -> dict[str, object]:
     bootstrap = estimate.bootstrap_ci
-    row = _blank_row(cell, resolved, method, "fitted", "")
+    row = _blank_row(cell_columns, method, "fitted", "")
     row.update(
         {
             "estimand": estimate.estimand,
@@ -214,12 +218,16 @@ def run_grid(
     rows: list[dict[str, object]] = []
     for cell in cells:
         resolved = resolve_cell(cell, root_entropy)
+        # Once per cell: these columns describe the cell and its generated
+        # data, not the estimator reading it, and `realised_treated_share`
+        # means a pass over the treatment column to produce.
+        cell_columns = _cell_columns(cell, resolved)
         for decision in route(resolved.dataset, candidates):
             method = decision.estimator_name
             if not decision.eligible:
                 rows.append(
                     _blank_row(
-                        cell, resolved, method, "ineligible", "; ".join(decision.reasons)
+                        cell_columns, method, "ineligible", "; ".join(decision.reasons)
                     )
                 )
                 continue
@@ -228,9 +236,9 @@ def run_grid(
             except _REFUSAL as exc:
                 if not _missing_a_required_column(resolved.dataset):
                     raise
-                rows.append(_blank_row(cell, resolved, method, "refused", str(exc)))
+                rows.append(_blank_row(cell_columns, method, "refused", str(exc)))
                 continue
-            rows.append(_fitted_row(cell, method, estimate, resolved))
+            rows.append(_fitted_row(cell_columns, method, estimate, resolved))
 
     frame = pd.DataFrame(rows, columns=list(ROW_COLUMNS))
     # `confounding_strength` and the four axes Phase 18 adds sit right after

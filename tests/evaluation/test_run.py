@@ -10,11 +10,18 @@ _NEW_AXIS_COLUMNS = ("treatment_intercept", "noise_scale", "effect_scale", "hete
 
 
 def _tiny_cross_section(
-    scenarios=("A",), n_units=(400,), confounding_strength=(1.0,), replications=2
+    scenarios=("A",),
+    n_units=(400,),
+    confounding_strength=(1.0,),
+    replications=2,
+    **axes,
 ) -> GridConfig:
     return GridConfig(
         cross_section=CrossSectionAxes(
-            scenarios=scenarios, n_units=n_units, confounding_strength=confounding_strength
+            scenarios=scenarios,
+            n_units=n_units,
+            confounding_strength=confounding_strength,
+            **axes,
         ),
         panel=None,
         replications=replications,
@@ -100,10 +107,21 @@ def test_results_do_not_depend_on_the_order_cells_are_evaluated_in():
     # column, which is exactly the case a total sort key must resolve.
     # Sweeping two scenarios keeps that tie exercised alongside more than one
     # scenario, as the previous version of this test already did.
+    # A widened treatment_intercept is swept for the same reason, and it is
+    # the sharper case: `expand_cells` pins every one-at-a-time cell to a
+    # single anchor, so (A, 400, strength=1.0, intercept=-1.5, seed=0) and
+    # (A, 400, strength=1.0, intercept=1.5, seed=0) agree on scenario,
+    # n_units, confounding_strength AND seed -- every component the sort key
+    # carried before Phase 18. Without the new axes in `run_grid`'s sort key
+    # those rows tie completely, and a stable sort leaves them in evaluation
+    # order, which is precisely what `_shuffle` perturbs. Sweeping only
+    # confounding_strength leaves that untested: the axes could be dropped
+    # from the key and nothing here would notice.
     config = _tiny_cross_section(
         scenarios=("A", "D"),
         n_units=(400,),
         confounding_strength=(1.0, 2.0),
+        treatment_intercept=(-1.5, 0.0, 1.5),
         replications=2,
     )
 

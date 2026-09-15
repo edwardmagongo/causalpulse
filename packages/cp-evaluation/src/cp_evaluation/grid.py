@@ -91,10 +91,14 @@ class CrossSectionAxes:
     `CrossSectionCell`'s docstring), and a caller that widens one of them
     gets that axis varied **one value at a time** against a fixed baseline,
     not crossed against `n_units`/`confounding_strength` or against each
-    other -- see `expand_cells`. A scenario is only varied against an axis it
-    declares (`SCENARIOS[id].axes`, checked by
-    `tests/simulation/test_axis_declarations.py`); one that does not is left
-    at that axis's default in every cell, never crossed against it.
+    other -- see `expand_cells`. **Of the four axes below**, a scenario is
+    only varied against one it declares (`SCENARIOS[id].axes`, checked by
+    `tests/simulation/test_axis_declarations.py`); one it does not declare is
+    left at that axis's default in every cell, never crossed against it.
+    `confounding_strength` is deliberately not subject to that rule: it stays
+    fully crossed for every scenario, declared or not (spec section 5 keeps
+    that cross-product "exactly as today"), so A, B, C and F are crossed
+    against all of its values despite declaring none of it.
     """
 
     scenarios: Sequence[str]

@@ -1,3 +1,4 @@
+import dataclasses
 import json
 import os
 import subprocess
@@ -14,7 +15,7 @@ from cp_evaluation.grid import (
     cell_rng,
     expand_cells,
 )
-from cp_simulation.params import ScenarioParams
+from cp_simulation.params import AXIS_NAMES, ScenarioParams
 from cp_simulation.scenarios import SCENARIOS
 
 
@@ -457,3 +458,77 @@ def test_the_anchor_check_ignores_an_axis_no_scenario_declares():
     )
 
     assert len(expand_cells(config)) == 2
+
+
+def test_the_new_axes_are_part_of_the_sort_key_so_ties_cannot_form():
+    # `expand_cells` returns `sorted(set(cells), key=cell_sort_key)`. The
+    # one-at-a-time cells all share one anchor, so they agree with each other
+    # and with their baseline twin on scenario, n_units, confounding_strength
+    # AND seed -- every component the sort key had before Phase 18. Drop the
+    # new axes from `cell_sort_key` and those cells tie completely; `sorted`
+    # is stable, so they then come out in `set` iteration order, which is
+    # salted per process. The grid's order is part of its identity (see
+    # `expand_cells`' own docstring), so that is a real regression and not a
+    # cosmetic one.
+    #
+    # Checked two ways: the exact expected order in-process, and agreement
+    # across processes under several explicit PYTHONHASHSEEDs -- the same
+    # guard, and the same idiom, as
+    # `test_cell_rng_reproduces_across_processes_with_a_non_default_hash_seed`
+    # above. The in-process half alone would pass under whichever hash seed
+    # happened to order the tied cells correctly.
+    axes_kwargs = "scenarios=('A',), n_units=(500, 1000), confounding_strength=(1.0,)"
+    config = GridConfig(
+        cross_section=CrossSectionAxes(
+            scenarios=("A",),
+            n_units=(500, 1000),
+            confounding_strength=(1.0,),
+            treatment_intercept=(-1.5, 0.0, 1.5),
+        ),
+        panel=None,
+        replications=1,
+    )
+
+    order = [(c.n_units, c.treatment_intercept) for c in expand_cells(config)]
+
+    # n_units leads; within the anchor's n_units, treatment_intercept orders
+    # the three cells that would otherwise be indistinguishable.
+    assert order == [(500, 0.0), (1000, -1.5), (1000, 0.0), (1000, 1.5)]
+
+    script = (
+        "import json\n"
+        "from cp_evaluation.grid import CrossSectionAxes, GridConfig, expand_cells\n"
+        f"config = GridConfig(cross_section=CrossSectionAxes({axes_kwargs},\n"
+        "    treatment_intercept=(-1.5, 0.0, 1.5)), panel=None, replications=1)\n"
+        "cells = expand_cells(config)\n"
+        "print(json.dumps([[c.n_units, c.treatment_intercept] for c in cells]))\n"
+    )
+    for hash_seed in ("1", "12345", "98765"):
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            env=dict(os.environ, PYTHONHASHSEED=hash_seed),
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert [tuple(pair) for pair in json.loads(result.stdout)] == order, (
+            f"cell order changed under PYTHONHASHSEED={hash_seed}; the sort key "
+            f"is not total over the cells this config produces"
+        )
+
+
+def test_every_axis_name_has_a_field_on_the_cell_and_the_axes():
+    # `grid` derives `_NEW_AXIS_NAMES` from `AXIS_NAMES` so the two cannot
+    # drift -- but deriving alone only moves the failure: a fifth axis added
+    # to `ScenarioParams` with no matching field here would surface as a bare
+    # `AttributeError` out of `getattr` in `cell_sort_key` or
+    # `_identity_payload`, at grid-expansion time, naming neither the axis nor
+    # the reason. Fail here instead, where the message says what to add.
+    # `metrics._GROUP_COLUMNS` derives from the same tuple for the same
+    # reason, which is what makes this worth pinning in one place.
+    cell_fields = {f.name for f in dataclasses.fields(CrossSectionCell)}
+    axes_fields = {f.name for f in dataclasses.fields(CrossSectionAxes)}
+
+    for name in AXIS_NAMES:
+        assert name in cell_fields, f"{name} is in AXIS_NAMES but CrossSectionCell has no field"
+        assert name in axes_fields, f"{name} is in AXIS_NAMES but CrossSectionAxes has no field"

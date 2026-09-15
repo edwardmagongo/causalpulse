@@ -487,9 +487,25 @@ def full_config() -> GridConfig:
     by +0.018, spacing the three points about evenly, while saturating the
     `[0.05, 0.85]` baseline clip at 8.2%/5.4% -- still well under the
     15.7%/12.2% that had `noise_scale >= 2.0` rejected for reading as
-    "mostly pinned at a clip bound" rather than as noisier. Each axis is
-    varied
-    **one at a time** against the other three sitting at their
+    "mostly pinned at a clip bound" rather than as noisier.
+
+    **A known caveat on `effect_scale`, disclosed rather than fixed.** Its
+    low point of 0.5 moves measured `true_ate` by 0.0150 for scenario C and
+    0.0193 for F -- 0.75x and 0.965x of the 0.02 floor
+    `tests/simulation/test_axis_declarations.py` uses, i.e. below it. That
+    floor exists to verify an axis is *wired*, and is measured against that
+    test's own deliberately large `_PERTURBED_VALUE` of 3.0, not against any
+    grid value; a 1.5pp effect on C is a legitimate thing for a benchmark to
+    probe, not a degenerate cell. Task 8 ruled it not a defect on exactly
+    that reasoning and 0.5 ships unchanged. It is recorded here because the
+    paragraph above explains why `noise_scale` was respaced for a
+    related-sounding reason, and a reader would otherwise conclude all four
+    axes cleared every bar. The two cases differ: `noise_scale`'s points
+    failed to resolve *from each other*, which is what the three-point grid
+    was chosen to deliver; `effect_scale`'s low point resolves from baseline
+    fine and merely sits under a floor calibrated for a different question.
+
+    Each axis is varied **one at a time** against the other three sitting at their
     `ScenarioParams` default (see `grid._expand_cross_section`), and only for
     the scenarios that declare it (`SCENARIOS[id].axes`), so this widens the
     cross-sectional arm from 42 to **84 cells**: the original 42 (7
@@ -507,11 +523,17 @@ def full_config() -> GridConfig:
     "runs on demand and has no two-minute budget" (that budget belongs to
     `ci_config()`, and "a tier run on demand should not inherit it" -- see
     this function's own return value and `CI_FIT_CONFIG` above). It is
-    reported for planning purposes only. 20 of the 42 new cells were
-    directly timed at `n_units=2000`/`FULL_ESTIMATORS`/`FULL_FIT_CONFIG`,
-    landing in an 11.68s-12.75s band regardless of which axis or value was
-    varied; the remaining 22 (scenarios A, C, G, H) are extrapolated at the
-    same 12.09s/cell average. Extra cross-sectional cost: ~507.8s/replication
+    reported for planning purposes only. **16 of the 42 new cells are
+    directly timed at the values this tier actually ships** -- scenarios B
+    (4 of 4), D (6 of 6) and F (6 of 8) -- at
+    `n_units=2000`/`FULL_ESTIMATORS`/`FULL_FIT_CONFIG`, landing in an
+    11.68s-12.75s band regardless of which axis or value was varied. The
+    remaining 26 are extrapolated at Step 3's 12.09s/cell average: scenarios
+    A, C, G and H entirely (6 + 6 + 6 + 6 = 24 cells, never timed), plus F's
+    two `noise_scale` cells, timed only at a superseded 0.5 and at the 1.0
+    that 1.3 replaced. Counting those superseded runs would give 20; they
+    are excluded because a timing at a value this tier does not ship is not
+    a measurement of this tier. Extra cross-sectional cost: ~507.8s/replication
     (42 x 12.09s). Combined with the pre-existing arms (MEASURED 2026-09-06,
     below): 353.4s (original 42 cross-sectional cells) + 507.8s (42 new
     cells) + 419.1s (panel, unchanged) = ~1280.3s/replication, or ~3.56
