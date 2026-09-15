@@ -386,3 +386,46 @@ def test_summarise_root_seed_changes_se_calibration_mcse():
         default_seed["se_calibration_mcse"].iloc[0]
         != other_seed["se_calibration_mcse"].iloc[0]
     )
+
+
+def test_summarise_does_not_pool_cells_that_differ_on_a_new_axis():
+    # Phase 18's four axes are part of a cell's identity, not of its contents.
+    # Two cells that differ only in `treatment_intercept` are different cells,
+    # and a summary that pools them reports one bias averaged across the axis
+    # -- which both hides the axis's effect and contaminates the baseline
+    # cell's own number with the perturbed cells' rows. The grid varies these
+    # axes against an anchor that IS a baseline cell (see
+    # `grid._expand_cross_section`), so the pooling is not hypothetical: every
+    # perturbed cell shares its baseline twin's shape/scenario/n_units/
+    # n_periods/confounding_strength exactly.
+    baseline = _frame([1.0, 1.0], truth=1.0, treatment_intercept=0.0)
+    perturbed = _frame([5.0, 5.0], truth=1.0, treatment_intercept=1.5)
+    frame = pd.concat([baseline, perturbed], ignore_index=True)
+
+    summary = summarise(frame).set_index("treatment_intercept")
+
+    assert len(summary) == 2
+    # And the two groups keep their own numbers rather than meeting in the
+    # middle: pooled, both would read as a bias of 2.0.
+    assert summary.loc[0.0, "bias"] == pytest.approx(0.0)
+    assert summary.loc[1.5, "bias"] == pytest.approx(4.0)
+
+
+@pytest.mark.parametrize(
+    "axis, value",
+    [
+        ("noise_scale", 0.9),
+        ("effect_scale", 2.0),
+        ("heterogeneity_scale", 0.0),
+    ],
+)
+def test_summarise_separates_every_new_axis_not_just_the_first(axis, value):
+    # One parametrised case per remaining axis: a fix that added only
+    # `treatment_intercept` to the grouping would pass the test above and
+    # still average the other three away.
+    frame = pd.concat(
+        [_frame([1.0], truth=1.0, **{axis: 0.5}), _frame([5.0], truth=1.0, **{axis: value})],
+        ignore_index=True,
+    )
+
+    assert len(summarise(frame)) == 2

@@ -19,6 +19,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
+from cp_simulation.params import AXIS_NAMES
 
 
 @dataclass(frozen=True)
@@ -301,7 +302,25 @@ def detection_metrics(frame: pd.DataFrame) -> dict[str, MetricValue]:
     return {"power": share, "false_positive_rate": _EMPTY}
 
 
-_GROUP_COLUMNS = ("shape", "scenario", "n_units", "n_periods", "confounding_strength")
+# A cell's identity, which is what a metric is computed *within*. Every axis
+# the grid can vary has to appear here: two cells that differ on an axis are
+# different cells, and pooling them averages the axis away.
+#
+# The axis names come from `AXIS_NAMES` rather than being restated, so an axis
+# added to `ScenarioParams` cannot arrive in the results frame (via
+# `run.ROW_COLUMNS`) while silently staying absent from the grouping -- which
+# is how Phase 18's four new axes would otherwise have been averaged into
+# their own baseline. That failure is invisible in the output: the summary
+# still has one row per (method, cell), it just quietly describes a pool of
+# cells that are not the same cell. `confounding_strength` leads `AXIS_NAMES`,
+# so this keeps the exact column order the tuple had before those axes
+# existed.
+#
+# `realised_treated_share` is deliberately NOT here. It is measured from each
+# cell's own generated data (`run._realised_treated_share`) and so differs
+# between replications of the *same* cell; grouping on it would put every
+# replication in a group of its own and leave every metric with n_used=1.
+_GROUP_COLUMNS = ("shape", "scenario", "n_units", "n_periods", *AXIS_NAMES)
 
 
 def _seed_component(value: object) -> object:
