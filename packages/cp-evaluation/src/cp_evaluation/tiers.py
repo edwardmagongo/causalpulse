@@ -496,8 +496,19 @@ def full_config() -> GridConfig:
     floor exists to verify an axis is *wired*, and is measured against that
     test's own deliberately large `_PERTURBED_VALUE` of 3.0, not against any
     grid value; a 1.5pp effect on C is a legitimate thing for a benchmark to
-    probe, not a degenerate cell. Task 8 ruled it not a defect on exactly
-    that reasoning and 0.5 ships unchanged. It is recorded here because the
+    probe, not a degenerate cell.
+
+    Task 8 left two records of this and they do not say the same thing, so
+    both are named rather than one: its measurement file **deferred** the
+    call, on the grounds that 0.5 was already adopted and re-opening it was
+    outside that task's brief, and told Task 9/11 that "roughly 0.3 or
+    below" would clear the floor for both scenarios; the controller's
+    adjudication in that task's ledger entry ruled it "a flagged 'fragility'
+    that is NOT one" on the wired-versus-informative reasoning above. **Task
+    9 is what decided to ship 0.5**, on that reasoning, and the deferred
+    alternative stays open -- ~0.3 remains available to Task 11 or to
+    sub-project 2 if a later reading wants both C and F over the floor. It is
+    recorded here because the
     paragraph above explains why `noise_scale` was respaced for a
     related-sounding reason, and a reader would otherwise conclude all four
     axes cleared every bar. The two cases differ: `noise_scale`'s points

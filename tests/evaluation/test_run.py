@@ -125,8 +125,16 @@ def test_results_do_not_depend_on_the_order_cells_are_evaluated_in():
         replications=2,
     )
 
-    straight = run_grid(config)
-    shuffled = run_grid(config, _shuffle=np.random.default_rng(0))
+    # Restricted to three estimators rather than the whole registry. The
+    # property under test is the totality of the sort key, which every row
+    # exercises equally; fitting all of them fits 16 cells twice and costs
+    # ~224s against ~4.5s here, on a suite whose full gate already runs
+    # 2h47m. `twfe` is kept deliberately: it is ineligible on every
+    # cross-sectional cell, so the ineligible-row path stays inside the frame
+    # comparison rather than being dropped along with the estimators.
+    estimators = ["difference_in_means", "lin_regression", "twfe"]
+    straight = run_grid(config, estimators=estimators)
+    shuffled = run_grid(config, estimators=estimators, _shuffle=np.random.default_rng(0))
 
     # Deliberately omits confounding_strength: this comparison key must still
     # leave the two confounding_strength values tied for a given (scenario,

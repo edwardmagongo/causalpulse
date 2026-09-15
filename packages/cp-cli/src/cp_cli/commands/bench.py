@@ -87,7 +87,6 @@ def run_tier(args: argparse.Namespace) -> int:
     return 0
 
 
-
 def _axis_block(axes: CrossSectionAxes | PanelAxes) -> dict[str, list[object]]:
     """One axis dataclass, as JSON-ready lists, every field included."""
     return {name: list(values) for name, values in asdict(axes).items()}

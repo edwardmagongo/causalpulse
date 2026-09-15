@@ -477,31 +477,50 @@ def test_the_new_axes_are_part_of_the_sort_key_so_ties_cannot_form():
     # `test_cell_rng_reproduces_across_processes_with_a_non_default_hash_seed`
     # above. The in-process half alone would pass under whichever hash seed
     # happened to order the tied cells correctly.
-    axes_kwargs = "scenarios=('A',), n_units=(500, 1000), confounding_strength=(1.0,)"
+    # One source for the fixture, interpolated into both halves. Written
+    # twice, widening an axis in one and forgetting the other would leave the
+    # subprocess half comparing a different grid against `order` -- and that
+    # half is the one actually carrying the guard on most hash seeds.
+    #
+    # Two axes are widened, not one: with only treatment_intercept varied,
+    # nothing distinguishes AXIS_NAMES order from any other ordering of the
+    # four, which is a property `cell_sort_key`'s docstring asserts.
+    axes_kwargs = {
+        "scenarios": ("A",),
+        "n_units": (500, 1000),
+        "confounding_strength": (1.0,),
+        "treatment_intercept": (-1.5, 0.0, 1.5),
+        "noise_scale": (0.0, 0.9),
+    }
     config = GridConfig(
-        cross_section=CrossSectionAxes(
-            scenarios=("A",),
-            n_units=(500, 1000),
-            confounding_strength=(1.0,),
-            treatment_intercept=(-1.5, 0.0, 1.5),
-        ),
+        cross_section=CrossSectionAxes(**axes_kwargs),
         panel=None,
         replications=1,
     )
 
-    order = [(c.n_units, c.treatment_intercept) for c in expand_cells(config)]
+    order = [(c.n_units, c.treatment_intercept, c.noise_scale) for c in expand_cells(config)]
 
     # n_units leads; within the anchor's n_units, treatment_intercept orders
-    # the three cells that would otherwise be indistinguishable.
-    assert order == [(500, 0.0), (1000, -1.5), (1000, 0.0), (1000, 1.5)]
+    # the cells that would otherwise be indistinguishable, and noise_scale
+    # breaks the remaining tie *after* it. Swap the two axes' positions in
+    # the key and (0.0, 0.9) sorts ahead of (1.5, 0.0) instead of behind it,
+    # so this pins the order of the block and not merely its presence.
+    assert order == [
+        (500, 0.0, 0.0),
+        (1000, -1.5, 0.0),
+        (1000, 0.0, 0.0),
+        (1000, 0.0, 0.9),
+        (1000, 1.5, 0.0),
+    ]
 
     script = (
         "import json\n"
         "from cp_evaluation.grid import CrossSectionAxes, GridConfig, expand_cells\n"
-        f"config = GridConfig(cross_section=CrossSectionAxes({axes_kwargs},\n"
-        "    treatment_intercept=(-1.5, 0.0, 1.5)), panel=None, replications=1)\n"
+        f"config = GridConfig(cross_section=CrossSectionAxes(**{axes_kwargs!r}),\n"
+        "    panel=None, replications=1)\n"
         "cells = expand_cells(config)\n"
-        "print(json.dumps([[c.n_units, c.treatment_intercept] for c in cells]))\n"
+        "print(json.dumps([[c.n_units, c.treatment_intercept, c.noise_scale]\n"
+        "                  for c in cells]))\n"
     )
     for hash_seed in ("1", "12345", "98765"):
         result = subprocess.run(
