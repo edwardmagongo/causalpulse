@@ -205,12 +205,18 @@ def test_a_large_effect_scale_clips_and_the_label_stops_agreeing(scenario_id):
     # (A, D, G, H), 0.0821-0.0845 (C) and 0.1382-0.1423 (F) -- at least 13x
     # the 0.003 label tolerance, so the separation is not seed luck.
     #
-    # The gap assertion below is the one that actually depends on the clip:
-    # `-1 <= measured <= 1` and `abs(true_cate) <= 1`, which an earlier
-    # version of this test asserted here as "what the clip bit means", in
-    # fact hold for every one of these scenarios even with the clip removed
-    # (A's unclipped CATE at effect_scale=12 would be 0.6, well inside
-    # [-1, 1]) -- so neither one is evidence the clip did anything.
+    # What this test does and does not show, stated exactly. The divergence
+    # asserted below exists BECAUSE of the clip -- clip-biting and the label
+    # drifting are the same event by construction. But removing the clip does
+    # not make that assertion fail: without it `p0 + tau` leaves [0, 1] and
+    # `rng.binomial` raises inside `generate()`, before `true_ate` exists, so
+    # the test goes red upstream of every assertion. The guard against a
+    # removed clip is therefore numpy's own range check, not this file.
+    #
+    # An earlier version also asserted `-1 <= measured <= 1` and
+    # `abs(true_cate) <= 1` as "what the clip bit means". Both hold at
+    # effect_scale=12 even with the clip removed (A's unclipped CATE would be
+    # 0.6), so neither could fail, and both were dropped.
     params, simulated = _simulate(scenario_id, effect_scale=12.0)
     declared = float(SCENARIOS[scenario_id].declared_effect(params))
     measured = float(simulated.truth.true_ate)
