@@ -30,9 +30,10 @@ numbers.
 
 import numpy as np
 import pytest
+from cp_causal.registry import get_estimator
 from cp_evaluation.grid import CrossSectionAxes, GridConfig
 from cp_evaluation.run import run_grid
-from cp_evaluation.tiers import full_config
+from cp_evaluation.tiers import FULL_ESTIMATORS, full_config
 from cp_simulation.oracle import oracle_att
 from cp_simulation.params import AXIS_NAMES, ScenarioParams
 from cp_simulation.scenarios import SCENARIOS, build_scenario
@@ -42,6 +43,16 @@ from cp_simulation.scenarios import SCENARIOS, build_scenario
 LABEL_TOLERANCE = 0.003
 
 _SCENARIOS_WITH_AN_EFFECT = ("A", "C", "D", "F", "G", "H")
+
+# Derived from `FULL_ESTIMATORS` itself, not hand-copied: a panel estimator
+# (`needs_panel=True`) is ineligible against a cross-sectional cell for a
+# reason that has nothing to do with a zero-control dataset ("requires panel
+# data"), so it does not belong in a test about the control-arm shortfall
+# specifically. Deriving this way means an estimator FULL_ESTIMATORS adds
+# later is picked up automatically rather than needing this file edited too.
+_CROSS_SECTIONAL_ESTIMATORS = tuple(
+    name for name in FULL_ESTIMATORS if not get_estimator(name).requirements.needs_panel
+)
 
 
 def _simulate(scenario_id, n_units=20_000, seed=11, **axes):
@@ -87,6 +98,31 @@ def test_an_intercept_that_empties_the_treated_arm_is_refused_by_name():
         oracle_att(simulated)
 
 
+def test_an_empty_treated_arm_aborts_run_grid_with_the_named_refusal():
+    # The gap the test above leaves open: `resolve_cell` sits between the two
+    # halves pinned there, unguarded. If it ever caught `oracle_att`'s
+    # ValueError and returned 0.0 instead -- or ran the value through
+    # `np.nan_to_num` -- every test in this file, and
+    # `tests/simulation/test_dgp_validation.py:146`, would still pass, and a
+    # benchmark run would be handed a confident wrong truth of zero instead of
+    # an aborted run. This exercises the real caller path, the same shape as
+    # the control-arm test below, so the refusal is proven where a benchmark
+    # would actually meet it rather than only inside `oracle_att` itself.
+    config = GridConfig(
+        cross_section=CrossSectionAxes(
+            scenarios=("A",),
+            n_units=(20_000,),
+            confounding_strength=(1.0,),
+            treatment_intercept=(-20.0,),
+        ),
+        panel=None,
+        replications=1,
+    )
+
+    with pytest.raises(ValueError, match="no treated units"):
+        run_grid(config, estimators=["difference_in_means"])
+
+
 def test_an_intercept_that_empties_the_control_arm_leaves_every_estimator_ineligible_by_name():
     # The mirror case, and it is deliberately NOT a refusal: with every unit
     # treated, ground truth is still defined, so the honest outcome is a
@@ -104,10 +140,10 @@ def test_an_intercept_that_empties_the_control_arm_leaves_every_estimator_inelig
         replications=1,
     )
 
-    frame = run_grid(config, estimators=["difference_in_means", "ipw", "aipw"])
+    frame = run_grid(config, estimators=list(_CROSS_SECTIONAL_ESTIMATORS))
     emptied = frame[frame["treatment_intercept"] == 20.0]
 
-    assert len(emptied) == 3
+    assert len(emptied) == len(_CROSS_SECTIONAL_ESTIMATORS)
     assert (emptied["status"] == "ineligible").all()
     assert (emptied["realised_treated_share"] == 1.0).all()
     # The reason has to name the shortfall, not merely decline: an
@@ -134,6 +170,10 @@ def test_a_saturating_noise_scale_stays_describable(noise_scale):
 
     assert treated > 0
     assert control > 0
+    # Scenario A assigns via RandomAssignment(share=0.5), a mechanism
+    # `noise_scale` (a baseline-probability axis) cannot touch structurally --
+    # this is the "does not move" this test's docstring claims.
+    assert treated / (treated + control) == pytest.approx(0.5, abs=0.02)
     assert simulated.truth.true_ate == pytest.approx(0.05, abs=1e-12)
     assert float(SCENARIOS["A"].declared_effect(params)) == pytest.approx(0.05)
 
@@ -164,6 +204,13 @@ def test_a_large_effect_scale_clips_and_the_label_stops_agreeing(scenario_id):
     # MEASURED, n=20000 x 8 seeds: at effect_scale=12 the gap is 0.0405-0.0427
     # (A, D, G, H), 0.0821-0.0845 (C) and 0.1382-0.1423 (F) -- at least 13x
     # the 0.003 label tolerance, so the separation is not seed luck.
+    #
+    # The gap assertion below is the one that actually depends on the clip:
+    # `-1 <= measured <= 1` and `abs(true_cate) <= 1`, which an earlier
+    # version of this test asserted here as "what the clip bit means", in
+    # fact hold for every one of these scenarios even with the clip removed
+    # (A's unclipped CATE at effect_scale=12 would be 0.6, well inside
+    # [-1, 1]) -- so neither one is evidence the clip did anything.
     params, simulated = _simulate(scenario_id, effect_scale=12.0)
     declared = float(SCENARIOS[scenario_id].declared_effect(params))
     measured = float(simulated.truth.true_ate)
@@ -171,11 +218,7 @@ def test_a_large_effect_scale_clips_and_the_label_stops_agreeing(scenario_id):
     assert abs(measured - declared) > 4 * LABEL_TOLERANCE
     # Measured truth stays a real probability difference; the label does not
     # have to. This is the asymmetry that makes the label the broken half.
-    assert -1.0 <= measured <= 1.0
     assert abs(measured) < abs(declared)
-    # Every per-unit effect stays inside what a probability difference can be,
-    # which is what "the clip bit" means.
-    assert np.all(np.abs(simulated.truth.true_cate) <= 1.0)
 
 
 def test_an_absurd_effect_scale_makes_the_label_advertise_an_impossible_effect():
@@ -231,10 +274,12 @@ def test_every_value_the_full_tier_ships_is_inside_the_label_contract():
     # an axis re-runs this check automatically instead of silently leaving it
     # describing the old grid.
     #
-    # MEASURED: worst gap 0.00035 across every (declaring scenario x shipped
-    # value) pair, against the 0.003 tolerance -- 8.6x of margin.
+    # MEASURED, 10 seeds at n=20000: worst gap 0.000868 across every
+    # (declaring scenario x shipped value) pair, against the 0.003
+    # tolerance -- ~3.5x of margin. (An earlier single-seed measurement read
+    # 0.00035/8.6x; corrected on review -- see the ledger.)
     axes = full_config().cross_section
-    checked = 0
+    axes_checked: set[str] = set()
 
     for axis_name in AXIS_NAMES:
         for scenario_id in axes.scenarios:
@@ -246,8 +291,11 @@ def test_every_value_the_full_tier_ships_is_inside_the_label_contract():
                     f"{scenario_id} at {axis_name}={value} has label gap {gap:.6f}, "
                     f"outside the {LABEL_TOLERANCE} the label contract allows"
                 )
-                checked += 1
+                axes_checked.add(axis_name)
 
-    # The loop has to have done real work: a declaration table that stopped
-    # matching would silently reduce this to nothing.
-    assert checked >= 40
+    # Every declared axis has to have contributed at least one pair: a count
+    # literal (the old `checked >= 40`) still passes after losing any single
+    # scenario's declarations, F's `heterogeneity_scale`, or all of one
+    # axis's pairs, as long as enough others remain. This instead fails the
+    # moment any axis in AXIS_NAMES drops out of the loop entirely.
+    assert axes_checked == set(AXIS_NAMES)
