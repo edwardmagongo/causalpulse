@@ -355,8 +355,14 @@ def _group_seed(root_seed: int, group_columns: list[str], key: tuple[object, ...
     problem: sha256 over sorted JSON, not `hash()`, because `hash()` is
     salted per process and anything built from it fails to reproduce across
     runs (see `cp_simulation._hashing`). Deriving from identity rather than
-    position in the table also means adding or removing a method or cell
-    leaves every other group's seed untouched.
+    position in the table means adding or removing a method or cell leaves
+    every *other* group's seed untouched -- but only once `group_columns`
+    itself is stable. `group_columns` is not part of a group's identity, and
+    widening it (as Phase 18 did, adding the four new axis columns to every
+    group's key) changes what gets hashed for every group at once, even
+    groups whose own data and axis values did not change. That one-time
+    reseed is recorded in
+    `docs/specs/2026-09-13-causal-core-phase18-design.md` section 12.
     """
     payload: dict[str, object] = {"root_seed": root_seed}
     payload.update(
