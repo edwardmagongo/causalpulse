@@ -189,7 +189,7 @@ def _real_summary_with_two_effect_scale_cells() -> pd.DataFrame:
     hand-built fixture -- carrying two rows for (`lin_regression`, `C`) that
     differ only in `effect_scale`. This is the actual shape `full_config()`'s
     widened grid produces before a caller filters to one slice: one row per
-    axis value, ~24 columns wide (one identity per `_GROUP_COLUMNS`, plus
+    axis value, ~24 columns wide (one identity per `GROUP_COLUMNS`, plus
     every metric family `summarise` computes -- `bias`, `rmse_mcse`,
     `realised_treated_share`, ... -- 23 of the 24). A fixture built by hand
     with only a couple of columns could pass a comprehension that lists
@@ -237,7 +237,7 @@ def test_more_than_one_row_per_method_and_scenario_is_refused_naming_only_identi
 
 def test_more_than_one_row_per_method_and_scenario_with_no_identity_difference_says_so():
     # Two rows for the same (method, scenario) that carry none of
-    # cp_evaluation.metrics._GROUP_COLUMNS's identity columns at all share
+    # cp_evaluation.metrics.GROUP_COLUMNS's identity columns at all share
     # the same grid-cell identity outright. The old comprehension reported
     # this as "differing in []", which names nothing a caller could act on;
     # the refusal must say plainly that the rows are identity-duplicates.

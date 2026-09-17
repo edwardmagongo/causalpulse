@@ -31,7 +31,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
-from cp_evaluation.metrics import _GROUP_COLUMNS
+from cp_evaluation.metrics import GROUP_COLUMNS
 from matplotlib import colormaps
 from matplotlib.axes import Axes
 
@@ -87,7 +87,7 @@ def heatmap_data(summary: pd.DataFrame, metric: str) -> HeatmapData:
     value) before pivoting.
 
     The refusal names only the *identity* columns that differ across the
-    duplicate rows -- `cp_evaluation.metrics._GROUP_COLUMNS` (`shape`,
+    duplicate rows -- `cp_evaluation.metrics.GROUP_COLUMNS` (`shape`,
     `n_units`, `n_periods`, and the axis names in
     `cp_simulation.params.AXIS_NAMES`), not the ~20 metric columns
     `summarise` also produces (`bias`, `rmse_mcse`,
@@ -118,7 +118,7 @@ def heatmap_data(summary: pd.DataFrame, metric: str) -> HeatmapData:
         # differ between rows that describe the very same cell.
         differing_identity_columns = [
             column
-            for column in _GROUP_COLUMNS
+            for column in GROUP_COLUMNS
             if column not in ("method", "scenario")
             and column in group.columns
             and group[column].nunique(dropna=False) > 1

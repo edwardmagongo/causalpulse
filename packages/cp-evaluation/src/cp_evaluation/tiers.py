@@ -486,14 +486,14 @@ def full_config() -> GridConfig:
     three-point axis they resolved two levels, not three, and the axis could
     show only *whether* an estimator degrades with noise rather than the
     shape of it. 1.3 moves it by +0.018, spacing the three points about
-    evenly, while saturating the `[0.05, 0.85]` baseline clip at 8.2%/5.4%
-    -- still well under the 15.7%/12.2% that had `noise_scale >= 2.0`
+    evenly, while saturating the `[0.05, 0.85]` baseline clip at 8.06%/5.03%
+    -- still well under the 16.1%/12.0% that had `noise_scale >= 2.0`
     rejected for reading as "mostly pinned at a clip bound" rather than as
     noisier.
 
     **A known caveat on `effect_scale`, disclosed rather than fixed.** Its
     low point of 0.5 moves measured `true_ate` by 0.0150 for scenario C and
-    0.0193 for F -- 0.75x and 0.965x of the 0.02 floor
+    0.0193 for F -- 0.75x and 0.96x of the 0.02 floor
     `tests/simulation/test_axis_declarations.py` uses, i.e. below it. That
     floor exists to verify an axis is *wired*, and is measured against that
     test's own deliberately large `_PERTURBED_VALUE` of 3.0, not against any

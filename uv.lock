@@ -450,6 +450,7 @@ source = { editable = "packages/cp-figures" }
 dependencies = [
     { name = "cp-causal" },
     { name = "cp-core" },
+    { name = "cp-evaluation" },
     { name = "matplotlib" },
     { name = "numpy" },
     { name = "pandas" },
@@ -460,6 +461,7 @@ dependencies = [
 requires-dist = [
     { name = "cp-causal", editable = "packages/cp-causal" },
     { name = "cp-core", editable = "packages/cp-core" },
+    { name = "cp-evaluation", editable = "packages/cp-evaluation" },
     { name = "matplotlib", specifier = ">=3.9" },
     { name = "numpy", specifier = ">=2.0" },
     { name = "pandas", specifier = ">=2.2" },

@@ -543,7 +543,7 @@ def test_every_axis_name_has_a_field_on_the_cell_and_the_axes():
     # `AttributeError` out of `getattr` in `cell_sort_key` or
     # `_identity_payload`, at grid-expansion time, naming neither the axis nor
     # the reason. Fail here instead, where the message says what to add.
-    # `metrics._GROUP_COLUMNS` derives from the same tuple for the same
+    # `metrics.GROUP_COLUMNS` derives from the same tuple for the same
     # reason, which is what makes this worth pinning in one place.
     cell_fields = {f.name for f in dataclasses.fields(CrossSectionCell)}
     axes_fields = {f.name for f in dataclasses.fields(CrossSectionAxes)}

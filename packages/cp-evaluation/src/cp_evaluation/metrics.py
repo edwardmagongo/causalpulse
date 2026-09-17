@@ -320,7 +320,7 @@ def detection_metrics(frame: pd.DataFrame) -> dict[str, MetricValue]:
 # cell's own generated data (`run._realised_treated_share`) and so differs
 # between replications of the *same* cell; grouping on it would put every
 # replication in a group of its own and leave every metric with n_used=1.
-_GROUP_COLUMNS = ("shape", "scenario", "n_units", "n_periods", *AXIS_NAMES)
+GROUP_COLUMNS = ("shape", "scenario", "n_units", "n_periods", *AXIS_NAMES)
 
 
 def _seed_component(value: object) -> object:
@@ -401,7 +401,7 @@ def summarise(frame: pd.DataFrame, *, seed: int = 0) -> pd.DataFrame:
     the identical measured value. NaN for a panel group, which carries no
     such axis.
     """
-    group_columns = ["method", *(c for c in _GROUP_COLUMNS if c in frame.columns)]
+    group_columns = ["method", *(c for c in GROUP_COLUMNS if c in frame.columns)]
     records: list[dict[str, object]] = []
 
     for keys, group in frame.groupby(group_columns, dropna=False, sort=True):
