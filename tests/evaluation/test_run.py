@@ -2,9 +2,12 @@ import numpy as np
 import pandas as pd
 import pytest
 from cp_core.values import EstimatorConfig
-from cp_evaluation.grid import CrossSectionAxes, GridConfig, PanelAxes
+from cp_evaluation.grid import CrossSectionAxes, CrossSectionCell, GridConfig, PanelAxes, cell_rng
+from cp_evaluation.resolve import resolve_cell
 from cp_evaluation.run import ROW_COLUMNS, run_grid
+from cp_evaluation.tiers import full_config
 from cp_simulation.params import ScenarioParams
+from cp_simulation.scenarios import build_scenario
 
 _NEW_AXIS_COLUMNS = ("treatment_intercept", "noise_scale", "effect_scale", "heterogeneity_scale")
 
@@ -298,3 +301,122 @@ def test_panel_rows_carry_nan_for_the_new_axis_columns_and_realised_share():
     for column in (*_NEW_AXIS_COLUMNS, "realised_treated_share"):
         assert column in frame.columns
         assert frame[column].isna().all()
+
+
+def test_a_perturbed_row_traces_back_to_its_own_cell_and_its_own_rng_stream():
+    # final-review.md I1: `resolve_cell` (resolve.py:51-60) omitting one of
+    # `noise_scale=`/`effect_scale=`/`heterogeneity_scale=` from the
+    # `ScenarioParams` it builds, `_cell_columns` (run.py:104-137) writing one
+    # axis's value into another axis's column, and `_identity_payload`
+    # (grid.py:314-351) never adding a non-default axis to a cell's RNG seed
+    # all left the whole suite green (184 passed against every mutant). This
+    # pins the seam directly: scenario F declares all four new axes, so
+    # widening every one of them and running the grid exercises resolve.py,
+    # run.py and grid.py's `_identity_payload`/`cell_rng` at once.
+    #
+    # The widened values are `full_config()`'s own -- not restated here as
+    # fresh literals -- so this test tracks the axis spacing the production
+    # tier actually ships rather than a second, possibly-diverging set.
+    full_axes = full_config().cross_section
+    assert full_axes is not None
+    widened = {name: getattr(full_axes, name) for name in _NEW_AXIS_COLUMNS}
+
+    default = ScenarioParams()
+    n_units = max(full_axes.n_units)
+    confounding_strength = default.confounding_strength
+
+    config = GridConfig(
+        cross_section=CrossSectionAxes(
+            scenarios=("F",),
+            n_units=(n_units,),
+            confounding_strength=(confounding_strength,),
+            **widened,
+        ),
+        panel=None,
+        replications=1,
+    )
+    frame = run_grid(config, estimators=["difference_in_means"])
+
+    baseline_cell = CrossSectionCell(
+        scenario="F", n_units=n_units, confounding_strength=confounding_strength, seed=0
+    )
+    baseline_frame = resolve_cell(baseline_cell, root_entropy=0).dataset.frame
+
+    default_by_axis = {name: getattr(default, name) for name in _NEW_AXIS_COLUMNS}
+    diffs = pd.DataFrame(
+        {name: frame[name] != default_by_axis[name] for name in _NEW_AXIS_COLUMNS}
+    )
+    perturbed_mask = diffs.any(axis=1)
+
+    # One row per non-default value on each of the four axes.
+    expected_perturbed = sum(
+        1
+        for name in _NEW_AXIS_COLUMNS
+        for value in widened[name]
+        if value != default_by_axis[name]
+    )
+    assert perturbed_mask.sum() == expected_perturbed
+
+    for row_index in frame.index[perturbed_mask]:
+        row = frame.loc[row_index]
+        moved = [name for name in _NEW_AXIS_COLUMNS if diffs.loc[row_index, name]]
+        # Exactly the intended axis column differs from its default -- catches
+        # `_cell_columns` writing one axis's value into another's column.
+        assert len(moved) == 1
+
+        cell = CrossSectionCell(
+            scenario="F",
+            n_units=n_units,
+            confounding_strength=confounding_strength,
+            seed=0,
+            **{name: float(row[name]) for name in _NEW_AXIS_COLUMNS},
+        )
+
+        # The resolved dataset equals build_scenario(...).generate(rng=cell_rng(cell))
+        # with the axes read from the cell -- catches `resolve_cell` omitting
+        # `noise_scale=`/`effect_scale=`/`heterogeneity_scale=`.
+        expected_params = ScenarioParams(
+            confounding_strength=confounding_strength,
+            **{name: float(row[name]) for name in _NEW_AXIS_COLUMNS},
+        )
+        expected_rng = cell_rng(cell, root_entropy=0)
+        expected_frame = (
+            build_scenario("F", expected_params)
+            .generate(n_units=n_units, rng=expected_rng)
+            .dataset.frame
+        )
+        actual_frame = resolve_cell(cell, root_entropy=0).dataset.frame
+        pd.testing.assert_frame_equal(actual_frame, expected_frame)
+
+        # The perturbed cell's data -- and its RNG stream -- differ from its
+        # baseline twin's. The stream check is the one that catches
+        # `_identity_payload` never adding the non-default axis: without it,
+        # `noise_scale`/`effect_scale`/`heterogeneity_scale` alone can still
+        # change the *data* even on an identical stream, so only comparing
+        # datasets would miss that specific mutant.
+        assert not actual_frame.equals(baseline_frame)
+        assert cell_rng(cell, root_entropy=0).random() != cell_rng(
+            baseline_cell, root_entropy=0
+        ).random()
+
+
+def test_realised_treated_share_is_not_the_undisturbed_sigmoid_of_the_intercept():
+    # final-review.md I1: a `_realised_treated_share` mutated to
+    # `sigmoid(cell.treatment_intercept)` was "killed only by accident" --
+    # only the empty-control test's `== 1.0` check happened to fail, because
+    # sigmoid(20) is not exactly 1. This pins it directly, at the intercept
+    # the accident did not cover: treatment_intercept=0.0 (the default),
+    # where sigmoid(0) == 0.5 exactly, so any measured share from a finite
+    # n=400 sample landing on precisely 0.5 would be the giveaway.
+    config = GridConfig(
+        cross_section=CrossSectionAxes(
+            scenarios=("A",), n_units=(400,), confounding_strength=(1.0,)
+        ),
+        panel=None,
+        replications=1,
+    )
+
+    frame = run_grid(config, estimators=["difference_in_means"])
+
+    assert ScenarioParams().treatment_intercept == 0.0
+    assert frame["realised_treated_share"].iloc[0] != 0.5
