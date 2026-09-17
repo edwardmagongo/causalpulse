@@ -140,16 +140,27 @@ term, and section. Like the figures, it takes live result objects rather than re
 analysis: no CLI command currently produces a report, because the arrays most figures need were
 never persisted.
 
-The causal core is complete, with four items deliberately left open rather than built: the four
-benchmark-grid axes that do not yet exist (treatment imbalance, noise level, effect size,
-heterogeneity — DGP work, roughly a phase on its own); the CATE arm of the benchmark grid (CATE
-correlation, RMSE, and calibration slope, which need their own cell shape and array-valued
+The causal core is complete. Phase 17 recorded four items deliberately left open rather than
+built. Three remain, after Phase 18 (below) closed the first: the CATE arm of the benchmark grid
+(CATE correlation, RMSE, and calibration slope, which need their own cell shape and array-valued
 diagnostics); the donor-pool arm of the benchmark grid (`synthetic_control` and `bsts`, which need a
 donor-pool cell shape); and a residual from Phases 9 and 10 — `SyntheticControl`'s CI half-width and
 `donor_contamination_check`'s threshold are still calibrated against the simplex placebo spread,
 while `falsify`'s own placebo distribution is convex-hull-aware, and closing that gap is blocked on
 the donor-pool benchmark arm for measurement. Each is recorded as a decision at Phase 16's kickoff,
 not an oversight, and each would be its own phase if wanted.
+
+**Phase 18** closed the first of those four items: the missing benchmark-grid axes.
+`PropensityAssignment` gained an intercept and `LogisticBaseline` an additive noise scale, both
+defaulting to today's behaviour exactly; `ScenarioParams` now carries all five cross-sectional
+axes (the pre-existing `confounding_strength` plus treatment imbalance, noise level, effect size,
+and heterogeneity), and a scenario declares which axes it actually responds to rather than being
+crossed against every one blindly. `full_config`'s cross-sectional grid widens from 42 to 84 cells
+to cover three measured points per new axis — a low, a baseline, and a high value, chosen by
+generating real data rather than by estimate. See
+`docs/specs/2026-09-13-causal-core-phase18-design.md` section 12 for the measured values, the
+values considered and rejected, and the defects a whole-branch review found before any of it
+shipped.
 
 No CLI command currently produces an evidence report, either: the report generator built in Phase 17
 takes live result objects, the same as the figures do, because the arrays six of the eight figures
