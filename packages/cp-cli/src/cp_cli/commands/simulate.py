@@ -89,7 +89,7 @@ def run(args: argparse.Namespace) -> int:
         # Every axis field is recorded explicitly, via `asdict`, mirroring
         # `analyze` -- not just the two keys (`n_units`,
         # `confounding_strength`) that predate Phase 18. Without this, a
-        # `.reference.json` for a widened run would replay the other three
+        # `.reference.json` for a widened run would replay the other four
         # axes from `ScenarioParams`' defaults regardless of what actually
         # generated the CSV on disk.
         params = {"n_units": args.n_units, **asdict(scenario_params)}

@@ -180,8 +180,7 @@ def test_build_scenario_passes_a_full_scenario_params_through_unabridged():
     # caller that reaches this branch only ever sets confounding_strength.
     #
     # Confirmed to fail under exactly that mutation and to pass again once
-    # reverted -- see docs/specs/2026-09-13-causal-core-phase18-design.md
-    # section 12.
+    # reverted.
     params = ScenarioParams(effect_scale=2.0, noise_scale=1.5, heterogeneity_scale=2.0)
 
     via_facade = build_scenario("F", params).generate(n_units=500, rng=np.random.default_rng(5))
