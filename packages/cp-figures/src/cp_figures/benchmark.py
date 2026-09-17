@@ -31,6 +31,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
+from cp_evaluation.metrics import _GROUP_COLUMNS
 from matplotlib import colormaps
 from matplotlib.axes import Axes
 
@@ -78,10 +79,24 @@ def heatmap_data(summary: pd.DataFrame, metric: str) -> HeatmapData:
     only the last row it happened to see and reports whatever that row's
     `n_fitted` was for the whole (method, scenario) cell -- exactly the
     absent-versus-zero confusion this module's docstring exists to prevent
-    (final-review.md I3; a measured example collapsed three scenario-C cells,
-    n_fitted 10/10/0, into one cell marked absent). A per-axis heatmap is a
-    separate, not-yet-built feature; the caller must filter to one slice
-    (e.g. one `n_units`/`confounding_strength`/axis value) before pivoting.
+    (see `docs/specs/2026-09-13-causal-core-phase18-design.md` section 12,
+    "Findings from the whole-branch review": a measured example collapsed
+    three scenario-C cells, n_fitted 10/10/0, into one cell marked absent).
+    A per-axis heatmap is a separate, not-yet-built feature; the caller must
+    filter to one slice (e.g. one `n_units`/`confounding_strength`/axis
+    value) before pivoting.
+
+    The refusal names only the *identity* columns that differ across the
+    duplicate rows -- `cp_evaluation.metrics._GROUP_COLUMNS` (`shape`,
+    `n_units`, `n_periods`, and the axis names in
+    `cp_simulation.params.AXIS_NAMES`), not the ~20 metric columns
+    `summarise` also produces (`bias`, `rmse_mcse`,
+    `realised_treated_share`, ...), which are never what a caller needs to
+    filter on and are not identity in the first place: two rows can differ
+    in `bias` while describing the very same grid cell. When none of those
+    identity columns differ either -- the duplicate rows share the same
+    cell identity outright -- the message says so instead of reporting an
+    empty `differing in []`.
 
     A cell is marked absent in the returned `HeatmapData.absent` when its
     `n_fitted` is zero, or when the (method, scenario) combination has no row
@@ -98,17 +113,29 @@ def heatmap_data(summary: pd.DataFrame, metric: str) -> HeatmapData:
     if not duplicated.empty:
         method, scenario = duplicated.index[0]
         group = summary[(summary["method"] == method) & (summary["scenario"] == scenario)]
-        extra_identity_columns = [
+        # Only the grid's own cell-identity columns -- never a metric column
+        # like `bias` or `realised_treated_share`, which can legitimately
+        # differ between rows that describe the very same cell.
+        differing_identity_columns = [
             column
-            for column in group.columns
-            if column not in ("method", "scenario") and group[column].nunique(dropna=False) > 1
+            for column in _GROUP_COLUMNS
+            if column not in ("method", "scenario")
+            and column in group.columns
+            and group[column].nunique(dropna=False) > 1
         ]
+        if differing_identity_columns:
+            raise ValueError(
+                f"heatmap_data needs exactly one row per (method, scenario), but "
+                f"({method!r}, {scenario!r}) has {len(group)} rows, differing in "
+                f"{differing_identity_columns}. Filter the summary to one grid "
+                "slice (e.g. one value of each of those columns) before "
+                "pivoting to a heatmap."
+            )
         raise ValueError(
             f"heatmap_data needs exactly one row per (method, scenario), but "
-            f"({method!r}, {scenario!r}) has {len(group)} rows, differing in "
-            f"{extra_identity_columns}. Filter the summary to one grid slice "
-            "(e.g. one value of each of those columns) before pivoting to a "
-            "heatmap."
+            f"({method!r}, {scenario!r}) has {len(group)} rows that share the "
+            "same grid-cell identity (no identity column differs between "
+            "them) -- deduplicate the summary before pivoting to a heatmap."
         )
 
     methods = tuple(sorted(str(m) for m in summary["method"].unique()))

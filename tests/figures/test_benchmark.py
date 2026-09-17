@@ -2,6 +2,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
+from cp_evaluation.metrics import summarise
+from cp_evaluation.run import ROW_COLUMNS
 from cp_figures.benchmark import HeatmapData, draw_heatmap, heatmap_data
 
 
@@ -172,38 +174,95 @@ def test_an_unknown_metric_is_refused_by_name():
         heatmap_data(_summary(), metric="frobnicate")
 
 
-def test_more_than_one_row_per_method_and_scenario_is_refused_naming_the_extra_column():
-    # final-review.md I3: without this guard, heatmap_data silently keeps
-    # only the last of several rows for the same (method, scenario) pair --
-    # e.g. one row per effect_scale value from an unfiltered summarise()
-    # output -- and reports that last row's n_fitted for the whole cell,
-    # which can wrongly mark a cell absent even though most of its rows
-    # fitted. Two rows here differ only in effect_scale, so the message must
-    # name exactly that column as the reason they collided.
+def _row(**overrides) -> dict[str, object]:
+    """A minimal `ROW_COLUMNS` row, everything not overridden left NaN --
+    mirrors `test_metrics.py`'s own `_frame` helper, but building the
+    dict-per-row form `summarise()` groups over rather than a frame."""
+    row: dict[str, object] = dict.fromkeys(ROW_COLUMNS, np.nan)
+    row.update(shape="cross_section", scenario="C", method="lin_regression", status="fitted")
+    row.update(overrides)
+    return row
+
+
+def _real_summary_with_two_effect_scale_cells() -> pd.DataFrame:
+    """A genuine `cp_evaluation.metrics.summarise()` output -- not a
+    hand-built fixture -- carrying two rows for (`lin_regression`, `C`) that
+    differ only in `effect_scale`. This is the actual shape `full_config()`'s
+    widened grid produces before a caller filters to one slice: one row per
+    axis value, ~24 columns wide (one identity per `_GROUP_COLUMNS`, plus
+    every metric family `summarise` computes -- `bias`, `rmse_mcse`,
+    `realised_treated_share`, ... -- 23 of the 24). A fixture built by hand
+    with only a couple of columns could pass a comprehension that lists
+    every differing column, metric or not; this can't, because leaking even
+    one metric column into the message is what the test below checks for.
+    """
+    rows = [
+        _row(effect_scale=0.5, n_units=2000, seed=0, point=0.30, truth=0.30),
+        _row(effect_scale=0.5, n_units=2000, seed=1, point=0.32, truth=0.30),
+        _row(effect_scale=2.0, n_units=2000, seed=0, point=-0.10, truth=-0.06),
+        _row(effect_scale=2.0, n_units=2000, seed=1, point=-0.08, truth=-0.06),
+    ]
+    frame = pd.DataFrame(rows, columns=list(ROW_COLUMNS))
+    return summarise(frame)
+
+
+def test_more_than_one_row_per_method_and_scenario_is_refused_naming_only_identity_columns():
+    # A real summarise() output for two effect_scale values necessarily
+    # disagrees on far more than effect_scale alone: bias, rmse_mcse,
+    # realised_treated_share and every other metric family differ between
+    # the two rows too, since they were computed from different data. The
+    # refusal must name only effect_scale -- the one column that actually
+    # identifies the grid cell -- and never a metric column, which a caller
+    # cannot "filter to one value of" in any meaningful sense.
+    summary = _real_summary_with_two_effect_scale_cells()
+    assert summary.shape[0] == 2
+    # Sanity check this really is a >20-column real summarise() output, not
+    # an accidental hand-built stand-in that would let this test pass for
+    # the wrong reason.
+    assert len(summary.columns) >= 20
+
+    with pytest.raises(ValueError, match=r"differing in \['effect_scale'\]") as exc_info:
+        heatmap_data(summary, metric="bias")
+
+    message = str(exc_info.value)
+    metric_columns = [
+        column
+        for column in summary.columns
+        if column not in ("method", "scenario", "shape", "n_units", "n_periods", "effect_scale")
+    ]
+    assert metric_columns, "fixture sanity: summarise() must have produced metric columns"
+    for column in metric_columns:
+        assert column not in message, f"metric column {column!r} leaked into the refusal"
+
+
+def test_more_than_one_row_per_method_and_scenario_with_no_identity_difference_says_so():
+    # Two rows for the same (method, scenario) that carry none of
+    # cp_evaluation.metrics._GROUP_COLUMNS's identity columns at all share
+    # the same grid-cell identity outright. The old comprehension reported
+    # this as "differing in []", which names nothing a caller could act on;
+    # the refusal must say plainly that the rows are identity-duplicates.
     summary = pd.DataFrame(
         [
             {
-                "method": "lin_regression",
-                "scenario": "C",
-                "effect_scale": 0.5,
-                "bias": 0.30,
-                "n_fitted": 10,
+                "method": "ipw",
+                "scenario": "A",
+                "bias": 0.01,
+                "n_fitted": 15,
                 "n_ineligible": 0,
                 "n_refused": 0,
             },
             {
-                "method": "lin_regression",
-                "scenario": "C",
-                "effect_scale": 2.0,
-                "bias": -0.10,
-                "n_fitted": 0,
-                "n_ineligible": 10,
+                "method": "ipw",
+                "scenario": "A",
+                "bias": 0.05,
+                "n_fitted": 15,
+                "n_ineligible": 0,
                 "n_refused": 0,
             },
         ]
     )
 
-    with pytest.raises(ValueError, match="effect_scale"):
+    with pytest.raises(ValueError, match="same grid-cell identity"):
         heatmap_data(summary, metric="bias")
 
 

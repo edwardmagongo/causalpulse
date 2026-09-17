@@ -387,9 +387,11 @@ def summarise(frame: pd.DataFrame, *, seed: int = 0) -> pd.DataFrame:
     `_group_seed`); it does not otherwise affect any metric.
 
     The output also carries `realised_treated_share` (plus its `_mcse` and
-    `_n_used`), the per-group mean of `run._realised_treated_share` (Minor 3,
-    final-review.md): `treatment_intercept` is a logit-scale parameter, not a
-    quantity a reader of a summary table thinks in, and before this the
+    `_n_used`), the per-group mean of `run._realised_treated_share` (see
+    `docs/specs/2026-09-13-causal-core-phase18-design.md` section 12,
+    "Findings from the whole-branch review"): `treatment_intercept` is a
+    logit-scale parameter, not a quantity a reader of a summary table thinks
+    in, and before this the
     measured share -- spec section 4.1's mitigation for exactly that -- never
     reached `summarise`'s output at all, so a `bench report` table showed the
     intercept axis with no share to read it against. It is computed over
