@@ -52,9 +52,11 @@ MANIFEST_SCHEMA_VERSION = 1
 class ScenarioReference:
     """Names a simulated dataset by how to regenerate it, not by its content.
 
-    `params` supports `"n_units"` (required) plus every axis name in
-    `cp_simulation.params.ScenarioParams` (each optional, defaulting to that
-    axis's own default there). A manifest written from Phase 18 onward
+    `params` supports `"n_units"` (required) plus every axis name of the
+    simulation layer's `ScenarioParams` (each optional, defaulting to that
+    axis's own default there). The simulation package is deliberately not
+    named here: `tests/test_boundaries.py` bans its name anywhere in this
+    package, docstrings included. A manifest written from Phase 18 onward
     records every axis explicitly; one written before it named only
     `"n_units"` and, optionally, `"confounding_strength"` -- and still
     replays, with the axes it never mentions filled from `ScenarioParams`'

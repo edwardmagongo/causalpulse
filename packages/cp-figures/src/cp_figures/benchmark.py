@@ -89,8 +89,8 @@ def heatmap_data(summary: pd.DataFrame, metric: str) -> HeatmapData:
     The refusal names only the *identity* columns that differ across the
     duplicate rows -- `cp_evaluation.metrics.GROUP_COLUMNS` (`shape`,
     `n_units`, `n_periods`, and the axis names in
-    `cp_simulation.params.AXIS_NAMES`), not the ~20 metric columns
-    `summarise` also produces (`bias`, `rmse_mcse`,
+    `cp_simulation.params.AXIS_NAMES`), not the dozens of metric
+    columns `summarise` also produces (`bias`, `rmse_mcse`,
     `realised_treated_share`, ...), which are never what a caller needs to
     filter on and are not identity in the first place: two rows can differ
     in `bias` while describing the very same grid cell. When none of those

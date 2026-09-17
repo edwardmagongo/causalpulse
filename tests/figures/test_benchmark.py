@@ -189,9 +189,9 @@ def _real_summary_with_two_effect_scale_cells() -> pd.DataFrame:
     hand-built fixture -- carrying two rows for (`lin_regression`, `C`) that
     differ only in `effect_scale`. This is the actual shape `full_config()`'s
     widened grid produces before a caller filters to one slice: one row per
-    axis value, ~24 columns wide (one identity per `GROUP_COLUMNS`, plus
-    every metric family `summarise` computes -- `bias`, `rmse_mcse`,
-    `realised_treated_share`, ... -- 23 of the 24). A fixture built by hand
+    axis value, dozens of columns wide (the method, one identity per
+    `GROUP_COLUMNS`, and every metric column `summarise` computes -- `bias`,
+    `rmse_mcse`, `realised_treated_share`, ... -- which are most of them). A fixture built by hand
     with only a couple of columns could pass a comprehension that lists
     every differing column, metric or not; this can't, because leaking even
     one metric column into the message is what the test below checks for.
