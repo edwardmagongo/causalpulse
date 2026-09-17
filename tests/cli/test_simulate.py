@@ -3,6 +3,33 @@ import json
 import pandas as pd
 import pytest
 from cp_cli.__main__ import main
+from cp_simulation.params import AXIS_NAMES
+
+
+def test_the_written_reference_names_every_axis_not_just_the_two_that_predate_them(tmp_path):
+    # Minor 1 (final-review.md): the writer's job is to record every axis
+    # explicitly, mirroring `analyze`
+    # (test_the_written_manifest_names_every_axis_not_just_the_two_that_predate_them
+    # in tests/cli/test_analyze.py), so a replay is exact no matter what a
+    # ScenarioParams default does later. `simulate` never varies these axes
+    # away from their defaults, so a writer that only recorded `n_units` and
+    # `confounding_strength` would still produce a byte-identical CSV and
+    # every other test here would stay green -- only reading the reference
+    # catches it.
+    out = tmp_path / "d.csv"
+
+    code = main(
+        ["simulate", "--scenario", "D", "--n-units", "400", "--seed", "0", "--out", str(out)]
+    )
+
+    assert code == 0
+    reference = json.loads((tmp_path / "d.reference.json").read_text())
+    recorded = set(reference["params"])
+
+    assert recorded >= {"n_units", *AXIS_NAMES}, (
+        f"reference records {sorted(recorded)}; a replay of this run would fall back to "
+        f"ScenarioParams defaults for {sorted({*AXIS_NAMES} - recorded)}"
+    )
 
 
 def test_a_cross_sectional_scenario_is_written_with_its_reference(tmp_path):

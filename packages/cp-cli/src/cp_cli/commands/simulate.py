@@ -80,15 +80,19 @@ def run(args: argparse.Namespace) -> int:
         # Routed through `ScenarioParams`, not the bare-float facade -- see
         # `cp_evaluation.resolve.resolve_cell` for why: `build_scenario` is
         # the one entry point every caller goes through, and this command has
-        # no flags yet for the other three Phase 18 axes, so it fills in
+        # no flags yet for the other four Phase 18 axes, so it fills in
         # their defaults explicitly rather than through the float shorthand.
-        simulated = build_scenario(
-            scenario, ScenarioParams(confounding_strength=confounding_strength)
-        ).generate(n_units=args.n_units, rng=rng)
-        params = {
-            "n_units": args.n_units,
-            "confounding_strength": confounding_strength,
-        }
+        scenario_params = ScenarioParams(confounding_strength=confounding_strength)
+        simulated = build_scenario(scenario, scenario_params).generate(
+            n_units=args.n_units, rng=rng
+        )
+        # Every axis field is recorded explicitly, via `asdict`, mirroring
+        # `analyze` -- not just the two keys (`n_units`,
+        # `confounding_strength`) that predate Phase 18. Without this, a
+        # `.reference.json` for a widened run would replay the other three
+        # axes from `ScenarioParams`' defaults regardless of what actually
+        # generated the CSV on disk.
+        params = {"n_units": args.n_units, **asdict(scenario_params)}
 
     simulated.dataset.frame.to_csv(out, index=False)
 
