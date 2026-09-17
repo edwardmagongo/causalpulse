@@ -172,6 +172,74 @@ def test_an_unknown_metric_is_refused_by_name():
         heatmap_data(_summary(), metric="frobnicate")
 
 
+def test_more_than_one_row_per_method_and_scenario_is_refused_naming_the_extra_column():
+    # final-review.md I3: without this guard, heatmap_data silently keeps
+    # only the last of several rows for the same (method, scenario) pair --
+    # e.g. one row per effect_scale value from an unfiltered summarise()
+    # output -- and reports that last row's n_fitted for the whole cell,
+    # which can wrongly mark a cell absent even though most of its rows
+    # fitted. Two rows here differ only in effect_scale, so the message must
+    # name exactly that column as the reason they collided.
+    summary = pd.DataFrame(
+        [
+            {
+                "method": "lin_regression",
+                "scenario": "C",
+                "effect_scale": 0.5,
+                "bias": 0.30,
+                "n_fitted": 10,
+                "n_ineligible": 0,
+                "n_refused": 0,
+            },
+            {
+                "method": "lin_regression",
+                "scenario": "C",
+                "effect_scale": 2.0,
+                "bias": -0.10,
+                "n_fitted": 0,
+                "n_ineligible": 10,
+                "n_refused": 0,
+            },
+        ]
+    )
+
+    with pytest.raises(ValueError, match="effect_scale"):
+        heatmap_data(summary, metric="bias")
+
+
+def test_a_summary_already_filtered_to_one_slice_still_pivots():
+    # The guard must not fire on the ordinary case: a summary that already
+    # carries axis-identity columns but has been filtered to a single value
+    # of each, so every (method, scenario) pair still has exactly one row.
+    summary = pd.DataFrame(
+        [
+            {
+                "method": "lin_regression",
+                "scenario": "C",
+                "effect_scale": 1.0,
+                "bias": 0.00,
+                "n_fitted": 10,
+                "n_ineligible": 0,
+                "n_refused": 0,
+            },
+            {
+                "method": "ipw",
+                "scenario": "C",
+                "effect_scale": 1.0,
+                "bias": 0.02,
+                "n_fitted": 10,
+                "n_ineligible": 0,
+                "n_refused": 0,
+            },
+        ]
+    )
+
+    data = heatmap_data(summary, metric="bias")
+
+    assert data.values.shape == (2, 1)
+    assert not data.absent.any()
+
+
 def test_drawing_produces_one_cell_per_method_and_scenario(ax):
     data = heatmap_data(_summary(), metric="bias")
 

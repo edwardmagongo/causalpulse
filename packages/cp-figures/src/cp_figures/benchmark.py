@@ -68,6 +68,21 @@ def heatmap_data(summary: pd.DataFrame, metric: str) -> HeatmapData:
     refuse-rather-than-guess posture as `love_plot_data`'s length check in
     `cp_figures.balance`.
 
+    Also refuses, by raising `ValueError`, when `summary` carries more than
+    one row for the same (method, scenario) pair. Phase 18's grid can widen
+    `n_units`, `confounding_strength` or any of the four new axes, so a
+    `summarise()` output that has not been filtered to one grid slice has
+    several rows per (method, scenario) -- e.g. one per `effect_scale` value.
+    Without this check, the loop below silently overwrites `values[i, j]`
+    and `absent[i, j]` on every row it visits, so the pivot quietly keeps
+    only the last row it happened to see and reports whatever that row's
+    `n_fitted` was for the whole (method, scenario) cell -- exactly the
+    absent-versus-zero confusion this module's docstring exists to prevent
+    (final-review.md I3; a measured example collapsed three scenario-C cells,
+    n_fitted 10/10/0, into one cell marked absent). A per-axis heatmap is a
+    separate, not-yet-built feature; the caller must filter to one slice
+    (e.g. one `n_units`/`confounding_strength`/axis value) before pivoting.
+
     A cell is marked absent in the returned `HeatmapData.absent` when its
     `n_fitted` is zero, or when the (method, scenario) combination has no row
     in `summary` at all -- never when `metric`'s value happens to be NaN (see
@@ -77,6 +92,24 @@ def heatmap_data(summary: pd.DataFrame, metric: str) -> HeatmapData:
     """
     if metric not in summary.columns:
         raise KeyError(metric)
+
+    group_sizes = summary.groupby(["method", "scenario"]).size()
+    duplicated = group_sizes[group_sizes > 1]
+    if not duplicated.empty:
+        method, scenario = duplicated.index[0]
+        group = summary[(summary["method"] == method) & (summary["scenario"] == scenario)]
+        extra_identity_columns = [
+            column
+            for column in group.columns
+            if column not in ("method", "scenario") and group[column].nunique(dropna=False) > 1
+        ]
+        raise ValueError(
+            f"heatmap_data needs exactly one row per (method, scenario), but "
+            f"({method!r}, {scenario!r}) has {len(group)} rows, differing in "
+            f"{extra_identity_columns}. Filter the summary to one grid slice "
+            "(e.g. one value of each of those columns) before pivoting to a "
+            "heatmap."
+        )
 
     methods = tuple(sorted(str(m) for m in summary["method"].unique()))
     scenarios = tuple(sorted(str(s) for s in summary["scenario"].unique()))
