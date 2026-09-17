@@ -232,7 +232,12 @@ def test_restricting_estimators_does_not_change_the_values_of_the_rows_that_rema
 
 
 def test_cross_section_rows_carry_the_new_axis_columns_at_their_cell_values():
-    frame = run_grid(_tiny_cross_section(replications=1))
+    # final-review.md Minor 7: restricted to one fast analytic estimator
+    # rather than the whole registry -- the columns under test here are
+    # cell-level (see `_cell_columns`), identical across every method's row
+    # for the same cell, so which estimator produced the row is irrelevant
+    # to what this test checks.
+    frame = run_grid(_tiny_cross_section(replications=1), estimators=["difference_in_means"])
 
     for column in _NEW_AXIS_COLUMNS:
         assert column in frame.columns
@@ -251,7 +256,16 @@ def test_cross_section_rows_carry_the_realised_treated_share_not_the_intercept()
     # a reader of the results thinks in a treated fraction, not a logit
     # shift. This must be a real, measured value in [0, 1] -- not the raw
     # intercept relabelled.
-    frame = run_grid(_tiny_cross_section(replications=1))
+    #
+    # final-review.md Minor 7: restricted to two fast analytic estimators
+    # rather than the whole registry. Two, not one, deliberately -- the
+    # nunique() == 1 check below is about every *method's* row reporting the
+    # same measured share, so it needs at least two methods to still mean
+    # anything after restricting.
+    frame = run_grid(
+        _tiny_cross_section(replications=1),
+        estimators=["difference_in_means", "lin_regression"],
+    )
 
     assert "realised_treated_share" in frame.columns
     assert frame["realised_treated_share"].between(0.0, 1.0).all()
@@ -290,13 +304,19 @@ def test_panel_rows_carry_nan_for_the_new_axis_columns_and_realised_share():
     # the realised treated share derived from them, are cross-sectional-only
     # in exactly the same way and must follow the same convention rather
     # than inventing a second one (e.g. a sentinel float, or 0.0).
+    #
+    # final-review.md Minor 7: restricted to `twfe` rather than fitting the
+    # whole registry (33.5s -> well under a second) -- these columns are
+    # cell-level (see `_cell_columns`'s panel branch), NaN for every method's
+    # row on a panel cell regardless of which estimator produced it, so one
+    # estimator checks exactly what this test's name says.
     config = GridConfig(
         cross_section=None,
         panel=PanelAxes(scenarios=("P1",), n_units=(150,), n_periods=(6,)),
         replications=1,
     )
 
-    frame = run_grid(config)
+    frame = run_grid(config, estimators=["twfe"])
 
     for column in (*_NEW_AXIS_COLUMNS, "realised_treated_share"):
         assert column in frame.columns
