@@ -351,6 +351,25 @@ def test_summarise_reports_no_realised_treated_share_for_a_panel_group():
     assert summary["realised_treated_share_n_used"].iloc[0] == 0
 
 
+def test_summarise_handles_a_frame_with_no_realised_treated_share_column_at_all():
+    # An older stored run (from before this phase added the column) has no
+    # realised_treated_share column at all -- not even one full of NaN. This
+    # is a different case from the panel-group test above, which drops it to
+    # NaN but still has the column: `summarise`'s own
+    # `if "realised_treated_share" in group.columns` branch reads straight
+    # off column presence, and dropping the column here (rather than filling
+    # it with NaN) is what actually reaches the `else` arm that returns
+    # `_EMPTY` -- untested before this, since every other test's frame comes
+    # from `_frame`, which always carries the column via `ROW_COLUMNS`.
+    frame = _frame([1.0, 2.0], truth=2.0).drop(columns=["realised_treated_share"])
+
+    summary = summarise(frame)
+
+    assert np.isnan(summary["realised_treated_share"].iloc[0])
+    assert np.isnan(summary["realised_treated_share_mcse"].iloc[0])
+    assert summary["realised_treated_share_n_used"].iloc[0] == 0
+
+
 def _se_calibration_frame(method: str, scenario: str) -> pd.DataFrame:
     # A constant reported se with varying points, same shape as the frame
     # used above to prove the bootstrap mcse is finite and positive.
