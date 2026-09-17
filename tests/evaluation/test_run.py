@@ -117,11 +117,22 @@ def test_results_do_not_depend_on_the_order_cells_are_evaluated_in():
     # order, which is precisely what `_shuffle` perturbs. Sweeping only
     # confounding_strength leaves that untested: the axes could be dropped
     # from the key and nothing here would notice.
+    #
+    # final-review.md Minor 6: treatment_intercept alone left the other three
+    # new axes' sort-key entries almost unexercised -- dropping effect_scale
+    # from `run_grid`'s sort key passed this test with only
+    # treatment_intercept widened, because effect_scale never varied at all,
+    # so there was nothing for that axis to tie on. A widened effect_scale
+    # (both A and D declare it) creates the same kind of tie for a second
+    # axis: (A, 400, strength=1.0, effect_scale=0.5, seed=0) and (A, 400,
+    # strength=1.0, effect_scale=2.0, seed=0) agree on every column but
+    # effect_scale, so dropping it from the key ties them too.
     config = _tiny_cross_section(
         scenarios=("A", "D"),
         n_units=(400,),
         confounding_strength=(1.0, 2.0),
         treatment_intercept=(-1.5, 0.0, 1.5),
+        effect_scale=(0.5, 1.0, 2.0),
         replications=2,
     )
 
