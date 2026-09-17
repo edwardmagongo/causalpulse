@@ -471,23 +471,25 @@ def full_config() -> GridConfig:
          `n_periods=(7, 10)`.
        - **Replications is 10, not the spec's 50.** This was chosen as the
          largest round number that kept the tier's runtime to a self-chosen
-         few hours, not because a ceiling is owed to it -- see the next
-         paragraph.
+         few hours, not because a ceiling is owed to it -- see the "no
+         runtime ceiling" paragraph below.
 
-    **Task 8/9: the four axes Phase 18 adds** (`treatment_intercept`,
-    `noise_scale`, `effect_scale`, `heterogeneity_scale`) are set here at
-    three measured points each -- a low, a baseline, and a high value -- per
-    the Phase 18 Task 8 measurements, with one revision
-    recorded in that file's Task 9 addendum: `noise_scale`'s high point is
-    **1.3**, not the 1.0 Task 8 adopted. 0.9 and 1.0 move residual outcome
-    variation by +0.011 and +0.012 respectively -- a gap roughly a tenth of
-    either one's gap from the 0.0 baseline -- so as a three-point axis they
-    resolved two levels, not three, and the axis could show only *whether* an
-    estimator degrades with noise rather than the shape of it. 1.3 moves it
-    by +0.018, spacing the three points about evenly, while saturating the
-    `[0.05, 0.85]` baseline clip at 8.2%/5.4% -- still well under the
-    15.7%/12.2% that had `noise_scale >= 2.0` rejected for reading as
-    "mostly pinned at a clip bound" rather than as noisier.
+    **The four axes Phase 18 adds** (`treatment_intercept`, `noise_scale`,
+    `effect_scale`, `heterogeneity_scale`) are set here at three measured
+    points each -- a low, a baseline, and a high value. See
+    `docs/specs/2026-09-13-causal-core-phase18-design.md` section 12 for the
+    full measurement record, including the values rejected along the way.
+    One value was respaced after the first measurement pass: `noise_scale`'s
+    high point is **1.3**, not the 1.0 first adopted. 0.9 and 1.0 move
+    residual outcome variation by +0.011 and +0.012 respectively -- a gap
+    roughly a tenth of either one's gap from the 0.0 baseline -- so as a
+    three-point axis they resolved two levels, not three, and the axis could
+    show only *whether* an estimator degrades with noise rather than the
+    shape of it. 1.3 moves it by +0.018, spacing the three points about
+    evenly, while saturating the `[0.05, 0.85]` baseline clip at 8.2%/5.4%
+    -- still well under the 15.7%/12.2% that had `noise_scale >= 2.0`
+    rejected for reading as "mostly pinned at a clip bound" rather than as
+    noisier.
 
     **A known caveat on `effect_scale`, disclosed rather than fixed.** Its
     low point of 0.5 moves measured `true_ate` by 0.0150 for scenario C and
@@ -496,25 +498,9 @@ def full_config() -> GridConfig:
     floor exists to verify an axis is *wired*, and is measured against that
     test's own deliberately large `_PERTURBED_VALUE` of 3.0, not against any
     grid value; a 1.5pp effect on C is a legitimate thing for a benchmark to
-    probe, not a degenerate cell.
-
-    Task 8 left two records of this and they do not say the same thing, so
-    both are named rather than one: its measurement file **deferred** the
-    call, on the grounds that 0.5 was already adopted and re-opening it was
-    outside that task's brief, and told Task 9/11 that "roughly 0.3 or
-    below" would clear the floor for both scenarios; the controller's
-    adjudication in that task's ledger entry ruled it "a flagged 'fragility'
-    that is NOT one" on the wired-versus-informative reasoning above. **Task
-    9 is what decided to ship 0.5**, on that reasoning, and the deferred
-    alternative stays open -- ~0.3 remains available to Task 11 or to
-    sub-project 2 if a later reading wants both C and F over the floor. It is
-    recorded here because the
-    paragraph above explains why `noise_scale` was respaced for a
-    related-sounding reason, and a reader would otherwise conclude all four
-    axes cleared every bar. The two cases differ: `noise_scale`'s points
-    failed to resolve *from each other*, which is what the three-point grid
-    was chosen to deliver; `effect_scale`'s low point resolves from baseline
-    fine and merely sits under a floor calibrated for a different question.
+    probe, not a degenerate cell. The design doc's section 12 records why
+    0.5 shipped anyway and names the alternative considered (~0.3, which
+    would clear the floor for both C and F but was not taken).
 
     Each axis is varied **one at a time** against the other three sitting at their
     `ScenarioParams` default (see `grid._expand_cross_section`), and only for
@@ -523,7 +509,7 @@ def full_config() -> GridConfig:
     scenarios x n_units=(500, 2000) x confounding_strength=(0.5, 1.0, 2.0),
     unaffected -- that cross-product is unchanged), plus 42 new cells, 2 per
     axis per scenario that declares it (A: 6, B: 4, C: 6, D: 6, F: 8, G: 6,
-    H: 6; see task-8-measurements.md Step 3 for the full derivation and the
+    H: 6; see section 12 of the design doc for the full derivation and the
     per-axis headroom/degenerate-value checks behind each chosen value).
     `ci_config()` is untouched by this: its own four new-axis fields stay at
     their single-valued `CrossSectionAxes` default, so it keeps producing
@@ -539,7 +525,7 @@ def full_config() -> GridConfig:
     (4 of 4), D (6 of 6) and F (6 of 8) -- at
     `n_units=2000`/`FULL_ESTIMATORS`/`FULL_FIT_CONFIG`, landing in an
     11.68s-12.75s band regardless of which axis or value was varied. The
-    remaining 26 are extrapolated at Step 3's 12.09s/cell average: scenarios
+    remaining 26 are extrapolated at the same 12.09s/cell average: scenarios
     A, C, G and H entirely (6 + 6 + 6 + 6 = 24 cells, never timed), plus F's
     two `noise_scale` cells, timed only at a superseded 0.5 and at the 1.0
     that 1.3 replaced. Counting those superseded runs would give 20; they
@@ -553,7 +539,7 @@ def full_config() -> GridConfig:
 
     MEASURED 2026-09-06, this tree, `run_grid(config, estimators=list(
     FULL_ESTIMATORS), fit_config=FULL_FIT_CONFIG)` at `replications=1`, for
-    the pre-Task-9 42-cell cross-sectional arm (7 scenarios x
+    the pre-widening 42-cell cross-sectional arm (7 scenarios x
     n_units=(500, 2000) x confounding_strength=(0.5, 1.0, 2.0)): 353.4s,
     420 rows (180 fitted, 210 ineligible, 30 refused -- the refusals are
     scenario H's missing outcomes, exactly as expected); the panel arm (6
@@ -563,9 +549,9 @@ def full_config() -> GridConfig:
     away from every panel cell, plus a handful of panel-estimator/
     cell-shape mismatches). Neither arm raised. The 42 new cross-sectional
     cells this widening adds were not re-run through this exact harness;
-    their cost is the Task 8 extrapolation described above, not a fresh
+    their cost is the extrapolation described above, not a fresh
     measurement of this exact `FULL_ESTIMATORS`/`FULL_FIT_CONFIG`
-    combination -- see task-8-measurements.md for what was and was not
+    combination -- see the design doc's section 12 for what was and was not
     directly timed.
 
     Scenario H (missing outcomes) is included, unlike in `ci_config()`: its
