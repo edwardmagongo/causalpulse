@@ -457,9 +457,12 @@ def build_scenario(
     shapes equally at home under the keyword.
 
     The three optional components are attached after the scenario's own
-    builder has run, rather than threaded through it, so all six builders stay
-    as they were and a scenario that opts into none of them produces exactly
-    the frame it produced before.
+    builder has run, rather than threaded through it, so a scenario that opts
+    into none of them produces exactly the frame it produced before. (There
+    are five builder factories behind the seven scenarios --
+    `_randomised`, `_confounded`, `_heterogeneous`, `_selected` and
+    `_missing_data` -- and Phase 18 widened all five to take `ScenarioParams`
+    rather than a bare float.)
     """
     if scenario_id not in SCENARIOS:
         raise KeyError(
@@ -502,7 +505,7 @@ def resolve_scenario_reference(
     `estimators-cannot-see-truth` contract forbids `cp_core` from importing
     this package.
 
-    Supports `n_units` (required) plus every name in `ScenarioParams.AXIS_NAMES`
+    Supports `n_units` (required) plus every name in `cp_simulation.params.AXIS_NAMES`
     (each optional). A reference built from a scenario with a
     `negative_control`, `misclassification`, `missingness`, or `outcome_proxy`
     override cannot be reconstructed from those params alone, and is refused

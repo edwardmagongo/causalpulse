@@ -1,11 +1,14 @@
 """What a benchmark cell is, and how a configuration expands into cells.
 
 The two scenario registries are not symmetric, so neither are the cells. A
-cross-sectional scenario is built by a `Callable[[float], CrossSectionDGP]`
-taking confounding strength, and generated with `n_units`. A panel scenario is
-built by a `Callable[[], PanelDGP | BinaryPanelDGP]` taking nothing at all, and
-generated with `n_units` and `n_periods`. Forcing one dataclass over both would
-mean a field that is meaningless for half its instances.
+cross-sectional scenario is built by a `Callable[[ScenarioParams], CrossSectionDGP]`
+taking the full set of axis values (`build_scenario` also accepts a bare
+`confounding_strength` float for the pre-Phase-18 call shape, which it widens
+to a `ScenarioParams` before reaching the registry), and generated with
+`n_units`. A panel scenario is built by a `Callable[[], PanelDGP |
+BinaryPanelDGP]` taking nothing at all, and generated with `n_units` and
+`n_periods`. Forcing one dataclass over both would mean a field that is
+meaningless for half its instances.
 """
 
 from __future__ import annotations

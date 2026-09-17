@@ -142,10 +142,15 @@ def test_a_manifest_recording_every_axis_replays_exactly():
     # Scenario F is the only one wired to all four axes Phase 18 adds:
     # `treatment_intercept`, `noise_scale`, `effect_scale` and
     # `heterogeneity_scale` (see `_heterogeneous`'s docstring in
-    # scenarios.py). Every value below is off its `ScenarioParams` default,
-    # so a resolver that silently dropped any one of them back to its
-    # default -- instead of threading it through from `reference.params` --
-    # would regenerate a different frame and this test would catch it.
+    # scenarios.py). F does not declare `confounding_strength`, so a
+    # resolver that silently dropped that one axis back to its default
+    # would NOT be caught here -- see
+    # test_resolve_scenario_reference_honours_confounding_strength in
+    # test_scenarios.py for that coverage. Every value below for the four
+    # axes F does declare is off its `ScenarioParams` default, so a
+    # resolver that silently dropped any one of those back to its default
+    # -- instead of threading it through from `reference.params` -- would
+    # regenerate a different frame and this test would catch it.
     params = ScenarioParams(
         confounding_strength=1.6,
         treatment_intercept=0.35,
