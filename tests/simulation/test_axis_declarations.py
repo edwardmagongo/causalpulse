@@ -13,9 +13,10 @@ Every scenario's builder reads `treatment_intercept`, `noise_scale` and
 scenario with an `increment` for it to scale). Declaring only what is
 actually wired keeps this suite meaningful: a scenario's declaration -- and
 this test's "must move" branch for it -- reflects what its builder reads.
-See `docs/specs/2026-09-13-causal-core-phase18-design.md` section 12 for the
-full reasoning and the measurements behind every threshold below, and for
-how each axis was wired into its scenarios.
+See `cp_simulation.scenarios.SCENARIOS`'s own per-scenario comments for how
+each axis is wired into each scenario's builder, and
+`docs/specs/2026-09-13-causal-core-phase18-design.md` section 12 for the
+full per-axis measured-headroom table backing every threshold below.
 """
 
 from dataclasses import replace
@@ -137,11 +138,14 @@ _PERTURBED_VALUE = {
 # Measured floors for "the property moved" at n_units=10_000, seed=0. First
 # calibrated against a direct component probe (bypassing the scenario
 # registry), then re-measured through the real scenario builders once they
-# read these axes: headroom is 2.4x-7.9x across all four new axes and all
-# seven scenarios, tightest at the pre-existing confounding_strength axis
-# against scenario H (2.41x). See
+# read these axes: headroom against these floors, at the _PERTURBED_VALUE
+# below, is 2.4x-7.9x across all five axes this suite checks (the four
+# Phase 18 adds, plus the pre-existing confounding_strength) and all seven
+# scenarios, tightest at confounding_strength against scenario H (2.41x).
+# That is a different quantity from headroom at the values full_config()
+# actually ships, which is thinner -- see
 # docs/specs/2026-09-13-causal-core-phase18-design.md section 12 for the
-# full per-axis table.
+# full per-axis table, covering both.
 _MOVE_THRESHOLD = {
     "confounding_strength": 0.02,
     "treatment_intercept": 0.05,
