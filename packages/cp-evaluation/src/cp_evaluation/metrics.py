@@ -379,6 +379,19 @@ def summarise(frame: pd.DataFrame, *, seed: int = 0) -> pd.DataFrame:
 
     `seed` roots `se_calibration`'s per-group bootstrap seeds (see
     `_group_seed`); it does not otherwise affect any metric.
+
+    The output also carries `realised_treated_share` (plus its `_mcse` and
+    `_n_used`), the per-group mean of `run._realised_treated_share` (Minor 3,
+    final-review.md): `treatment_intercept` is a logit-scale parameter, not a
+    quantity a reader of a summary table thinks in, and before this the
+    measured share -- spec section 4.1's mitigation for exactly that -- never
+    reached `summarise`'s output at all, so a `bench report` table showed the
+    intercept axis with no share to read it against. It is computed over
+    every row in the group, not just `_fitted` ones: it is a property of the
+    cell's generated data, not of whether an estimator's fit succeeded on it,
+    and every row sharing a cell (fitted, ineligible or refused alike) has
+    the identical measured value. NaN for a panel group, which carries no
+    such axis.
     """
     group_columns = ["method", *(c for c in _GROUP_COLUMNS if c in frame.columns)]
     records: list[dict[str, object]] = []
@@ -391,6 +404,11 @@ def summarise(frame: pd.DataFrame, *, seed: int = 0) -> pd.DataFrame:
         record["n_refused"] = int((group["status"] == "refused").sum())
 
         fitted_runtime = _fitted(group)["runtime_seconds"].to_numpy(dtype=float)
+        if "realised_treated_share" in group.columns:
+            share = group["realised_treated_share"].to_numpy(dtype=float)
+            share_metric = _mean_with_mcse(share[np.isfinite(share)])
+        else:
+            share_metric = _EMPTY
         families: dict[str, MetricValue] = {
             **accuracy_metrics(group),
             **coverage_metrics(group),
@@ -402,6 +420,7 @@ def summarise(frame: pd.DataFrame, *, seed: int = 0) -> pd.DataFrame:
             "runtime_seconds": _mean_with_mcse(
                 fitted_runtime[np.isfinite(fitted_runtime)]
             ),
+            "realised_treated_share": share_metric,
         }
         for name, metric in families.items():
             record[name] = metric.value

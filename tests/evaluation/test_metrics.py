@@ -324,6 +324,32 @@ def test_summarise_carries_status_counts_so_absence_is_visible():
     assert summary["n_ineligible"].iloc[0] == 0
 
 
+def test_summarise_reports_the_mean_realised_treated_share_per_group():
+    # Minor 3 (final-review.md): the measured share -- spec section 4.1's
+    # mitigation for treatment_intercept being a logit-scale parameter, not a
+    # quantity a reader thinks in -- must reach summarise's own output, not
+    # just sit unread in the results frame.
+    frame = _frame([1.0, 1.0], truth=1.0, realised_treated_share=[0.40, 0.60])
+
+    summary = summarise(frame)
+
+    assert summary["realised_treated_share"].iloc[0] == pytest.approx(0.50)
+    assert summary["realised_treated_share_n_used"].iloc[0] == 2
+
+
+def test_summarise_reports_no_realised_treated_share_for_a_panel_group():
+    # Panel rows carry NaN for realised_treated_share (run.py's own
+    # convention for every Phase 18 axis on a panel row, since the axis is
+    # cross-sectional-only); the group-level mean must follow that same
+    # absent-not-zero convention rather than reading as a spurious 0.0.
+    frame = _frame([1.0, 1.0], truth=1.0)  # realised_treated_share defaults to NaN
+
+    summary = summarise(frame)
+
+    assert np.isnan(summary["realised_treated_share"].iloc[0])
+    assert summary["realised_treated_share_n_used"].iloc[0] == 0
+
+
 def _se_calibration_frame(method: str, scenario: str) -> pd.DataFrame:
     # A constant reported se with varying points, same shape as the frame
     # used above to prove the bootstrap mcse is finite and positive.
