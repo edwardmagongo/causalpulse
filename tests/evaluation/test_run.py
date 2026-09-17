@@ -121,8 +121,8 @@ def test_results_do_not_depend_on_the_order_cells_are_evaluated_in():
     # confounding_strength leaves that untested: the axes could be dropped
     # from the key and nothing here would notice.
     #
-    # final-review.md Minor 6: treatment_intercept alone left the other three
-    # new axes' sort-key entries almost unexercised -- dropping effect_scale
+    # Widening only treatment_intercept left the other three new axes'
+    # sort-key entries almost unexercised -- dropping effect_scale
     # from `run_grid`'s sort key passed this test with only
     # treatment_intercept widened, because effect_scale never varied at all,
     # so there was nothing for that axis to tie on. A widened effect_scale
@@ -232,8 +232,8 @@ def test_restricting_estimators_does_not_change_the_values_of_the_rows_that_rema
 
 
 def test_cross_section_rows_carry_the_new_axis_columns_at_their_cell_values():
-    # final-review.md Minor 7: restricted to one fast analytic estimator
-    # rather than the whole registry -- the columns under test here are
+    # Restricted to one fast analytic estimator rather than the whole
+    # registry -- the columns under test here are
     # cell-level (see `_cell_columns`), identical across every method's row
     # for the same cell, so which estimator produced the row is irrelevant
     # to what this test checks.
@@ -257,8 +257,8 @@ def test_cross_section_rows_carry_the_realised_treated_share_not_the_intercept()
     # shift. This must be a real, measured value in [0, 1] -- not the raw
     # intercept relabelled.
     #
-    # final-review.md Minor 7: restricted to two fast analytic estimators
-    # rather than the whole registry. Two, not one, deliberately -- the
+    # Restricted to two fast analytic estimators rather than the whole
+    # registry. Two, not one, deliberately -- the
     # nunique() == 1 check below is about every *method's* row reporting the
     # same measured share, so it needs at least two methods to still mean
     # anything after restricting.
@@ -305,8 +305,8 @@ def test_panel_rows_carry_nan_for_the_new_axis_columns_and_realised_share():
     # in exactly the same way and must follow the same convention rather
     # than inventing a second one (e.g. a sentinel float, or 0.0).
     #
-    # final-review.md Minor 7: restricted to `twfe` rather than fitting the
-    # whole registry (33.5s -> well under a second) -- these columns are
+    # Restricted to `twfe` rather than fitting the whole registry
+    # (33.5s -> well under a second) -- these columns are
     # cell-level (see `_cell_columns`'s panel branch), NaN for every method's
     # row on a panel cell regardless of which estimator produced it, so one
     # estimator checks exactly what this test's name says.
@@ -324,7 +324,9 @@ def test_panel_rows_carry_nan_for_the_new_axis_columns_and_realised_share():
 
 
 def test_a_perturbed_row_traces_back_to_its_own_cell_and_its_own_rng_stream():
-    # final-review.md I1: `resolve_cell` (resolve.py:51-60) omitting one of
+    # See docs/specs/2026-09-13-causal-core-phase18-design.md section 12,
+    # "Findings from the whole-branch review": `resolve_cell`'s seam had no
+    # guard. `resolve_cell` (resolve.py:51-60) omitting one of
     # `noise_scale=`/`effect_scale=`/`heterogeneity_scale=` from the
     # `ScenarioParams` it builds, `_cell_columns` (run.py:104-137) writing one
     # axis's value into another axis's column, and `_identity_payload`
@@ -421,7 +423,9 @@ def test_a_perturbed_row_traces_back_to_its_own_cell_and_its_own_rng_stream():
 
 
 def test_realised_treated_share_is_not_the_undisturbed_sigmoid_of_the_intercept():
-    # final-review.md I1: a `_realised_treated_share` mutated to
+    # See docs/specs/2026-09-13-causal-core-phase18-design.md section 12,
+    # "Findings from the whole-branch review": `resolve_cell`'s seam had no
+    # guard. A `_realised_treated_share` mutated to
     # `sigmoid(cell.treatment_intercept)` was "killed only by accident" --
     # only the empty-control test's `== 1.0` check happened to fail, because
     # sigmoid(20) is not exactly 1. This pins it directly, at the intercept

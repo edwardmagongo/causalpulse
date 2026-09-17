@@ -7,11 +7,10 @@ from cp_simulation.params import AXIS_NAMES
 
 
 def test_the_written_reference_names_every_axis_not_just_the_two_that_predate_them(tmp_path):
-    # Minor 1 (final-review.md): the writer's job is to record every axis
-    # explicitly, mirroring `analyze`
-    # (test_the_written_manifest_names_every_axis_not_just_the_two_that_predate_them
-    # in tests/cli/test_analyze.py), so a replay is exact no matter what a
-    # ScenarioParams default does later. `simulate` never varies these axes
+    # The writer's job is to record every axis explicitly, mirroring
+    # `analyze`'s own version of this test in tests/cli/test_analyze.py, so
+    # a replay is exact no matter what a ScenarioParams default does later.
+    # `simulate` never varies these axes
     # away from their defaults, so a writer that only recorded `n_units` and
     # `confounding_strength` would still produce a byte-identical CSV and
     # every other test here would stay green -- only reading the reference
