@@ -18,7 +18,8 @@ def test_adding_a_field_to_a_hashed_component_changes_the_hash():
     # Phase 18 Task 2 briefly taught `_describe()` to omit one opt-in field
     # from the hash while it sat at its own default, specifically to avoid
     # this outcome for `PropensityAssignment.intercept`. That was reverted
-    # (see the Phase 18 Task 2 fix report): a recorded hash that stays
+    # (see docs/specs/2026-09-13-causal-core-phase18-design.md section 12
+    # for the incident): a recorded hash that stays
     # byte-identical after a component gains a field is the exact failure
     # `config_hash` exists to prevent -- a config_hash that no longer
     # distinguishes "field doesn't exist" from "field exists at its no-op

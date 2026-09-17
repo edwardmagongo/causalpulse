@@ -8,15 +8,14 @@ module is what holds it honest: for every scenario x axis pair, a measured
 property of the generated output must move when the axis is declared and must
 not move at all when it is not.
 
-As of Task 6, every scenario's builder reads `treatment_intercept`,
-`noise_scale` and `effect_scale`, and `heterogeneity_scale` is wired into
-scenario F (the only scenario with an `increment` for it to scale). Declaring
-only what is actually wired (rather than the full intended set, xfail'd or
-red) keeps this suite meaningful: a scenario's declaration -- and this test's
-"must move" branch for it -- reflects what its builder reads, not what a
-later task still owes it. See the Phase 18 working notes for
-the full reasoning and the measurements behind every threshold below, and
-the Phase 18 working notes for how each axis was wired.
+Every scenario's builder reads `treatment_intercept`, `noise_scale` and
+`effect_scale`, and `heterogeneity_scale` is wired into scenario F (the only
+scenario with an `increment` for it to scale). Declaring only what is
+actually wired keeps this suite meaningful: a scenario's declaration -- and
+this test's "must move" branch for it -- reflects what its builder reads.
+See `docs/specs/2026-09-13-causal-core-phase18-design.md` section 12 for the
+full reasoning and the measurements behind every threshold below, and for
+how each axis was wired into its scenarios.
 """
 
 from dataclasses import replace
@@ -28,7 +27,8 @@ from cp_simulation.scenarios import SCENARIOS
 
 # Every generated comparison in this module uses the same size and seed, so
 # the measured thresholds below (captured at this exact configuration) stay
-# valid. See task-5-report.md for the sweep that produced them.
+# valid. See docs/specs/2026-09-13-causal-core-phase18-design.md section 12
+# for the sweep that produced them.
 _N_UNITS = 10_000
 _SEED = 0
 
@@ -134,13 +134,14 @@ _PERTURBED_VALUE = {
     "heterogeneity_scale": 3.0,
 }
 
-# Measured floors for "the property moved" at n_units=10_000, seed=0 -- see
-# task-5-report.md for the sweep. Each sits comfortably below the smallest
-# delta observed for a mechanism that genuinely reads the axis. Captured
-# before Task 6 wired the four new axes into the scenario builders, by wiring
-# the underlying component by hand and bypassing the scenario registry --
-# still valid now that the scenarios themselves read these axes, since the
-# floors describe the mechanism's sensitivity, not the registry wiring.
+# Measured floors for "the property moved" at n_units=10_000, seed=0. First
+# calibrated against a direct component probe (bypassing the scenario
+# registry), then re-measured through the real scenario builders once they
+# read these axes: headroom is 2.4x-7.9x across all four new axes and all
+# seven scenarios, tightest at the pre-existing confounding_strength axis
+# against scenario H (2.41x). See
+# docs/specs/2026-09-13-causal-core-phase18-design.md section 12 for the
+# full per-axis table.
 _MOVE_THRESHOLD = {
     "confounding_strength": 0.02,
     "treatment_intercept": 0.05,
@@ -285,7 +286,8 @@ def test_heterogeneity_scale_increases_scenario_fs_cate_spread():
 # though the builder still reads it. `heterogeneity_scale` is present only for
 # F: every other scenario's effect is `ConstantEffect`, which has no
 # `increment` for that axis to scale, so its CATE spread is structurally zero
-# regardless -- see task-5-report.md finding 1 and task-6-report.md.
+# regardless -- see docs/specs/2026-09-13-causal-core-phase18-design.md
+# section 12.
 _EXPECTED_AXES = {
     "A": frozenset({"effect_scale", "treatment_intercept", "noise_scale"}),
     "B": frozenset({"treatment_intercept", "noise_scale"}),

@@ -72,7 +72,8 @@ def _digest_simulated(simulated):
     move (e.g. a component gaining a new field) without a single generated
     value changing. Mixing it into a digest meant to catch drift in *data*
     makes an unrelated metadata change look like a data regression -- see
-    the Phase 18 Task 2 fix report for the incident this caused.
+    docs/specs/2026-09-13-causal-core-phase18-design.md section 12 for the
+    incident this caused.
     """
     frame_bytes = simulated.dataset.frame.to_csv(index=True).encode()
     truth = simulated.truth
@@ -104,11 +105,12 @@ def _digest_simulated(simulated):
 # these scenarios generates, every digest below would already have been wrong
 # before this test was ever run against the new code.
 #
-# Recomputed for the Phase 18 Task 2 fix (`config_hash` removed from
-# `_digest_simulated`'s payload above): every constant below changed as a
-# result, because the payload being hashed changed shape for every scenario,
-# not because any scenario's generated data changed. See the Phase 18 Task 2
-# fix report for the before/after values and why this is not a regression.
+# Recomputed after `config_hash` was removed from `_digest_simulated`'s
+# payload above: every constant below changed as a result, because the
+# payload being hashed changed shape for every scenario, not because any
+# scenario's generated data changed. See
+# docs/specs/2026-09-13-causal-core-phase18-design.md section 12 for the
+# incident and why this is not a regression.
 _PRE_PHASE18_DIGESTS = {
     "A": "5112e8a9a3477cf60cf01eccfe997c98b1cf93c7a8a2996e3d65b7ea598cff28",
     "B": "47e38cfa1c8498e6b39e66ba58dbb4a692deee5fff217aa74846a8a8167d4bd3",
@@ -178,7 +180,8 @@ def test_build_scenario_passes_a_full_scenario_params_through_unabridged():
     # caller that reaches this branch only ever sets confounding_strength.
     #
     # Confirmed to fail under exactly that mutation and to pass again once
-    # reverted -- see task-6-report.md for the exact command and output.
+    # reverted -- see docs/specs/2026-09-13-causal-core-phase18-design.md
+    # section 12.
     params = ScenarioParams(effect_scale=2.0, noise_scale=1.5, heterogeneity_scale=2.0)
 
     via_facade = build_scenario("F", params).generate(n_units=500, rng=np.random.default_rng(5))
