@@ -29,7 +29,7 @@ from cp_core.results import (
 )
 from cp_core.values import Diagnostic, Interval
 from cp_figures.balance import LovePlotData, draw_love_plot, love_plot_data, overlap_data
-from cp_figures.benchmark import draw_heatmap, heatmap_data
+from cp_figures.benchmark import AxisProfileData, draw_axis_profile, draw_heatmap, heatmap_data
 from cp_figures.effects import (
     counterfactual_path_data,
     draw_counterfactual_path,
@@ -191,6 +191,47 @@ def test_a_heatmap_with_every_cell_absent_draws_without_raising_or_a_scale(ax):
     # future "only add a colorbar when there's something to show" branch would still need this
     # to hold for the all-absent case specifically.
     assert len(ax.figure.axes) == 1
+
+
+# --- An axis profile whose every cell is absent -----------------------------------------------
+
+
+def _all_absent_profile():
+    return AxisProfileData(
+        axis="effect_scale",
+        scenario="C",
+        metric="bias",
+        axis_values=(0.5, 1.0, 2.0),
+        methods=("ipw", "lin_regression"),
+        values=np.full((2, 3), np.nan),
+        absent=np.ones((2, 3), dtype=bool),
+        realised_treated_share=None,
+    )
+
+
+def test_an_axis_profile_with_every_cell_absent_draws_without_raising_or_a_scale(ax):
+    # Decision: draws correctly -- the profile's analogue of the heatmap case above. An
+    # all-absent profile is a legitimate report ("nothing here ran"), not an error. Checked
+    # empirically before writing this test, including that plotting an all-NaN line and adding a
+    # rug mark for every (method, axis value) combination raises no warning under this suite's
+    # filterwarnings=error.
+    data = _all_absent_profile()
+    assert bool(np.all(data.absent))
+
+    draw_axis_profile(data, ax)
+
+    lines = [line for line in ax.lines if line.get_label() in data.methods]
+    assert len(lines) == 2
+    for line in lines:
+        y = np.asarray(line.get_ydata(), dtype=float)
+        assert np.all(np.isnan(y)), "every position is absent, so none may land on the value scale"
+
+    # Every (method, axis value) combination is absent, so the rug carries one mark per axis
+    # value for every method -- the whole grid, not merely a lucky subset.
+    rugs = [line for line in ax.lines if line.get_transform() is not ax.transData]
+    assert len(rugs) == len(data.methods)
+    for rug in rugs:
+        assert len(rug.get_xdata()) == len(data.axis_values)
 
 
 # --- A placebo result with an empty placebo_effects array -------------------------------------

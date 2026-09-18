@@ -69,8 +69,8 @@ verified by reading every `*_data` function in `cp_figures.effects`,
   for `ESTIMATE_CONSUMERS`.
   `placebo_data` (`cp_figures.sensitivity`) takes a `PlaceboTestResult`,
   which carries no `ci` field at all.
-- `heatmap_data` (`cp_figures.benchmark`) takes a `pandas.DataFrame`
-  summary, not an `EffectEstimate`.
+- `heatmap_data` and `axis_profile_data` (`cp_figures.benchmark`) each take a
+  `pandas.DataFrame` summary, not an `EffectEstimate`.
 
 If any of those ever renders `estimate.point` alongside `estimate.ci`, it
 belongs here too.
