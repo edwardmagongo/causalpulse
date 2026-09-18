@@ -1046,6 +1046,12 @@ def test_a_method_with_no_absent_values_draws_no_rug(ax):
 
 def test_each_methods_rug_matches_its_own_line_colour(ax):
     # A rug mark has to be attributable to a method without a second legend.
+    # A set comparison of colours is not enough proof of that: with exactly
+    # two methods, a bug that swapped which rug gets which method's colour
+    # would still produce the identical two-element set and the test would
+    # not notice. Keying each rug by its own axis position (`ipw` is absent
+    # only at 1.0, `lin_regression` only at 0.5) checks the colour is
+    # attributed to the right method, not merely drawn from the right palette.
     data = AxisProfileData(
         axis="effect_scale",
         scenario="C",
@@ -1062,11 +1068,9 @@ def test_each_methods_rug_matches_its_own_line_colour(ax):
     lines = {line.get_label(): line for line in ax.lines if line.get_label() in data.methods}
     rugs = _rug_lines(ax)
     assert len(rugs) == 2
-    rug_colours = {rug.get_color() for rug in rugs}
-    assert rug_colours == {
-        lines["ipw"].get_color(),
-        lines["lin_regression"].get_color(),
-    }
+    rugs_by_x = {float(rug.get_xdata()[0]): rug for rug in rugs}
+    assert rugs_by_x[1.0].get_color() == lines["ipw"].get_color()
+    assert rugs_by_x[0.5].get_color() == lines["lin_regression"].get_color()
 
 
 def test_the_rug_band_stays_the_same_height_whatever_the_method_count(ax):
