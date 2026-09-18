@@ -551,3 +551,28 @@ def test_every_axis_name_has_a_field_on_the_cell_and_the_axes():
     for name in AXIS_NAMES:
         assert name in cell_fields, f"{name} is in AXIS_NAMES but CrossSectionCell has no field"
         assert name in axes_fields, f"{name} is in AXIS_NAMES but CrossSectionAxes has no field"
+
+
+def test_axis_baselines_matches_scenario_params_defaults():
+    # AXIS_BASELINES is what cp_figures reads to decide which rows are
+    # "every other axis at its default". If it ever drifted from
+    # ScenarioParams' own defaults, the figure would silently select a
+    # slice that is not the one-at-a-time slice the grid emitted -- with
+    # no error, just the wrong rows.
+    from cp_evaluation.grid import AXIS_BASELINES
+    from cp_simulation.params import AXIS_NAMES, ScenarioParams
+
+    defaults = ScenarioParams()
+
+    assert tuple(AXIS_BASELINES) == AXIS_NAMES
+    for name in AXIS_NAMES:
+        assert AXIS_BASELINES[name] == getattr(defaults, name)
+
+
+def test_axis_baselines_cannot_be_mutated_by_a_caller():
+    # A plain dict here would let any importer rewrite what the grid
+    # considers unperturbed, for every other importer in the process.
+    from cp_evaluation.grid import AXIS_BASELINES
+
+    with pytest.raises(TypeError):
+        AXIS_BASELINES["effect_scale"] = 99.0  # type: ignore[index]

@@ -15,8 +15,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
+from types import MappingProxyType
 
 import numpy as np
 from cp_simulation.panel_scenarios import PANEL_SCENARIOS
@@ -30,6 +31,26 @@ from cp_simulation.scenarios import SCENARIOS
 # `cp_simulation.params` cannot silently drift out of sync with what the grid
 # considers "unperturbed".
 _DEFAULT_PARAMS = ScenarioParams()
+
+# The value each axis sits at when it is *not* the one being varied, derived
+# from `_DEFAULT_PARAMS` rather than restated, so there is one source and not
+# two that happen to agree today.
+#
+# Public because `cp_figures.benchmark.axis_profile_data` needs it to select a
+# one-at-a-time slice out of a summary: "every other axis at its default" is
+# only well defined against these exact numbers. A figures module that
+# hard-coded them would reintroduce precisely the drift the comment above
+# exists to prevent, and `cp_figures` has no `cp_simulation` dependency to read
+# `ScenarioParams` through. This follows the treatment `GROUP_COLUMNS` already
+# got in `cp_evaluation.metrics` for the same cross-package need.
+#
+# A read-only mapping rather than a dict: an importer must not be able to
+# rewrite what the grid considers unperturbed for every other importer in the
+# process. `float` rather than the `ScenarioParams` instance itself keeps a
+# `cp_simulation` type out of `cp_figures`' annotations.
+AXIS_BASELINES: Mapping[str, float] = MappingProxyType(
+    {name: float(getattr(_DEFAULT_PARAMS, name)) for name in AXIS_NAMES}
+)
 
 # The four axes Phase 18 adds, in the order `ScenarioParams`/`AXIS_NAMES`
 # already declares them, minus `confounding_strength` -- that one stays fully
@@ -192,7 +213,7 @@ def _perturbed_axes(axes: CrossSectionAxes) -> tuple[str, ...]:
     perturbed = []
     for name in _NEW_AXIS_NAMES:
         declared_somewhere = any(name in SCENARIOS[s].axes for s in axes.scenarios)
-        baseline = getattr(_DEFAULT_PARAMS, name)
+        baseline = AXIS_BASELINES[name]
         if declared_somewhere and any(v != baseline for v in getattr(axes, name)):
             perturbed.append(name)
     return tuple(perturbed)
@@ -220,11 +241,11 @@ def _check_the_anchor_is_on_the_grid(axes: CrossSectionAxes) -> None:
     perturbed = _perturbed_axes(axes)
     if not perturbed:
         return
-    if _DEFAULT_PARAMS.confounding_strength in {float(v) for v in axes.confounding_strength}:
+    if AXIS_BASELINES["confounding_strength"] in {float(v) for v in axes.confounding_strength}:
         return
     raise ValueError(
         f"varying {list(perturbed)} one at a time anchors on "
-        f"confounding_strength={_DEFAULT_PARAMS.confounding_strength} "
+        f"confounding_strength={AXIS_BASELINES['confounding_strength']} "
         f"(ScenarioParams' default), which is not in "
         f"{list(axes.confounding_strength)}; the perturbed cells would have no "
         f"baseline cell to be compared against. Add it to the axis, or leave "
@@ -261,7 +282,7 @@ def _expand_cross_section(
     absent-versus-zero confusion Phase 16's heatmaps were built to avoid).
     """
     anchor_n_units = max(axes.n_units)
-    anchor_confounding_strength = _DEFAULT_PARAMS.confounding_strength
+    anchor_confounding_strength = AXIS_BASELINES["confounding_strength"]
 
     for scenario in axes.scenarios:
         declared = SCENARIOS[scenario].axes
@@ -279,7 +300,7 @@ def _expand_cross_section(
         for axis_name in _NEW_AXIS_NAMES:
             if axis_name not in declared:
                 continue
-            baseline_value = getattr(_DEFAULT_PARAMS, axis_name)
+            baseline_value = AXIS_BASELINES[axis_name]
             for value in getattr(axes, axis_name):
                 if value == baseline_value:
                     continue
