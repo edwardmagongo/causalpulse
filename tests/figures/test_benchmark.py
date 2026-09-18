@@ -891,17 +891,23 @@ def test_drawing_a_profile_draws_one_line_per_method_at_the_axis_values(ax):
     )
 
 
-def test_drawing_a_profile_breaks_the_line_at_an_absent_value(ax):
-    # A line drawn straight across a cell that never ran asserts a value
-    # between two measurements where there is none. NaN at that position
-    # breaks the line and draws no marker.
+def test_drawing_a_profile_masks_absent_positions_not_dropping_them(ax):
+    # An absent point must be kept in place but NaN'd, not dropped from the
+    # arrays. A draw_ that filtered absent values out would plot only the
+    # present points and draw a line straight from one neighbour to the other,
+    # visually asserting a trend across a cell that never ran. With the point
+    # kept and NaN'd, the line breaks and a reader can see the gap.
+    #
+    # This test verifies the structural requirement (x array is complete, not
+    # filtered). The sibling test verifies the value masking (y is NaN on an
+    # absent position). Together they guard both halves of "mask, not drop".
     data = AxisProfileData(
         axis="effect_scale",
         scenario="C",
         metric="bias",
         axis_values=(0.5, 1.0, 2.0),
         methods=("ipw",),
-        values=np.array([[0.02, np.nan, 0.05]]),
+        values=np.array([[0.02, 0.0, 0.05]]),  # finite value at absent pos
         absent=np.array([[False, True, False]]),
         realised_treated_share=None,
     )
@@ -909,7 +915,13 @@ def test_drawing_a_profile_breaks_the_line_at_an_absent_value(ax):
     draw_axis_profile(data, ax)
 
     line = next(line for line in ax.lines if line.get_label() == "ipw")
+    x = np.asarray(line.get_xdata(), dtype=float)
     y = np.asarray(line.get_ydata(), dtype=float)
+
+    # The absent position is kept in the x array; it is not dropped
+    np.testing.assert_allclose(x, [0.5, 1.0, 2.0])
+
+    # The absent position is NaN'd in the y array
     assert np.isnan(y[1])
     assert not np.isnan(y[0]) and not np.isnan(y[2])
 
