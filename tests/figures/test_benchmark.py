@@ -4,7 +4,13 @@ import pandas as pd
 import pytest
 from cp_evaluation.metrics import summarise
 from cp_evaluation.run import ROW_COLUMNS
-from cp_figures.benchmark import HeatmapData, draw_heatmap, heatmap_data
+from cp_figures.benchmark import (
+    AxisProfileData,
+    HeatmapData,
+    axis_profile_data,
+    draw_heatmap,
+    heatmap_data,
+)
 
 
 @pytest.fixture
@@ -380,3 +386,275 @@ def test_heatmap_data_is_a_dataclass_with_the_documented_fields():
 
     assert isinstance(data, HeatmapData)
     assert data.metric == "bias"
+
+
+def _profile_frame():
+    """A real `ROW_COLUMNS` frame for scenario C's effect_scale profile.
+
+    The five (n_units, effect_scale, noise_scale) combinations below are
+    exactly what `full_config()` emits for scenario C along this axis, plus
+    the two rows that must be *excluded*:
+
+      - (500, 1.0, 0.0) is the baseline cell at a non-anchor n_units. The
+        grid's cross-product produces the baseline at every n_units, but
+        `_expand_cross_section` anchors the perturbed cells at
+        max(axes.n_units). Without the n_units pin, effect_scale=1.0 would
+        carry two rows per method and the duplicate refusal would fire.
+      - (2000, 1.0, 1.3) is a *different* axis perturbed. One-at-a-time
+        means it belongs to the noise_scale profile, not this one.
+
+    Two seeds per cell so `summarise` has something to average; bias is
+    exact because both seeds carry the same point and truth.
+    """
+    # Keyed on the whole cell, not just (method, effect_scale): the two
+    # rows that must be EXCLUDED sit at effect_scale=1.0 alongside the row
+    # that must be kept, so they need their own distinguishable biases. If
+    # all three carried the same number, a rule that anchored on min(n_units)
+    # instead of max, or that skipped the noise_scale pin, would select the
+    # wrong row and every assertion would still pass.
+    biases = {
+        ("lin_regression", 2000, 0.5, 0.0): 0.01,
+        ("lin_regression", 2000, 1.0, 0.0): 0.00,  # a genuine zero, not an absent cell
+        ("lin_regression", 2000, 2.0, 0.0): 0.04,
+        ("ipw", 2000, 0.5, 0.0): 0.02,
+        ("ipw", 2000, 1.0, 0.0): 0.03,
+        ("ipw", 2000, 2.0, 0.0): 0.05,
+        # Must never reach the profile:
+        ("lin_regression", 500, 1.0, 0.0): 0.91,
+        ("ipw", 500, 1.0, 0.0): 0.92,
+        ("lin_regression", 2000, 1.0, 1.3): 0.81,
+        ("ipw", 2000, 1.0, 1.3): 0.82,
+    }
+    rows = []
+    for method in ("ipw", "lin_regression"):
+        for n_units, effect_scale, noise_scale in (
+            (2000, 0.5, 0.0),
+            (2000, 1.0, 0.0),
+            (2000, 2.0, 0.0),
+            (500, 1.0, 0.0),
+            (2000, 1.0, 1.3),
+        ):
+            truth = 0.03 * effect_scale
+            bias = biases[(method, n_units, effect_scale, noise_scale)]
+            for seed in (0, 1):
+                rows.append(
+                    _row(
+                        method=method,
+                        n_units=n_units,
+                        confounding_strength=1.0,
+                        treatment_intercept=0.0,
+                        noise_scale=noise_scale,
+                        effect_scale=effect_scale,
+                        heterogeneity_scale=1.0,
+                        realised_treated_share=0.5,
+                        seed=seed,
+                        truth=truth,
+                        point=truth + bias,
+                    )
+                )
+    return pd.DataFrame(rows, columns=list(ROW_COLUMNS))
+
+
+def _profile_summary():
+    return summarise(_profile_frame())
+
+
+def test_the_profile_selects_one_axis_and_sorts_its_values():
+    data = axis_profile_data(
+        _profile_summary(), "bias", axis="effect_scale", scenario="C"
+    )
+
+    assert data.axis == "effect_scale"
+    assert data.scenario == "C"
+    assert data.metric == "bias"
+    assert data.axis_values == (0.5, 1.0, 2.0)
+    assert data.methods == ("ipw", "lin_regression")
+    assert data.values.shape == (2, 3)
+
+
+def test_the_profile_includes_the_baseline_point_from_the_cross_product():
+    # `_expand_cross_section` SKIPS the axis's own default in its
+    # one-at-a-time loop (`if value == baseline_value: continue`); the
+    # baseline cell comes from the n_units x confounding_strength
+    # cross-product instead. A rule that gathered only the perturbed cells
+    # would drop the one point the whole comparison is anchored on, and
+    # would do it silently -- the figure would still draw, with two points.
+    data = axis_profile_data(
+        _profile_summary(), "bias", axis="effect_scale", scenario="C"
+    )
+
+    assert 1.0 in data.axis_values
+    row = data.methods.index("lin_regression")
+    column = data.axis_values.index(1.0)
+    assert data.values[row][column] == pytest.approx(0.00)
+
+
+def test_a_baseline_row_at_a_smaller_n_units_is_excluded_by_the_anchor_pin():
+    # The grid produces the baseline cell at EVERY n_units, but anchors the
+    # perturbed cells at max(axes.n_units). Mixing a 500-unit baseline in
+    # beside 2000-unit perturbed cells would compare cells that differ in
+    # two things at once. With the pin, effect_scale=1.0 has exactly one row
+    # per method; without it, two -- which the duplicate refusal would catch,
+    # so this test pins the *correct* behaviour rather than the crash.
+    summary = _profile_summary()
+    assert (summary["n_units"] == 500).any(), "fixture sanity: a 500-unit row must exist"
+    # summarise() itself emits rows sorted ascending by n_units, so the
+    # 500-unit row always precedes the 2000-unit one in iteration order --
+    # meaning a plain "last write wins" placement loop would coincidentally
+    # land on the correct 2000-unit value even with the anchor pin deleted,
+    # and this test would never be able to fail. Reversing the row order
+    # here removes that coincidence without touching what data means: the
+    # anchor pin must filter to the max-n_units row regardless of the order
+    # rows arrive in, while a mutant relying on iteration order to save it
+    # would now keep the wrong (500-unit) row instead.
+    summary = summary.iloc[::-1].reset_index(drop=True)
+
+    data = axis_profile_data(summary, "bias", axis="effect_scale", scenario="C")
+
+    assert data.values.shape == (2, 3)
+    # The 500-unit baseline row carries bias 0.91/0.92, the 2000-unit one
+    # 0.00/0.03. Asserting WHICH value landed is what distinguishes the
+    # anchor being max(n_units) from it being min -- a shape check alone
+    # would pass either way.
+    for method, expected in (("lin_regression", 0.00), ("ipw", 0.03)):
+        row = data.methods.index(method)
+        column = data.axis_values.index(1.0)
+        assert data.values[row][column] == pytest.approx(expected), method
+
+
+def test_a_row_with_another_axis_perturbed_is_excluded():
+    # (2000, effect_scale=1.0, noise_scale=1.3) belongs to the noise_scale
+    # profile. Leaving it in would put two rows on effect_scale=1.0 and
+    # average a noisy cell into the baseline point.
+    summary = _profile_summary()
+    assert (summary["noise_scale"] == 1.3).any(), "fixture sanity: a noisy row must exist"
+
+    data = axis_profile_data(summary, "bias", axis="effect_scale", scenario="C")
+
+    assert data.values.shape == (2, 3)
+    # The noisy row carries bias 0.81/0.82. Asserting the quiet row's value
+    # landed is what makes this test able to fail: dropping the noise_scale
+    # pin selects the wrong row, not merely an extra one.
+    for method, expected in (("lin_regression", 0.00), ("ipw", 0.03)):
+        row = data.methods.index(method)
+        column = data.axis_values.index(1.0)
+        assert data.values[row][column] == pytest.approx(expected), method
+
+
+def test_every_cell_is_correctly_placed_not_just_one():
+    # A selection bug that transposes methods and values, or assigns the
+    # last row seen to every cell, could still pass a single-cell check.
+    data = axis_profile_data(
+        _profile_summary(), "bias", axis="effect_scale", scenario="C"
+    )
+
+    expected = {
+        ("ipw", 0.5): 0.02,
+        ("ipw", 1.0): 0.03,
+        ("ipw", 2.0): 0.05,
+        ("lin_regression", 0.5): 0.01,
+        ("lin_regression", 1.0): 0.00,
+        ("lin_regression", 2.0): 0.04,
+    }
+    for (method, value), bias in expected.items():
+        row = data.methods.index(method)
+        column = data.axis_values.index(value)
+        assert data.values[row][column] == pytest.approx(bias), (method, value)
+        assert bool(data.absent[row][column]) is False
+
+
+def test_a_genuine_zero_is_present_not_absent_along_an_axis():
+    # lin_regression at effect_scale=1.0 has bias exactly 0.0 with fitted
+    # rows. An implementation that marked a cell absent whenever its value
+    # was falsy, rather than reading n_fitted, would pass every other test
+    # here and fail this one.
+    data = axis_profile_data(
+        _profile_summary(), "bias", axis="effect_scale", scenario="C"
+    )
+
+    row = data.methods.index("lin_regression")
+    column = data.axis_values.index(1.0)
+    assert data.values[row][column] == pytest.approx(0.0)
+    assert bool(data.absent[row][column]) is False
+
+
+def test_a_cell_with_no_fitted_rows_is_absent_not_zero_along_an_axis():
+    # The heatmap's guarantee, carried across. Every ipw row at
+    # effect_scale=2.0 is ineligible, so that cell never ran -- it is not a
+    # cell that scored zero.
+    frame = _profile_frame()
+    ineligible = (
+        (frame["method"] == "ipw")
+        & (frame["effect_scale"] == 2.0)
+        & (frame["noise_scale"] == 0.0)
+    )
+    assert ineligible.any(), "fixture sanity"
+    frame.loc[ineligible, "status"] = "ineligible"
+
+    data = axis_profile_data(summarise(frame), "bias", axis="effect_scale", scenario="C")
+
+    row = data.methods.index("ipw")
+    column = data.axis_values.index(2.0)
+    assert bool(data.absent[row][column]) is True
+    assert np.isnan(data.values[row][column])
+
+
+def test_a_legitimately_nan_metric_with_fitted_rows_is_present_along_an_axis():
+    # relative_bias is NaN wherever a group's mean truth is exactly zero
+    # (cp_evaluation.metrics.accuracy_metrics), and those rows have
+    # n_fitted > 0. absent must track n_fitted, never numpy.isnan(value),
+    # or a null-truth cell would be wrongly hidden as if it never ran.
+    frame = _profile_frame()
+    frame["truth"] = 0.0
+    summary = summarise(frame)
+
+    data = axis_profile_data(summary, "relative_bias", axis="effect_scale", scenario="C")
+
+    row = data.methods.index("ipw")
+    column = data.axis_values.index(1.0)
+    assert np.isnan(data.values[row][column])
+    assert bool(data.absent[row][column]) is False
+
+
+def test_a_method_missing_at_one_axis_value_entirely_is_absent():
+    # summarise only emits a row for a (method, cell) that appears in the
+    # results. A method with no row at one axis value must read as absent,
+    # not crash on a missing key and not default to a plotted zero.
+    frame = _profile_frame()
+    keep = ~(
+        (frame["method"] == "ipw")
+        & (frame["effect_scale"] == 0.5)
+    )
+    summary = summarise(frame[keep])
+
+    data = axis_profile_data(summary, "bias", axis="effect_scale", scenario="C")
+
+    row = data.methods.index("ipw")
+    column = data.axis_values.index(0.5)
+    assert bool(data.absent[row][column]) is True
+    assert np.isnan(data.values[row][column])
+
+
+def test_n_units_is_a_selectable_axis_with_no_anchor_pin():
+    # n_units is crossed rather than varied one-at-a-time, but with every
+    # AXIS_NAMES axis pinned to its baseline the surviving rows are a
+    # genuine profile. This is the rule's one branch: there is no n_units
+    # pin when n_units is itself the axis.
+    data = axis_profile_data(
+        _profile_summary(), "bias", axis="n_units", scenario="C"
+    )
+
+    assert data.axis_values == (500.0, 2000.0)
+    assert data.values.shape == (2, 2)
+    assert not data.absent.any()
+
+
+def test_axis_profile_data_is_a_dataclass_with_the_documented_fields():
+    data = axis_profile_data(
+        _profile_summary(), "bias", axis="effect_scale", scenario="C"
+    )
+
+    assert isinstance(data, AxisProfileData)
+    assert isinstance(data.values, np.ndarray)
+    assert isinstance(data.absent, np.ndarray)
+    assert data.absent.dtype == bool
