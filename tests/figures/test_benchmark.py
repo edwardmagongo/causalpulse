@@ -1141,3 +1141,84 @@ def test_intercept_ticks_fall_back_to_the_bare_value_without_a_share(ax):
 
     labels = [text.get_text() for text in ax.get_xticklabels()]
     assert labels == ["-1.5", "0\n(50% treated)"]
+
+
+def _summary_over_the_full_grids_cells():
+    """A summary shaped like a `full_config()` run, without running one.
+
+    `expand_cells` is pure enumeration -- it builds no data and fits no
+    estimator -- so this costs milliseconds and never touches the `full`
+    tier's several-hour cost. One row per cross-sectional cell, one method,
+    every metric left NaN: this test asserts on *which cells the rule
+    selects*, not on any metric's value.
+    """
+    from cp_evaluation.grid import CrossSectionCell, expand_cells
+    from cp_evaluation.tiers import full_config
+
+    cells = [
+        cell
+        for cell in expand_cells(full_config())
+        if isinstance(cell, CrossSectionCell)
+    ]
+    rows = [
+        _row(
+            method="ipw",
+            scenario=cell.scenario,
+            n_units=cell.n_units,
+            confounding_strength=cell.confounding_strength,
+            treatment_intercept=cell.treatment_intercept,
+            noise_scale=cell.noise_scale,
+            effect_scale=cell.effect_scale,
+            heterogeneity_scale=cell.heterogeneity_scale,
+            seed=cell.seed,
+            truth=0.03,
+            point=0.04,
+        )
+        for cell in cells
+    ]
+    return summarise(pd.DataFrame(rows, columns=list(ROW_COLUMNS)))
+
+
+@pytest.mark.parametrize(
+    ("scenario", "axis", "expected"),
+    [
+        # Scenario C declares effect_scale, treatment_intercept and
+        # noise_scale. Each is varied one at a time around the baseline the
+        # cross-product supplies.
+        ("C", "effect_scale", (0.5, 1.0, 2.0)),
+        ("C", "treatment_intercept", (-1.5, 0.0, 1.5)),
+        ("C", "noise_scale", (0.0, 0.9, 1.3)),
+        # confounding_strength stays fully crossed against n_units for every
+        # scenario, declared or not; pinning n_units to the anchor is what
+        # turns that cross-product back into a profile.
+        ("C", "confounding_strength", (0.5, 1.0, 2.0)),
+        # n_units, with every AXIS_BASELINES axis pinned.
+        ("C", "n_units", (500.0, 2000.0)),
+        # F is the only scenario whose effect is heterogeneous, so it is the
+        # only one with a heterogeneity_scale profile to draw.
+        ("F", "heterogeneity_scale", (0.0, 1.0, 2.0)),
+    ],
+)
+def test_the_slice_rule_selects_exactly_the_cells_the_grid_emits(scenario, axis, expected):
+    # The pinning rule is a claim ABOUT cp_evaluation.grid._expand_cross_section.
+    # Every other test here checks it against a fixture written to match it,
+    # which cannot catch the rule and the grid disagreeing. This asks the
+    # real shipped grid what cells it produces and checks the rule recovers
+    # exactly those axis values -- including the baseline point, which the
+    # one-at-a-time loop skips and the cross-product supplies.
+    summary = _summary_over_the_full_grids_cells()
+
+    data = axis_profile_data(summary, "bias", axis=axis, scenario=scenario)
+
+    assert data.axis_values == pytest.approx(expected)
+
+
+def test_the_slice_rule_refuses_an_axis_the_real_grid_never_varies():
+    # Scenario C's effect is a ConstantEffect, whose CATE spread is
+    # structurally zero, so C does not declare heterogeneity_scale and the
+    # real grid emits every C cell at that axis's baseline. The refusal is
+    # ground truth from the shipped config, not a property of a fixture.
+    summary = _summary_over_the_full_grids_cells()
+
+    with pytest.raises(ValueError, match="does not vary"):
+        axis_profile_data(summary, "bias", axis="heterogeneity_scale", scenario="C")
