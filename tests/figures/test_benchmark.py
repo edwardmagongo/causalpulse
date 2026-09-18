@@ -661,9 +661,16 @@ def test_axis_profile_data_is_a_dataclass_with_the_documented_fields():
 
 
 def test_an_unknown_profile_metric_is_refused_by_name():
+    # scenario="Z" is not in the summary either, and that guard runs later
+    # (after the metric check). If the metric guard were deleted, execution
+    # would reach the scenario guard instead and raise a ValueError -- not a
+    # KeyError -- so this test would fail rather than pass for the wrong
+    # reason. Without the mismatched scenario, deleting the metric guard
+    # would let placement's own `row[metric]` raise the identical
+    # KeyError('frobnicate'), and this test would pass either way.
     with pytest.raises(KeyError, match="frobnicate"):
         axis_profile_data(
-            _profile_summary(), "frobnicate", axis="effect_scale", scenario="C"
+            _profile_summary(), "frobnicate", axis="effect_scale", scenario="Z"
         )
 
 
@@ -682,10 +689,20 @@ def test_an_axis_column_missing_from_the_summary_is_refused_by_name():
     # A pre-Phase-18 summary carries no heterogeneity_scale column at all.
     # That is a different failure from "the axis is not a real axis", and
     # gets the KeyError an absent column deserves.
+    #
+    # scenario="Z" is also not in the summary, and that guard runs later
+    # (after the axis-column check) without ever touching the axis column
+    # itself. If the axis-column guard were deleted, the pin loop would skip
+    # heterogeneity_scale (it never pins the axis under study) and execution
+    # would reach the scenario guard instead, raising a ValueError -- not a
+    # KeyError -- so this test would fail rather than pass for the wrong
+    # reason. Without the mismatched scenario, deleting the guard would let
+    # `rows[axis].unique()` raise the identical KeyError('heterogeneity_scale')
+    # from pandas' own column access, and this test would pass either way.
     summary = _profile_summary().drop(columns=["heterogeneity_scale"])
 
     with pytest.raises(KeyError, match="heterogeneity_scale"):
-        axis_profile_data(summary, "bias", axis="heterogeneity_scale", scenario="C")
+        axis_profile_data(summary, "bias", axis="heterogeneity_scale", scenario="Z")
 
 
 def test_a_scenario_not_in_the_summary_is_refused_naming_what_is_available():
@@ -725,10 +742,13 @@ def test_an_empty_slice_is_refused_rather_than_returning_an_empty_profile():
 
 
 def test_more_than_one_row_per_method_and_axis_value_is_refused_naming_identity_columns():
-    # Two rows for (lin_regression, effect_scale=1.0) that survive every
-    # pin, differing only in n_periods -- an identity column the profile
-    # does not pin. The refusal must name n_periods and no metric column:
-    # a caller cannot "filter to one value of" bias.
+    # The fixture duplicates every row at effect_scale=1.0, n_units=2000,
+    # noise_scale=0.0 -- both ipw and lin_regression -- differing only in
+    # n_periods, an identity column the profile does not pin. The guard
+    # fires on the first duplicated group groupby.size() finds, which is
+    # ('ipw', 1.0), not lin_regression. Either way the refusal must name
+    # n_periods and no metric column: a caller cannot "filter to one value
+    # of" bias.
     frame = _profile_frame()
     extra = frame[
         (frame["effect_scale"] == 1.0)
