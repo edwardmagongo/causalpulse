@@ -443,11 +443,14 @@ def axis_profile_data(
     if len(axis_values) < 2:
         raise ValueError(
             f"scenario {scenario!r} does not vary along {axis!r}: every row sits "
-            f"at {axis_values[0]}. A scenario is only varied against an axis it "
-            "declares (`cp_simulation.scenarios.SCENARIOS[id].axes`), so this "
-            "profile would be a single point drawn as though it were a measured "
-            "flat line -- which a reader cannot tell apart from an axis that "
-            "genuinely moved nothing."
+            f"at {axis_values[0]}. This is not a declaration problem -- an axis a "
+            "registered scenario does not declare is refused earlier, before this "
+            "check runs (`n_units` is exempt from that check and always reaches "
+            "here). The usual cause is a summary already narrowed to one point on "
+            f"{axis!r}, the shape a `ci_config()` run, or any summary pre-filtered "
+            "to one value, would carry. This profile would otherwise be a single "
+            "point drawn as though it were a measured flat line -- which a reader "
+            "cannot tell apart from an axis that genuinely moved nothing."
         )
 
     group_sizes = rows.groupby(["method", axis]).size()
