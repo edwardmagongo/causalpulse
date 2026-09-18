@@ -576,3 +576,26 @@ def test_axis_baselines_cannot_be_mutated_by_a_caller():
 
     with pytest.raises(TypeError):
         AXIS_BASELINES["effect_scale"] = 99.0  # type: ignore[index]
+
+
+def test_scenario_axes_matches_the_scenario_registry():
+    # SCENARIO_AXES is what cp_figures reads to decide which axes a
+    # scenario declares. If it ever drifted from SCENARIOS' own axes, the
+    # declaration refusal would silently pass a profile it should refuse,
+    # or refuse one it should allow -- with no error, just the wrong
+    # verdict.
+    from cp_evaluation.grid import SCENARIO_AXES
+    from cp_simulation.scenarios import SCENARIOS
+
+    assert set(SCENARIO_AXES) == set(SCENARIOS)
+    for scenario_id, spec in SCENARIOS.items():
+        assert SCENARIO_AXES[scenario_id] == spec.axes
+
+
+def test_scenario_axes_cannot_be_mutated_by_a_caller():
+    # A plain dict here would let any importer rewrite what the grid
+    # considers "declared", for every other importer in the process.
+    from cp_evaluation.grid import SCENARIO_AXES
+
+    with pytest.raises(TypeError):
+        SCENARIO_AXES["C"] = frozenset()  # type: ignore[index]
