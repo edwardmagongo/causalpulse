@@ -249,6 +249,28 @@ def _confounding_values(axes: CrossSectionAxes, scenario: str) -> tuple[float, .
     though the strength had been varied: spec section 5.1's absent-versus-zero
     hazard, for the one axis section 5 had left ungated. The gating removes 16
     such cells from `full_config()`.
+
+    **The single strength is the default even when the config's axis does not
+    contain it**, so a config of `confounding_strength=(0.5, 2.0)` over
+    scenario A produces cells at 1.0 and none at either requested value
+    (pinned by
+    `tests/evaluation/test_grid.py::test_an_undeclared_confounding_scenario_never_needs_the_anchor`).
+    That is deliberate: for a scenario that never reads the axis the field is
+    a label, and the honest label is "unperturbed", not a value implying the
+    grid varied something it did not. It is also exactly what the four axes
+    Phase 18 adds already do -- widen `heterogeneity_scale` to `(0.0, 2.0)`
+    and scenario A's cells still carry its 1.0 default.
+
+    The cost is a provenance gap, which `_check_the_anchor_is_on_the_grid`
+    deliberately does **not** refuse (an undeclared scenario's anchor is on
+    its own block by construction, so there is nothing uninterpretable to
+    refuse): `cp_cli.commands.bench` derives `run.json`'s axis block from this
+    dataclass, so a run at `(0.5, 2.0)` records those two strengths beside a
+    parquet whose A rows all read 1.0. Neither shipped tier hits it -- both
+    include 1.0 -- and the gap is general to all five axes rather than new
+    here, so recording realised alongside requested axis values is left as a
+    tracked follow-up against `bench`'s sidecar rather than fixed for one axis
+    in this module.
     """
     if "confounding_strength" in SCENARIOS[scenario].axes:
         return tuple(float(value) for value in axes.confounding_strength)

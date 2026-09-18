@@ -399,10 +399,18 @@ def test_an_undeclared_confounding_scenario_never_needs_the_anchor():
 
 
 def test_the_new_axes_do_not_multiply_the_grid():
-    # Hand-computed against spec section 5's enumeration rule: n_units x
-    # confounding_strength stays a full cross-product (unaffected by the new
-    # axes), and each new axis crosses one non-baseline value at a time,
-    # only for the scenarios that declare it (SCENARIOS[id].axes).
+    # Hand-computed against the enumeration rule: n_units x
+    # confounding_strength is crossed rather than varied one value at a time
+    # (unaffected by the new axes), and each new axis crosses one non-baseline
+    # value at a time, only for the scenarios that declare it
+    # (SCENARIOS[id].axes).
+    #
+    # Deliberately not "spec section 5's rule": section 5 states that
+    # cross-product ungated, which the confounding_strength follow-up
+    # superseded (see that section's own banner, and section 12). This config
+    # cannot tell the two apart -- its confounding axis is the single default
+    # value, where gated and ungated agree -- so citing the superseded rule
+    # here would go unflagged by the test itself.
     #
     # Scenario A declares {effect_scale, treatment_intercept, noise_scale}
     # (not heterogeneity_scale -- ConstantEffect has no `increment`).
@@ -519,6 +527,42 @@ def test_a_widened_axis_needs_its_anchor_present_on_the_confounding_axis():
     )
 
     with pytest.raises(ValueError, match="no.*baseline cell"):
+        expand_cells(config)
+
+
+def test_the_anchor_check_keeps_looking_past_an_undeclared_scenario():
+    # `_check_the_anchor_is_on_the_grid` walks every scenario and `continue`s
+    # past one that does not declare `confounding_strength`, because such a
+    # scenario's baseline block is at the anchor by construction. `continue`,
+    # not `return`: a later scenario in the same config may still declare the
+    # axis and still be left without a baseline twin.
+    #
+    # Every other test that omits 1.0 from the confounding axis passes a
+    # single scenario, so none of them can tell the two apart. This one puts
+    # the undeclared scenario FIRST, where a `return` would swallow the check
+    # before D is ever reached. Verified to fail that way: with `return` in
+    # place of `continue`, this config expands silently and D's two
+    # `effect_scale` cells land at confounding_strength=1.0, a strength D's
+    # own baseline block (0.5 and 2.0) never contains -- precisely the
+    # orphaned cells the check exists to refuse.
+    assert "confounding_strength" not in SCENARIOS["A"].axes
+    assert "confounding_strength" in SCENARIOS["D"].axes
+    assert "effect_scale" in SCENARIOS["D"].axes
+
+    config = GridConfig(
+        cross_section=CrossSectionAxes(
+            scenarios=("A", "D"),
+            n_units=(500,),
+            confounding_strength=(0.5, 2.0),
+            effect_scale=(0.5, 1.0, 2.0),
+        ),
+        panel=None,
+        replications=1,
+    )
+
+    # The scenario is named, so the message points at the one that actually
+    # needs the anchor rather than at the config as a whole.
+    with pytest.raises(ValueError, match="scenario D.*no.*baseline cell"):
         expand_cells(config)
 
 
