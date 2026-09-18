@@ -656,10 +656,21 @@ def test_a_panel_shaped_row_is_excluded_from_a_cross_sectional_profile():
     # (cp_evaluation.grid), so a panel-shaped row carries NaN for all of
     # them -- exactly like every fixture row here, which is built by _row()
     # and hardcodes shape="cross_section", and the grid-validated tests
-    # above, which filter to CrossSectionCell before building rows. Neither
-    # exercises the `shape == "cross_section"` pin itself. A panel row at a
-    # distinct n_units value, mixed into an n_units profile, proves the pin
-    # is doing something rather than merely being present in the source.
+    # above, which filter to CrossSectionCell before building rows. This
+    # pins the *outcome* on a realistic panel row: it never reaches a
+    # cross-sectional profile, however it gets there. It does not prove the
+    # `shape` pin itself is load-bearing -- this row's NaN axis columns
+    # already fail every baseline pin below, on n_units alone, before the
+    # `shape` pin is ever reached (dropping the `shape` column, or
+    # relabelling this row to shape="cross_section", gives the identical
+    # result). The pin's own comment in benchmark.py is honest about that:
+    # it says a panel row "would survive no pin anyway", and is kept
+    # explicit rather than incidental as belt-and-braces. The pin's one
+    # load-bearing input -- a panel row that carries baseline values on
+    # every axis, the one shape the pipeline never emits -- is exercised
+    # separately by
+    # test_a_panel_row_with_baseline_axis_values_is_still_excluded_by_the_shape_pin
+    # below.
     panel_row = _row(
         shape="panel",
         scenario="C",
@@ -683,6 +694,44 @@ def test_a_panel_shaped_row_is_excluded_from_a_cross_sectional_profile():
 
     assert 99999.0 not in data.axis_values
     assert data.axis_values == (500.0, 2000.0)
+
+
+def test_a_panel_row_with_baseline_axis_values_is_still_excluded_by_the_shape_pin():
+    # A deliberately unrealistic input: `cp_evaluation.run.py` writes NaN
+    # for every AXIS_NAMES column on a real panel row, so the `shape` pin
+    # is never load-bearing on data the pipeline actually produces -- the
+    # sibling test above says so. This row is built only to give the pin
+    # something to do: shape="panel", but carrying baseline values on all
+    # five axes and n_units at the anchor, so it survives every other pin
+    # and would land at effect_scale=3.0 -- a value _profile_frame never
+    # uses -- if the `shape` pin did not exclude it first.
+    panel_row = _row(
+        shape="panel",
+        scenario="C",
+        method="ipw",
+        n_units=2000,
+        confounding_strength=1.0,
+        treatment_intercept=0.0,
+        noise_scale=0.0,
+        effect_scale=3.0,
+        heterogeneity_scale=1.0,
+        seed=0,
+        truth=0.03,
+        point=0.09,
+    )
+    frame = pd.concat(
+        [_profile_frame(), pd.DataFrame([panel_row], columns=list(ROW_COLUMNS))],
+        ignore_index=True,
+    )
+    summary = summarise(frame)
+    assert (summary["effect_scale"] == 3.0).any(), (
+        "fixture sanity: the panel row must survive summarise() as its own group"
+    )
+
+    data = axis_profile_data(summary, "bias", axis="effect_scale", scenario="C")
+
+    assert 3.0 not in data.axis_values
+    assert data.axis_values == (0.5, 1.0, 2.0)
 
 
 def test_axis_profile_data_is_a_dataclass_with_the_documented_fields():
@@ -748,6 +797,45 @@ def test_a_scenario_not_in_the_summary_is_refused_naming_what_is_available():
     assert "C" in str(exc_info.value)
 
 
+def test_a_scenario_outside_the_registry_still_gets_a_profile():
+    # The declaration guard's `scenario in SCENARIO_AXES` conjunct lets a
+    # scenario absent from the registry skip the declaration check rather
+    # than raising -- spec section 5 documents this as deliberate: this
+    # function cannot vouch for a scenario the registry does not know. No
+    # other test reaches that branch:
+    # test_a_scenario_not_in_the_summary_is_refused_naming_what_is_available
+    # uses "Z", which has no rows at all and is refused earlier, at the
+    # scenario-yields-no-rows guard, before the declaration check -- let
+    # alone its `SCENARIO_AXES[scenario]` lookup -- is ever reached. If the
+    # conjunct were deleted, this scenario (unlike "Z", which has rows)
+    # would instead crash with a bare `KeyError('Q')` out of that lookup,
+    # naming neither the reason nor a next step.
+    rows = []
+    for effect_scale in (0.5, 1.5):
+        for seed in (0, 1):
+            rows.append(
+                _row(
+                    scenario="Q",
+                    method="ipw",
+                    n_units=2000,
+                    confounding_strength=1.0,
+                    treatment_intercept=0.0,
+                    noise_scale=0.0,
+                    effect_scale=effect_scale,
+                    heterogeneity_scale=1.0,
+                    seed=seed,
+                    truth=0.03,
+                    point=0.03 + 0.01 * effect_scale,
+                )
+            )
+    summary = summarise(pd.DataFrame(rows, columns=list(ROW_COLUMNS)))
+    assert "Q" not in SCENARIO_AXES, "fixture sanity: Q must be outside the registry"
+
+    data = axis_profile_data(summary, "bias", axis="effect_scale", scenario="Q")
+
+    assert data.axis_values == (0.5, 1.5)
+
+
 def test_a_scenario_that_does_not_vary_along_the_axis_is_refused():
     # This is the single-value refusal, which survives the declaration
     # refusal below for a *declared* axis narrowed to one value by the
@@ -772,12 +860,18 @@ def test_a_scenario_that_does_not_vary_along_the_axis_is_refused():
 def test_an_axis_the_scenario_does_not_declare_is_refused():
     # C's build (_randomised, cp_simulation.scenarios) reads effect_scale,
     # treatment_intercept and noise_scale -- never confounding_strength,
-    # which RandomAssignment makes meaningless. Unlike an undeclared Phase 18
-    # axis (which collapses to one row and is caught by the single-value
-    # refusal above), confounding_strength stays fully crossed against
-    # n_units for every scenario regardless of declaration, so
-    # _profile_summary's confounding_strength column genuinely carries more
-    # than one value here -- this refusal is the only thing that catches it.
+    # which RandomAssignment makes meaningless. This is the focused message
+    # test, on a small hand-built fixture: `_profile_frame` hardcodes
+    # confounding_strength=1.0 on every row, so _profile_summary's column
+    # here carries exactly one value, and this fixture alone cannot show the
+    # declaration refusal is non-redundant with the single-value refusal --
+    # with the declaration guard removed, this same call raises the
+    # single-value refusal instead ("does not vary"), not a silent flat
+    # line. The guard's non-redundancy is proved separately, against the
+    # real shipped grid, by
+    # test_the_slice_rule_refuses_confounding_strength_for_an_undeclaring_scenario
+    # below, which asserts the real column's nunique() > 1 before checking
+    # the refusal fires.
     with pytest.raises(ValueError, match="confounding_strength") as exc_info:
         axis_profile_data(
             _profile_summary(), "bias", axis="confounding_strength", scenario="C"
