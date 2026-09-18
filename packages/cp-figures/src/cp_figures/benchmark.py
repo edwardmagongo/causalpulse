@@ -27,6 +27,7 @@ takes the colormap's "bad" colour instead of landing on the value scale.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -34,6 +35,34 @@ import pandas as pd
 from cp_evaluation.metrics import GROUP_COLUMNS
 from matplotlib import colormaps
 from matplotlib.axes import Axes
+
+
+def _differing_identity_columns(group: pd.DataFrame, exclude: Sequence[str]) -> list[str]:
+    """Which of the grid's own cell-identity columns differ across `group`'s rows.
+
+    Only `cp_evaluation.metrics.GROUP_COLUMNS` -- `shape`, `n_units`,
+    `n_periods`, and the axis names in `cp_simulation.params.AXIS_NAMES` --
+    never one of the dozens of metric columns `summarise` also produces
+    (`bias`, `rmse_mcse`, `realised_treated_share`, ...). Two rows can
+    legitimately differ in `bias` while describing the very same grid cell,
+    so a metric column is not identity and is never something a caller could
+    "filter to one value of".
+
+    Shared by both refusals in this module -- the heatmap's
+    one-row-per-(method, scenario) check and the profile's
+    one-row-per-(method, axis value) check -- so the two cannot drift apart
+    about what counts as identity. `exclude` is what the caller has already
+    keyed on and so cannot differ by construction; each caller still writes
+    its own message, keeping the phrase a reader greps for at the site that
+    raises it (the arrangement `cp_figures.guards` uses for its three guards).
+    """
+    return [
+        column
+        for column in GROUP_COLUMNS
+        if column not in exclude
+        and column in group.columns
+        and group[column].nunique(dropna=False) > 1
+    ]
 
 
 @dataclass(frozen=True, eq=False)
@@ -113,16 +142,9 @@ def heatmap_data(summary: pd.DataFrame, metric: str) -> HeatmapData:
     if not duplicated.empty:
         method, scenario = duplicated.index[0]
         group = summary[(summary["method"] == method) & (summary["scenario"] == scenario)]
-        # Only the grid's own cell-identity columns -- never a metric column
-        # like `bias` or `realised_treated_share`, which can legitimately
-        # differ between rows that describe the very same cell.
-        differing_identity_columns = [
-            column
-            for column in GROUP_COLUMNS
-            if column not in ("method", "scenario")
-            and column in group.columns
-            and group[column].nunique(dropna=False) > 1
-        ]
+        differing_identity_columns = _differing_identity_columns(
+            group, exclude=("method", "scenario")
+        )
         if differing_identity_columns:
             raise ValueError(
                 f"heatmap_data needs exactly one row per (method, scenario), but "
