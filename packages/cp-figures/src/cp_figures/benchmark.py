@@ -472,6 +472,31 @@ def _rug_positions(n_methods: int) -> np.ndarray:
     return np.linspace(low, high, n_methods)
 
 
+def _tick_labels(data: AxisProfileData) -> list[str]:
+    """One x tick label per axis value, annotated where the raw number does not read.
+
+    `treatment_intercept` is a logit-scale parameter. Section 4.1 of
+    `docs/specs/2026-09-13-causal-core-phase18-design.md` says the axis
+    "sets the intercept, not a target share", and records the realised share
+    beside it "because an intercept is not a quantity a reader of the
+    eventual research report thinks in" -- so the share goes on the tick,
+    where a reader meets the number.
+
+    Only that axis. `effect_scale` does not touch assignment at all, and
+    annotating every tick of every axis with a constant would be noise
+    rather than the mitigation section 4.1 asks for. A missing or non-finite
+    share falls back to the bare value rather than printing "nan% treated".
+    """
+    bare = [f"{value:g}" for value in data.axis_values]
+    shares = data.realised_treated_share
+    if data.axis != "treatment_intercept" or shares is None:
+        return bare
+    return [
+        f"{label}\n({share:.0%} treated)" if np.isfinite(share) else label
+        for label, share in zip(bare, shares, strict=True)
+    ]
+
+
 def draw_axis_profile(data: AxisProfileData, ax: Axes) -> Axes:
     """Draw one line per method along `data.axis`, on `ax`.
 
@@ -526,7 +551,11 @@ def draw_axis_profile(data: AxisProfileData, ax: Axes) -> Axes:
                 label="_nolegend_",
             )
 
+    # set_xticks before set_xticklabels: a FixedLocator must be in place
+    # first, or matplotlib warns -- and this suite turns warnings into
+    # errors.
     ax.set_xticks(list(x))
+    ax.set_xticklabels(_tick_labels(data))
     ax.set_xlabel(data.axis)
     ax.set_ylabel(data.metric)
     ax.set_title(f"{data.metric} along {data.axis} (scenario {data.scenario})")

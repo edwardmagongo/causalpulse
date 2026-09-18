@@ -1088,3 +1088,52 @@ def test_the_rug_does_not_add_a_legend_entry(ax):
 
     labels = [text.get_text() for text in ax.get_legend().get_texts()]
     assert labels == ["ipw", "lin_regression"]
+
+
+def test_treatment_intercept_ticks_carry_the_realised_share(ax):
+    # Spec 4.1: the axis sets the intercept, not a target share, and an
+    # intercept is not a quantity a reader thinks in. A tick reading -1.5
+    # alone tells a reader nothing about how imbalanced that cell was.
+    data = axis_profile_data(
+        summarise(_intercept_frame()), "bias", axis="treatment_intercept", scenario="C"
+    )
+
+    draw_axis_profile(data, ax)
+
+    labels = [text.get_text() for text in ax.get_xticklabels()]
+    assert labels == ["-1.5\n(21% treated)", "0\n(50% treated)", "1.5\n(79% treated)"]
+
+
+def test_another_axis_gets_bare_value_ticks(ax):
+    # effect_scale does not touch assignment at all. Annotating every tick
+    # of every axis with a constant share would be noise, not the mitigation
+    # spec 4.1 asks for.
+    data = axis_profile_data(
+        _profile_summary(), "bias", axis="effect_scale", scenario="C"
+    )
+
+    draw_axis_profile(data, ax)
+
+    labels = [text.get_text() for text in ax.get_xticklabels()]
+    assert labels == ["0.5", "1", "2"]
+
+
+def test_intercept_ticks_fall_back_to_the_bare_value_without_a_share(ax):
+    # A summary with no realised_treated_share column (or a cell with
+    # nothing finite to average) must still draw, with the bare intercept,
+    # rather than raising or printing "nan% treated".
+    data = AxisProfileData(
+        axis="treatment_intercept",
+        scenario="C",
+        metric="bias",
+        axis_values=(-1.5, 0.0),
+        methods=("ipw",),
+        values=np.array([[0.01, 0.02]]),
+        absent=np.array([[False, False]]),
+        realised_treated_share=(float("nan"), 0.5),
+    )
+
+    draw_axis_profile(data, ax)
+
+    labels = [text.get_text() for text in ax.get_xticklabels()]
+    assert labels == ["-1.5", "0\n(50% treated)"]
