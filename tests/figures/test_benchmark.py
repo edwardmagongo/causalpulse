@@ -836,3 +836,38 @@ def test_the_realised_treated_share_is_carried_for_every_axis_not_just_the_inter
     )
 
     assert data.realised_treated_share == pytest.approx((0.5, 0.5, 0.5))
+
+
+def test_realised_treated_share_stays_aligned_when_one_axis_value_has_no_finite_values():
+    # The function must emit NaN for an axis value with no finite
+    # realised_treated_share values, preserving the tuple's positional alignment
+    # with axis_values. A regression that skipped the NaN-bearing axis value
+    # instead of appending NaN would return a shorter tuple, misaligning every
+    # later entry: the 1.5 intercept's 0.79 share would be reported against
+    # the 0.0 intercept's axis value, not its own.
+    frame = _intercept_frame()
+    # Make the 0.0 intercept's realised_treated_share all NaN
+    frame.loc[frame["treatment_intercept"] == 0.0, "realised_treated_share"] = float("nan")
+
+    data = axis_profile_data(
+        summarise(frame), "bias", axis="treatment_intercept", scenario="C"
+    )
+
+    # The returned tuple must have the same length as axis_values
+    assert len(data.realised_treated_share) == len(data.axis_values)
+
+    # Find the index of the 0.0 intercept (the axis value with no finite shares)
+    zero_index = data.axis_values.index(0.0)
+
+    # The entry at that position must be NaN
+    assert np.isnan(data.realised_treated_share[zero_index])
+
+    # The other entries must still carry their correct values, matched to their
+    # own axis values (not misaligned to a neighbour's). This catches the
+    # specific failure mode where a skipped NaN-value would shift later entries.
+    for i, axis_value in enumerate(data.axis_values):
+        if axis_value != 0.0:
+            expected_share = {-1.5: 0.21, 1.5: 0.79}[axis_value]
+            assert data.realised_treated_share[i] == pytest.approx(
+                expected_share
+            ), f"axis_value {axis_value} must map to share {expected_share}"
