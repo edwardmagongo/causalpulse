@@ -8,6 +8,7 @@ from cp_figures.benchmark import (
     AxisProfileData,
     HeatmapData,
     axis_profile_data,
+    draw_axis_profile,
     draw_heatmap,
     heatmap_data,
 )
@@ -871,3 +872,90 @@ def test_realised_treated_share_stays_aligned_when_one_axis_value_has_no_finite_
             assert data.realised_treated_share[i] == pytest.approx(
                 expected_share
             ), f"axis_value {axis_value} must map to share {expected_share}"
+
+
+def test_drawing_a_profile_draws_one_line_per_method_at_the_axis_values(ax):
+    data = axis_profile_data(
+        _profile_summary(), "bias", axis="effect_scale", scenario="C"
+    )
+
+    draw_axis_profile(data, ax)
+
+    lines = [line for line in ax.lines if line.get_label() in data.methods]
+    assert len(lines) == 2
+    by_method = {line.get_label(): line for line in lines}
+    np.testing.assert_allclose(by_method["ipw"].get_xdata(), [0.5, 1.0, 2.0])
+    np.testing.assert_allclose(by_method["ipw"].get_ydata(), [0.02, 0.03, 0.05])
+    np.testing.assert_allclose(
+        by_method["lin_regression"].get_ydata(), [0.01, 0.00, 0.04]
+    )
+
+
+def test_drawing_a_profile_breaks_the_line_at_an_absent_value(ax):
+    # A line drawn straight across a cell that never ran asserts a value
+    # between two measurements where there is none. NaN at that position
+    # breaks the line and draws no marker.
+    data = AxisProfileData(
+        axis="effect_scale",
+        scenario="C",
+        metric="bias",
+        axis_values=(0.5, 1.0, 2.0),
+        methods=("ipw",),
+        values=np.array([[0.02, np.nan, 0.05]]),
+        absent=np.array([[False, True, False]]),
+        realised_treated_share=None,
+    )
+
+    draw_axis_profile(data, ax)
+
+    line = next(line for line in ax.lines if line.get_label() == "ipw")
+    y = np.asarray(line.get_ydata(), dtype=float)
+    assert np.isnan(y[1])
+    assert not np.isnan(y[0]) and not np.isnan(y[2])
+
+
+def test_drawing_a_profile_masks_by_the_absent_flag_even_when_the_value_is_finite(ax):
+    # The mutation-catcher, mirroring the heatmap's own. matplotlib will not
+    # auto-hide a finite number, so a draw_ that plotted data.values
+    # directly and relied on NaN would draw a marker at 0.0 where nothing
+    # was ever measured. Only threading data.absent through can hide it.
+    data = AxisProfileData(
+        axis="effect_scale",
+        scenario="C",
+        metric="bias",
+        axis_values=(0.5, 1.0, 2.0),
+        methods=("ipw",),
+        values=np.array([[0.02, 0.0, 0.05]]),
+        absent=np.array([[False, True, False]]),
+        realised_treated_share=None,
+    )
+
+    draw_axis_profile(data, ax)
+
+    line = next(line for line in ax.lines if line.get_label() == "ipw")
+    y = np.asarray(line.get_ydata(), dtype=float)
+    assert np.isnan(y[1]), "a finite value marked absent was plotted on the value scale"
+
+
+def test_drawing_a_profile_labels_the_axes_and_names_the_scenario(ax):
+    data = axis_profile_data(
+        _profile_summary(), "bias", axis="effect_scale", scenario="C"
+    )
+
+    draw_axis_profile(data, ax)
+
+    assert ax.get_xlabel() == "effect_scale"
+    assert ax.get_ylabel() == "bias"
+    # A profile read without knowing its scenario says nothing.
+    title = ax.get_title()
+    assert "bias" in title and "effect_scale" in title and "C" in title
+
+
+def test_drawing_a_profile_returns_the_axes_and_leaves_pyplot_alone(ax):
+    before = plt.get_fignums()
+    data = axis_profile_data(
+        _profile_summary(), "bias", axis="effect_scale", scenario="C"
+    )
+
+    assert draw_axis_profile(data, ax) is ax
+    assert plt.get_fignums() == before

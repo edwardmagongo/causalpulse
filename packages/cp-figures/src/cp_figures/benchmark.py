@@ -449,3 +449,35 @@ def axis_profile_data(
         absent=absent,
         realised_treated_share=_realised_treated_share(rows, axis, axis_values),
     )
+
+
+def draw_axis_profile(data: AxisProfileData, ax: Axes) -> Axes:
+    """Draw one line per method along `data.axis`, on `ax`.
+
+    Plots `numpy.where(data.absent, nan, data.values)`, never `data.values`.
+    That is the drawing half of the absent-versus-zero guarantee, and two
+    things follow from it. A cell marked absent draws no marker even if its
+    `values` entry is finite -- matplotlib will not auto-hide a finite
+    number, so a function that plotted `values` directly and relied on NaN
+    would put a point on the value scale where nothing was measured. And the
+    line *breaks* at an absent value rather than being drawn straight
+    across it, which would assert a value between two measurements where
+    there is none.
+
+    A point marker, not a bare line, for `draw_counterfactual_path`'s
+    reason: a profile can legitimately have a single plottable value between
+    two absent ones, and `ax.plot` with the default style draws nothing
+    visible for a lone point.
+    """
+    x = np.asarray(data.axis_values, dtype=float)
+    plottable = np.where(data.absent, np.nan, data.values)
+
+    for i, method in enumerate(data.methods):
+        ax.plot(x, plottable[i], marker="o", label=method)
+
+    ax.set_xticks(list(x))
+    ax.set_xlabel(data.axis)
+    ax.set_ylabel(data.metric)
+    ax.set_title(f"{data.metric} along {data.axis} (scenario {data.scenario})")
+    ax.legend()
+    return ax
