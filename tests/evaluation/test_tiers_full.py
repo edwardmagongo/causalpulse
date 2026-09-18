@@ -7,6 +7,14 @@ from cp_evaluation.tiers import (
     ci_config,
     full_config,
 )
+from cp_simulation.params import AXIS_NAMES, ScenarioParams
+from cp_simulation.scenarios import SCENARIOS
+
+# The four axes a cell is "at baseline" for, i.e. every axis except the one
+# crossed against n_units. Derived from AXIS_NAMES for the same reason
+# `grid._NEW_AXIS_NAMES` is: a fifth axis must not silently drop out of the
+# baseline/one-at-a-time split these tests count.
+_NEW_AXIS_NAMES = tuple(name for name in AXIS_NAMES if name != "confounding_strength")
 
 
 def test_full_covers_every_cross_sectional_scenario_and_all_but_p7():
@@ -59,14 +67,35 @@ def test_every_named_estimator_is_registered(name):
     assert name in all_estimators()
 
 
-def test_full_config_produces_the_designs_measured_84_cross_sectional_cells():
-    # docs/specs/2026-09-13-causal-core-phase18-design.md section 12: the
-    # original 42 cells (7 scenarios x n_units=(500, 2000) x
-    # confounding_strength=(0.5, 1.0, 2.0)) plus 42 new one-at-a-time cells,
-    # 2 per axis per scenario that declares it (A: 6, B: 4, C: 6, D: 6, F: 8,
-    # G: 6, H: 6). Counted at seed == 0 only: replications multiplies every
-    # distinct cell identically, so it would inflate this count without
-    # testing the enumeration itself.
+def test_full_config_produces_the_designs_measured_68_cross_sectional_cells():
+    # docs/specs/2026-09-13-causal-core-phase18-design.md section 12. Derived
+    # from the enumeration rule by hand, per scenario, not read off the code:
+    #
+    #   |n_units| x (|confounding_strength| if declared else 1)
+    #     + sum over declared new axes of (|values| - 1)
+    #
+    # with |n_units| = 2, |confounding_strength| = 3, and every new axis
+    # carrying 3 values, so 2 non-baseline values each. D, G and H declare
+    # confounding_strength; A, B, C and F do not.
+    #
+    #   scenario   declares cs   baseline      one-at-a-time   total
+    #   A          no            2 x 1 =  2    3 x 2 = 6           8
+    #   B          no            2 x 1 =  2    2 x 2 = 4           6
+    #   C          no            2 x 1 =  2    3 x 2 = 6           8
+    #   D          yes           2 x 3 =  6    3 x 2 = 6          12
+    #   F          no            2 x 1 =  2    4 x 2 = 8          10
+    #   G          yes           2 x 3 =  6    3 x 2 = 6          12
+    #   H          yes           2 x 3 =  6    3 x 2 = 6          12
+    #                                     26           42          68
+    #
+    # The one-at-a-time half is unchanged at 42; the baseline half falls from
+    # 42 to 26 because A, B, C and F are no longer crossed against three
+    # strengths they do not read. Counted at seed == 0 only: replications
+    # multiplies every distinct cell identically, so it would inflate this
+    # count without testing the enumeration itself.
+    #
+    # Both halves are asserted separately as well as summed: a bug that moved
+    # 16 cells from one half to the other would leave the total at 68.
     config = full_config()
 
     distinct_cells = {
@@ -74,5 +103,40 @@ def test_full_config_produces_the_designs_measured_84_cross_sectional_cells():
         for cell in expand_cells(config)
         if isinstance(cell, CrossSectionCell) and cell.seed == 0
     }
+    default = ScenarioParams()
+    baseline = {
+        cell
+        for cell in distinct_cells
+        if all(getattr(cell, name) == getattr(default, name) for name in _NEW_AXIS_NAMES)
+    }
 
-    assert len(distinct_cells) == 84
+    assert len(baseline) == 26
+    assert len(distinct_cells) - len(baseline) == 42
+    assert len(distinct_cells) == 68
+
+
+def test_full_config_crosses_confounding_strength_only_where_it_is_declared():
+    # The per-scenario shape behind the 26 above, checked against the registry
+    # rather than restated: a scenario that declares the axis is crossed
+    # against all three of full_config()'s strengths, and one that does not
+    # contributes the single default strength. Without this, the count test
+    # alone would pass on any rearrangement summing to 26.
+    config = full_config()
+    axes = config.cross_section
+    assert axes is not None
+    default = ScenarioParams()
+
+    strengths: dict[str, set[float]] = {}
+    for cell in expand_cells(config):
+        if not isinstance(cell, CrossSectionCell):
+            continue
+        if any(getattr(cell, name) != getattr(default, name) for name in _NEW_AXIS_NAMES):
+            continue
+        strengths.setdefault(cell.scenario, set()).add(cell.confounding_strength)
+
+    assert set(strengths) == set(axes.scenarios)
+    for scenario, seen in strengths.items():
+        if "confounding_strength" in SCENARIOS[scenario].axes:
+            assert seen == set(axes.confounding_strength), scenario
+        else:
+            assert seen == {default.confounding_strength}, scenario

@@ -105,11 +105,16 @@ def test_results_do_not_depend_on_the_order_cells_are_evaluated_in():
     # already be unique on (scenario, n_units, seed), so `run_grid`'s final
     # sort would never need to break a tie and a sort key that omitted
     # confounding_strength entirely would go uncaught. Two confounding
-    # values produce genuinely tied cells -- e.g. (A, 400, strength=1.0,
-    # seed=0) and (A, 400, strength=2.0, seed=0) -- that agree on every other
+    # values produce genuinely tied cells -- e.g. (D, 400, strength=1.0,
+    # seed=0) and (D, 400, strength=2.0, seed=0) -- that agree on every other
     # column, which is exactly the case a total sort key must resolve.
     # Sweeping two scenarios keeps that tie exercised alongside more than one
     # scenario, as the previous version of this test already did.
+    #
+    # The confounding tie is D's, not A's: A declares no `confounding_strength`
+    # (`SCENARIOS["A"].axes`), so its baseline block sits at the single default
+    # strength and never ties on that axis. D declares it and so spans both
+    # values. A is still swept, for the new-axis ties described below.
     # A widened treatment_intercept is swept for the same reason, and it is
     # the sharper case: `expand_cells` pins every one-at-a-time cell to a
     # single anchor, so (A, 400, strength=1.0, intercept=-1.5, seed=0) and
@@ -141,9 +146,11 @@ def test_results_do_not_depend_on_the_order_cells_are_evaluated_in():
 
     # Restricted to three estimators rather than the whole registry. The
     # property under test is the totality of the sort key, which every row
-    # exercises equally; fitting all of them fits 16 cells twice and costs
-    # ~224s against ~4.5s here, on a suite whose full gate already runs
-    # 2h47m. `twfe` is kept deliberately: it is ineligible on every
+    # exercises equally; fitting all of them would fit this config's 11 cells
+    # twice, which at the ~7s per cell-fit measured when this restriction was
+    # introduced is a couple of minutes against ~4.5s here, on a suite whose
+    # full gate already runs 2h47m. `twfe` is kept deliberately: it is
+    # ineligible on every
     # cross-sectional cell, so the ineligible-row path stays inside the frame
     # comparison rather than being dropped along with the estimators.
     estimators = ["difference_in_means", "lin_regression", "twfe"]

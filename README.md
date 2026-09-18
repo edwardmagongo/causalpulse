@@ -155,9 +155,12 @@ not an oversight, and each would be its own phase if wanted.
 defaulting to today's behaviour exactly; `ScenarioParams` now carries all five cross-sectional
 axes (the pre-existing `confounding_strength` plus treatment imbalance, noise level, effect size,
 and heterogeneity), and a scenario declares which axes it actually responds to rather than being
-crossed against every one blindly. `full_config`'s cross-sectional grid widens from 42 to 84 cells
+crossed against every one blindly. `full_config`'s cross-sectional grid widens from 26 to 68 cells
 to cover three measured points per new axis — a low, a baseline, and a high value, chosen by
-generating real data rather than by estimate. See
+generating real data rather than by estimate. Phase 18 itself shipped that as 42 to 84, holding
+`confounding_strength` exempt from the declaration rule as a named, tracked exemption; a follow-up
+closed it, so the four randomly-assigning scenarios that never read that axis contribute one
+baseline strength each instead of three, and both ends of the range fall by 16. See
 `docs/specs/2026-09-13-causal-core-phase18-design.md` section 12 for the measured values, the
 values considered and rejected, and the defects a whole-branch review found before any of it
 shipped.

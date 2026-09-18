@@ -26,10 +26,11 @@ from cp_simulation.scenarios import SCENARIOS
 
 # `ScenarioParams()`'s own defaults, read once rather than duplicated as
 # literals here: every "baseline" value this module refers to (for
-# n_units-x-confounding_strength's baseline cross-product, and for each new
-# axis's own default) comes from this instance, so a default changing in
-# `cp_simulation.params` cannot silently drift out of sync with what the grid
-# considers "unperturbed".
+# n_units-x-confounding_strength's baseline cross-product, for the single
+# strength a scenario that does not declare `confounding_strength` is crossed
+# against, and for each new axis's own default) comes from this instance, so a
+# default changing in `cp_simulation.params` cannot silently drift out of sync
+# with what the grid considers "unperturbed".
 _DEFAULT_PARAMS = ScenarioParams()
 
 # The value each axis sits at when it is *not* the one being varied, derived
@@ -75,9 +76,11 @@ SCENARIO_AXES: Mapping[str, frozenset[str]] = MappingProxyType(
 )
 
 # The four axes Phase 18 adds, in the order `ScenarioParams`/`AXIS_NAMES`
-# already declares them, minus `confounding_strength` -- that one stays fully
-# crossed against `n_units` (spec section 5), so it is handled separately
-# from the "one axis at a time" loop the other four go through.
+# already declares them, minus `confounding_strength` -- that one is crossed
+# against `n_units` rather than varied one value at a time (spec section 5), so
+# it is handled separately from the "one axis at a time" loop the other four go
+# through. Separately, but not exempt from declaration: like the four, it is
+# only crossed against a scenario that declares it. See `_confounding_values`.
 _NEW_AXIS_NAMES: tuple[str, ...] = tuple(
     name for name in AXIS_NAMES if name != "confounding_strength"
 )
@@ -137,14 +140,19 @@ class CrossSectionAxes:
     `CrossSectionCell`'s docstring), and a caller that widens one of them
     gets that axis varied **one value at a time** against a fixed baseline,
     not crossed against `n_units`/`confounding_strength` or against each
-    other -- see `expand_cells`. **Of the four axes below**, a scenario is
-    only varied against one it declares (`SCENARIOS[id].axes`, checked by
+    other -- see `expand_cells`. A scenario is only varied against an axis it
+    declares (`SCENARIOS[id].axes`, checked by
     `tests/simulation/test_axis_declarations.py`); one it does not declare is
     left at that axis's default in every cell, never crossed against it.
-    `confounding_strength` is deliberately not subject to that rule: it stays
-    fully crossed for every scenario, declared or not (spec section 5 keeps
-    that cross-product "exactly as today"), so A, B, C and F are crossed
-    against all of its values despite declaring none of it.
+    `confounding_strength` is subject to that rule too, so what sets it apart
+    from the four axes below is only *how* it enumerates -- crossed against
+    `n_units`, rather than varied one value at a time -- and not whether
+    declaration gates it: A, B, C and F declare none of it, so each
+    contributes a single baseline strength per `n_units` (`ScenarioParams`'
+    own default) instead of one cell per value. Spec section 5's "exactly as
+    today", which left that cross-product ungated through Phase 18, is
+    superseded; section 12 of
+    `docs/specs/2026-09-13-causal-core-phase18-design.md` records the change.
     """
 
     scenarios: Sequence[str]
@@ -225,18 +233,43 @@ def expand_cells(config: GridConfig) -> tuple[Cell, ...]:
     return tuple(sorted(set(cells), key=cell_sort_key))
 
 
-def _perturbed_axes(axes: CrossSectionAxes) -> tuple[str, ...]:
-    """The new axes that will actually produce a one-at-a-time cell.
+def _confounding_values(axes: CrossSectionAxes, scenario: str) -> tuple[float, ...]:
+    """The confounding strengths one scenario's baseline block is crossed against.
 
-    An axis counts only if some scenario in this config declares it *and* it
-    carries a value away from `ScenarioParams`' default -- the same two
-    conditions `_expand_cross_section` applies before it yields anything.
+    A scenario that declares the axis is crossed against every value the
+    config asks for; one that does not gets a single baseline strength,
+    `ScenarioParams`' own default. That is the same treatment the four axes
+    Phase 18 adds already receive -- `_expand_cross_section` leaves an
+    undeclared one at its default and never varies it -- applied to the axis
+    that predates them.
+
+    A, B, C and F assign at random, so nothing their builders do reads this
+    axis. Crossing them against three strengths produced three cells per
+    `n_units` differing only in RNG stream, which `summarise` then reported as
+    though the strength had been varied: spec section 5.1's absent-versus-zero
+    hazard, for the one axis section 5 had left ungated. The gating removes 16
+    such cells from `full_config()`.
     """
+    if "confounding_strength" in SCENARIOS[scenario].axes:
+        return tuple(float(value) for value in axes.confounding_strength)
+    return (_DEFAULT_PARAMS.confounding_strength,)
+
+
+def _perturbed_axes(axes: CrossSectionAxes, scenario: str) -> tuple[str, ...]:
+    """The new axes that will actually produce a one-at-a-time cell for `scenario`.
+
+    An axis counts only if this scenario declares it *and* the config carries
+    a value away from `ScenarioParams`' default -- the same two conditions
+    `_expand_cross_section` applies before it yields anything. Asked per
+    scenario rather than across the whole config because whether the anchor
+    has to be present on the confounding axis is itself a per-scenario
+    question; see `_check_the_anchor_is_on_the_grid`.
+    """
+    declared = SCENARIOS[scenario].axes
     perturbed = []
     for name in _NEW_AXIS_NAMES:
-        declared_somewhere = any(name in SCENARIOS[s].axes for s in axes.scenarios)
         baseline = AXIS_BASELINES[name]
-        if declared_somewhere and any(v != baseline for v in getattr(axes, name)):
+        if name in declared and any(v != baseline for v in getattr(axes, name)):
             perturbed.append(name)
     return tuple(perturbed)
 
@@ -259,20 +292,34 @@ def _check_the_anchor_is_on_the_grid(axes: CrossSectionAxes) -> None:
     downstream could tell those cells apart from a like-for-like comparison.
     Raising here is the same treatment `expand_cells` already gives an
     unknown scenario: a configuration error, named at the point it is made.
+
+    **Asked per scenario**, because `_confounding_values` makes the answer
+    one. A scenario that does not declare `confounding_strength` has its
+    entire baseline block at the default strength whatever the config's
+    confounding axis says, so its anchor is on the grid by construction as
+    well, and refusing that config would reject a grid every cell of which is
+    interpretable. Only a scenario that both declares the axis and widens a
+    new axis can be left without a baseline twin. Before the axis was gated
+    by declaration this distinction did not exist -- every scenario was
+    crossed against every strength -- so the check could be, and was, asked
+    once for the whole config.
     """
-    perturbed = _perturbed_axes(axes)
-    if not perturbed:
-        return
     if AXIS_BASELINES["confounding_strength"] in {float(v) for v in axes.confounding_strength}:
         return
-    raise ValueError(
-        f"varying {list(perturbed)} one at a time anchors on "
-        f"confounding_strength={AXIS_BASELINES['confounding_strength']} "
-        f"(ScenarioParams' default), which is not in "
-        f"{list(axes.confounding_strength)}; the perturbed cells would have no "
-        f"baseline cell to be compared against. Add it to the axis, or leave "
-        f"those axes at their defaults."
-    )
+    for scenario in axes.scenarios:
+        if "confounding_strength" not in SCENARIOS[scenario].axes:
+            continue
+        perturbed = _perturbed_axes(axes, scenario)
+        if not perturbed:
+            continue
+        raise ValueError(
+            f"scenario {scenario} varying {list(perturbed)} one at a time anchors "
+            f"on confounding_strength={_DEFAULT_PARAMS.confounding_strength} "
+            f"(ScenarioParams' default), which is not in "
+            f"{list(axes.confounding_strength)}; the perturbed cells would have no "
+            f"baseline cell to be compared against. Add it to the axis, or leave "
+            f"those axes at their defaults."
+        )
 
 
 def _expand_cross_section(
@@ -280,10 +327,15 @@ def _expand_cross_section(
 ) -> Iterator[CrossSectionCell]:
     """One-at-a-time enumeration for the four axes Phase 18 adds (spec section 5).
 
-    `n_units` x `confounding_strength` is generated first, as a full
-    cross-product, with every new axis at its `ScenarioParams` default --
-    this reproduces the pre-Phase-18 grid exactly when none of the four axes
-    is widened past its single-value default.
+    `n_units` x `confounding_strength` is generated first, as a cross-product
+    over the strengths this scenario is actually crossed against
+    (`_confounding_values` -- every config value if it declares the axis, a
+    single default strength if it does not), with every new axis at its
+    `ScenarioParams` default. This reproduces the pre-Phase-18 grid exactly
+    when none of the four axes is widened past its single-value default *and*
+    the config asks only for the default strength, which is `ci_config()`'s
+    case: its cells, and so their `cell_rng` streams and the
+    `TOLERANCE_BANDS` measured against them, are untouched by the gating.
 
     Each new axis then varies **alone**, one non-default value at a time,
     against a fixed anchor: `n_units` pinned to this config's largest value
@@ -291,17 +343,21 @@ def _expand_cross_section(
     `confounding_strength` pinned to `ScenarioParams`'s own default (1.0) --
     both members of the cross-product above, so this reuses a point on the
     existing grid rather than adding a new one. `n_units` is one by
-    construction; `confounding_strength` is one because
-    `_check_the_anchor_is_on_the_grid` refuses a config where it would not
-    be. Every other new axis
-    sits at its own default throughout, so only one axis differs from
-    baseline in any single cell.
+    construction. `confounding_strength` is one by construction too for a
+    scenario that does not declare it (`_confounding_values` returns exactly
+    that strength and nothing else), and for one that does because
+    `_check_the_anchor_is_on_the_grid` refuses a config where it would not be.
+    Every other new axis sits at its own default throughout, so only one axis
+    differs from baseline in any single cell.
 
     A scenario is only varied against an axis it declares
     (`SCENARIOS[id].axes`): crossing it against an axis its builder ignores
     would add cells that are all identical to the baseline, reporting the
     axis as varied when nothing moved (spec section 5.1, the same
     absent-versus-zero confusion Phase 16's heatmaps were built to avoid).
+    That holds for `confounding_strength` as well as for the four axes this
+    loop varies -- the baseline block above reads `_confounding_values`, not
+    `axes.confounding_strength`, for exactly that reason.
     """
     anchor_n_units = max(axes.n_units)
     anchor_confounding_strength = AXIS_BASELINES["confounding_strength"]
@@ -309,8 +365,10 @@ def _expand_cross_section(
     for scenario in axes.scenarios:
         declared = SCENARIOS[scenario].axes
 
+        strengths = _confounding_values(axes, scenario)
+
         for n_units in axes.n_units:
-            for strength in axes.confounding_strength:
+            for strength in strengths:
                 for seed in range(replications):
                     yield CrossSectionCell(
                         scenario=scenario,

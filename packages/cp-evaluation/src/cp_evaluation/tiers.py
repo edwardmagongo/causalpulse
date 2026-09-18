@@ -505,16 +505,35 @@ def full_config() -> GridConfig:
     Each axis is varied **one at a time** against the other three sitting at their
     `ScenarioParams` default (see `grid._expand_cross_section`), and only for
     the scenarios that declare it (`SCENARIOS[id].axes`), so this widens the
-    cross-sectional arm from 42 to **84 cells**: the original 42 (7
-    scenarios x n_units=(500, 2000) x confounding_strength=(0.5, 1.0, 2.0),
-    unaffected -- that cross-product is unchanged), plus 42 new cells, 2 per
-    axis per scenario that declares it (A: 6, B: 4, C: 6, D: 6, F: 8, G: 6,
-    H: 6; see section 12 of the design doc for the full derivation and the
-    per-axis headroom/degenerate-value checks behind each chosen value).
-    `ci_config()` is untouched by this: its own four new-axis fields stay at
-    their single-valued `CrossSectionAxes` default, so it keeps producing
-    exactly the pre-Phase-18 grid its `TOLERANCE_BANDS` were measured
-    against.
+    cross-sectional arm from 26 to **68 cells**. Per scenario, the count is
+    `|n_units| x (|confounding_strength| if declared else 1)` for the baseline
+    block plus `(|values| - 1)` for each declared new axis:
+
+        scenario   declares cs   baseline      one-at-a-time   total
+        A          no            2 x 1 =  2    3 x 2 = 6           8
+        B          no            2 x 1 =  2    2 x 2 = 4           6
+        C          no            2 x 1 =  2    3 x 2 = 6           8
+        D          yes           2 x 3 =  6    3 x 2 = 6          12
+        F          no            2 x 1 =  2    4 x 2 = 8          10
+        G          yes           2 x 3 =  6    3 x 2 = 6          12
+        H          yes           2 x 3 =  6    3 x 2 = 6          12
+                                          26           42          68
+
+    Phase 18 itself shipped this as 42 to 84, because `confounding_strength`
+    was then exempt from the declaration rule and all 7 scenarios were crossed
+    against all 3 of its values. A follow-up closed that exemption (design doc
+    section 12): A, B, C and F assign at random and never read the axis, so
+    each now contributes one baseline strength per `n_units` rather than
+    three, and both ends of the range drop by the same 16 cells. See section
+    12 for the full derivation and the per-axis headroom/degenerate-value
+    checks behind each chosen value.
+
+    `ci_config()` is untouched by either change: its own four new-axis fields
+    stay at their single-valued `CrossSectionAxes` default, and its
+    `confounding_strength` axis is `(1.0,)` -- which is `ScenarioParams`' own
+    default, so the strength a gated scenario collapses onto is the only
+    strength it ever asked for. Every cell identity, and so every `cell_rng`
+    stream, is what `TOLERANCE_BANDS` was measured against.
 
     There is no runtime ceiling this widening needs to clear: this tier
     "runs on demand and has no two-minute budget" (that budget belongs to
@@ -532,10 +551,33 @@ def full_config() -> GridConfig:
     are excluded because a timing at a value this tier does not ship is not
     a measurement of this tier. Extra cross-sectional cost: ~507.8s/replication
     (42 x 12.09s). Combined with the pre-existing arms (MEASURED 2026-09-06,
-    below): 353.4s (original 42 cross-sectional cells) + 507.8s (42 new
-    cells) + 419.1s (panel, unchanged) = ~1280.3s/replication, or ~3.56
-    hours at the 10 replications shipped here -- up from ~2.1 hours before
-    this widening.
+    below): ~189.7s (the baseline cross-sectional block, now 26 cells) +
+    507.8s (42 new cells) + 419.1s (panel, unchanged) = ~1116.6s/replication,
+    or ~3.10 hours at the 10 replications shipped here -- up from ~2.1 hours
+    before this widening, and down from the ~3.56 hours Phase 18 shipped,
+    which crossed all 7 scenarios against all 3 strengths.
+
+    **Where ~189.7s comes from, and why it is not 353.4s x 26/42.** MEASURED
+    2026-09-18, this tree, same `run_grid`/`FULL_ESTIMATORS`/`FULL_FIT_CONFIG`
+    call as the 2026-09-06 run below, warm, after a discarded warm-up run: the
+    26 kept cells took 227.1s and the 16 the gating removes took 196.0s, so
+    the whole 42-cell block took 423.1s and the gating saves 46.3% of it. That
+    machine is slower than the one the 353.4s below was measured on (423.1s
+    for the identical 42 cells, a factor of 1.20), so what carries across is
+    the **ratio**, not the absolute: 353.4s x (227.1 / 423.1) = ~189.7s, which
+    keeps the whole projection on the 2026-09-06 basis the other two arms are
+    stated in.
+
+    The removed cells cost 12.25s each against 8.73s for the kept ones, so
+    they are *more* expensive than the arm average -- which is why the design
+    doc's first estimate of this saving (16 x the 8.4s/cell whole-arm average
+    = ~135s/replication, ~22 minutes per run) understated it by about a fifth.
+    The real figure is ~163.7s/replication, ~27 minutes across a
+    10-replication run. The mechanism is scenario H: all 6 of its cells are
+    kept, since H declares `confounding_strength`, and every one of its rows
+    is a missing-data refusal rather than a fit, so it costs almost nothing
+    and drags the kept block's per-cell average below the removed block's --
+    all 16 of which are fully-fitting random-assignment cells.
 
     MEASURED 2026-09-06, this tree, `run_grid(config, estimators=list(
     FULL_ESTIMATORS), fit_config=FULL_FIT_CONFIG)` at `replications=1`, for

@@ -318,6 +318,86 @@ def test_a_scenario_is_not_crossed_against_an_axis_it_does_not_declare():
     assert len(cells) == 1
 
 
+def test_a_scenario_is_not_crossed_against_a_confounding_strength_it_does_not_declare():
+    # `confounding_strength` predates the other four axes and was exempt from
+    # the declaration rule through Phase 18: every cross-sectional scenario
+    # was crossed against every strength, declared or not. Scenarios A, B, C
+    # and F assign at random, so their builders never read the axis, and those
+    # cells differed from each other only in RNG stream -- while `summarise`
+    # grouped them as though the strength had been varied. That is spec
+    # section 5.1's absent-versus-zero shape, for the axis section 5 left
+    # ungated.
+    #
+    # A declares none of it and D declares it, so one config shows both sides
+    # of the rule and neither can pass by accident of the other.
+    assert "confounding_strength" not in SCENARIOS["A"].axes
+    assert "confounding_strength" in SCENARIOS["D"].axes
+
+    config = GridConfig(
+        cross_section=CrossSectionAxes(
+            scenarios=("A", "D"),
+            n_units=(500, 2000),
+            confounding_strength=(0.5, 1.0, 2.0),
+        ),
+        panel=None,
+        replications=1,
+    )
+
+    cells = expand_cells(config)
+
+    # Hand-derived from the enumeration rule, not read off the output: A
+    # contributes |n_units| x 1 baseline strength = 2 cells, D contributes
+    # |n_units| x |confounding_strength| = 2 x 3 = 6, so 8 in total. Ungated,
+    # A would contribute 6 too and the total would be 12.
+    assert len(cells) == 2 + 6
+
+    by_scenario = {"A": [], "D": []}
+    for cell in cells:
+        by_scenario[cell.scenario].append(cell.confounding_strength)
+
+    # The one value A gets is `ScenarioParams`' own default -- the same value
+    # `_expand_cross_section` anchors its one-at-a-time cells on, and the same
+    # treatment an undeclared one of the four new axes already gets. Not, say,
+    # the first or smallest value on the config's axis, which would make an
+    # undeclared scenario's data depend on an axis it does not read.
+    assert set(by_scenario["A"]) == {ScenarioParams().confounding_strength}
+    assert set(by_scenario["D"]) == {0.5, 1.0, 2.0}
+
+
+def test_an_undeclared_confounding_scenario_never_needs_the_anchor():
+    # The other half of `_check_the_anchor_is_on_the_grid`'s per-scenario
+    # question. A widened new axis anchors on confounding_strength=1.0, and a
+    # config omitting 1.0 is refused for a scenario that declares the axis
+    # (see `test_a_widened_axis_needs_its_anchor_present_on_the_confounding_axis`).
+    # For a scenario that does not declare it, the whole baseline block is at
+    # 1.0 by construction, so the anchor always has its baseline twin and the
+    # config is fine. A check left asking the question once for the whole
+    # config -- as it correctly did while the axis was ungated -- would reject
+    # this grid even though every cell in it is interpretable.
+    assert "confounding_strength" not in SCENARIOS["A"].axes
+
+    config = GridConfig(
+        cross_section=CrossSectionAxes(
+            scenarios=("A",),
+            n_units=(500,),
+            confounding_strength=(0.5, 2.0),
+            treatment_intercept=(-1.5, 0.0, 1.5),
+        ),
+        panel=None,
+        replications=1,
+    )
+
+    cells = expand_cells(config)
+
+    # 1 baseline cell (1 n_units x 1 baseline strength) + 2 perturbed
+    # treatment_intercept cells, all three at the default strength.
+    assert len(cells) == 1 + 2
+    assert {c.confounding_strength for c in cells} == {
+        ScenarioParams().confounding_strength
+    }
+    assert {c.treatment_intercept for c in cells} == {-1.5, 0.0, 1.5}
+
+
 def test_the_new_axes_do_not_multiply_the_grid():
     # Hand-computed against spec section 5's enumeration rule: n_units x
     # confounding_strength stays a full cross-product (unaffected by the new
@@ -374,9 +454,23 @@ def test_a_new_axis_cell_holds_every_other_new_axis_at_its_default():
     # crossed against the whole existing grid, which is what keeps the extra
     # cell count linear in (scenarios x axes x values) rather than
     # multiplied by every n_units/confounding_strength combination too.
+    #
+    # Scenario D, not A. "Pinned to one strength rather than crossed against
+    # them all" is only a property a scenario that *has* several strengths can
+    # exercise, and since `confounding_strength` became a declared axis A has
+    # exactly one: its baseline block sits at the default whatever this
+    # config's confounding axis says. Measured rather than assumed -- a
+    # mutation that crossed each perturbed cell against the scenario's own
+    # strengths instead of pinning it to the anchor fails this test with
+    # `scenarios=("D",)` and passes it with `scenarios=("A",)`. D declares the
+    # axis, so (1.0, 2.0) genuinely varies for it and the pinning has
+    # something to get wrong.
+    assert "confounding_strength" in SCENARIOS["D"].axes
+    assert "treatment_intercept" in SCENARIOS["D"].axes
+
     config = GridConfig(
         cross_section=CrossSectionAxes(
-            scenarios=("A",),
+            scenarios=("D",),
             n_units=(500, 2000),
             confounding_strength=(1.0, 2.0),
             treatment_intercept=(-1.5, 0.0, 1.5),
@@ -405,9 +499,17 @@ def test_a_widened_axis_needs_its_anchor_present_on_the_confounding_axis():
     # and have no baseline twin to be compared against -- the comparison the
     # whole one-at-a-time design exists to support. Refuse it at configuration
     # time rather than emitting cells nothing downstream can interpret.
+    #
+    # Scenario D, not A: since `confounding_strength` became a declared axis
+    # like any other, only a scenario that declares it can be left without a
+    # baseline twin. A's baseline block sits at 1.0 whatever this axis says,
+    # so A is the case that must *not* raise -- covered by
+    # `test_an_undeclared_confounding_scenario_never_needs_the_anchor` below.
+    assert "confounding_strength" in SCENARIOS["D"].axes
+
     config = GridConfig(
         cross_section=CrossSectionAxes(
-            scenarios=("A",),
+            scenarios=("D",),
             n_units=(500,),
             confounding_strength=(0.5, 2.0),
             treatment_intercept=(-1.5, 0.0, 1.5),
@@ -425,9 +527,18 @@ def test_an_unwidened_grid_does_not_need_the_anchor_present():
     # grid is free to omit confounding_strength=1.0, and always was. Without
     # this, the fix above would break every existing caller that happens not
     # to include the default strength.
+    #
+    # Scenario D, not A: the assertion is that the config's own two strengths
+    # both reach the output, which only a scenario that declares the axis can
+    # show. A declares none of it, so its cells sit at the default 1.0 and
+    # would fail this for a reason that has nothing to do with the anchor
+    # check -- see
+    # `test_a_scenario_is_not_crossed_against_a_confounding_strength_it_does_not_declare`.
+    assert "confounding_strength" in SCENARIOS["D"].axes
+
     config = GridConfig(
         cross_section=CrossSectionAxes(
-            scenarios=("A",), n_units=(500,), confounding_strength=(0.5, 2.0)
+            scenarios=("D",), n_units=(500,), confounding_strength=(0.5, 2.0)
         ),
         panel=None,
         replications=1,
@@ -439,16 +550,23 @@ def test_an_unwidened_grid_does_not_need_the_anchor_present():
 
 
 def test_the_anchor_check_ignores_an_axis_no_scenario_declares():
-    # Scenario B does not declare heterogeneity_scale, so widening it produces
-    # no cells at all for B -- and therefore needs no anchor. A check that
+    # Scenario D does not declare heterogeneity_scale, so widening it produces
+    # no cells at all for D -- and therefore needs no anchor. A check that
     # fired on the axis's *values* rather than on whether a cell would
     # actually be produced would reject this config for a cell that never
     # gets built.
-    assert "heterogeneity_scale" not in SCENARIOS["B"].axes
+    #
+    # Scenario D, not B: B declares no `confounding_strength` either, so under
+    # the declaration gating it would pass this for two independent reasons
+    # and the anchor check's own behaviour would go untested. D is the case
+    # where the check is live -- it declares the axis, the config omits 1.0 --
+    # and must still stay silent because the widened axis produces nothing.
+    assert "heterogeneity_scale" not in SCENARIOS["D"].axes
+    assert "confounding_strength" in SCENARIOS["D"].axes
 
     config = GridConfig(
         cross_section=CrossSectionAxes(
-            scenarios=("B",),
+            scenarios=("D",),
             n_units=(500,),
             confounding_strength=(0.5, 2.0),
             heterogeneity_scale=(0.0, 1.0, 2.0),
@@ -457,6 +575,7 @@ def test_the_anchor_check_ignores_an_axis_no_scenario_declares():
         replications=1,
     )
 
+    # D's baseline block alone: 1 n_units x its 2 declared strengths.
     assert len(expand_cells(config)) == 2
 
 
