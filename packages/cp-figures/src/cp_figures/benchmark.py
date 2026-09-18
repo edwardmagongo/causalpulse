@@ -41,6 +41,7 @@ from cp_evaluation.grid import AXIS_BASELINES
 from cp_evaluation.metrics import GROUP_COLUMNS
 from matplotlib import colormaps
 from matplotlib.axes import Axes
+from matplotlib.transforms import blended_transform_factory
 
 
 def _differing_identity_columns(group: pd.DataFrame, exclude: Sequence[str]) -> list[str]:
@@ -451,6 +452,26 @@ def axis_profile_data(
     )
 
 
+# The fraction of the axes height the absence rug occupies, bottom and top.
+# Fixed rather than proportional to the method count so ten methods take the
+# same strip two do, instead of turning the rug into a third of the figure.
+_RUG_BAND: tuple[float, float] = (0.02, 0.12)
+
+
+def _rug_positions(n_methods: int) -> np.ndarray:
+    """One rug row per method, evenly spread inside `_RUG_BAND`.
+
+    Distinct rows rather than one shared line, so two methods absent at the
+    same axis value draw two visible marks rather than one on top of
+    another. A single method sits on the band's floor; `numpy.linspace`
+    would otherwise put it at the top.
+    """
+    low, high = _RUG_BAND
+    if n_methods < 2:
+        return np.array([low])
+    return np.linspace(low, high, n_methods)
+
+
 def draw_axis_profile(data: AxisProfileData, ax: Axes) -> Axes:
     """Draw one line per method along `data.axis`, on `ax`.
 
@@ -468,12 +489,42 @@ def draw_axis_profile(data: AxisProfileData, ax: Axes) -> Axes:
     reason: a profile can legitimately have a single plottable value between
     two absent ones, and `ax.plot` with the default style draws nothing
     visible for a lone point.
+
+    Absence gets its own visual channel rather than a y-position. The
+    heatmap keeps an absent cell off the value scale by painting it in the
+    colormap's "bad" colour; a line chart has no such channel, so an absent
+    (method, axis value) is marked in *blended* coordinates -- x through
+    `ax.transData` so it lines up with the axis value it belongs to, y
+    through `ax.transAxes` so it sits at a fixed fraction of the axes height
+    and has no position on the metric scale at all. Each method gets its own
+    row inside `_RUG_BAND`, coloured from its own line, so a mark is
+    attributable without a second legend.
     """
     x = np.asarray(data.axis_values, dtype=float)
     plottable = np.where(data.absent, np.nan, data.values)
 
+    rug_y = _rug_positions(len(data.methods))
+    # x in data coordinates, y in axes fractions: a rug mark lines up with
+    # the axis value it belongs to but has no position on the metric scale
+    # at all, so it can never be read as a measurement.
+    rug_transform = blended_transform_factory(ax.transData, ax.transAxes)
+
     for i, method in enumerate(data.methods):
-        ax.plot(x, plottable[i], marker="o", label=method)
+        (line,) = ax.plot(x, plottable[i], marker="o", label=method)
+        absent_x = x[np.asarray(data.absent[i], dtype=bool)]
+        if absent_x.size:
+            ax.plot(
+                absent_x,
+                np.full(absent_x.shape, rug_y[i]),
+                marker="x",
+                linestyle="none",
+                color=line.get_color(),
+                transform=rug_transform,
+                # The rug is an annotation on its method's line, not a
+                # series of its own; a second legend entry per method would
+                # double the legend for no information.
+                label="_nolegend_",
+            )
 
     ax.set_xticks(list(x))
     ax.set_xlabel(data.axis)

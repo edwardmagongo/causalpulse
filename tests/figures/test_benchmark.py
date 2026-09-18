@@ -971,3 +971,120 @@ def test_drawing_a_profile_returns_the_axes_and_leaves_pyplot_alone(ax):
 
     assert draw_axis_profile(data, ax) is ax
     assert plt.get_fignums() == before
+
+
+def _one_absent_profile():
+    return AxisProfileData(
+        axis="effect_scale",
+        scenario="C",
+        metric="bias",
+        axis_values=(0.5, 1.0, 2.0),
+        methods=("ipw", "lin_regression"),
+        values=np.array([[0.02, np.nan, 0.05], [0.01, 0.00, 0.04]]),
+        absent=np.array([[False, True, False], [False, False, False]]),
+        realised_treated_share=None,
+    )
+
+
+def _rug_lines(ax):
+    """The artists drawn in blended (data-x, axes-y) coordinates.
+
+    `Axes.add_line` sets a plain line's transform to `ax.transData` itself,
+    so identity separates the rug from the profile lines. If that ever
+    stopped holding, `test_a_method_with_no_absent_values_draws_no_rug`
+    fails first -- it asserts this returns an empty list when nothing is
+    absent -- so the helper cannot silently start matching everything.
+    """
+    return [
+        line
+        for line in ax.lines
+        if line.get_transform() is not ax.transData
+    ]
+
+
+def test_an_absent_value_gets_a_rug_mark_at_its_own_axis_position(ax):
+    draw_axis_profile(_one_absent_profile(), ax)
+
+    rugs = _rug_lines(ax)
+    assert len(rugs) == 1, "only the one method with an absent value gets a rug"
+    np.testing.assert_allclose(rugs[0].get_xdata(), [1.0])
+
+
+def test_the_rug_is_drawn_off_the_value_scale_not_at_a_metric_value(ax):
+    # The whole point. A marker at a y-position on the metric scale would be
+    # read as a measurement; this one is positioned in axes fractions, so it
+    # cannot be. x stays in data coordinates so it still lines up with the
+    # axis value it belongs to.
+    draw_axis_profile(_one_absent_profile(), ax)
+
+    rug = _rug_lines(ax)[0]
+    y = np.asarray(rug.get_ydata(), dtype=float)
+    assert np.all((y >= 0.0) & (y <= 1.0)), "rug y must be an axes fraction"
+
+    transform = rug.get_transform()
+    # x through the data transform, y through the axes transform: a point at
+    # data-x 1.0 and fraction-y 0.02 must land where the x-axis says 1.0 is,
+    # and 2% up from the bottom spine.
+    ax.set_xlim(0.0, 2.0)
+    ax.set_ylim(-100.0, 100.0)
+    px, py = transform.transform((1.0, 0.02))
+    data_px, _ = ax.transData.transform((1.0, 0.0))
+    _, axes_py = ax.transAxes.transform((0.0, 0.02))
+    assert px == pytest.approx(data_px)
+    assert py == pytest.approx(axes_py)
+
+
+def test_a_method_with_no_absent_values_draws_no_rug(ax):
+    data = axis_profile_data(
+        _profile_summary(), "bias", axis="effect_scale", scenario="C"
+    )
+
+    draw_axis_profile(data, ax)
+
+    assert _rug_lines(ax) == []
+
+
+def test_each_methods_rug_matches_its_own_line_colour(ax):
+    # A rug mark has to be attributable to a method without a second legend.
+    data = AxisProfileData(
+        axis="effect_scale",
+        scenario="C",
+        metric="bias",
+        axis_values=(0.5, 1.0, 2.0),
+        methods=("ipw", "lin_regression"),
+        values=np.array([[0.02, np.nan, 0.05], [np.nan, 0.00, 0.04]]),
+        absent=np.array([[False, True, False], [True, False, False]]),
+        realised_treated_share=None,
+    )
+
+    draw_axis_profile(data, ax)
+
+    lines = {line.get_label(): line for line in ax.lines if line.get_label() in data.methods}
+    rugs = _rug_lines(ax)
+    assert len(rugs) == 2
+    rug_colours = {rug.get_color() for rug in rugs}
+    assert rug_colours == {
+        lines["ipw"].get_color(),
+        lines["lin_regression"].get_color(),
+    }
+
+
+def test_the_rug_band_stays_the_same_height_whatever_the_method_count(ax):
+    # Ten methods must not turn the rug into a third of the figure.
+    from cp_figures.benchmark import _RUG_BAND, _rug_positions
+
+    for n_methods in (1, 2, 10):
+        positions = _rug_positions(n_methods)
+        assert len(positions) == n_methods
+        assert positions.min() >= _RUG_BAND[0]
+        assert positions.max() <= _RUG_BAND[1]
+    # Distinct rows, so two methods absent at the same axis value do not
+    # draw one marker on top of another.
+    assert len(set(_rug_positions(10).tolist())) == 10
+
+
+def test_the_rug_does_not_add_a_legend_entry(ax):
+    draw_axis_profile(_one_absent_profile(), ax)
+
+    labels = [text.get_text() for text in ax.get_legend().get_texts()]
+    assert labels == ["ipw", "lin_regression"]
