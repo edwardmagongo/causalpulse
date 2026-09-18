@@ -322,6 +322,12 @@ def axis_profile_data(
     """
     if metric not in summary.columns:
         raise KeyError(metric)
+    if axis not in PROFILE_AXES:
+        raise ValueError(
+            f"unknown axis {axis!r}; available: {list(PROFILE_AXES)}"
+        )
+    if axis not in summary.columns:
+        raise KeyError(axis)
 
     rows = summary
     if "shape" in rows.columns:
@@ -330,16 +336,66 @@ def axis_profile_data(
         # makes the reason explicit rather than incidental.
         rows = rows[rows["shape"] == "cross_section"]
 
+    available_scenarios = sorted(str(s) for s in rows["scenario"].unique())
     rows = rows[rows["scenario"] == scenario]
+    if rows.empty:
+        raise ValueError(
+            f"no cross-sectional rows for scenario {scenario!r}; "
+            f"available: {available_scenarios}"
+        )
 
+    pinned: dict[str, float] = {}
     for name, baseline in AXIS_BASELINES.items():
         if name != axis and name in rows.columns:
+            pinned[name] = baseline
             rows = rows[rows[name] == baseline]
 
     if axis != "n_units" and "n_units" in rows.columns and not rows.empty:
-        rows = rows[rows["n_units"] == rows["n_units"].max()]
+        anchor = float(rows["n_units"].max())
+        pinned["n_units"] = anchor
+        rows = rows[rows["n_units"] == anchor]
+
+    if rows.empty:
+        raise ValueError(
+            f"no rows for scenario {scenario!r} along {axis!r} once every other "
+            f"axis was pinned to its baseline ({pinned}). The summary carries no "
+            "cell at that anchor -- check it came from a grid that varies this "
+            "axis one at a time."
+        )
 
     axis_values = tuple(sorted(float(value) for value in rows[axis].unique()))
+    if len(axis_values) < 2:
+        raise ValueError(
+            f"scenario {scenario!r} does not vary along {axis!r}: every row sits "
+            f"at {axis_values[0]}. A scenario is only varied against an axis it "
+            "declares (`cp_simulation.scenarios.SCENARIOS[id].axes`), so this "
+            "profile would be a single point drawn as though it were a measured "
+            "flat line -- which a reader cannot tell apart from an axis that "
+            "genuinely moved nothing."
+        )
+
+    group_sizes = rows.groupby(["method", axis]).size()
+    duplicated = group_sizes[group_sizes > 1]
+    if not duplicated.empty:
+        method, value = duplicated.index[0]
+        group = rows[(rows["method"] == method) & (rows[axis] == value)]
+        differing = _differing_identity_columns(
+            group, exclude=("method", "scenario", axis)
+        )
+        if differing:
+            raise ValueError(
+                f"axis_profile_data needs exactly one row per (method, {axis}), "
+                f"but ({method!r}, {value}) has {len(group)} rows, differing in "
+                f"{differing}. Filter the summary to one value of each of those "
+                "columns before building a profile."
+            )
+        raise ValueError(
+            f"axis_profile_data needs exactly one row per (method, {axis}), but "
+            f"({method!r}, {value}) has {len(group)} rows that share the same "
+            "grid-cell identity (no identity column differs between them) -- "
+            "deduplicate the summary before building a profile."
+        )
+
     methods = tuple(sorted(str(method) for method in rows["method"].unique()))
     value_index = {value: j for j, value in enumerate(axis_values)}
     method_index = {method: i for i, method in enumerate(methods)}

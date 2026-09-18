@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
-from cp_evaluation.metrics import summarise
+from cp_evaluation.metrics import GROUP_COLUMNS, summarise
 from cp_evaluation.run import ROW_COLUMNS
 from cp_figures.benchmark import (
     AxisProfileData,
@@ -658,3 +658,105 @@ def test_axis_profile_data_is_a_dataclass_with_the_documented_fields():
     assert isinstance(data.values, np.ndarray)
     assert isinstance(data.absent, np.ndarray)
     assert data.absent.dtype == bool
+
+
+def test_an_unknown_profile_metric_is_refused_by_name():
+    with pytest.raises(KeyError, match="frobnicate"):
+        axis_profile_data(
+            _profile_summary(), "frobnicate", axis="effect_scale", scenario="C"
+        )
+
+
+def test_an_unknown_axis_is_refused_naming_it_and_the_permitted_set():
+    with pytest.raises(ValueError, match="wobble") as exc_info:
+        axis_profile_data(_profile_summary(), "bias", axis="wobble", scenario="C")
+
+    message = str(exc_info.value)
+    # The permitted set must be listed -- a caller who guessed wrong needs
+    # to see what the alternatives are, not just that the guess failed.
+    assert "effect_scale" in message
+    assert "n_units" in message
+
+
+def test_an_axis_column_missing_from_the_summary_is_refused_by_name():
+    # A pre-Phase-18 summary carries no heterogeneity_scale column at all.
+    # That is a different failure from "the axis is not a real axis", and
+    # gets the KeyError an absent column deserves.
+    summary = _profile_summary().drop(columns=["heterogeneity_scale"])
+
+    with pytest.raises(KeyError, match="heterogeneity_scale"):
+        axis_profile_data(summary, "bias", axis="heterogeneity_scale", scenario="C")
+
+
+def test_a_scenario_not_in_the_summary_is_refused_naming_what_is_available():
+    with pytest.raises(ValueError, match="'Z'") as exc_info:
+        axis_profile_data(_profile_summary(), "bias", axis="effect_scale", scenario="Z")
+
+    assert "C" in str(exc_info.value)
+
+
+def test_a_scenario_that_does_not_vary_along_the_axis_is_refused():
+    # Scenario C declares effect_scale, treatment_intercept and noise_scale
+    # -- not heterogeneity_scale (cp_simulation.scenarios: C's effect is a
+    # ConstantEffect, whose CATE spread is structurally zero, so there is no
+    # increment for the axis to scale). Every C row therefore sits at the
+    # heterogeneity_scale baseline, and a profile along it would be a single
+    # point drawn as if it were a measured flat line. A reader cannot tell
+    # "measured, did not move" from "never varied here" by looking.
+    with pytest.raises(ValueError, match="heterogeneity_scale") as exc_info:
+        axis_profile_data(
+            _profile_summary(), "bias", axis="heterogeneity_scale", scenario="C"
+        )
+
+    message = str(exc_info.value)
+    assert "'C'" in message
+    assert "1.0" in message  # the single value found
+
+
+def test_an_empty_slice_is_refused_rather_than_returning_an_empty_profile():
+    # Every row perturbed on noise_scale, so pinning noise_scale to its
+    # baseline leaves nothing. Returning an empty AxisProfileData would draw
+    # a blank axes that looks like a successful figure.
+    frame = _profile_frame()
+    frame["noise_scale"] = 1.3
+
+    with pytest.raises(ValueError, match="no rows"):
+        axis_profile_data(summarise(frame), "bias", axis="effect_scale", scenario="C")
+
+
+def test_more_than_one_row_per_method_and_axis_value_is_refused_naming_identity_columns():
+    # Two rows for (lin_regression, effect_scale=1.0) that survive every
+    # pin, differing only in n_periods -- an identity column the profile
+    # does not pin. The refusal must name n_periods and no metric column:
+    # a caller cannot "filter to one value of" bias.
+    frame = _profile_frame()
+    extra = frame[
+        (frame["effect_scale"] == 1.0)
+        & (frame["n_units"] == 2000)
+        & (frame["noise_scale"] == 0.0)
+    ].copy()
+    extra["n_periods"] = 7.0
+    # An exact copy of `frame`'s rows would carry identical point/truth, so
+    # summarise() would give the n_periods=7.0 cell metric aggregates
+    # numerically identical to the original's -- defining away the very
+    # leak this test exists to catch: no metric column could ever differ,
+    # so a mutant that checked every column instead of only GROUP_COLUMNS
+    # would still slip through. Perturbing `point` gives the duplicate
+    # cell its own, genuinely different metrics, the way two real grid
+    # cells would differ.
+    extra["point"] = extra["point"] + 0.5
+    summary = summarise(pd.concat([frame, extra], ignore_index=True))
+    assert len(summary.columns) >= 20, "fixture sanity: a real summarise() output"
+
+    with pytest.raises(ValueError, match=r"differing in \['n_periods'\]") as exc_info:
+        axis_profile_data(summary, "bias", axis="effect_scale", scenario="C")
+
+    message = str(exc_info.value)
+    metric_columns = [
+        column
+        for column in summary.columns
+        if column not in GROUP_COLUMNS and column != "method"
+    ]
+    assert metric_columns, "fixture sanity: summarise() must have produced metric columns"
+    for column in metric_columns:
+        assert column not in message, f"metric column {column!r} leaked into the refusal"
