@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
+from cp_evaluation.grid import SCENARIO_AXES
 from cp_evaluation.metrics import GROUP_COLUMNS, summarise
 from cp_evaluation.run import ROW_COLUMNS
 from cp_figures.benchmark import (
@@ -650,6 +651,40 @@ def test_n_units_is_a_selectable_axis_with_no_anchor_pin():
     assert not data.absent.any()
 
 
+def test_a_panel_shaped_row_is_excluded_from_a_cross_sectional_profile():
+    # PanelAxes carries none of the five AXIS_NAMES axes
+    # (cp_evaluation.grid), so a panel-shaped row carries NaN for all of
+    # them -- exactly like every fixture row here, which is built by _row()
+    # and hardcodes shape="cross_section", and the grid-validated tests
+    # above, which filter to CrossSectionCell before building rows. Neither
+    # exercises the `shape == "cross_section"` pin itself. A panel row at a
+    # distinct n_units value, mixed into an n_units profile, proves the pin
+    # is doing something rather than merely being present in the source.
+    panel_row = _row(
+        shape="panel",
+        scenario="C",
+        method="ipw",
+        n_units=99999,
+        n_periods=6.0,
+        seed=0,
+        truth=0.03,
+        point=0.05,
+    )
+    frame = pd.concat(
+        [_profile_frame(), pd.DataFrame([panel_row], columns=list(ROW_COLUMNS))],
+        ignore_index=True,
+    )
+    summary = summarise(frame)
+    assert (summary["n_units"] == 99999).any(), (
+        "fixture sanity: the panel row must survive summarise() as its own group"
+    )
+
+    data = axis_profile_data(summary, "bias", axis="n_units", scenario="C")
+
+    assert 99999.0 not in data.axis_values
+    assert data.axis_values == (500.0, 2000.0)
+
+
 def test_axis_profile_data_is_a_dataclass_with_the_documented_fields():
     data = axis_profile_data(
         _profile_summary(), "bias", axis="effect_scale", scenario="C"
@@ -714,21 +749,49 @@ def test_a_scenario_not_in_the_summary_is_refused_naming_what_is_available():
 
 
 def test_a_scenario_that_does_not_vary_along_the_axis_is_refused():
-    # Scenario C declares effect_scale, treatment_intercept and noise_scale
-    # -- not heterogeneity_scale (cp_simulation.scenarios: C's effect is a
-    # ConstantEffect, whose CATE spread is structurally zero, so there is no
-    # increment for the axis to scale). Every C row therefore sits at the
-    # heterogeneity_scale baseline, and a profile along it would be a single
-    # point drawn as if it were a measured flat line. A reader cannot tell
-    # "measured, did not move" from "never varied here" by looking.
-    with pytest.raises(ValueError, match="heterogeneity_scale") as exc_info:
-        axis_profile_data(
-            _profile_summary(), "bias", axis="heterogeneity_scale", scenario="C"
-        )
+    # This is the single-value refusal, which survives the declaration
+    # refusal below for a *declared* axis narrowed to one value by the
+    # summary itself -- the shape a ci_config() run, or any summary already
+    # filtered to one point on an axis, would carry. effect_scale is
+    # genuinely declared by C, so the declaration check does not fire here;
+    # narrowing the summary to its single baseline value is what leaves
+    # every surviving row at 1.0, drawing as if it were a measured flat
+    # line. A reader cannot tell "measured, did not move" from "never varied
+    # here" by looking.
+    summary = _profile_summary()
+    summary = summary[summary["effect_scale"] == 1.0]
+
+    with pytest.raises(ValueError, match="does not vary") as exc_info:
+        axis_profile_data(summary, "bias", axis="effect_scale", scenario="C")
 
     message = str(exc_info.value)
     assert "'C'" in message
     assert "1.0" in message  # the single value found
+
+
+def test_an_axis_the_scenario_does_not_declare_is_refused():
+    # C's build (_randomised, cp_simulation.scenarios) reads effect_scale,
+    # treatment_intercept and noise_scale -- never confounding_strength,
+    # which RandomAssignment makes meaningless. Unlike an undeclared Phase 18
+    # axis (which collapses to one row and is caught by the single-value
+    # refusal above), confounding_strength stays fully crossed against
+    # n_units for every scenario regardless of declaration, so
+    # _profile_summary's confounding_strength column genuinely carries more
+    # than one value here -- this refusal is the only thing that catches it.
+    with pytest.raises(ValueError, match="confounding_strength") as exc_info:
+        axis_profile_data(
+            _profile_summary(), "bias", axis="confounding_strength", scenario="C"
+        )
+
+    message = str(exc_info.value)
+    # Names the axis, the scenario, and what the scenario does declare, so a
+    # caller who guessed wrong can pick a working axis.
+    assert "'C'" in message
+    declared = sorted(SCENARIO_AXES["C"])
+    assert declared, "fixture sanity: C must declare at least one axis"
+    for axis_name in declared:
+        assert axis_name in message
+    assert "n_units" in message  # named as the one exempt alternative
 
 
 def test_an_empty_slice_is_refused_rather_than_returning_an_empty_profile():
@@ -738,8 +801,15 @@ def test_an_empty_slice_is_refused_rather_than_returning_an_empty_profile():
     frame = _profile_frame()
     frame["noise_scale"] = 1.3
 
-    with pytest.raises(ValueError, match="no rows"):
+    with pytest.raises(ValueError, match="no rows") as exc_info:
         axis_profile_data(summarise(frame), "bias", axis="effect_scale", scenario="C")
+
+    # Consistent with its six sibling refusal tests: the message must name
+    # what was wrong, not just that something was.
+    message = str(exc_info.value)
+    assert "effect_scale" in message
+    assert "'C'" in message
+    assert "noise_scale" in message  # the pin that emptied the slice
 
 
 def test_more_than_one_row_per_method_and_axis_value_is_refused_naming_identity_columns():
@@ -898,9 +968,14 @@ def test_drawing_a_profile_masks_absent_positions_not_dropping_them(ax):
     # visually asserting a trend across a cell that never ran. With the point
     # kept and NaN'd, the line breaks and a reader can see the gap.
     #
-    # This test verifies the structural requirement (x array is complete, not
-    # filtered). The sibling test verifies the value masking (y is NaN on an
-    # absent position). Together they guard both halves of "mask, not drop".
+    # A finite value at the absent position (rather than NaN in the fixture
+    # itself) is what makes both halves of "mask, not drop" provable in one
+    # test: the x-completeness assertion below catches a draw_ that dropped
+    # the position outright, and matplotlib will not auto-hide a finite
+    # number, so the y-is-NaN assertion below catches a draw_ that plotted
+    # data.values directly instead of masking by data.absent -- it would
+    # otherwise leave y[1] at the fixture's 0.0, on the value scale, exactly
+    # where nothing was measured.
     data = AxisProfileData(
         axis="effect_scale",
         scenario="C",
@@ -924,29 +999,6 @@ def test_drawing_a_profile_masks_absent_positions_not_dropping_them(ax):
     # The absent position is NaN'd in the y array
     assert np.isnan(y[1])
     assert not np.isnan(y[0]) and not np.isnan(y[2])
-
-
-def test_drawing_a_profile_masks_by_the_absent_flag_even_when_the_value_is_finite(ax):
-    # The mutation-catcher, mirroring the heatmap's own. matplotlib will not
-    # auto-hide a finite number, so a draw_ that plotted data.values
-    # directly and relied on NaN would draw a marker at 0.0 where nothing
-    # was ever measured. Only threading data.absent through can hide it.
-    data = AxisProfileData(
-        axis="effect_scale",
-        scenario="C",
-        metric="bias",
-        axis_values=(0.5, 1.0, 2.0),
-        methods=("ipw",),
-        values=np.array([[0.02, 0.0, 0.05]]),
-        absent=np.array([[False, True, False]]),
-        realised_treated_share=None,
-    )
-
-    draw_axis_profile(data, ax)
-
-    line = next(line for line in ax.lines if line.get_label() == "ipw")
-    y = np.asarray(line.get_ydata(), dtype=float)
-    assert np.isnan(y[1]), "a finite value marked absent was plotted on the value scale"
 
 
 def test_drawing_a_profile_labels_the_axes_and_names_the_scenario(ax):
@@ -1190,8 +1242,13 @@ def _summary_over_the_full_grids_cells():
         ("C", "noise_scale", (0.0, 0.9, 1.3)),
         # confounding_strength stays fully crossed against n_units for every
         # scenario, declared or not; pinning n_units to the anchor is what
-        # turns that cross-product back into a profile.
-        ("C", "confounding_strength", (0.5, 1.0, 2.0)),
+        # turns that cross-product back into a profile. D (unlike C) is one
+        # of the scenarios that actually declares confounding_strength
+        # (cp_simulation.scenarios.SCENARIOS["D"].axes) -- a scenario that
+        # does not declare it is refused instead (see
+        # test_the_slice_rule_refuses_confounding_strength_for_an_undeclaring_scenario
+        # below), so this case has to use one that does.
+        ("D", "confounding_strength", (0.5, 1.0, 2.0)),
         # n_units, with every AXIS_BASELINES axis pinned.
         ("C", "n_units", (500.0, 2000.0)),
         # F is the only scenario whose effect is heterogeneous, so it is the
@@ -1215,10 +1272,39 @@ def test_the_slice_rule_selects_exactly_the_cells_the_grid_emits(scenario, axis,
 
 def test_the_slice_rule_refuses_an_axis_the_real_grid_never_varies():
     # Scenario C's effect is a ConstantEffect, whose CATE spread is
-    # structurally zero, so C does not declare heterogeneity_scale and the
-    # real grid emits every C cell at that axis's baseline. The refusal is
-    # ground truth from the shipped config, not a property of a fixture.
+    # structurally zero, so C does not declare heterogeneity_scale
+    # (cp_simulation.scenarios.SCENARIOS["C"].axes) and the real grid never
+    # varies it for C -- every C cell sits at that axis's baseline. The
+    # refusal is ground truth from the shipped config, not a property of a
+    # fixture. This is the declaration refusal, not the single-value one:
+    # heterogeneity_scale being undeclared is caught before the pins ever
+    # run, which for one of the four Phase 18 axes happens to agree with
+    # what the single-value check alone would have found anyway (see §3 of
+    # the design doc for why that agreement does not extend to
+    # confounding_strength, exercised below).
     summary = _summary_over_the_full_grids_cells()
 
-    with pytest.raises(ValueError, match="does not vary"):
+    with pytest.raises(ValueError, match="does not declare"):
         axis_profile_data(summary, "bias", axis="heterogeneity_scale", scenario="C")
+
+
+def test_the_slice_rule_refuses_confounding_strength_for_an_undeclaring_scenario():
+    # The finding this fix addresses: confounding_strength stays fully
+    # crossed against n_units for every scenario (cp_evaluation.grid
+    # .CrossSectionAxes's docstring), so C -- whose RandomAssignment makes
+    # the axis meaningless (cp_simulation.scenarios) and which does not
+    # declare it -- still gets a real, multi-valued confounding_strength
+    # column from the shipped grid, not a single collapsed row. That is what
+    # makes this refusal necessary rather than redundant with the
+    # single-value check: ground truth from the real grid, not a fixture
+    # written to match the rule, is what proves the column genuinely varies
+    # here.
+    summary = _summary_over_the_full_grids_cells()
+    c_rows = summary[summary["scenario"] == "C"]
+    assert c_rows["confounding_strength"].nunique() > 1, (
+        "fixture/grid sanity: the bug this refusal exists to prevent requires "
+        "the real shipped grid to actually vary confounding_strength for C"
+    )
+
+    with pytest.raises(ValueError, match="does not declare"):
+        axis_profile_data(summary, "bias", axis="confounding_strength", scenario="C")
