@@ -16,18 +16,27 @@ method scored zero here" would be actively misleading, which is why Phase 14
 recorded three statuses per row rather than dropping the ones that produced
 no estimate.
 
-`heatmap_data` therefore marks a cell absent when its `n_fitted` is zero (or
-when the (method, scenario) combination has no row in the summary at all),
-never when the metric's value happens to be NaN. Those are genuinely
-different conditions: a metric can be legitimately NaN with rows present.
-`accuracy_metrics` in `cp_evaluation.metrics` returns `relative_bias` as NaN
-whenever the group's mean truth is exactly zero -- the null scenarios the
-false-positive test exists for -- specifically to avoid a `bias / 0` that
-would read as infinite rather than undefined; those rows still have
-`n_fitted > 0` and must be drawn as present, unplottable-numbered cells, not
-hidden as if the method never ran there. `draw_heatmap` renders over a
-masked array (masked by `absent`, not by `numpy.isnan`) so an absent cell
-takes the colormap's "bad" colour instead of landing on the value scale.
+Both `heatmap_data` and `axis_profile_data` therefore mark a cell absent when
+its `n_fitted` is zero (or when the (method, scenario) or (method, axis
+value) combination has no row in the summary at all), never when the
+metric's value happens to be NaN. Those are genuinely different conditions:
+a metric can be legitimately NaN with rows present. `accuracy_metrics` in
+`cp_evaluation.metrics` returns `relative_bias` as NaN whenever the group's
+mean truth is exactly zero -- the null scenarios the false-positive test
+exists for -- specifically to avoid a `bias / 0` that would read as infinite
+rather than undefined; those rows still have `n_fitted > 0` and must be
+drawn as present, unplottable-numbered cells, not hidden as if the method
+never ran there.
+
+`draw_heatmap` renders over a masked array (masked by `absent`, not by
+`numpy.isnan`) so an absent cell takes the colormap's "bad" colour instead
+of landing on the value scale. A line chart has no such colour to fall back
+on -- `draw_axis_profile` keeps an absent position off the value scale by
+NaN-ing it out of the plotted line (so the line breaks there rather than
+drawing straight across it) and marking it instead with an absence rug: a
+row of marks drawn in blended coordinates, x on the real axis value but y a
+fixed fraction of the axes height, so it has no position on the metric scale
+at all and cannot be misread as a measurement.
 """
 
 from __future__ import annotations
@@ -37,7 +46,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
-from cp_evaluation.grid import AXIS_BASELINES
+from cp_evaluation.grid import AXIS_BASELINES, SCENARIO_AXES
 from cp_evaluation.metrics import GROUP_COLUMNS
 from matplotlib import colormaps
 from matplotlib.axes import Axes
@@ -118,9 +127,11 @@ def heatmap_data(summary: pd.DataFrame, metric: str) -> HeatmapData:
     (see `docs/specs/2026-09-13-causal-core-phase18-design.md` section 12,
     "Findings from the whole-branch review": a measured example collapsed
     three scenario-C cells, n_fitted 10/10/0, into one cell marked absent).
-    A per-axis heatmap is a separate, not-yet-built feature; the caller must
-    filter to one slice (e.g. one `n_units`/`confounding_strength`/axis
-    value) before pivoting.
+    A per-axis view is `axis_profile_data`/`draw_axis_profile`, elsewhere in
+    this module: one scenario's one-at-a-time slice along one axis, drawn as
+    a line per method rather than pivoted into cells. A caller who only needs
+    to keep pivoting to a heatmap must still filter to one slice (e.g. one
+    `n_units`/`confounding_strength`/axis value) before doing so.
 
     The refusal names only the *identity* columns that differ across the
     duplicate rows -- `cp_evaluation.metrics.GROUP_COLUMNS` (`shape`,
@@ -369,6 +380,44 @@ def axis_profile_data(
         raise ValueError(
             f"no cross-sectional rows for scenario {scenario!r}; "
             f"available: {available_scenarios}"
+        )
+
+    # The grid still emits rows along an axis a scenario does not declare.
+    # For the four Phase 18 axes that is harmless -- `_expand_cross_section`
+    # skips a scenario that does not declare them, so every one of its rows
+    # sits at that axis's own baseline and the single-value refusal below
+    # catches it. `confounding_strength` is different: it stays fully
+    # crossed against `n_units` for *every* scenario, declared or not
+    # (`cp_evaluation.grid.CrossSectionAxes`'s docstring), so A, B, C and F
+    # -- whose RandomAssignment makes the axis meaningless
+    # (`cp_simulation.scenarios`) -- still get three confounding_strength
+    # rows each. The column varies even though the generated data behind it
+    # is identical, so the single-value check can never fire, and a profile
+    # would draw a flat line a reader cannot tell apart from a measured null
+    # result -- the same confusion `_expand_cross_section` already refuses
+    # to manufacture for the other four axes. Checking declaration up front
+    # catches both cases at the same place.
+    #
+    # `n_units` is exempt: no scenario declares it -- it is crossed against
+    # `confounding_strength` rather than varied one-at-a-time -- but it
+    # genuinely moves every scenario's data regardless of declaration.
+    #
+    # Skipped outright when `scenario` is not a key in `SCENARIO_AXES` at
+    # all: this function cannot vouch for a scenario the registry does not
+    # know, and the axis-column, empty-slice and single-value refusals
+    # elsewhere in this function still apply to it.
+    if axis != "n_units" and scenario in SCENARIO_AXES and axis not in SCENARIO_AXES[scenario]:
+        declared = sorted(SCENARIO_AXES[scenario])
+        raise ValueError(
+            f"scenario {scenario!r} does not declare axis {axis!r} "
+            f"(cp_simulation.scenarios.SCENARIOS[{scenario!r}].axes); it "
+            f"declares {declared}. The grid still emits rows along {axis!r} "
+            "for this scenario -- confounding_strength stays crossed "
+            "against n_units for every scenario, declared or not -- but the "
+            "generated data behind them is identical, since this scenario "
+            "never reads the axis. A profile would draw a flat line a "
+            "reader cannot tell apart from a measured null result. Choose "
+            f"one of {declared}, or axis='n_units'."
         )
 
     pinned: dict[str, float] = {}

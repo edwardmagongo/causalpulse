@@ -52,6 +52,24 @@ AXIS_BASELINES: Mapping[str, float] = MappingProxyType(
     {name: float(getattr(_DEFAULT_PARAMS, name)) for name in AXIS_NAMES}
 )
 
+# Which of the four Phase 18 axes each cross-sectional scenario declares
+# (`SCENARIOS[id].axes`), published for the same reason `AXIS_BASELINES`
+# above is: `cp_figures.benchmark.axis_profile_data` needs it to refuse a
+# profile along an axis a scenario does not vary -- true for every one of
+# the four Phase 18 axes (an undeclared scenario's cells all sit at that
+# axis's baseline) and, differently, for `confounding_strength` too (it
+# stays fully crossed against `n_units` for every scenario regardless of
+# declaration, so the *column* varies even where the generated data behind
+# it does not; see `CrossSectionAxes`'s docstring). `cp_figures` has no
+# `cp_simulation` dependency to read `SCENARIOS` through directly.
+#
+# A read-only mapping for the same reason `AXIS_BASELINES` is one: an
+# importer must not be able to rewrite what the grid considers "declared"
+# for every other importer in the process.
+SCENARIO_AXES: Mapping[str, frozenset[str]] = MappingProxyType(
+    {scenario_id: spec.axes for scenario_id, spec in SCENARIOS.items()}
+)
+
 # The four axes Phase 18 adds, in the order `ScenarioParams`/`AXIS_NAMES`
 # already declares them, minus `confounding_strength` -- that one stays fully
 # crossed against `n_units` (spec section 5), so it is handled separately
