@@ -780,3 +780,59 @@ def test_more_than_one_row_per_method_and_axis_value_is_refused_naming_identity_
     assert metric_columns, "fixture sanity: summarise() must have produced metric columns"
     for column in metric_columns:
         assert column not in message, f"metric column {column!r} leaked into the refusal"
+
+
+def _intercept_frame():
+    """Scenario C's treatment_intercept profile, with a different realised
+    share at each intercept -- which is the whole reason the share is
+    recorded. A logit intercept of -1.5/0.0/1.5 is not a quantity a reader
+    thinks in; "21% treated" is."""
+    shares = {-1.5: 0.21, 0.0: 0.50, 1.5: 0.79}
+    rows = []
+    for method in ("ipw", "lin_regression"):
+        for intercept, share in shares.items():
+            for seed in (0, 1):
+                rows.append(
+                    _row(
+                        method=method,
+                        n_units=2000,
+                        confounding_strength=1.0,
+                        treatment_intercept=intercept,
+                        noise_scale=0.0,
+                        effect_scale=1.0,
+                        heterogeneity_scale=1.0,
+                        realised_treated_share=share,
+                        seed=seed,
+                        truth=0.03,
+                        point=0.04,
+                    )
+                )
+    return pd.DataFrame(rows, columns=list(ROW_COLUMNS))
+
+
+def test_the_realised_treated_share_travels_with_the_axis_values():
+    data = axis_profile_data(
+        summarise(_intercept_frame()), "bias", axis="treatment_intercept", scenario="C"
+    )
+
+    assert data.axis_values == (-1.5, 0.0, 1.5)
+    assert data.realised_treated_share == pytest.approx((0.21, 0.50, 0.79))
+
+
+def test_the_realised_treated_share_is_none_when_the_summary_has_no_such_column():
+    summary = _profile_summary().drop(columns=["realised_treated_share"])
+
+    data = axis_profile_data(summary, "bias", axis="effect_scale", scenario="C")
+
+    assert data.realised_treated_share is None
+
+
+def test_the_realised_treated_share_is_carried_for_every_axis_not_just_the_intercept():
+    # It is a measurement summarise has already made, and an axis along
+    # which the treated share stays flat is itself worth being able to read.
+    # Only the display is axis-specific.
+    data = axis_profile_data(
+        _profile_summary(), "bias", axis="effect_scale", scenario="C"
+    )
+
+    assert data.realised_treated_share == pytest.approx((0.5, 0.5, 0.5))

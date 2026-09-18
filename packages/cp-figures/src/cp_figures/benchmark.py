@@ -264,6 +264,32 @@ class AxisProfileData:
     realised_treated_share: tuple[float, ...] | None
 
 
+def _realised_treated_share(
+    rows: pd.DataFrame, axis: str, axis_values: tuple[float, ...]
+) -> tuple[float, ...] | None:
+    """The mean realised treated share at each axis value, or `None` if unrecorded.
+
+    A mean rather than a single row's value, and exact rather than an
+    aggregation papering over disagreement: `summarise` computes this figure
+    over *every* row in a (method, cell) group -- fitted, ineligible and
+    refused alike, since it is a property of the cell's generated data
+    rather than of any fit -- so every method sharing a cell already carries
+    the identical number.
+
+    NaN at an axis value with nothing finite to average, which keeps the
+    tuple positionally aligned with `axis_values` rather than short.
+    """
+    if "realised_treated_share" not in rows.columns:
+        return None
+
+    shares: list[float] = []
+    for value in axis_values:
+        at_value = rows[rows[axis] == value]["realised_treated_share"].to_numpy(dtype=float)
+        finite = at_value[np.isfinite(at_value)]
+        shares.append(float(finite.mean()) if finite.size else float("nan"))
+    return tuple(shares)
+
+
 def axis_profile_data(
     summary: pd.DataFrame, metric: str, *, axis: str, scenario: str
 ) -> AxisProfileData:
@@ -421,5 +447,5 @@ def axis_profile_data(
         methods=methods,
         values=values,
         absent=absent,
-        realised_treated_share=None,
+        realised_treated_share=_realised_treated_share(rows, axis, axis_values),
     )
