@@ -261,16 +261,18 @@ def _confounding_values(axes: CrossSectionAxes, scenario: str) -> tuple[float, .
     Phase 18 adds already do -- widen `heterogeneity_scale` to `(0.0, 2.0)`
     and scenario A's cells still carry its 1.0 default.
 
-    The cost is a provenance gap, which `_check_the_anchor_is_on_the_grid`
-    deliberately does **not** refuse (an undeclared scenario's anchor is on
-    its own block by construction, so there is nothing uninterpretable to
-    refuse): `cp_cli.commands.bench` derives `run.json`'s axis block from this
-    dataclass, so a run at `(0.5, 2.0)` records those two strengths beside a
-    parquet whose A rows all read 1.0. Neither shipped tier hits it -- both
-    include 1.0 -- and the gap is general to all five axes rather than new
-    here, so recording realised alongside requested axis values is left as a
-    tracked follow-up against `bench`'s sidecar rather than fixed for one axis
-    in this module.
+    The label is not by itself a provenance gap, and
+    `_check_the_anchor_is_on_the_grid` deliberately does **not** refuse it: an
+    undeclared scenario's anchor is on its own baseline block by construction,
+    so there is nothing uninterpretable to refuse. What did have to be closed
+    is the record of the run. `cp_cli.commands.bench` derives `run.json`'s
+    axis block from this dataclass, so a run at `(0.5, 2.0)` recorded those
+    two strengths beside a parquet whose A rows all read 1.0. It now writes a
+    `cross_section_realised`/`panel_realised` block as well, read off the
+    frame it is describing, and `bench report` names any axis where the two
+    disagree. Neither shipped tier produces a disagreement -- both carry the
+    default strength on their axis -- so the note stays silent for `ci` and
+    `full`.
     """
     if "confounding_strength" in SCENARIOS[scenario].axes:
         return tuple(float(value) for value in axes.confounding_strength)

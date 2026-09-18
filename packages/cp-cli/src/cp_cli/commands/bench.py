@@ -12,9 +12,11 @@ silently disagree with the run it claims to describe.
 from __future__ import annotations
 
 import argparse
+from collections.abc import Mapping
 from dataclasses import asdict
 from pathlib import Path
 
+import pandas as pd
 from cp_core.results import git_commit, package_versions
 from cp_evaluation.grid import CrossSectionAxes, PanelAxes
 from cp_evaluation.metrics import summarise
@@ -76,6 +78,27 @@ def run_tier(args: argparse.Namespace) -> int:
             None if config.cross_section is None else _axis_block(config.cross_section)
         ),
         "panel": None if config.panel is None else _axis_block(config.panel),
+        # What the grid was *asked* for is not what it necessarily produced.
+        # A scenario is crossed only against the axes it declares
+        # (`SCENARIOS[id].axes`), so an axis it does not declare is pinned to
+        # `ScenarioParams`' default in its cells -- including when the config's
+        # own axis does not contain that default. A run at
+        # `confounding_strength=(0.5, 2.0)` over a randomly-assigning scenario
+        # writes rows reading 1.0 and none at either requested strength, and
+        # the two blocks above would describe a grid this parquet does not
+        # contain. These blocks record what actually landed, so `bench report`
+        # can say when the two disagree.
+        #
+        # Derived from `frame`, not from a second walk of the declaration
+        # rule: a reimplementation here could drift from `expand_cells`, and
+        # the claim being made is specifically about the rows in the parquet
+        # beside this file, so the rows are what it is read off.
+        "cross_section_realised": (
+            None if config.cross_section is None else _realised_block(frame, config.cross_section)
+        ),
+        "panel_realised": (
+            None if config.panel is None else _realised_block(frame, config.panel)
+        ),
         "package_versions": package_versions(),
         "git_commit": git_commit(),
     }
@@ -92,6 +115,65 @@ def _axis_block(axes: CrossSectionAxes | PanelAxes) -> dict[str, list[object]]:
     return {name: list(values) for name, values in asdict(axes).items()}
 
 
+def _realised_block(
+    frame: pd.DataFrame, axes: CrossSectionAxes | PanelAxes
+) -> dict[str, list[object]]:
+    """The values of each of `axes`' fields that actually appear in `frame`.
+
+    Keyed by the same field names `_axis_block` uses, so the requested and
+    realised blocks can be compared entry by entry. Rows are filtered to the
+    shape these axes describe, since the other shape leaves every one of these
+    columns null -- `confounding_strength` is NaN on a panel row and
+    `n_periods` on a cross-sectional one -- and an unfiltered read would report
+    each axis as empty.
+
+    Values are sorted and deduplicated: this records *which* values a run
+    produced, not how often or in what order, and sorting makes two runs of the
+    same grid compare equal regardless of how their axes were written down.
+    `.tolist()` rather than the numpy scalars `unique()` returns, so the result
+    is JSON-serialisable.
+    """
+    shape = "cross_section" if isinstance(axes, CrossSectionAxes) else "panel"
+    rows = frame[frame["shape"] == shape]
+    block: dict[str, list[object]] = {}
+    for name in asdict(axes):
+        # `CrossSectionAxes.scenarios`/`PanelAxes.scenarios` name the column
+        # `scenario` in the singular; every other field matches its column.
+        column = "scenario" if name == "scenarios" else name
+        block[name] = sorted(rows[column].dropna().unique().tolist())
+    return block
+
+
+def axis_discrepancies(sidecar: Mapping[str, object]) -> list[str]:
+    """One line per axis whose realised values differ from the requested ones.
+
+    Empty for a run where every axis produced exactly what was asked for, which
+    is both shipped tiers: `ci` and `full` each carry
+    `ScenarioParams`' default confounding strength on their axis, so the
+    scenarios that do not declare the axis collapse onto a value that was
+    requested anyway.
+
+    Compared as sets, not as lists: the requested block preserves the order the
+    axis was written in while the realised block is sorted, and neither order
+    nor a repeated value is a discrepancy worth reporting.
+
+    Returns nothing for a `run.json` written before these blocks existed, which
+    simply has no realised block to compare against.
+    """
+    lines: list[str] = []
+    for shape in ("cross_section", "panel"):
+        requested = sidecar.get(shape)
+        realised = sidecar.get(f"{shape}_realised")
+        if not isinstance(requested, dict) or not isinstance(realised, dict):
+            continue
+        for name, asked in requested.items():
+            got = realised.get(name)
+            if got is None or set(asked) == set(got):
+                continue
+            lines.append(f"  {shape}.{name}: requested {list(asked)}, realised {list(got)}")
+    return lines
+
+
 def add_report_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("directory", help="A directory written by `bench run`.")
 
@@ -100,5 +182,17 @@ def report(args: argparse.Namespace) -> int:
     frame, sidecar = read_benchmark(Path(args.directory))
     summary = summarise(frame)
     print(f"tier: {sidecar.get('tier')}  rows: {len(frame)}")
+    # Printed before the summary, not after: it qualifies every row below it.
+    # Silent when the grid produced what it was asked for, so a reader who sees
+    # nothing here can read the requested axes as the grid's description.
+    discrepancies = axis_discrepancies(sidecar)
+    if discrepancies:
+        print(
+            "note: some axis values differ from the requested grid -- a scenario is "
+            "crossed only against the axes it declares, and takes ScenarioParams' "
+            "default for the rest:"
+        )
+        for line in discrepancies:
+            print(line)
     print(summary.to_string(index=False))
     return 0
