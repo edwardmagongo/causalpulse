@@ -58,15 +58,16 @@ AXIS_BASELINES: Mapping[str, float] = MappingProxyType(
 # itself for D, G and H. Published for the same reason `AXIS_BASELINES`
 # above is: `cp_figures.benchmark.axis_profile_data` needs it to refuse a
 # profile along an axis a scenario does not vary. That refusal matters
-# differently by axis family. For the four Phase 18 axes, an undeclared
-# scenario's cells all sit at that axis's baseline anyway, so the refusal is
-# a courtesy -- a narrower single-value check would already catch it. For
-# `confounding_strength` it is load-bearing: that axis stays fully crossed
-# against `n_units` for every scenario regardless of declaration (see
-# `CrossSectionAxes`'s docstring), so the *column* varies for an undeclared
-# scenario even where the generated data behind it does not, and no
-# single-value check can ever fire. `cp_figures` has no `cp_simulation`
-# dependency to read `SCENARIOS` through directly.
+# differently by where the summary came from. `_confounding_values` now gives
+# a scenario that does not declare `confounding_strength` a single baseline
+# strength, as `_expand_cross_section` already does for the other four axes,
+# so a summary the current grid produced collapses an undeclared axis to one
+# value and a narrower single-value check would catch it. The declaration
+# refusal earns its place against a summary persisted *before* that gating:
+# there A, B, C and F carry a full column of strengths describing
+# byte-identical data, so the *column* varies where the data behind it does
+# not and no single-value check can fire. `cp_figures` has no
+# `cp_simulation` dependency to read `SCENARIOS` through directly.
 #
 # A read-only mapping for the same reason `AXIS_BASELINES` is one: an
 # importer must not be able to rewrite what the grid considers "declared"

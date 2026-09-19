@@ -869,11 +869,12 @@ def test_an_axis_the_scenario_does_not_declare_is_refused():
     # declaration refusal is non-redundant with the single-value refusal --
     # with the declaration guard removed, this same call raises the
     # single-value refusal instead ("does not vary"), not a silent flat
-    # line. The guard's non-redundancy is proved separately, against the
-    # real shipped grid, by
+    # line. The guard's non-redundancy is proved separately, against a
+    # summary shaped as the grid produced before confounding_strength was
+    # gated by declaration, by
     # test_the_slice_rule_refuses_confounding_strength_for_an_undeclaring_scenario
-    # below, which asserts the real column's nunique() > 1 before checking
-    # the refusal fires.
+    # below, which asserts that column's nunique() > 1 before checking the
+    # refusal fires.
     with pytest.raises(ValueError, match="confounding_strength") as exc_info:
         axis_profile_data(
             _profile_summary(), "bias", axis="confounding_strength", scenario="C"
@@ -1336,9 +1337,9 @@ def _summary_over_the_full_grids_cells():
         ("C", "effect_scale", (0.5, 1.0, 2.0)),
         ("C", "treatment_intercept", (-1.5, 0.0, 1.5)),
         ("C", "noise_scale", (0.0, 0.9, 1.3)),
-        # confounding_strength stays fully crossed against n_units for every
-        # scenario, declared or not; pinning n_units to the anchor is what
-        # turns that cross-product back into a profile. D (unlike C) is one
+        # A scenario that declares confounding_strength is crossed against
+        # it and n_units; pinning n_units to the anchor is what turns that
+        # cross-product back into a profile. D (unlike C) is one
         # of the scenarios that actually declares confounding_strength
         # (cp_simulation.scenarios.SCENARIOS["D"].axes) -- a scenario that
         # does not declare it is refused instead (see
@@ -1385,22 +1386,28 @@ def test_the_slice_rule_refuses_an_axis_the_real_grid_never_varies():
 
 
 def test_the_slice_rule_refuses_confounding_strength_for_an_undeclaring_scenario():
-    # The finding this fix addresses: confounding_strength stays fully
-    # crossed against n_units for every scenario (cp_evaluation.grid
-    # .CrossSectionAxes's docstring), so C -- whose RandomAssignment makes
-    # the axis meaningless (cp_simulation.scenarios) and which does not
-    # declare it -- still gets a real, multi-valued confounding_strength
-    # column from the shipped grid, not a single collapsed row. That is what
-    # makes this refusal necessary rather than redundant with the
-    # single-value check: ground truth from the real grid, not a fixture
-    # written to match the rule, is what proves the column genuinely varies
-    # here.
+    # `cp_evaluation.grid._confounding_values` now gives C -- whose
+    # RandomAssignment makes the axis meaningless (cp_simulation.scenarios)
+    # and which does not declare it -- a single baseline strength, so the
+    # shipped grid no longer produces a multi-valued column for it. Pinned
+    # here so this test's other half cannot quietly stop meaning what it says.
     summary = _summary_over_the_full_grids_cells()
     c_rows = summary[summary["scenario"] == "C"]
-    assert c_rows["confounding_strength"].nunique() > 1, (
-        "fixture/grid sanity: the bug this refusal exists to prevent requires "
-        "the real shipped grid to actually vary confounding_strength for C"
+    assert c_rows["confounding_strength"].nunique() == 1
+
+    # What the declaration refusal still exists for: a summary persisted by
+    # the grid *before* that gating, where C was crossed against every
+    # strength. Modelled by repeating C's rows at three strengths -- the data
+    # behind them was byte-identical, which is the whole hazard, so a copy
+    # with a different label is a faithful stand-in and not a fixture written
+    # to agree with the rule. The column varies, so the single-value refusal
+    # cannot fire; only the declaration refusal stands between this summary
+    # and a flat line indistinguishable from a measured null.
+    legacy = pd.concat(
+        [c_rows.assign(confounding_strength=strength) for strength in (0.5, 1.0, 2.0)],
+        ignore_index=True,
     )
+    assert legacy["confounding_strength"].nunique() > 1
 
     with pytest.raises(ValueError, match="does not declare"):
-        axis_profile_data(summary, "bias", axis="confounding_strength", scenario="C")
+        axis_profile_data(legacy, "bias", axis="confounding_strength", scenario="C")

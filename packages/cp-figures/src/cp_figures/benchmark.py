@@ -382,21 +382,19 @@ def axis_profile_data(
             f"available: {available_scenarios}"
         )
 
-    # The grid still emits rows along an axis a scenario does not declare.
-    # For the four Phase 18 axes that is harmless -- `_expand_cross_section`
-    # skips a scenario that does not declare them, so every one of its rows
-    # sits at that axis's own baseline and the single-value refusal below
-    # catches it. `confounding_strength` is different: it stays fully
-    # crossed against `n_units` for *every* scenario, declared or not
-    # (`cp_evaluation.grid.CrossSectionAxes`'s docstring), so A, B, C and F
-    # -- whose RandomAssignment makes the axis meaningless
-    # (`cp_simulation.scenarios`) -- still get three confounding_strength
-    # rows each. The column varies even though the generated data behind it
-    # is identical, so the single-value check can never fire, and a profile
-    # would draw a flat line a reader cannot tell apart from a measured null
-    # result -- the same confusion `_expand_cross_section` already refuses
-    # to manufacture for the other four axes. Checking declaration up front
-    # catches both cases at the same place.
+    # A scenario that does not declare an axis has nothing to vary along it.
+    # The grid as it stands gives such a scenario a single baseline value on
+    # every axis, so the single-value refusal below would catch a summary the
+    # current grid produced. It would not catch one persisted before
+    # `confounding_strength` was gated by declaration
+    # (`cp_evaluation.grid._confounding_values`): that grid crossed A, B, C
+    # and F -- whose RandomAssignment makes the axis meaningless
+    # (`cp_simulation.scenarios`) -- against every strength, so the column
+    # varies even though the generated data behind it is identical, the
+    # single-value check cannot fire, and a profile would draw a flat line a
+    # reader cannot tell apart from a measured null result. Checking
+    # declaration up front catches both cases at the same place, and names
+    # the reason rather than a symptom.
     #
     # `n_units` is exempt: no scenario declares it -- it is crossed against
     # `confounding_strength` rather than varied one-at-a-time -- but it
@@ -411,11 +409,10 @@ def axis_profile_data(
         raise ValueError(
             f"scenario {scenario!r} does not declare axis {axis!r} "
             f"(cp_simulation.scenarios.SCENARIOS[{scenario!r}].axes); it "
-            f"declares {declared}. The grid still emits rows along {axis!r} "
-            "for this scenario -- confounding_strength stays crossed "
-            "against n_units for every scenario, declared or not -- but the "
-            "generated data behind them is identical, since this scenario "
-            "never reads the axis. A profile would draw a flat line a "
+            f"declares {declared}. This scenario never reads {axis!r}, so any "
+            "rows a summary carries along it describe identical data (an "
+            "older grid crossed confounding_strength against every "
+            "scenario, declared or not). A profile would draw a flat line a "
             "reader cannot tell apart from a measured null result. Choose "
             f"one of {declared}, or axis='n_units'."
         )
