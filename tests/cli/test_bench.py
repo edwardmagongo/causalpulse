@@ -1,6 +1,7 @@
 import dataclasses
 
 import cp_cli.commands.bench as bench_module
+import pandas as pd
 import pytest
 from cp_cli.__main__ import main
 from cp_cli.io import read_benchmark, write_benchmark
@@ -247,22 +248,43 @@ def test_the_full_tier_produces_no_discrepancy_either():
 def _cross_section_discrepancies(axes):
     """The discrepancies a run of `axes` would report, from enumeration alone.
 
-    Mirrors what `_realised_block` reads off a results frame, but from the
-    cells rather than from rows, so a tier far too slow to fit can still be
-    checked: `run_grid` writes one row per cell per estimator, and every column
-    this reads is copied from the cell unchanged.
+    A tier too slow to fit can still be checked this way, because `run_grid`
+    writes one row per cell per estimator and copies every column this reads
+    off the cell unchanged (`run._cell_columns`). So the cells are expanded,
+    turned into the frame those rows would form, and handed to the real
+    `_realised_block`.
+
+    Deliberately not a second implementation of what `_realised_block` does.
+    An earlier version derived the realised values straight from the cells,
+    which meant this test -- the only check on a claim about a tier that takes
+    ~3.1 hours and so can never be run here -- was validating a copy of the
+    rule rather than the one that ships. It was faithful when written and
+    already omitted `_matching_requested_type`; `test_bench_run_uses_the_gated_
+    ci_config_itself` exists in this same file because a second definition
+    that drifts is how this repo has been bitten before.
     """
     cells = [
         cell
         for cell in expand_cells(GridConfig(cross_section=axes, panel=None, replications=1))
         if isinstance(cell, CrossSectionCell)
     ]
-    realised = {
-        field: sorted({getattr(c, "scenario" if field == "scenarios" else field) for c in cells})
-        for field in dataclasses.asdict(axes)
-    }
+    frame = pd.DataFrame(
+        [
+            {
+                "shape": "cross_section",
+                "scenario": cell.scenario,
+                "n_units": cell.n_units,
+                "n_periods": float("nan"),
+                **{name: getattr(cell, name) for name in AXIS_NAMES},
+            }
+            for cell in cells
+        ]
+    )
     return bench_module._axis_discrepancies(
-        {"cross_section": bench_module._axis_block(axes), "cross_section_realised": realised}
+        {
+            "cross_section": bench_module._axis_block(axes),
+            "cross_section_realised": bench_module._realised_block(frame, axes),
+        }
     )
 
 
