@@ -443,10 +443,12 @@ def axis_profile_data(
     if len(axis_values) < 2:
         raise ValueError(
             f"scenario {scenario!r} does not vary along {axis!r}: every row sits "
-            f"at {axis_values[0]}. This is not a declaration problem -- an axis a "
-            "registered scenario does not declare is refused earlier, before this "
-            "check runs (`n_units` is exempt from that check and always reaches "
-            "here). The usual cause is a summary already narrowed to one point on "
+            f"at {axis_values[0]}. For a scenario the registry knows, this is not "
+            "a declaration problem -- an axis such a scenario does not declare is "
+            "refused earlier, before this check runs. Two callers reach here with "
+            "that check skipped rather than passed: `n_units`, which no scenario "
+            "declares, and a scenario absent from the registry. The usual cause is "
+            "a summary already narrowed to one point on "
             f"{axis!r}, the shape a `ci_config()` run, or any summary pre-filtered "
             "to one value, would carry. This profile would otherwise be a single "
             "point drawn as though it were a measured flat line -- which a reader "

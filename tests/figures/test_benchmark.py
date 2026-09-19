@@ -660,8 +660,9 @@ def test_a_panel_shaped_row_is_excluded_from_a_cross_sectional_profile():
     # pins the *outcome* on a realistic panel row: it never reaches a
     # cross-sectional profile, however it gets there. It does not prove the
     # `shape` pin itself is load-bearing -- this row's NaN axis columns
-    # already fail every baseline pin below, on n_units alone, before the
-    # `shape` pin is ever reached (dropping the `shape` column, or
+    # would fail every baseline pin below even if the `shape` pin were
+    # removed, since those pins compare each AXIS_BASELINES axis against a
+    # NaN and a NaN matches nothing (dropping the `shape` column, or
     # relabelling this row to shape="cross_section", gives the identical
     # result). The pin's own comment in benchmark.py is honest about that:
     # it says a panel row "would survive no pin anyway", and is kept
@@ -807,8 +808,9 @@ def test_a_scenario_outside_the_registry_still_gets_a_profile():
     # uses "Z", which has no rows at all and is refused earlier, at the
     # scenario-yields-no-rows guard, before the declaration check -- let
     # alone its `SCENARIO_AXES[scenario]` lookup -- is ever reached. If the
-    # conjunct were deleted, this scenario (unlike "Z", which has rows)
-    # would instead crash with a bare `KeyError('Q')` out of that lookup,
+    # conjunct were deleted, this scenario -- which, unlike "Z", does have
+    # rows and so reaches the lookup -- would instead crash with a bare
+    # `KeyError('Q')` out of that lookup,
     # naming neither the reason nor a next step.
     rows = []
     for effect_scale in (0.5, 1.5):
