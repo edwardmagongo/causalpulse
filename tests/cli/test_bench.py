@@ -1,10 +1,12 @@
+import dataclasses
+
 import cp_cli.commands.bench as bench_module
 import pytest
 from cp_cli.__main__ import main
-from cp_cli.io import read_benchmark
-from cp_evaluation.grid import CrossSectionAxes, GridConfig
+from cp_cli.io import read_benchmark, write_benchmark
+from cp_evaluation.grid import CrossSectionAxes, CrossSectionCell, GridConfig, expand_cells
 from cp_evaluation.run import run_grid
-from cp_evaluation.tiers import ci_config
+from cp_evaluation.tiers import ci_config, full_config
 from cp_simulation.params import AXIS_NAMES
 from cp_simulation.scenarios import SCENARIOS
 
@@ -82,7 +84,7 @@ def test_the_sidecar_records_the_values_that_actually_landed(ci_run):
     # ScenarioParams' own default, so the scenarios that declare none of that
     # axis collapse onto a strength it requested anyway. No discrepancy to
     # report, and `bench report` should therefore stay quiet.
-    assert bench_module.axis_discrepancies(sidecar) == []
+    assert bench_module._axis_discrepancies(sidecar) == []
 
 
 def test_the_realised_block_exposes_a_strength_the_config_never_asked_for():
@@ -116,11 +118,152 @@ def test_the_realised_block_exposes_a_strength_the_config_never_asked_for():
         "cross_section": bench_module._axis_block(axes),
         "cross_section_realised": realised,
     }
-    lines = bench_module.axis_discrepancies(sidecar)
+    lines = bench_module._axis_discrepancies(sidecar)
     assert len(lines) == 1
     assert "cross_section.confounding_strength" in lines[0]
     assert "requested [0.5, 2.0]" in lines[0]
     assert "realised [0.5, 1.0, 2.0]" in lines[0]
+
+
+def test_the_realised_block_renders_integers_as_integers(ci_run):
+    # `n_periods` is NaN on every cross-sectional row, which widens the whole
+    # column to float64, so the realised block would record `[6.0]` beside the
+    # requested block's `[6]` in one run.json -- one value rendered two ways,
+    # in the pair of blocks that exist to be read side by side.
+    #
+    # Asserted on the *types*, not with `==`: `[6] == [6.0]` is True in Python
+    # and `json.loads` preserves the distinction only in the token, so an
+    # equality check here would pass against the unfixed rendering and test
+    # nothing.
+    _, sidecar = read_benchmark(ci_run)
+
+    requested = sidecar["panel"]["n_periods"]
+    realised = sidecar["panel_realised"]["n_periods"]
+
+    assert all(isinstance(value, int) for value in requested), requested
+    assert all(isinstance(value, int) for value in realised), realised
+    assert realised == requested
+
+    # A float axis stays a float: the narrowing keys off how the axis was
+    # requested, not off whether the value happens to be whole.
+    strengths = sidecar["cross_section_realised"]["confounding_strength"]
+    assert all(isinstance(value, float) for value in strengths), strengths
+
+
+def test_a_fractional_value_is_never_narrowed_into_agreement():
+    # The safety property of the narrowing above. If it rounded rather than
+    # only rewriting an exactly-integral float, a realised 6.5 on an axis
+    # requested as `(6,)` would be recorded as 6 -- silently reporting that the
+    # run produced what was asked for when it did not, which is the precise
+    # failure the realised block exists to expose.
+    assert bench_module._matching_requested_type(6.0, (6,)) == 6
+    assert isinstance(bench_module._matching_requested_type(6.0, (6,)), int)
+
+    assert bench_module._matching_requested_type(6.5, (6,)) == 6.5
+    # Requested as floats, so nothing is narrowed even when whole.
+    assert isinstance(bench_module._matching_requested_type(2.0, (0.5, 2.0)), float)
+    # Non-numeric and empty axes are passed straight through.
+    assert bench_module._matching_requested_type("A", ("A", "D")) == "A"
+    assert bench_module._matching_requested_type(6.0, ()) == 6.0
+
+
+def test_bench_report_prints_the_note_when_an_axis_disagrees(tmp_path, capsys):
+    # `_axis_discrepancies` returning the right lines is only half the fix: the
+    # point of the realised block is that a reader of `bench report` is told.
+    # Nothing else covers that branch -- the only other test that runs `report`
+    # uses the `ci` fixture, which by design has no discrepancy -- so deleting
+    # the whole note block from `report` leaves the CLI suite green.
+    #
+    # Driven through `write_benchmark` and `main` rather than by calling the
+    # helper, so the assertion covers the branch, the wording, and the stream
+    # it is printed on.
+    axes = CrossSectionAxes(
+        scenarios=("A", "D"), n_units=(200,), confounding_strength=(0.5, 2.0)
+    )
+    frame = run_grid(
+        GridConfig(cross_section=axes, panel=None, replications=1),
+        estimators=["difference_in_means"],
+    )
+    write_benchmark(
+        frame,
+        tmp_path,
+        {
+            "tier": "demo",
+            "cross_section": bench_module._axis_block(axes),
+            "cross_section_realised": bench_module._realised_block(frame, axes),
+        },
+    )
+
+    capsys.readouterr()
+
+    assert main(["bench", "report", str(tmp_path)]) == 0
+
+    printed = capsys.readouterr().out
+    assert "note:" in printed
+    assert "cross_section.confounding_strength" in printed
+    assert "requested [0.5, 2.0]" in printed
+    assert "realised [0.5, 1.0, 2.0]" in printed
+    # The note qualifies the summary, so it has to precede it.
+    assert printed.index("note:") < printed.index("method")
+
+
+def test_bench_report_stays_quiet_when_every_axis_got_what_it_asked_for(ci_run, capsys):
+    # The other half: a note that fired on every run would be ignored on the
+    # run that needed it. `ci` asks for ScenarioParams' own default strength,
+    # so its gated scenarios collapse onto a value it requested anyway.
+    capsys.readouterr()
+
+    assert main(["bench", "report", str(ci_run)]) == 0
+
+    assert "note:" not in capsys.readouterr().out
+
+
+def test_the_full_tier_produces_no_discrepancy_either():
+    # Both `_axis_discrepancies`' docstring and `grid._confounding_values`
+    # promise the note stays silent for `full` as well as `ci`. `full` takes
+    # ~3.1 hours, so it can never be run here -- but the claim is about which
+    # cells the grid enumerates, not about any fit, so `expand_cells` settles
+    # it in milliseconds.
+    #
+    # `full` is silent only because every axis value it requests is produced by
+    # some scenario that declares that axis. That is a property of the scenario
+    # set, not a law: `heterogeneity_scale` is declared by F alone, so the
+    # negative control below drops F and confirms this check has teeth rather
+    # than passing on any config at all.
+    assert _cross_section_discrepancies(full_config().cross_section) == []
+
+    trimmed = dataclasses.replace(
+        full_config().cross_section,
+        scenarios=tuple(s for s in full_config().cross_section.scenarios if s != "F"),
+    )
+    assert "heterogeneity_scale" in SCENARIOS["F"].axes
+    assert not any("heterogeneity_scale" in SCENARIOS[s].axes for s in trimmed.scenarios)
+
+    without_f = _cross_section_discrepancies(trimmed)
+    assert len(without_f) == 1
+    assert "heterogeneity_scale" in without_f[0]
+
+
+def _cross_section_discrepancies(axes):
+    """The discrepancies a run of `axes` would report, from enumeration alone.
+
+    Mirrors what `_realised_block` reads off a results frame, but from the
+    cells rather than from rows, so a tier far too slow to fit can still be
+    checked: `run_grid` writes one row per cell per estimator, and every column
+    this reads is copied from the cell unchanged.
+    """
+    cells = [
+        cell
+        for cell in expand_cells(GridConfig(cross_section=axes, panel=None, replications=1))
+        if isinstance(cell, CrossSectionCell)
+    ]
+    realised = {
+        field: sorted({getattr(c, "scenario" if field == "scenarios" else field) for c in cells})
+        for field in dataclasses.asdict(axes)
+    }
+    return bench_module._axis_discrepancies(
+        {"cross_section": bench_module._axis_block(axes), "cross_section_realised": realised}
+    )
 
 
 def test_axis_order_alone_is_not_reported_as_a_discrepancy():
@@ -134,15 +277,15 @@ def test_axis_order_alone_is_not_reported_as_a_discrepancy():
         "cross_section_realised": {"n_units": [500, 2000]},
     }
 
-    assert bench_module.axis_discrepancies(sidecar) == []
+    assert bench_module._axis_discrepancies(sidecar) == []
 
 
 def test_a_sidecar_written_before_the_realised_block_existed_reports_nothing():
     # `read_benchmark` hands back whatever JSON is on disk, including a
     # run.json from before these blocks were added. Reporting one must not
     # raise, and must not invent a discrepancy from a block that is absent.
-    assert bench_module.axis_discrepancies({"cross_section": {"n_units": [500]}}) == []
-    assert bench_module.axis_discrepancies({}) == []
+    assert bench_module._axis_discrepancies({"cross_section": {"n_units": [500]}}) == []
+    assert bench_module._axis_discrepancies({}) == []
 
 
 def test_bench_run_uses_the_gated_ci_config_itself():

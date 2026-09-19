@@ -146,17 +146,24 @@ def test_results_do_not_depend_on_the_order_cells_are_evaluated_in():
 
     # Restricted to three estimators rather than the whole registry. The
     # property under test is the totality of the sort key, which every row
-    # exercises equally; fitting all of them against the whole registry was
-    # measured at ~224s when this restriction was introduced, against ~4.5s
-    # here, on a suite whose full gate already runs 2h47m. That measurement is
-    # quoted as it was taken and not rescaled: the comment around it used to
-    # say it covered "16 cells", which this config has never produced (12
-    # before `confounding_strength` was gated by declaration, 11 after), so
-    # the per-cell rate the 224s implies is not recoverable from it and is
-    # deliberately not stated. `twfe` is kept deliberately: it is ineligible
-    # on every cross-sectional cell, so the ineligible-row path stays inside
-    # the frame comparison rather than being dropped along with the
-    # estimators.
+    # exercises equally; fitting all of them would cost ~308s against ~4.5s
+    # here, on a suite whose full gate already runs 2h47m. `twfe` is kept
+    # deliberately: it is ineligible on every cross-sectional cell, so the
+    # ineligible-row path stays inside the frame comparison rather than being
+    # dropped along with the estimators.
+    #
+    # Where ~308s comes from, since the figure has been misread once already.
+    # When this restriction was introduced the whole registry over this config
+    # was measured at ~224s and described as "16 cells twice": 16 is the
+    # config's *total* cells at the time (8 distinct x 2 replications, before
+    # `effect_scale` was widened here) and "twice" is the two `run_grid` calls
+    # below, so 32 cell-fits at ~7s each. That was right as written. Widening
+    # `effect_scale` then took the config to 24 cells and the
+    # `confounding_strength` declaration gating to 22 (11 distinct x 2
+    # replications), so the same ~7s/cell-fit gives 22 x 2 x 7s = ~308s.
+    # Extrapolated from that one measurement, not re-timed -- and note that
+    # "16" counts total cells while "11 distinct" does not, which is what made
+    # the two look contradictory.
     estimators = ["difference_in_means", "lin_regression", "twfe"]
     straight = run_grid(config, estimators=estimators)
     shuffled = run_grid(config, estimators=estimators, _shuffle=np.random.default_rng(0))

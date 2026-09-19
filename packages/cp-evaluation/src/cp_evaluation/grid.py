@@ -272,7 +272,7 @@ def _confounding_values(axes: CrossSectionAxes, scenario: str) -> tuple[float, .
     frame it is describing, and `bench report` names any axis where the two
     disagree. Neither shipped tier produces a disagreement -- both carry the
     default strength on their axis -- so the note stays silent for `ci` and
-    `full`.
+    `full`, which `tests/cli/test_bench.py` checks for each of them.
     """
     if "confounding_strength" in SCENARIOS[scenario].axes:
         return tuple(float(value) for value in axes.confounding_strength)

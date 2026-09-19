@@ -12,7 +12,7 @@ silently disagree with the run it claims to describe.
 from __future__ import annotations
 
 import argparse
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict
 from pathlib import Path
 
@@ -132,26 +132,57 @@ def _realised_block(
     same grid compare equal regardless of how their axes were written down.
     `.tolist()` rather than the numpy scalars `unique()` returns, so the result
     is JSON-serialisable.
+
+    Integral values are rendered in the requested block's own type. `n_periods`
+    is a float64 column in the frame -- it is NaN on every cross-sectional row,
+    which widens the whole column -- so a run asking for `n_periods=(7,)` would
+    otherwise record `[7]` beside `[7.0]` in one `run.json`. That costs nothing
+    in `_axis_discrepancies`, which compares numerically, but these two blocks
+    exist to be read side by side, and one value rendered two ways invites
+    exactly the "do these differ?" question the blocks were added to answer.
+    Only an exactly-integral float is narrowed, so a genuinely fractional value
+    cannot be silently truncated into agreement.
     """
     shape = "cross_section" if isinstance(axes, CrossSectionAxes) else "panel"
     rows = frame[frame["shape"] == shape]
     block: dict[str, list[object]] = {}
-    for name in asdict(axes):
+    for name, requested in asdict(axes).items():
         # `CrossSectionAxes.scenarios`/`PanelAxes.scenarios` name the column
         # `scenario` in the singular; every other field matches its column.
         column = "scenario" if name == "scenarios" else name
-        block[name] = sorted(rows[column].dropna().unique().tolist())
+        values = sorted(rows[column].dropna().unique().tolist())
+        block[name] = [_matching_requested_type(value, requested) for value in values]
     return block
 
 
-def axis_discrepancies(sidecar: Mapping[str, object]) -> list[str]:
+def _matching_requested_type(value: object, requested: Sequence[object]) -> object:
+    """`value`, narrowed to `int` when that is how the axis was asked for.
+
+    Deliberately narrow: it fires only for a float that is exactly integral on
+    an axis whose requested values are all `int`. Anything else -- a fractional
+    value, a string, an axis requested as floats, an empty axis -- is returned
+    untouched, so this can correct pandas' NaN-driven int-to-float widening
+    without being able to change what a value means.
+    """
+    if not isinstance(value, float) or not value.is_integer():
+        return value
+    if not requested or not all(isinstance(r, int) for r in requested):
+        return value
+    return int(value)
+
+
+def _axis_discrepancies(sidecar: Mapping[str, object]) -> list[str]:
     """One line per axis whose realised values differ from the requested ones.
 
     Empty for a run where every axis produced exactly what was asked for, which
-    is both shipped tiers: `ci` and `full` each carry
-    `ScenarioParams`' default confounding strength on their axis, so the
-    scenarios that do not declare the axis collapse onto a value that was
-    requested anyway.
+    is both shipped tiers: `ci` and `full` each carry `ScenarioParams`' default
+    confounding strength on their axis, so the scenarios that do not declare
+    the axis collapse onto a value that was requested anyway. Checked for both,
+    `full` included -- from `expand_cells` rather than from a run, since the
+    claim is about which cells are enumerated and that tier takes ~3.1 hours
+    (`tests/cli/test_bench.py::test_the_full_tier_produces_no_discrepancy_either`,
+    which also carries a negative control, since `full`'s silence depends on
+    scenario F being present to declare `heterogeneity_scale`).
 
     Compared as sets, not as lists: the requested block preserves the order the
     axis was written in while the realised block is sorted, and neither order
@@ -185,7 +216,7 @@ def report(args: argparse.Namespace) -> int:
     # Printed before the summary, not after: it qualifies every row below it.
     # Silent when the grid produced what it was asked for, so a reader who sees
     # nothing here can read the requested axes as the grid's description.
-    discrepancies = axis_discrepancies(sidecar)
+    discrepancies = _axis_discrepancies(sidecar)
     if discrepancies:
         print(
             "note: some axis values differ from the requested grid -- a scenario is "
