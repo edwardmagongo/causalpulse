@@ -121,7 +121,12 @@ def _realised_block(
     """The values of each of `axes`' fields that actually appear in `frame`.
 
     Keyed by the same field names `_axis_block` uses, so the requested and
-    realised blocks can be compared entry by entry. Rows are filtered to the
+    realised blocks can be compared entry by entry. Each entry is the union of
+    an axis's values over *every* scenario in the frame, so the block cannot
+    express per-scenario gating: `full`'s `confounding_strength` reads
+    `[0.5, 1.0, 2.0]` because D, G and H supply the outer two and A, B, C and
+    F supply only 1.0. The parquet's own rows are the only per-scenario
+    record. Rows are filtered to the
     shape these axes describe, since the other shape leaves every one of these
     columns null -- `confounding_strength` is NaN on a panel row and
     `n_periods` on a cross-sectional one -- and an unfiltered read would report

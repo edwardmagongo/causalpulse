@@ -573,11 +573,16 @@ def full_config() -> GridConfig:
     doc's first estimate of this saving (16 x the 8.4s/cell whole-arm average
     = ~135s/replication, ~22 minutes per run) understated it by about a fifth.
     The real figure is ~163.7s/replication, ~27 minutes across a
-    10-replication run. The mechanism is scenario H: all 6 of its cells are
-    kept, since H declares `confounding_strength`, and every one of its rows
-    is a missing-data refusal rather than a fit, so it costs almost nothing
-    and drags the kept block's per-cell average below the removed block's --
-    all 16 of which are fully-fitting random-assignment cells.
+    10-replication run. Scenario H is part of the reason: all 6 of its cells
+    are kept, since H declares `confounding_strength`, and none of its rows
+    is a fit -- of its 60 rows, half are missing-data refusals and half are
+    `ineligible` (the panel-only estimators routed away) -- so it costs almost
+    nothing. It is not the whole reason: the kept block also holds 8 A/B/C/F
+    baseline cells at the removed cells' 12.25s, which leaves D, G and H's 18
+    cells to account for the remaining ~129s, ~7.2s each, and D and G alone
+    would still average ~10.8s even if H were free. D and G are themselves
+    cheaper per cell than the random-assignment scenarios the gating removed
+    -- all 16 of which are fully-fitting cells.
 
     MEASURED 2026-09-06, this tree, `run_grid(config, estimators=list(
     FULL_ESTIMATORS), fit_config=FULL_FIT_CONFIG)` at `replications=1`, for

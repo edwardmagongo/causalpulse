@@ -37,18 +37,18 @@ _DEFAULT_PARAMS = ScenarioParams()
 # from `_DEFAULT_PARAMS` rather than restated, so there is one source and not
 # two that happen to agree today.
 #
-# Public because `cp_figures.benchmark.axis_profile_data` needs it to select a
+# Public because the figures package's axis-profile function needs it to select a
 # one-at-a-time slice out of a summary: "every other axis at its default" is
 # only well defined against these exact numbers. A figures module that
 # hard-coded them would reintroduce precisely the drift the comment above
-# exists to prevent, and `cp_figures` has no `cp_simulation` dependency to read
+# exists to prevent, and the figures package has no `cp_simulation` dependency to read
 # `ScenarioParams` through. This follows the treatment `GROUP_COLUMNS` already
 # got in `cp_evaluation.metrics` for the same cross-package need.
 #
 # A read-only mapping rather than a dict: an importer must not be able to
 # rewrite what the grid considers unperturbed for every other importer in the
 # process. `float` rather than the `ScenarioParams` instance itself keeps a
-# `cp_simulation` type out of `cp_figures`' annotations.
+# `cp_simulation` type out of the figures package's annotations.
 AXIS_BASELINES: Mapping[str, float] = MappingProxyType(
     {name: float(getattr(_DEFAULT_PARAMS, name)) for name in AXIS_NAMES}
 )
@@ -56,7 +56,7 @@ AXIS_BASELINES: Mapping[str, float] = MappingProxyType(
 # Which axes each cross-sectional scenario declares (`SCENARIOS[id].axes`) --
 # any of the five cross-sectional axes, including `confounding_strength`
 # itself for D, G and H. Published for the same reason `AXIS_BASELINES`
-# above is: `cp_figures.benchmark.axis_profile_data` needs it to refuse a
+# above is: the figures package's axis-profile function needs it to refuse a
 # profile along an axis a scenario does not vary. That refusal matters
 # differently by where the summary came from. `_confounding_values` now gives
 # a scenario that does not declare `confounding_strength` a single baseline
@@ -66,7 +66,7 @@ AXIS_BASELINES: Mapping[str, float] = MappingProxyType(
 # refusal earns its place against a summary persisted *before* that gating:
 # there A, B, C and F carry a full column of strengths describing
 # byte-identical data, so the *column* varies where the data behind it does
-# not and no single-value check can fire. `cp_figures` has no
+# not and no single-value check can fire. The figures package has no
 # `cp_simulation` dependency to read `SCENARIOS` through directly.
 #
 # A read-only mapping for the same reason `AXIS_BASELINES` is one: an
@@ -266,7 +266,7 @@ def _confounding_values(axes: CrossSectionAxes, scenario: str) -> tuple[float, .
     `_check_the_anchor_is_on_the_grid` deliberately does **not** refuse it: an
     undeclared scenario's anchor is on its own baseline block by construction,
     so there is nothing uninterpretable to refuse. What did have to be closed
-    is the record of the run. `cp_cli.commands.bench` derives `run.json`'s
+    is the record of the run. the CLI's `bench` command derives `run.json`'s
     axis block from this dataclass, so a run at `(0.5, 2.0)` recorded those
     two strengths beside a parquet whose A rows all read 1.0. It now writes a
     `cross_section_realised`/`panel_realised` block as well, read off the
@@ -339,7 +339,7 @@ def _check_the_anchor_is_on_the_grid(axes: CrossSectionAxes) -> None:
             continue
         raise ValueError(
             f"scenario {scenario} varying {list(perturbed)} one at a time anchors "
-            f"on confounding_strength={_DEFAULT_PARAMS.confounding_strength} "
+            f"on confounding_strength={AXIS_BASELINES['confounding_strength']} "
             f"(ScenarioParams' default), which is not in "
             f"{list(axes.confounding_strength)}; the perturbed cells would have no "
             f"baseline cell to be compared against. Add it to the axis, or leave "

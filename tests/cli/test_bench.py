@@ -16,10 +16,10 @@ from cp_simulation.scenarios import SCENARIOS
 def ci_run(tmp_path_factory):
     """Run the `ci` tier once for the whole module.
 
-    `bench run --tier ci` costs about 100 seconds. Four of this module's
+    `bench run --tier ci` costs about 100 seconds. Seven of this module's
     tests want to inspect its output; running it once into a shared
     `tmp_path_factory` directory and having those tests read it back keeps
-    the file's wall-clock cost at roughly the tier's own, not four times it.
+    the file's wall-clock cost at roughly the tier's own, not seven times it.
     """
     out = tmp_path_factory.mktemp("ci_run")
     code = main(["bench", "run", "--tier", "ci", "--out", str(out)])

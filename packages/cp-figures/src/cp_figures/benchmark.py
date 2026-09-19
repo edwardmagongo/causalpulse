@@ -444,7 +444,7 @@ def axis_profile_data(
             "a declaration problem -- an axis such a scenario does not declare is "
             "refused earlier, before this check runs. Two callers reach here with "
             "that check skipped rather than passed: `n_units`, which no scenario "
-            "declares, and a scenario absent from the registry. The usual cause is "
+            "declares, and a scenario absent from the registry. The usual reason is "
             "a summary already narrowed to one point on "
             f"{axis!r}, the shape a `ci_config()` run, or any summary pre-filtered "
             "to one value, would carry. This profile would otherwise be a single "

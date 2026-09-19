@@ -1399,10 +1399,14 @@ def test_the_slice_rule_refuses_confounding_strength_for_an_undeclaring_scenario
     # the grid *before* that gating, where C was crossed against every
     # strength. Modelled by repeating C's rows at three strengths -- the data
     # behind them was byte-identical, which is the whole hazard, so a copy
-    # with a different label is a faithful stand-in and not a fixture written
-    # to agree with the rule. The column varies, so the single-value refusal
-    # cannot fire; only the declaration refusal stands between this summary
-    # and a flat line indistinguishable from a measured null.
+    # with a different label is a faithful stand-in *for what the refusal
+    # reads*, which is the declaration alone. It is not a faithful copy of the
+    # old grid's cells: C's one-at-a-time cells were always anchored at 1.0,
+    # and this repeats them at three strengths too. That cannot affect the
+    # result, since the refusal fires before any pinning. The column varies,
+    # so the single-value refusal cannot fire; only the declaration refusal
+    # stands between this summary and a flat line indistinguishable from a
+    # measured null.
     legacy = pd.concat(
         [c_rows.assign(confounding_strength=strength) for strength in (0.5, 1.0, 2.0)],
         ignore_index=True,
