@@ -18,9 +18,11 @@ from pathlib import Path
 
 import pandas as pd
 from cp_core.results import git_commit, package_versions
-from cp_evaluation.grid import CrossSectionAxes, PanelAxes
+from cp_evaluation.execute import DEFAULT_WORKERS, execute
+from cp_evaluation.grid import CrossSectionAxes, GridConfig, PanelAxes
 from cp_evaluation.metrics import summarise
 from cp_evaluation.run import run_grid
+from cp_evaluation.store import MANIFEST_NAME, RunIdentity, RunStore
 from cp_evaluation.tiers import (
     CI_ESTIMATORS,
     CI_FIT_CONFIG,
@@ -28,6 +30,7 @@ from cp_evaluation.tiers import (
     FULL_FIT_CONFIG,
     ci_config,
     full_config,
+    study_config,
 )
 
 from cp_cli.io import read_benchmark, write_benchmark
@@ -35,35 +38,54 @@ from cp_cli.io import read_benchmark, write_benchmark
 TIERS = {
     "ci": (ci_config, CI_ESTIMATORS, CI_FIT_CONFIG),
     "full": (full_config, FULL_ESTIMATORS, FULL_FIT_CONFIG),
+    "study": (study_config, FULL_ESTIMATORS, FULL_FIT_CONFIG),
 }
+
+# Tiers too long to run as one in-memory frame: they write a directory of shards
+# and can be resumed and extended. `ci` and `full` keep writing one file.
+SHARDED_TIERS = frozenset({"study"})
 
 
 def add_run_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--tier", required=True, help="One of: ci, full.")
+    parser.add_argument("--tier", required=True, help="One of: ci, full, study.")
     parser.add_argument("--out", required=True, help="Directory to write results to.")
     parser.add_argument("--root-entropy", type=int, default=0, help="Seed root.")
-
-
-def run_tier(args: argparse.Namespace) -> int:
-    tier = str(args.tier)
-    if tier not in TIERS:
-        raise ValueError(f"unknown tier {tier!r}; available: {sorted(TIERS)}")
-    make_config, estimators, fit_config = TIERS[tier]
-    config = make_config()
-
-    frame = run_grid(
-        config,
-        estimators=list(estimators),
-        fit_config=fit_config,
-        root_entropy=args.root_entropy,
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help=f"Worker processes (sharded tiers only; default {DEFAULT_WORKERS}).",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Continue the run already in --out (sharded tiers only).",
+    )
+    parser.add_argument(
+        "--replications",
+        type=int,
+        default=None,
+        help="Replication target; more than the run has extends it (sharded tiers only).",
     )
 
-    sidecar = {
+
+def build_sidecar(
+    tier: str,
+    config: GridConfig,
+    estimators: Sequence[str],
+    bootstrap_reps: int,
+    random_seed: int | None,
+    root_entropy: int,
+    frame: pd.DataFrame,
+    provenance: Mapping[str, object],
+) -> dict[str, object]:
+    """The provenance record `bench report` hands back as the description of a run."""
+    return {
         "tier": tier,
         "estimators": list(estimators),
-        "bootstrap_reps": fit_config.bootstrap_reps,
-        "random_seed": fit_config.random_seed,
-        "root_entropy": args.root_entropy,
+        "bootstrap_reps": bootstrap_reps,
+        "random_seed": random_seed,
+        "root_entropy": root_entropy,
         "replications": config.replications,
         # Both axis blocks are read off the dataclass rather than transcribed
         # field by field. The sidecar is the run's provenance record -- `bench
@@ -99,15 +121,133 @@ def run_tier(args: argparse.Namespace) -> int:
         "panel_realised": (
             None if config.panel is None else _realised_block(frame, config.panel)
         ),
-        "package_versions": package_versions(),
-        "git_commit": git_commit(),
+        **provenance,
     }
+
+
+def run_tier(args: argparse.Namespace) -> int:
+    tier = str(args.tier)
+    if tier not in TIERS:
+        raise ValueError(f"unknown tier {tier!r}; available: {sorted(TIERS)}")
+    if tier in SHARDED_TIERS:
+        return _run_sharded(tier, args)
+    stray = [
+        flag
+        for flag, given in (
+            ("--workers", args.workers is not None),
+            ("--resume", args.resume),
+            ("--replications", args.replications is not None),
+        )
+        if given
+    ]
+    if stray:
+        raise ValueError(
+            f"{', '.join(stray)} apply only to sharded tiers {sorted(SHARDED_TIERS)}; "
+            f"{tier!r} writes a single file and cannot be resumed or extended"
+        )
+    make_config, estimators, fit_config = TIERS[tier]
+    config = make_config()
+
+    frame = run_grid(
+        config,
+        estimators=list(estimators),
+        fit_config=fit_config,
+        root_entropy=args.root_entropy,
+    )
+
+    sidecar = build_sidecar(
+        tier,
+        config,
+        estimators,
+        fit_config.bootstrap_reps,
+        fit_config.random_seed,
+        args.root_entropy,
+        frame,
+        {"package_versions": package_versions(), "git_commit": git_commit()},
+    )
 
     out = Path(args.out)
     write_benchmark(frame, out, sidecar)
     fitted = int((frame["status"] == "fitted").sum())
     print(f"wrote {len(frame)} rows ({fitted} fitted) to {out}")
     return 0
+
+
+def _progress(done: int, total: int) -> None:
+    if done == total or done % 25 == 0:
+        print(f"  {done}/{total} cells", flush=True)
+
+
+def _run_sharded(tier: str, args: argparse.Namespace) -> int:
+    """Start, resume or extend a sharded run, and fit whatever it still lacks."""
+    make_config, estimators, fit_config = TIERS[tier]
+    out = Path(args.out)
+    if args.replications is not None and args.replications < 1:
+        raise ValueError(f"--replications must be positive, got {args.replications}")
+    identity = RunIdentity.of(tier, make_config(), estimators, fit_config, args.root_entropy)
+
+    if (out / MANIFEST_NAME).exists():
+        if not args.resume:
+            raise ValueError(
+                f"{out} already holds a run; pass --resume to continue it, "
+                "or --resume --replications N to extend it"
+            )
+        store = RunStore.open(out)
+        store.check_identity(identity)
+        store.set_replications(
+            store.replications if args.replications is None else args.replications
+        )
+    else:
+        if args.resume:
+            raise ValueError(f"--resume was given but {out} holds no run")
+        replications = (
+            make_config().replications if args.replications is None else args.replications
+        )
+        store = RunStore.create(out, identity, replications)
+
+    workers = DEFAULT_WORKERS if args.workers is None else args.workers
+    summary = execute(
+        store,
+        estimators=estimators,
+        fit_config=fit_config,
+        workers=workers,
+        progress=_progress,
+    )
+    status = store.status()
+    print(
+        f"{tier}: {status.done}/{status.expected} cells done in {out} "
+        f"({summary.ran} fitted now, {summary.already_done} already done, "
+        f"{summary.workers} worker{'s' if summary.workers != 1 else ''})"
+    )
+    return 0
+
+
+def load_run(
+    directory: Path, *, partial: bool = False
+) -> tuple[pd.DataFrame, dict[str, object]]:
+    """A stored run's rows and its provenance record, whichever way it was written.
+
+    A sharded run is refused when incomplete unless `partial` is given, and a
+    partial read says so in the record it returns.
+    """
+    if not (directory / MANIFEST_NAME).exists():
+        return read_benchmark(directory)
+    store = RunStore.open(directory)
+    frame = store.read_frame(partial=partial)
+    fit = store.identity.fit_config
+    sidecar = build_sidecar(
+        store.identity.tier,
+        store.grid_config(),
+        list(store.identity.estimators),
+        int(fit["bootstrap_reps"]),
+        fit["random_seed"],
+        store.identity.root_entropy,
+        frame,
+        store.provenance,
+    )
+    sidecar["sharded"] = True
+    sidecar["partial"] = bool(partial and store.status().remaining)
+    return frame, sidecar
 
 
 def _axis_block(axes: CrossSectionAxes | PanelAxes) -> dict[str, list[object]]:
@@ -212,12 +352,22 @@ def _axis_discrepancies(sidecar: Mapping[str, object]) -> list[str]:
 
 def add_report_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("directory", help="A directory written by `bench run`.")
+    parser.add_argument(
+        "--partial",
+        action="store_true",
+        help="Report an unfinished sharded run on the cells it has, labelled as partial.",
+    )
 
 
 def report(args: argparse.Namespace) -> int:
-    frame, sidecar = read_benchmark(Path(args.directory))
+    frame, sidecar = load_run(Path(args.directory), partial=args.partial)
     summary = summarise(frame)
     print(f"tier: {sidecar.get('tier')}  rows: {len(frame)}")
+    if sidecar.get("partial"):
+        print(
+            "PARTIAL: this run is unfinished. Every figure below is over the cells "
+            "done so far, and an absent cell means not yet run, not fine."
+        )
     # Printed before the summary, not after: it qualifies every row below it.
     # Silent when the grid produced what it was asked for, so a reader who sees
     # nothing here can read the requested axes as the grid's description.
