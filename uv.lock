@@ -431,6 +431,7 @@ dependencies = [
     { name = "cp-statistics" },
     { name = "numpy" },
     { name = "pandas" },
+    { name = "pyarrow" },
 ]
 
 [package.metadata]
@@ -441,6 +442,7 @@ requires-dist = [
     { name = "cp-statistics", editable = "packages/cp-statistics" },
     { name = "numpy", specifier = ">=2.0" },
     { name = "pandas", specifier = ">=2.2" },
+    { name = "pyarrow", specifier = ">=17.0" },
 ]
 
 [[package]]

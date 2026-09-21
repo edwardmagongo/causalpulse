@@ -74,6 +74,23 @@ ROW_COLUMNS: tuple[str, ...] = (
 )
 
 
+# The columns that hold text. A shard whose cells all left one of them null (an
+# `ineligible` row has no `estimand` or `ci_basis`) is written and read back as
+# an all-null column with no string type at all, and concatenating such a shard
+# with others yields `object`. The frame `run_grid` builds from every row at once
+# infers `str`. Readers of stored shards cast these back, so the two paths give
+# the same frame rather than the same values in different dtypes.
+STRING_COLUMNS: tuple[str, ...] = (
+    "shape",
+    "scenario",
+    "method",
+    "status",
+    "reason",
+    "estimand",
+    "ci_basis",
+)
+
+
 def _missing_a_required_column(dataset: CausalDataset) -> bool:
     """Whether the dataset is missing values in a column its schema requires.
 
