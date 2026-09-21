@@ -11,7 +11,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 
-from cp_cli.commands import analyze, bench, replay, simulate
+from cp_cli.commands import analyze, bench, replay, simulate, study
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -44,6 +44,22 @@ def build_parser() -> argparse.ArgumentParser:
     bench_report = bench_commands.add_parser("report", help="Summarise a stored run.")
     bench.add_report_arguments(bench_report)
     bench_report.set_defaults(handler=bench.report)
+
+    bench_status = bench_commands.add_parser("status", help="Count a sharded run's finished cells.")
+    study.add_status_arguments(bench_status)
+    bench_status.set_defaults(handler=study.status)
+
+    bench_compact = bench_commands.add_parser(
+        "compact", help="Fold a finished sharded run into one results file."
+    )
+    study.add_compact_arguments(bench_compact)
+    bench_compact.set_defaults(handler=study.compact)
+
+    bench_study = bench_commands.add_parser(
+        "study", help="Write the study's tables, figures and expectations check."
+    )
+    study.add_study_arguments(bench_study)
+    bench_study.set_defaults(handler=study.run_study)
 
     return parser
 
