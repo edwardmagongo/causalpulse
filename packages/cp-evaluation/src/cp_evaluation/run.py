@@ -24,6 +24,7 @@ from cp_evaluation.grid import Cell, CrossSectionCell, GridConfig, expand_cells
 from cp_evaluation.resolve import ResolvedCell, resolve_cell, truth_for
 
 if TYPE_CHECKING:
+    from cp_causal.base import Estimator
     from cp_core.dataset import CausalDataset
     from cp_core.results import EffectEstimate
 
@@ -174,6 +175,92 @@ def _fitted_row(
     return row
 
 
+def resolve_candidates(
+    estimators: Sequence[str] | None,
+) -> dict[str, type[Estimator]] | None:
+    """The registry restricted to `estimators`, or None for every registered one.
+
+    An unknown name is refused by name rather than silently dropped, matching
+    `expand_cells`' refusal of an unknown scenario -- a typo'd estimator name
+    should not quietly produce a benchmark that omits the method someone
+    thought they were measuring.
+    """
+    registry = all_estimators()
+    if estimators is None:
+        return None
+    unknown = sorted(set(estimators) - set(registry))
+    if unknown:
+        raise ValueError(f"unknown estimators {unknown}; available: {sorted(registry)}")
+    return {name: registry[name] for name in estimators}
+
+
+def fit_cell(
+    cell: Cell,
+    *,
+    root_entropy: int,
+    fit_config: EstimatorConfig,
+    candidates: dict[str, type[Estimator]] | None,
+) -> list[dict[str, object]]:
+    """Every result row for one cell: one per candidate estimator.
+
+    The per-cell body of `run_grid`, extracted so a parallel executor fits a
+    cell through exactly the code the serial path does.
+    """
+    resolved = resolve_cell(cell, root_entropy)
+    # Once per cell: these columns describe the cell and its generated
+    # data, not the estimator reading it, and `realised_treated_share`
+    # means a pass over the treatment column to produce.
+    cell_columns = _cell_columns(cell, resolved)
+    rows: list[dict[str, object]] = []
+    for decision in route(resolved.dataset, candidates):
+        method = decision.estimator_name
+        if not decision.eligible:
+            rows.append(
+                _blank_row(cell_columns, method, "ineligible", "; ".join(decision.reasons))
+            )
+            continue
+        try:
+            estimate = get_estimator(method)().fit(resolved.dataset, fit_config)
+        except _REFUSAL as exc:
+            if not _missing_a_required_column(resolved.dataset):
+                raise
+            rows.append(_blank_row(cell_columns, method, "refused", str(exc)))
+            continue
+        rows.append(_fitted_row(cell_columns, method, estimate, resolved))
+    return rows
+
+
+# `confounding_strength` and the four axes Phase 18 adds sit right after
+# `n_units`, matching where `grid.cell_sort_key` places them for
+# cross-sectional cells. Without them, two cells that only differ in one
+# of these -- which `expand_cells` assigns the same `seed` range
+# independently for each value, including the one-at-a-time extra cells
+# `_expand_cross_section` adds that share every other column and differ
+# only in a single new axis -- tie on every other column, and pandas'
+# stable sort would then leave their relative order wherever evaluation
+# happened to visit them: the output would depend on the order cells
+# were evaluated in, exactly what `_shuffle` exists to disprove. Listing
+# them here makes the key total over the rows a grid can produce.
+SORT_KEY: tuple[str, ...] = (
+    "shape",
+    "scenario",
+    "n_units",
+    "confounding_strength",
+    "treatment_intercept",
+    "noise_scale",
+    "effect_scale",
+    "heterogeneity_scale",
+    "n_periods",
+    "seed",
+    "method",
+)
+
+
+def sort_result_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    """Rows in the one order every reader of a result frame sees."""
+    return frame.sort_values(list(SORT_KEY)).reset_index(drop=True)
+
+
 def run_grid(
     config: GridConfig,
     *,
@@ -189,10 +276,8 @@ def run_grid(
     changes which rows exist: `ineligible` counts are then relative to the
     requested set, not to the whole registry, so a run restricted to two
     estimators reports at most two rows per cell rather than one per
-    registered estimator. An unknown name is refused by name rather than
-    silently dropped, matching `expand_cells`' refusal of an unknown
-    scenario -- a typo'd estimator name should not quietly produce a
-    benchmark that omits the method someone thought they were measuring.
+    registered estimator. An unknown name is refused by name (see
+    `resolve_candidates`).
 
     `_shuffle` exists only so a test can prove the output does not depend on
     evaluation order; it permutes the order cells are visited and nothing else.
@@ -203,66 +288,15 @@ def run_grid(
         _shuffle.shuffle(cells)
 
     fit_config = EstimatorConfig(random_seed=0) if fit_config is None else fit_config
-
-    registry = all_estimators()
-    if estimators is None:
-        candidates = None
-    else:
-        unknown = sorted(set(estimators) - set(registry))
-        if unknown:
-            raise ValueError(
-                f"unknown estimators {unknown}; available: {sorted(registry)}"
-            )
-        candidates = {name: registry[name] for name in estimators}
+    candidates = resolve_candidates(estimators)
 
     rows: list[dict[str, object]] = []
     for cell in cells:
-        resolved = resolve_cell(cell, root_entropy)
-        # Once per cell: these columns describe the cell and its generated
-        # data, not the estimator reading it, and `realised_treated_share`
-        # means a pass over the treatment column to produce.
-        cell_columns = _cell_columns(cell, resolved)
-        for decision in route(resolved.dataset, candidates):
-            method = decision.estimator_name
-            if not decision.eligible:
-                rows.append(
-                    _blank_row(
-                        cell_columns, method, "ineligible", "; ".join(decision.reasons)
-                    )
-                )
-                continue
-            try:
-                estimate = get_estimator(method)().fit(resolved.dataset, fit_config)
-            except _REFUSAL as exc:
-                if not _missing_a_required_column(resolved.dataset):
-                    raise
-                rows.append(_blank_row(cell_columns, method, "refused", str(exc)))
-                continue
-            rows.append(_fitted_row(cell_columns, method, estimate, resolved))
+        rows.extend(
+            fit_cell(
+                cell, root_entropy=root_entropy, fit_config=fit_config, candidates=candidates
+            )
+        )
 
     frame = pd.DataFrame(rows, columns=list(ROW_COLUMNS))
-    # `confounding_strength` and the four axes Phase 18 adds sit right after
-    # `n_units`, matching where `grid.cell_sort_key` places them for
-    # cross-sectional cells. Without them, two cells that only differ in one
-    # of these -- which `expand_cells` assigns the same `seed` range
-    # independently for each value, including the one-at-a-time extra cells
-    # `_expand_cross_section` adds that share every other column and differ
-    # only in a single new axis -- tie on every other column, and pandas'
-    # stable sort would then leave their relative order wherever evaluation
-    # happened to visit them: the output would depend on the order cells
-    # were evaluated in, exactly what `_shuffle` exists to disprove. Listing
-    # them here makes the key total over the rows a grid can produce.
-    sort_key = [
-        "shape",
-        "scenario",
-        "n_units",
-        "confounding_strength",
-        "treatment_intercept",
-        "noise_scale",
-        "effect_scale",
-        "heterogeneity_scale",
-        "n_periods",
-        "seed",
-        "method",
-    ]
-    return frame.sort_values(sort_key).reset_index(drop=True)
+    return sort_result_frame(frame)
