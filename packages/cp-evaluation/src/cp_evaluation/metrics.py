@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -376,8 +377,17 @@ def _group_seed(root_seed: int, group_columns: list[str], key: tuple[object, ...
     return int.from_bytes(digest[:8], "big")
 
 
-def summarise(frame: pd.DataFrame, *, seed: int = 0) -> pd.DataFrame:
+def summarise(
+    frame: pd.DataFrame, *, seed: int = 0, by: Sequence[str] | None = None
+) -> pd.DataFrame:
     """Every metric family, per (method x cell identity), one row each.
+
+    `by` replaces the cell-identity columns the rows are grouped by. Grouping by
+    fewer columns pools the replication rows of every cell that shares the
+    remaining ones, and each metric and its MCSE is computed over those pooled
+    rows -- never by combining per-cell summaries, which would average averages
+    of unequal groups and could not give the pooled MCSE at all. `by=[]` pools
+    across everything a method fitted.
 
     Status counts travel with the metrics rather than being computed
     separately, so a reader can never see a bias without also seeing how many
@@ -401,7 +411,13 @@ def summarise(frame: pd.DataFrame, *, seed: int = 0) -> pd.DataFrame:
     the identical measured value. NaN for a panel group, which carries no
     such axis.
     """
-    group_columns = ["method", *(c for c in GROUP_COLUMNS if c in frame.columns)]
+    if by is None:
+        group_columns = ["method", *(c for c in GROUP_COLUMNS if c in frame.columns)]
+    else:
+        absent = [c for c in by if c not in frame.columns]
+        if absent:
+            raise KeyError(f"cannot group by {absent}: not columns of this frame")
+        group_columns = ["method", *by]
     records: list[dict[str, object]] = []
 
     for keys, group in frame.groupby(group_columns, dropna=False, sort=True):
