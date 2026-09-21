@@ -89,7 +89,7 @@ budget, is where that resolution belongs.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from cp_core.values import EstimatorConfig
 
@@ -625,3 +625,23 @@ def full_config() -> GridConfig:
         ),
         replications=10,
     )
+
+
+# The replication count the benchmark study runs at. The parent design's own
+# number (section 8.1 of the causal core spec), and the smallest that gives the
+# coverage table a pooled MCSE narrow enough to expose gross undercoverage: at
+# a coverage of 0.95 the binomial MCSE is 0.069 at 10 replications, 0.031 at 50
+# and 0.022 at 100 (`docs/specs/2026-09-21-benchmark-study-design.md` section
+# 1.2). `full` stays at 10; this is a separate tier, not a change to it.
+STUDY_REPLICATIONS = 50
+
+
+def study_config() -> GridConfig:
+    """The study grid: `full_config()` at `STUDY_REPLICATIONS` replications.
+
+    Defined by replacing one field rather than restating the axes, so the two
+    tiers cannot drift: a widened axis in `full_config()` reaches the study
+    with no second edit, and `tests/evaluation/test_study_tier.py` pins that
+    the two are equal in everything but the replication count.
+    """
+    return replace(full_config(), replications=STUDY_REPLICATIONS)

@@ -480,6 +480,21 @@ def _identity_payload(cell: Cell) -> dict[str, object]:
     }
 
 
+def cell_key(cell: Cell) -> str:
+    """A short, stable name for one cell, derived from its identity payload.
+
+    The same identity `cell_rng` hashes, so two cells share a key exactly when
+    they share a generator: a stored result can be matched to the cell that
+    produced it without reading a row. sha256 over sorted JSON, not `hash()`,
+    for the reason `cell_rng` documents.
+
+    24 hex digits is 96 bits, far beyond what a grid of thousands of cells can
+    collide in, and short enough to name a file.
+    """
+    encoded = json.dumps(_identity_payload(cell), sort_keys=True).encode()
+    return hashlib.sha256(encoded).hexdigest()[:24]
+
+
 def cell_rng(cell: Cell, root_entropy: int) -> np.random.Generator:
     """The generator for one cell, derived from the cell's own identity.
 
