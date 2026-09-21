@@ -165,6 +165,17 @@ baseline strength each instead of three, and both ends of the range fall by 16. 
 values considered and rejected, and the defects a whole-branch review found before any of it
 shipped.
 
+**Benchmark study, part 1** built what a study-grade run needs and the analysis that reads it. `bench
+run --tier study` runs `full`'s grid at 50 replications into a directory of one Parquet shard per cell
+plus a ledger, so an interrupted run resumes (`--resume`) and a finished one extends (`--resume
+--replications N`); a parallel executor fits cells through the same `fit_cell` the serial `run_grid`
+does. `bench study` turns a finished run into the headline tables, pooled over each scenario's
+baseline slice with Monte Carlo standard errors, and scores eight expectations that were written into
+`docs/specs/2026-09-21-benchmark-study-design.md` before any result existed. No study result is
+recorded here yet, and results are not committed (`benchmarks/runs/` is ignored). The study does not
+cover `synthetic_control`, `bsts`, the CATE metrics or scenario P7; the causal-core items that would
+close those are still open.
+
 No CLI command currently produces an evidence report, either: the report generator built in Phase 17
 takes live result objects, the same as the figures do, because the arrays six of the eight figures
 need were never persisted to disk. A user who runs `causalpulse analyze` cannot turn its output into
@@ -178,10 +189,10 @@ a report without writing Python.
 | `cp-statistics` | Proportion intervals, robust and cluster-robust covariance, bootstrap engines. |
 | `cp-simulation` | Compositional data-generating processes carrying computed ground truth. |
 | `cp-causal` | Cross-sectional and panel estimators, propensity diagnostics, panel assumption checks, design router. Forbidden from importing `cp-simulation`. |
-| `cp-evaluation` | The benchmark grid: `run_grid` fits estimators across the DGP axes that exist and `summarise` reports bias, coverage, and calibration with Monte Carlo standard error. The first package allowed to import both `cp-simulation` and `cp-causal` together, so it sits above `cp-causal` in the layers contract and nothing below it may import it in turn. |
+| `cp-evaluation` | The benchmark grid: `run_grid` fits estimators across the DGP axes that exist and `summarise` reports bias, coverage, and calibration with Monte Carlo standard error. The first package allowed to import both `cp-simulation` and `cp-causal` together, so it sits above `cp-causal` in the layers contract and nothing below it may import it in turn. `store` and `execute` run a benchmark as a resumable set of shards. |
 | `cp-figures` | Eight publication-quality matplotlib figures — counterfactual path, event study, love plot, propensity overlap, specification curve, placebo distribution, cross-method forest plot, benchmark heatmaps — each a pure data function plus a thin drawing function. Imports only `cp-core` and `cp-causal`. |
 | `cp-report` | The evidence report generator: assumption table, validity band, cross-method comparison, and stated limitations, rendered to Markdown or one self-contained HTML file with figures inlined as SVG. Refuses to emit prose that fails `causal_language_lint`. |
-| `cp-cli` | The `causalpulse` command-line entry point (`simulate`, `analyze`, `replay`, `bench run`, `bench report`) and Parquet-plus-JSON-sidecar result persistence. Sits at the top of the layers contract; nothing imports it. |
+| `cp-cli` | The `causalpulse` command-line entry point (`simulate`, `analyze`, `replay`, `bench run`, `bench report`, `bench status`, `bench compact`, `bench study`) and Parquet-plus-JSON-sidecar result persistence. Sits at the top of the layers contract; nothing imports it. |
 
 ## Why the import boundary matters
 
