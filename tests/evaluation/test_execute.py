@@ -77,8 +77,13 @@ def test_a_failing_cell_is_not_recorded_and_stops_the_run(tmp_path):
             raise ZeroDivisionError("injected")
         return fit_cell_to_shard(task)
 
+    # workers=1: the assertion below counts on strict serial order ("the third
+    # call, the fourth never attempted"), which only a single process gives. It
+    # also keeps `fails_on_the_third` a closure never sent to a worker -- see
+    # `execute`'s picklability check, which is what a workers>1 version of this
+    # test would hit instead of the ordering it means to test.
     with pytest.raises(CellFailedError, match="ZeroDivisionError") as caught:
-        _run(store, _task=fails_on_the_third)
+        _run(store, workers=1, _task=fails_on_the_third)
 
     assert "--resume" in str(caught.value)
     # Two cells finished and were recorded; the third produced no ledger line
@@ -98,8 +103,9 @@ def test_a_resumed_run_equals_one_that_was_never_interrupted(tmp_path):
             raise ZeroDivisionError("injected")
         return fit_cell_to_shard(task)
 
+    # workers=1: see the comment on the previous test.
     with pytest.raises(CellFailedError):
-        _run(interrupted, _task=fails_on_the_third)
+        _run(interrupted, workers=1, _task=fails_on_the_third)
     resumed = _run(interrupted)
 
     assert (resumed.already_done, resumed.ran) == (2, 2)
@@ -221,6 +227,21 @@ def test_workers_must_be_positive(tmp_path):
 
     with pytest.raises(ValueError, match="workers"):
         _run(store, workers=0)
+
+
+def test_an_unpicklable_task_is_refused_before_a_worker_ever_starts(tmp_path):
+    # A closure sent through the pool's queue at workers > 1 does not fail fast
+    # with a clear error on this machine -- it hangs. This is the check that
+    # turns that into an immediate, named ValueError instead.
+    store = new_store(tmp_path / "run", tiny_config(1))
+    calls = {"n": 0}
+
+    def a_closure(task):
+        calls["n"] += 1
+        return task
+
+    with pytest.raises(ValueError, match="cannot be sent to a worker process"):
+        _run(store, workers=2, _task=a_closure)
 
 
 def cell_key_for_seed(store: RunStore, seed: int) -> str:

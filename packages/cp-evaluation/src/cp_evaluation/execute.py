@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import multiprocessing
 import os
+import pickle
 from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from contextlib import contextmanager
@@ -28,11 +29,23 @@ from cp_evaluation.grid import Cell, PanelCell, cell_key
 from cp_evaluation.run import fit_cell, resolve_candidates
 from cp_evaluation.store import LedgerEntry, RunStore, write_shard
 
-# One worker until the measurement recorded in the study's design document
-# (section 6) says otherwise. Serial is the setting that is known to be safe on a
-# 16 GB machine; a larger default has to be earned by a measurement of wall
-# clock and swap, not assumed from the core count.
-DEFAULT_WORKERS = 1
+# Measured 2026-09-22 on this 16 GB, 10-core machine (`benchmarks/measure_workers.py`,
+# 36-cell sample at the study's own bootstrap settings), against a rule fixed
+# before the measurement: the largest of 1, 2, 4 workers whose wall clock is at
+# least 1.3x faster than the next smaller count's, and whose peak swap rose by
+# under 2,000 MB over the swap already in use.
+#
+#   workers   wall s   speedup   swap before MB   swap peak MB
+#         1    725.5      1.00             3431           3431
+#         2    390.3      1.86             3431           3431
+#         4    298.2      1.31 (vs 2)      3431           4421 (+990)
+#
+# 2 passes both clauses (1.86x, +0 MB). 4 also passes both, though its speedup
+# over 2 (1.31x) clears the 1.3x bar narrowly: rerunning it would not be
+# surprising to land the other side of 1.30. The rule takes the largest count
+# that passes, so the default is 4. See the design document's section 13.2 for
+# the full record.
+DEFAULT_WORKERS = 4
 
 _THREAD_VARIABLES = (
     "OMP_NUM_THREADS",
@@ -142,10 +155,25 @@ def execute(
     """Fit every cell the store has not finished, recording each as it completes.
 
     `_task` exists only so a test can make a chosen cell fail or a worker die;
-    production callers never pass it.
+    production callers never pass it. At `workers > 1` it must be picklable by
+    reference (a module-level function, not a closure): a closure sent through
+    the pool's queue does not fail fast with a clear error on this machine --
+    it hangs indefinitely, apparently only when the process also imports this
+    project's heavier dependencies (found the hard way, measuring Task 10's
+    default). Checked eagerly here so that failure mode becomes a `ValueError`
+    naming the reason, not a silent stall a caller has to diagnose from a
+    process list.
     """
     if workers < 1:
         raise ValueError(f"workers must be positive, got {workers}")
+    if workers > 1:
+        try:
+            pickle.dumps(_task)
+        except (AttributeError, TypeError) as exc:
+            raise ValueError(
+                f"_task {_task!r} cannot be sent to a worker process (workers={workers}): "
+                f"{exc}. A closure only works at workers=1; pass a module-level function."
+            ) from exc
     store.sweep_temporary()
 
     expected = store.expected_cells()
