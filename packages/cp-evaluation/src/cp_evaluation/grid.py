@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 
 import numpy as np
+from cp_simulation.donor_scenarios import DONOR_SCENARIOS
 from cp_simulation.panel_scenarios import PANEL_SCENARIOS
 from cp_simulation.params import AXIS_NAMES, ScenarioParams
 from cp_simulation.scenarios import SCENARIOS
@@ -126,7 +127,22 @@ class PanelCell:
     seed: int
 
 
-Cell = CrossSectionCell | PanelCell
+@dataclass(frozen=True)
+class DonorPoolCell:
+    """One donor-pool benchmark cell.
+
+    Unlike `CrossSectionCell`/`PanelCell`, there is no size axis: `DONOR_SCENARIOS`
+    (`cp_simulation.donor_scenarios`) bakes n_units, n_periods and donor count into
+    each of S0-S5 as a fixed protocol ("a test that quietly uses fewer donors or
+    periods is measuring a different, unvalidated regime"), so a donor-pool cell's
+    identity is just its scenario and its replication index.
+    """
+
+    scenario: str
+    seed: int
+
+
+Cell = CrossSectionCell | PanelCell | DonorPoolCell
 
 
 @dataclass(frozen=True)
@@ -173,6 +189,13 @@ class PanelAxes:
 
 
 @dataclass(frozen=True)
+class DonorPoolAxes:
+    """Which of S0-S5 to include. No size axis -- see `DonorPoolCell`."""
+
+    scenarios: Sequence[str]
+
+
+@dataclass(frozen=True)
 class GridConfig:
     """The axes of a benchmark run.
 
@@ -188,6 +211,7 @@ class GridConfig:
     cross_section: CrossSectionAxes | None
     panel: PanelAxes | None
     replications: int
+    donor_pool: DonorPoolAxes | None = None
 
     def __post_init__(self) -> None:
         if self.replications < 1:
@@ -201,8 +225,10 @@ def expand_cells(config: GridConfig) -> tuple[Cell, ...]:
     identity, and a grid whose row order depended on dict iteration would make
     two runs of the same configuration hard to compare.
     """
-    if config.cross_section is None and config.panel is None:
-        raise ValueError("a GridConfig needs at least one of cross_section or panel")
+    if config.cross_section is None and config.panel is None and config.donor_pool is None:
+        raise ValueError(
+            "a GridConfig needs at least one of cross_section, panel or donor_pool"
+        )
 
     cells: list[Cell] = []
 
@@ -228,6 +254,19 @@ def expand_cells(config: GridConfig) -> tuple[Cell, ...]:
             for scenario in axes_p.scenarios
             for n_units in axes_p.n_units
             for n_periods in axes_p.n_periods
+            for seed in range(config.replications)
+        )
+
+    if config.donor_pool is not None:
+        axes_dp = config.donor_pool
+        unknown = sorted(set(axes_dp.scenarios) - set(DONOR_SCENARIOS))
+        if unknown:
+            raise ValueError(
+                f"unknown donor-pool scenarios {unknown}; available: {sorted(DONOR_SCENARIOS)}"
+            )
+        cells.extend(
+            DonorPoolCell(scenario=scenario, seed=seed)
+            for scenario in axes_dp.scenarios
             for seed in range(config.replications)
         )
 
@@ -437,7 +476,9 @@ def cell_sort_key(cell: Cell) -> tuple[object, ...]:
             *(getattr(cell, name) for name in _NEW_AXIS_NAMES),
             cell.seed,
         )
-    return (1, cell.scenario, cell.n_units, cell.n_periods, cell.seed)
+    if isinstance(cell, PanelCell):
+        return (1, cell.scenario, cell.n_units, cell.n_periods, cell.seed)
+    return (2, cell.scenario, cell.seed)
 
 
 def _identity_payload(cell: Cell) -> dict[str, object]:
@@ -471,13 +512,15 @@ def _identity_payload(cell: Cell) -> dict[str, object]:
             if value != getattr(_DEFAULT_PARAMS, name):
                 payload[name] = value
         return payload
-    return {
-        "shape": "panel",
-        "scenario": cell.scenario,
-        "n_units": cell.n_units,
-        "n_periods": cell.n_periods,
-        "seed": cell.seed,
-    }
+    if isinstance(cell, PanelCell):
+        return {
+            "shape": "panel",
+            "scenario": cell.scenario,
+            "n_units": cell.n_units,
+            "n_periods": cell.n_periods,
+            "seed": cell.seed,
+        }
+    return {"shape": "donor_pool", "scenario": cell.scenario, "seed": cell.seed}
 
 
 def cell_key(cell: Cell) -> str:

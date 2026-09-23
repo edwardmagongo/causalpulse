@@ -9,6 +9,8 @@ import pytest
 from cp_evaluation.grid import (
     CrossSectionAxes,
     CrossSectionCell,
+    DonorPoolAxes,
+    DonorPoolCell,
     GridConfig,
     PanelAxes,
     PanelCell,
@@ -63,6 +65,97 @@ def test_both_shapes_expand_independently_and_concatenate():
     assert len(cells) == 4
     assert sum(isinstance(c, CrossSectionCell) for c in cells) == 2
     assert sum(isinstance(c, PanelCell) for c in cells) == 2
+
+
+def test_donor_pool_axes_expand_one_cell_per_scenario_per_replication():
+    config = GridConfig(
+        cross_section=None,
+        panel=None,
+        donor_pool=DonorPoolAxes(scenarios=("S0", "S1", "S2")),
+        replications=4,
+    )
+
+    cells = expand_cells(config)
+
+    assert len(cells) == 3 * 4
+    assert all(isinstance(c, DonorPoolCell) for c in cells)
+    assert {c.scenario for c in cells} == {"S0", "S1", "S2"}
+    assert {c.seed for c in cells} == {0, 1, 2, 3}
+
+
+def test_all_three_shapes_expand_independently_and_concatenate():
+    config = GridConfig(
+        cross_section=CrossSectionAxes(
+            scenarios=("A",), n_units=(500,), confounding_strength=(1.0,)
+        ),
+        panel=PanelAxes(scenarios=("P1",), n_units=(200,), n_periods=(6,)),
+        donor_pool=DonorPoolAxes(scenarios=("S1",)),
+        replications=2,
+    )
+
+    cells = expand_cells(config)
+
+    assert len(cells) == 6
+    assert sum(isinstance(c, CrossSectionCell) for c in cells) == 2
+    assert sum(isinstance(c, PanelCell) for c in cells) == 2
+    assert sum(isinstance(c, DonorPoolCell) for c in cells) == 2
+
+
+def test_an_unknown_donor_pool_scenario_is_refused_by_name():
+    config = GridConfig(
+        cross_section=None,
+        panel=None,
+        donor_pool=DonorPoolAxes(scenarios=("S1", "S99")),
+        replications=1,
+    )
+
+    with pytest.raises(ValueError, match="S99"):
+        expand_cells(config)
+
+
+def test_a_grid_of_only_donor_pool_axes_is_not_refused():
+    config = GridConfig(
+        cross_section=None, panel=None, donor_pool=DonorPoolAxes(scenarios=("S1",)), replications=1
+    )
+
+    cells = expand_cells(config)
+
+    assert len(cells) == 1
+
+
+def test_donor_pool_cells_sort_after_panel_cells():
+    config = GridConfig(
+        cross_section=CrossSectionAxes(
+            scenarios=("A",), n_units=(500,), confounding_strength=(1.0,)
+        ),
+        panel=PanelAxes(scenarios=("P1",), n_units=(200,), n_periods=(6,)),
+        donor_pool=DonorPoolAxes(scenarios=("S1",)),
+        replications=1,
+    )
+
+    cells = expand_cells(config)
+
+    shapes = [type(c).__name__ for c in cells]
+    assert shapes == sorted(shapes, key=lambda name: {"CrossSectionCell": 0, "PanelCell": 1, "DonorPoolCell": 2}[name])
+
+
+def test_the_same_donor_pool_cell_always_gets_the_same_stream():
+    cell = DonorPoolCell(scenario="S1", seed=0)
+
+    first = cell_rng(cell, root_entropy=1).normal(size=5)
+    second = cell_rng(cell, root_entropy=1).normal(size=5)
+
+    assert np.array_equal(first, second)
+
+
+def test_donor_pool_cells_do_not_collide_with_the_other_two_shapes():
+    d = DonorPoolCell(scenario="X", seed=0)
+    p = PanelCell(scenario="X", n_units=18, n_periods=24, seed=0)
+    x = CrossSectionCell(scenario="X", n_units=18, confounding_strength=1.0, seed=0)
+
+    draws = [tuple(cell_rng(c, root_entropy=1).normal(size=5)) for c in (d, p, x)]
+
+    assert len(set(draws)) == 3
 
 
 def test_expansion_is_sorted_and_therefore_deterministic():
