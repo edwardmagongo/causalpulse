@@ -251,8 +251,16 @@ def test_the_p6_bootstrap_resample_that_once_broke_lstsq_now_fits():
     # `LinAlgError: SVD did not converge` before `ols_fit` gained the QR
     # fallback (`cp_statistics.linalg_safety.safe_lstsq`, see its module
     # docstring for the full diagnosis). `bootstrap_reps=160` reaches the same
-    # resample as the real run's 1000 (verified: 160, 200 and 1000 all give
-    # the identical point and se here) while keeping this test under a second.
+    # resample as the real run's 1000 -- reachability is guaranteed, not just
+    # observed: `bootstrap_interval` draws its `reps` resamples in one
+    # sequential `for i in range(reps)` loop against a single `rng`
+    # (`cp_statistics/bootstrap.py`), so replication 156 is drawn identically
+    # whatever `reps` stops at, as long as it is at least 156 -- while keeping
+    # this test under a second. `point`/`se` come from the cell's own,
+    # non-bootstrap OLS fit and would pass even if every bootstrap replicate
+    # were garbage; `bootstrap_ci` is the one field that depends on resample
+    # 156 actually having computed something real, which is why it is checked
+    # here too.
     cell = PanelCell(scenario="P6", n_units=150, n_periods=10, seed=48)
     resolved = resolve_cell(cell, root_entropy=0)
     config = replace(FULL_FIT_CONFIG, bootstrap_reps=160)
@@ -261,6 +269,9 @@ def test_the_p6_bootstrap_resample_that_once_broke_lstsq_now_fits():
 
     assert estimate.point == pytest.approx(0.271111, abs=1e-5)
     assert estimate.se == pytest.approx(0.080444, abs=1e-5)
+    assert estimate.bootstrap_ci is not None
+    assert estimate.bootstrap_ci.lower == pytest.approx(0.110908, abs=1e-5)
+    assert estimate.bootstrap_ci.upper == pytest.approx(0.417180, abs=1e-5)
 
 
 def test_the_p1_bootstrap_resample_that_once_broke_pinv_now_fits():
@@ -271,7 +282,9 @@ def test_the_p1_bootstrap_resample_that_once_broke_pinv_now_fits():
     # definite) matrix, fixed by `cp_statistics.linalg_safety.safe_symmetric_pinv`.
     # Ground truth, not a synthetic stand-in, exactly as the P6 test above;
     # `bootstrap_reps=842` reaches the same resample as the real run's 1000
-    # (verified: 842, 900 and 1000 all give the identical point and se here).
+    # for the same sequential-draw reason the P6 test's comment gives.
+    # `bootstrap_ci` is checked for the same reason too: `point`/`se` alone
+    # would pass even if the fixed-up resample computed nonsense.
     cell = PanelCell(scenario="P1", n_units=150, n_periods=10, seed=15)
     resolved = resolve_cell(cell, root_entropy=0)
     config = replace(FULL_FIT_CONFIG, bootstrap_reps=842)
@@ -280,3 +293,6 @@ def test_the_p1_bootstrap_resample_that_once_broke_pinv_now_fits():
 
     assert estimate.point == pytest.approx(0.883806, abs=1e-5)
     assert estimate.se == pytest.approx(0.191682, abs=1e-5)
+    assert estimate.bootstrap_ci is not None
+    assert estimate.bootstrap_ci.lower == pytest.approx(0.546887, abs=1e-5)
+    assert estimate.bootstrap_ci.upper == pytest.approx(1.223786, abs=1e-5)

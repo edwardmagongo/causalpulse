@@ -115,3 +115,33 @@ def test_safe_symmetric_pinv_raises_if_the_eigendecomposition_fallback_is_also_n
 
     with pytest.raises(np.linalg.LinAlgError, match="Eigendecomposition fallback"):
         safe_symmetric_pinv(A)
+
+
+def test_safe_symmetric_pinv_refuses_a_genuinely_asymmetric_matrix_on_the_fallback_path(
+    monkeypatch,
+):
+    # scipy.linalg.pinvh reads only one triangle of its input: on a real
+    # asymmetric matrix it would not raise, it would silently return the
+    # pseudo-inverse of a *different* matrix (the symmetrised one it assumed),
+    # and only on this rare fallback branch. Checked explicitly rather than
+    # trusted implicitly -- found at the whole-branch review.
+    monkeypatch.setattr(np.linalg, "pinv", _always_raises_pinv)
+    A = np.array([[1.0, 2.0], [3.0, 4.0]])  # not symmetric, not close to it
+
+    with pytest.raises(np.linalg.LinAlgError, match="requires a symmetric matrix"):
+        safe_symmetric_pinv(A)
+
+
+def test_safe_symmetric_pinv_tolerates_floating_point_asymmetry_on_the_fallback_path(
+    monkeypatch,
+):
+    # X.T @ X carries tiny floating-point asymmetry from summation order, not
+    # genuine asymmetry, and the fallback must still work on it.
+    rng = np.random.default_rng(9)
+    X = rng.normal(size=(50, 8))
+    A = X.T @ X
+
+    monkeypatch.setattr(np.linalg, "pinv", _always_raises_pinv)
+    result = safe_symmetric_pinv(A)
+
+    np.testing.assert_allclose(A @ result @ A, A, atol=1e-6)

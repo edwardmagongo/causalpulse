@@ -169,7 +169,7 @@ def execute(
     if workers > 1:
         try:
             pickle.dumps(_task)
-        except (AttributeError, TypeError) as exc:
+        except (AttributeError, TypeError, pickle.PicklingError) as exc:
             raise ValueError(
                 f"_task {_task!r} cannot be sent to a worker process (workers={workers}): "
                 f"{exc}. A closure only works at workers=1; pass a module-level function."

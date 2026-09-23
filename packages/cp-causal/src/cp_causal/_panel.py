@@ -139,11 +139,20 @@ def bootstrap_panel_effect(
     by omission.
 
     Duplicated units are *not* relabelled. Resampling a unit twice makes its
-    dummy column appear twice, which is rank-deficient — but `np.linalg.lstsq`
-    returns the minimum-norm solution and the treatment coefficient is
-    unaffected: measured identical to 0.0000 across 40 draws against an
-    explicitly relabelled resampler. The simpler path is therefore the correct
-    one, and this note exists so the question is not reopened.
+    dummy column appear twice, which is rank-deficient — but `ols_fit`'s
+    least-squares solve (`cp_statistics.linalg_safety.safe_lstsq`) returns the
+    minimum-norm solution and the treatment coefficient is unaffected:
+    measured identical to 0.0000 across 40 draws against an explicitly
+    relabelled resampler. The simpler path is therefore the correct one, and
+    this note exists so the question is not reopened.
+
+    That guarantee is `safe_lstsq`'s *primary* path (`np.linalg.lstsq`'s own
+    minimum-norm SVD solution); its rare `LinAlgError` fallback (QR with
+    column pivoting) is not guaranteed minimum-norm for a rank-deficient
+    input. A resample that is both duplicated-unit rank-deficient and hits
+    that fallback would not carry this 0.0000 guarantee — a compound case
+    `safe_lstsq`'s own docstring records as not yet observed. See that
+    docstring, not this one, for the current state of that caveat.
     """
     seed = 0 if config.random_seed is None else config.random_seed
     rng = np.random.default_rng(np.random.SeedSequence(seed))

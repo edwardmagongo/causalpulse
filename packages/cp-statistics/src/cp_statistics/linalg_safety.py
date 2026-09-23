@@ -69,15 +69,29 @@ def safe_symmetric_pinv(A: np.ndarray) -> np.ndarray:
     eigendecomposition (not SVD) on `LinAlgError`.
 
     `A` is expected symmetric (a Gram matrix or a covariance matrix): every
-    caller in this codebase passes one. `scipy.linalg.pinvh` tolerates the
-    tiny floating-point asymmetry `X.T @ X` can carry (verified directly
-    against the real captured failure, computed exactly as `ols_fit` computes
-    it, with no extra symmetrisation needed here). See this module's docstring
-    for the diagnosis and cross-validation.
+    caller in this codebase passes one, but `parallel_trends_check` takes
+    `lead_covariance` from a caller outside this module, so that expectation
+    is not enforced by the type system. `scipy.linalg.pinvh` reads only one
+    triangle of its input, so it would not raise on a genuinely asymmetric
+    matrix -- it would silently return the pseudo-inverse of a *different*
+    matrix, and only on the fallback branch, making the wrong answer
+    platform-dependent and rare enough to go unnoticed. Checked here, once,
+    on the fallback path only (the common, primary-path case pays nothing for
+    it): `np.allclose(A, A.T)` tolerates the tiny floating-point asymmetry
+    `X.T @ X` can carry (verified directly against the real captured failure,
+    computed exactly as `ols_fit` computes it) while still catching a matrix
+    that is not symmetric at all. See this module's docstring for the
+    diagnosis and cross-validation.
     """
     try:
         return np.linalg.pinv(A)
     except np.linalg.LinAlgError:
+        if not np.allclose(A, A.T):
+            raise np.linalg.LinAlgError(
+                "safe_symmetric_pinv's fallback (pinvh) requires a symmetric "
+                "matrix, and this one is not -- np.linalg.pinv failed with no "
+                "safe fallback available for a non-symmetric input"
+            ) from None
         result = np.asarray(scipy_linalg.pinvh(A))
     if not np.all(np.isfinite(result)):
         raise np.linalg.LinAlgError(

@@ -40,7 +40,11 @@ def test_a_study_run_survives_an_interruption_extends_and_is_analysed(tmp_path, 
             raise ZeroDivisionError("injected")
         return fit_cell_to_shard(task)
 
-    # First attempt, serial so the order is fixed: the third cell raises.
+    # First attempt, at workers=1: serial so the order is fixed (the third cell
+    # raises), and because fails_on_the_third is a closure, which execute()'s
+    # picklability guard refuses outright at workers>1 -- correctly, since a
+    # closure can never reach a worker process, but that refusal is not what
+    # this attempt means to exercise.
     with monkeypatch.context() as patched:
         patched.setattr(
             bench_module,
@@ -48,7 +52,7 @@ def test_a_study_run_survives_an_interruption_extends_and_is_analysed(tmp_path, 
             lambda *args, **kwargs: real_execute(*args, _task=fails_on_the_third, **kwargs),
         )
         with pytest.raises(CellFailedError):
-            main(["bench", "run", "--tier", "study", "--out", str(run)])
+            main(["bench", "run", "--tier", "study", "--out", str(run), "--workers", "1"])
     assert RunStore.open(run).status().done == 2
 
     # Resume with the real task at two workers, and extend to three replications.
