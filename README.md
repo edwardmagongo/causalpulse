@@ -171,10 +171,22 @@ plus a ledger, so an interrupted run resumes (`--resume`) and a finished one ext
 --replications N`); a parallel executor fits cells through the same `fit_cell` the serial `run_grid`
 does. `bench study` turns a finished run into the headline tables, pooled over each scenario's
 baseline slice with Monte Carlo standard errors, and scores eight expectations that were written into
-`docs/specs/2026-09-21-benchmark-study-design.md` before any result existed. No study result is
-recorded here yet, and results are not committed (`benchmarks/runs/` is ignored). The study does not
-cover `synthetic_control`, `bsts`, the CATE metrics or scenario P7; the causal-core items that would
-close those are still open.
+`docs/specs/2026-09-21-benchmark-study-design.md` before any result existed. The study does not cover
+`synthetic_control`, `bsts`, the CATE metrics or scenario P7; the causal-core items that would close
+those are still open. Results are not committed (`benchmarks/runs/` is ignored).
+
+**The 4,000-cell run completed 2026-09-23** (ten estimators, thirteen scenarios). Seven of eight
+pre-registered expectations were met. The eighth -- `hierarchical_did`'s pooled panel coverage not
+below 0.90 -- failed at 0.625, and reading it per scenario rather than pooled found two different
+things underneath one number: on P5 ("parallel trends violated"), every DiD-family estimator collapses
+identically, exactly as that scenario is documented to do; on P6 ("binary panel"), `hierarchical_did`
+alone collapses (0.01 coverage) while its peers stay near nominal (0.89-0.93) on the same data --
+traced to its NumPyro model's outcome likelihood being unconditionally Gaussian, with nothing in its
+declared requirements restricting it away from binary outcomes. Recorded as a finding rather than
+fixed here; see `docs/specs/2026-09-21-benchmark-study-design.md` section 13.7 for the full diagnosis
+and why a fix was left for its own follow-up rather than done inside this analysis. The other seven
+expectations, including the false-positive rate under the null scenario and confounding bias on the
+scenarios built to show it, measured as expected.
 
 No CLI command currently produces an evidence report, either: the report generator built in Phase 17
 takes live result objects, the same as the figures do, because the arrays six of the eight figures
