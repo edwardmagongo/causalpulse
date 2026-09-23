@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -5,6 +7,13 @@ from cp_causal.estimators.event_study import EventStudy, breakdown_value
 from cp_core.dataset import CausalDataset, CausalSchema
 from cp_core.results import CounterfactualPath
 from cp_core.values import EstimatorConfig
+
+# cp_evaluation only, for one test: reproducing the exact production RNG
+# stream a real benchmark-study cell generated. Nothing else in this file
+# needs it -- see that test's own docstring.
+from cp_evaluation.grid import PanelCell
+from cp_evaluation.resolve import resolve_cell
+from cp_evaluation.tiers import FULL_FIT_CONFIG
 from cp_simulation.panel_scenarios import build_panel_scenario
 
 CONFIG = EstimatorConfig(bootstrap_reps=50, random_seed=1)
@@ -231,3 +240,24 @@ def test_no_anticipation_is_not_testable_with_a_single_pre_treatment_period():
     check = next(a for a in result.assumptions if a.name == "no_anticipation")
     assert check.status == "NOT_TESTABLE"
     assert check.statistic is None
+
+
+def test_the_p6_bootstrap_resample_that_once_broke_lstsq_now_fits():
+    # Ground truth, not a synthetic stand-in: this cell, this seed, and this
+    # root entropy are the exact ones a running benchmark study hit, generating
+    # the exact same data every time (cell_rng is deterministic on identity).
+    # Its 156th ols_fit call -- one of `bootstrap_panel_effect`'s clustered
+    # resamples, a genuinely full-rank 1500x110 design -- raised
+    # `LinAlgError: SVD did not converge` before `ols_fit` gained the QR
+    # fallback (`cp_statistics.covariance._lstsq_via_qr`, see its docstring for
+    # the full diagnosis). `bootstrap_reps=160` reaches the same resample as
+    # the real run's 1000 (verified: 160, 200 and 1000 all give the identical
+    # point and se here) while keeping this test under a second.
+    cell = PanelCell(scenario="P6", n_units=150, n_periods=10, seed=48)
+    resolved = resolve_cell(cell, root_entropy=0)
+    config = replace(FULL_FIT_CONFIG, bootstrap_reps=160)
+
+    estimate = EventStudy().fit(resolved.dataset, config)
+
+    assert estimate.point == pytest.approx(0.271111, abs=1e-5)
+    assert estimate.se == pytest.approx(0.080444, abs=1e-5)

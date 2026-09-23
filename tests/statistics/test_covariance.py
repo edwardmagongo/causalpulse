@@ -1,3 +1,4 @@
+import cp_statistics.covariance as covariance_module
 import numpy as np
 import pytest
 from cp_statistics.covariance import (
@@ -120,3 +121,49 @@ def test_cluster_covariance_rejects_a_single_cluster(small_sample_correction: bo
             fit, np.zeros(fit.n, dtype=int),
             small_sample_correction=small_sample_correction,
         )
+
+
+# -- the QR fallback for np.linalg.lstsq's rare LinAlgError -----------------
+#
+# Found running the benchmark study: a genuinely full-rank, well-conditioned
+# bootstrap-resample design from scenario P6 made numpy's SVD-based lstsq
+# (Apple's Accelerate LAPACK, `gelsd`) fail to converge. See `_lstsq_via_qr`'s
+# docstring for the full diagnosis, including why scipy's own default driver
+# is not a safe fallback either. These two tests pin the fallback branch
+# itself, deterministically and portably (not depending on lstsq actually
+# failing on whatever machine runs this suite); the real, historically
+# failing case is pinned separately in
+# tests/causal/test_event_study.py::test_the_p6_bootstrap_resample_that_once_broke_lstsq_now_fits.
+
+
+def test_ols_fit_falls_back_to_qr_when_lstsq_raises(monkeypatch):
+    def always_fails(X, y, rcond=None):
+        raise np.linalg.LinAlgError("SVD did not converge in Linear Least Squares")
+
+    monkeypatch.setattr(np.linalg, "lstsq", always_fails)
+    x = np.linspace(0, 10, 50)
+    X = np.column_stack([np.ones(50), x])
+    y = 3.0 + 4.0 * x
+
+    fit = ols_fit(X, y)
+
+    # The fallback recovers the same exact-fit coefficients the primary path
+    # does (see test_ols_recovers_known_coefficients_without_noise) -- the
+    # branch is invisible to a caller when it works correctly.
+    assert fit.beta[0] == pytest.approx(3.0, abs=1e-9)
+    assert fit.beta[1] == pytest.approx(4.0, abs=1e-9)
+
+
+def test_ols_fit_raises_if_the_qr_fallback_is_also_non_finite(monkeypatch):
+    def always_fails(X, y, rcond=None):
+        raise np.linalg.LinAlgError("SVD did not converge in Linear Least Squares")
+
+    def returns_garbage(X, y, lapack_driver=None):
+        return np.full(X.shape[1], np.nan), None, None, None
+
+    monkeypatch.setattr(np.linalg, "lstsq", always_fails)
+    monkeypatch.setattr(covariance_module.scipy_linalg, "lstsq", returns_garbage)
+    X, y = design()
+
+    with pytest.raises(np.linalg.LinAlgError, match="QR fallback"):
+        ols_fit(X, y)
