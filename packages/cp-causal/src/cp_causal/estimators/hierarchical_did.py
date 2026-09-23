@@ -456,6 +456,17 @@ class HierarchicalDiD:
         # least one never-treated unit is a genuine requirement, not a
         # convention carried over from another estimator.
         min_control_units=1,
+        # `_model`'s only outcome likelihood is `dist.Normal(mean, sigma_y)`
+        # -- unconditionally Gaussian, with no Bernoulli/logit-link
+        # alternative anywhere in this file. The default
+        # `supports_outcome_types` of `{"binary", "continuous"}` left this
+        # estimator eligible for a binary panel its own likelihood cannot
+        # represent; measured on P6 ("Binary panel"), analytic coverage was
+        # 0.01 against a nominal 0.95, worse than every peer DiD estimator on
+        # the identical generated data (docs/specs/2026-09-21-benchmark-study
+        # -design.md §13.7). Restricted to continuous until a real
+        # binary-outcome likelihood is built and validated on its own terms.
+        supports_outcome_types=frozenset({"continuous"}),
     )
 
     def fit(self, dataset: CausalDataset, config: EstimatorConfig) -> EffectEstimate:

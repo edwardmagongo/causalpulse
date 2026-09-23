@@ -340,6 +340,31 @@ def test_hierarchical_did_requires_a_panel():
     assert HierarchicalDiD.requirements.needs_panel is True
 
 
+def test_hierarchical_did_is_ineligible_on_a_binary_panel():
+    # `_model`'s only outcome likelihood is Gaussian (`dist.Normal(mean,
+    # sigma_y)`); nothing in this file represents a Bernoulli/logit-link
+    # outcome. Before this declaration restricted `supports_outcome_types`,
+    # the router's default (`{"binary", "continuous"}`) treated this as
+    # eligible for P6 ("Binary panel") -- measured at 0.01 analytic coverage
+    # against a nominal 0.95, worse than every peer DiD estimator on the
+    # identical generated data (docs/specs/2026-09-21-benchmark-study-design.md
+    # §13.7). P6's own scenario is used rather than a hand-built fixture
+    # so the dataset is genuinely binary, not just panel-shaped.
+    dataset = _panel_fixture("P6").dataset
+    assert dataset.schema.outcome_type == "binary"
+
+    unmet = HierarchicalDiD.requirements.unmet(dataset)
+
+    assert any("outcome_type" in reason for reason in unmet)
+
+
+def test_hierarchical_did_remains_eligible_on_a_continuous_panel():
+    dataset = _panel_fixture("P3").dataset
+    assert dataset.schema.outcome_type == "continuous"
+
+    assert HierarchicalDiD.requirements.unmet(dataset) == ()
+
+
 def test_fit_reports_a_posterior_att_with_cohort_diagnostics():
     result = HierarchicalDiD().fit(_panel_fixture().dataset, CONFIG)
 
