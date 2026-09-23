@@ -14,12 +14,13 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from cp_core.dataset import CausalDataset
+from cp_simulation.donor_scenarios import DONOR_SCENARIOS, build_donor_scenario
 from cp_simulation.oracle import oracle_ate, oracle_att
 from cp_simulation.panel_scenarios import build_panel_scenario
 from cp_simulation.params import ScenarioParams
 from cp_simulation.scenarios import build_scenario
 
-from cp_evaluation.grid import Cell, CrossSectionCell, cell_rng
+from cp_evaluation.grid import Cell, CrossSectionCell, PanelCell, cell_rng
 
 
 @dataclass(frozen=True, eq=False)
@@ -66,8 +67,23 @@ def resolve_cell(cell: Cell, root_entropy: int) -> ResolvedCell:
             truth={"ATE": oracle_ate(simulated), "ATT": oracle_att(simulated)},
         )
 
-    panel_dgp = build_panel_scenario(cell.scenario)
-    panel = panel_dgp.generate(n_units=cell.n_units, n_periods=cell.n_periods, rng=rng)
+    if isinstance(cell, PanelCell):
+        panel_dgp = build_panel_scenario(cell.scenario)
+        panel = panel_dgp.generate(n_units=cell.n_units, n_periods=cell.n_periods, rng=rng)
+        return ResolvedCell(
+            dataset=panel.dataset,
+            truth={"ATT": float(panel.truth.true_att_overall)},
+        )
+
+    # DonorPoolCell: DONOR_SCENARIOS reuses PanelDGP unchanged with exactly
+    # one treated unit, so true_att_overall's "weight by treated (unit,
+    # period) cells" average reduces to that unit's own post-period ATT --
+    # the identical construction the panel branch above uses, not new
+    # arithmetic. n_units/n_periods come from the registry's own spec, not
+    # from the cell (DonorPoolCell carries no size fields -- see grid.py).
+    spec = DONOR_SCENARIOS[cell.scenario]
+    donor_dgp = build_donor_scenario(cell.scenario)
+    panel = donor_dgp.generate(n_units=spec.n_units, n_periods=spec.n_periods, rng=rng)
     return ResolvedCell(
         dataset=panel.dataset,
         truth={"ATT": float(panel.truth.true_att_overall)},
