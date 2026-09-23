@@ -138,6 +138,35 @@ def test_best_linear_projection_returns_one_coefficient_per_covariate():
     assert set(projection) == set(names)
 
 
+def test_calibration_test_and_best_linear_projection_survive_an_lstsq_that_cannot_converge(
+    monkeypatch,
+):
+    # Both functions solve their own small regression via
+    # cp_statistics.linalg_safety.safe_lstsq, not np.linalg.lstsq directly, for
+    # the same reason ols_fit's own lstsq call does: this project has measured
+    # np.linalg.lstsq raising `LinAlgError: SVD did not converge` on a
+    # genuinely well-posed design, on this platform (see linalg_safety's
+    # module docstring). This is a preventive fix -- no real cell has yet been
+    # observed hitting the bug at either of these call sites -- so what this
+    # test pins is the wiring: that a raising np.linalg.lstsq does not crash
+    # either check, not a real historical failure. One forest fit, reused for
+    # both, since fitting one is the expensive part of this test.
+    fit, covariates = _fit_on_scenario("RICH", seed=0)
+
+    def always_fails(design, target, rcond=None):
+        raise np.linalg.LinAlgError("SVD did not converge in Linear Least Squares")
+
+    monkeypatch.setattr(np.linalg, "lstsq", always_fails)
+
+    calibration = calibration_test(fit, alpha=0.05)
+    assert calibration.statistic is not None and np.isfinite(calibration.statistic)
+
+    projection = best_linear_projection(
+        fit, covariates, ("x0", "x1", "x2", "x3", "x4", "x5")
+    )
+    assert all(np.isfinite(value) for value in projection.values())
+
+
 _LEAK_N = 600
 _LEAK_LEAVES = 12
 _LEAK_SIGMA = 0.5

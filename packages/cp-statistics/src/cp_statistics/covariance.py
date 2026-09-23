@@ -11,7 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
-from scipy import linalg as scipy_linalg
+
+from cp_statistics.linalg_safety import safe_lstsq, safe_symmetric_pinv
 
 _HC_KINDS = frozenset({"HC0", "HC1", "HC2"})
 
@@ -38,46 +39,15 @@ class OLSFit:
         return int(self.X.shape[1])
 
 
-def _lstsq_via_qr(X: np.ndarray, y: np.ndarray) -> np.ndarray:
-    """Least squares via QR with column pivoting (LAPACK `gelsy`), no SVD.
-
-    Fallback for the rare `LinAlgError` `np.linalg.lstsq` raises on this
-    platform. Found reproducing the benchmark study's P6 (binary panel)
-    scenario: a bootstrap resample's event-study design, 1500x110, genuinely
-    full column rank (`np.linalg.matrix_rank` == 110) and well conditioned
-    (`cond` ~= 96), made `np.linalg.lstsq`'s SVD-based `gelsd` driver fail to
-    converge -- reproduced deterministically (same cell, same seed), not a
-    one-off. Both numpy and scipy resolve to the same underlying LAPACK on
-    this machine (`numpy.show_config()`/`scipy.show_config()` both report
-    Apple's Accelerate), so `scipy.linalg.lstsq`'s own default `gelsd` driver
-    is not a safe fallback either: on the same matrix it does not raise, but
-    its reported rank (1500, impossible for 110 columns) shows it returned a
-    wrong answer rather than a genuine success -- the same bug, undetected
-    rather than avoided. `gelsy` sidesteps it by construction (QR, not SVD),
-    and its answer was cross-checked on the actual failing matrix against
-    `gelss` (the older, non-divide-and-conquer SVD driver, and so a
-    numerically independent method): the two agreed to five decimal places on
-    the residual, which is what justifies trusting `gelsy` here, rather than
-    trusting any driver that merely "did not raise".
-
-    For a matrix that is *not* full column rank, `gelsy`'s solution is not
-    guaranteed to be `lstsq`'s minimum-norm one -- the two agree only because
-    the reproduced case is full rank. That compound case (rank-deficient and
-    also SVD-non-convergent) has not been observed; if it occurs, this still
-    returns a genuine least-squares fit, only possibly not the minimum-norm
-    one `bootstrap_panel_effect`'s duplicated-unit note relies on.
-    """
-    beta, _, _, _ = scipy_linalg.lstsq(X, y, lapack_driver="gelsy")
-    beta = np.asarray(beta)
-    if not np.all(np.isfinite(beta)):
-        raise np.linalg.LinAlgError(
-            "QR fallback (gelsy) also failed to produce a finite solution"
-        )
-    return beta
-
-
 def ols_fit(X: np.ndarray, y: np.ndarray) -> OLSFit:
-    """Fit OLS via least squares, retaining the quantities sandwiches need."""
+    """Fit OLS via least squares, retaining the quantities sandwiches need.
+
+    Both linear-algebra calls go through `cp_statistics.linalg_safety`'s safe
+    wrappers rather than calling `np.linalg.lstsq`/`np.linalg.pinv` directly --
+    see that module's docstring for why: both raised `LinAlgError: SVD did not
+    converge` on this platform, on two different real cells the benchmark
+    study generated, on two well-posed (full-rank) matrices.
+    """
     X = np.asarray(X, dtype=float)
     y = np.asarray(y, dtype=float)
     if X.ndim != 2:
@@ -87,12 +57,9 @@ def ols_fit(X: np.ndarray, y: np.ndarray) -> OLSFit:
             f"X has {X.shape[0]} rows but y has {y.shape[0]} entries"
         )
 
-    try:
-        beta, *_ = np.linalg.lstsq(X, y, rcond=None)
-    except np.linalg.LinAlgError:
-        beta = _lstsq_via_qr(X, y)
+    beta = safe_lstsq(X, y)
     residuals = y - X @ beta
-    xtx_inv = np.linalg.pinv(X.T @ X)
+    xtx_inv = safe_symmetric_pinv(X.T @ X)
     # `optimize=True` is not a micro-optimisation here. Without it einsum
     # evaluates this three-operand contraction as one naive O(n*k^2) C loop
     # with no BLAS; with it, it contracts pairwise (X @ xtx_inv, then a

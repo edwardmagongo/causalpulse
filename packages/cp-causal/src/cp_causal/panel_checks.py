@@ -9,6 +9,7 @@ from __future__ import annotations
 import numpy as np
 from cp_core.dataset import CausalDataset
 from cp_core.results import AssumptionCheck
+from cp_statistics.linalg_safety import safe_symmetric_pinv
 from scipy import stats
 
 from cp_causal._panel import PanelArrays
@@ -166,7 +167,10 @@ def parallel_trends_check(
             ),
         )
 
-    precision = np.linalg.pinv(lead_covariance)
+    # safe_symmetric_pinv, not np.linalg.pinv directly: the same platform SVD
+    # gap `cp_statistics.linalg_safety` documents can equally strike this
+    # covariance-matrix pinv as it did the two calls found inside `ols_fit`.
+    precision = safe_symmetric_pinv(lead_covariance)
     statistic = float(lead_coefficients @ precision @ lead_coefficients)
     degrees = int(lead_coefficients.size)
     p_value = float(stats.chi2.sf(statistic, degrees))

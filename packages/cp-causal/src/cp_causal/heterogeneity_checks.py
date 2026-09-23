@@ -14,6 +14,7 @@ from dataclasses import dataclass
 import numpy as np
 from cp_core.results import AssumptionCheck, SubgroupFinding
 from cp_core.values import Interval
+from cp_statistics.linalg_safety import safe_lstsq
 from scipy.stats import norm
 
 from cp_causal.estimators.causal_forest import ForestFit, oob_cate, residual_effect
@@ -172,7 +173,7 @@ def calibration_terms(fit: ForestFit) -> tuple[float, float, float]:
     denominator = float(differential @ differential)
 
     design = np.column_stack([w_res, differential])
-    coefficients, *_ = np.linalg.lstsq(design, y_res, rcond=None)
+    coefficients = safe_lstsq(design, y_res)
     residuals = y_res - design @ coefficients
     residual_variance = float(np.sum(residuals**2) / (y_res.size - design.shape[1]))
     return numerator, denominator, residual_variance
@@ -356,7 +357,7 @@ def best_linear_projection(
     cate_oob = oob_cate(fit)
     valid = np.isfinite(cate_oob)
     design = np.column_stack([np.ones(int(valid.sum())), covariates[valid]])
-    coefficients, *_ = np.linalg.lstsq(design, cate_oob[valid], rcond=None)
+    coefficients = safe_lstsq(design, cate_oob[valid])
     return {
         name: float(coefficient)
         for name, coefficient in zip(covariate_names, coefficients[1:], strict=True)

@@ -111,3 +111,28 @@ def test_placebo_leads_returns_keys_coefficients_and_covariance_of_matching_shap
     # diagonal-dominant.
     off_diagonal = covariance - np.diag(np.diag(covariance))
     assert np.all(off_diagonal == 0)
+
+
+def test_parallel_trends_check_survives_a_pinv_that_cannot_converge(monkeypatch):
+    # panel_checks.py:parallel_trends_check inverts lead_covariance via
+    # cp_statistics.linalg_safety.safe_symmetric_pinv, not np.linalg.pinv
+    # directly, for the same reason ols_fit's own pinv call does: this project
+    # has twice measured np.linalg.pinv raising `LinAlgError: SVD did not
+    # converge` on a genuinely well-posed matrix, on this platform (see
+    # linalg_safety's module docstring). This is a preventive fix -- no real
+    # cell has yet been observed hitting the bug at this specific call site --
+    # so what this test pins is the wiring: that a raising np.linalg.pinv does
+    # not crash the check, not a real historical failure.
+    def always_fails(A, *args, **kwargs):
+        raise np.linalg.LinAlgError("SVD did not converge")
+
+    rng = np.random.default_rng(4)
+    lead_coefficients = rng.normal(size=3)
+    M = rng.normal(size=(3, 3))
+    lead_covariance = M @ M.T + 3 * np.eye(3)
+
+    monkeypatch.setattr(np.linalg, "pinv", always_fails)
+    check = panel_checks.parallel_trends_check(lead_coefficients, lead_covariance)
+
+    assert check.status in ("PASS", "FAIL")
+    assert check.statistic is not None and np.isfinite(check.statistic)

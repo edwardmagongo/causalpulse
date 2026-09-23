@@ -249,10 +249,10 @@ def test_the_p6_bootstrap_resample_that_once_broke_lstsq_now_fits():
     # Its 156th ols_fit call -- one of `bootstrap_panel_effect`'s clustered
     # resamples, a genuinely full-rank 1500x110 design -- raised
     # `LinAlgError: SVD did not converge` before `ols_fit` gained the QR
-    # fallback (`cp_statistics.covariance._lstsq_via_qr`, see its docstring for
-    # the full diagnosis). `bootstrap_reps=160` reaches the same resample as
-    # the real run's 1000 (verified: 160, 200 and 1000 all give the identical
-    # point and se here) while keeping this test under a second.
+    # fallback (`cp_statistics.linalg_safety.safe_lstsq`, see its module
+    # docstring for the full diagnosis). `bootstrap_reps=160` reaches the same
+    # resample as the real run's 1000 (verified: 160, 200 and 1000 all give
+    # the identical point and se here) while keeping this test under a second.
     cell = PanelCell(scenario="P6", n_units=150, n_periods=10, seed=48)
     resolved = resolve_cell(cell, root_entropy=0)
     config = replace(FULL_FIT_CONFIG, bootstrap_reps=160)
@@ -261,3 +261,22 @@ def test_the_p6_bootstrap_resample_that_once_broke_lstsq_now_fits():
 
     assert estimate.point == pytest.approx(0.271111, abs=1e-5)
     assert estimate.se == pytest.approx(0.080444, abs=1e-5)
+
+
+def test_the_p1_bootstrap_resample_that_once_broke_pinv_now_fits():
+    # The second, independent failure the same underlying platform bug
+    # produced: this cell's 842nd ols_fit call raised `LinAlgError: SVD did
+    # not converge` from `np.linalg.pinv(X.T @ X)` -- a different numpy call
+    # than the P6 case above, on a different (113x113, symmetric, positive
+    # definite) matrix, fixed by `cp_statistics.linalg_safety.safe_symmetric_pinv`.
+    # Ground truth, not a synthetic stand-in, exactly as the P6 test above;
+    # `bootstrap_reps=842` reaches the same resample as the real run's 1000
+    # (verified: 842, 900 and 1000 all give the identical point and se here).
+    cell = PanelCell(scenario="P1", n_units=150, n_periods=10, seed=15)
+    resolved = resolve_cell(cell, root_entropy=0)
+    config = replace(FULL_FIT_CONFIG, bootstrap_reps=842)
+
+    estimate = EventStudy().fit(resolved.dataset, config)
+
+    assert estimate.point == pytest.approx(0.883806, abs=1e-5)
+    assert estimate.se == pytest.approx(0.191682, abs=1e-5)
