@@ -19,7 +19,7 @@ from pathlib import Path
 import pandas as pd
 from cp_core.results import git_commit, package_versions
 from cp_evaluation.execute import DEFAULT_WORKERS, execute
-from cp_evaluation.grid import CrossSectionAxes, GridConfig, PanelAxes
+from cp_evaluation.grid import CrossSectionAxes, DonorPoolAxes, GridConfig, PanelAxes
 from cp_evaluation.metrics import summarise
 from cp_evaluation.run import run_grid
 from cp_evaluation.store import MANIFEST_NAME, RunIdentity, RunStore
@@ -100,6 +100,9 @@ def build_sidecar(
             None if config.cross_section is None else _axis_block(config.cross_section)
         ),
         "panel": None if config.panel is None else _axis_block(config.panel),
+        "donor_pool": (
+            None if config.donor_pool is None else _axis_block(config.donor_pool)
+        ),
         # What the grid was *asked* for is not what it necessarily produced.
         # A scenario is crossed only against the axes it declares
         # (`SCENARIOS[id].axes`), so an axis it does not declare is pinned to
@@ -120,6 +123,9 @@ def build_sidecar(
         ),
         "panel_realised": (
             None if config.panel is None else _realised_block(frame, config.panel)
+        ),
+        "donor_pool_realised": (
+            None if config.donor_pool is None else _realised_block(frame, config.donor_pool)
         ),
         **provenance,
     }
@@ -250,13 +256,13 @@ def load_run(
     return frame, sidecar
 
 
-def _axis_block(axes: CrossSectionAxes | PanelAxes) -> dict[str, list[object]]:
+def _axis_block(axes: CrossSectionAxes | PanelAxes | DonorPoolAxes) -> dict[str, list[object]]:
     """One axis dataclass, as JSON-ready lists, every field included."""
     return {name: list(values) for name, values in asdict(axes).items()}
 
 
 def _realised_block(
-    frame: pd.DataFrame, axes: CrossSectionAxes | PanelAxes
+    frame: pd.DataFrame, axes: CrossSectionAxes | PanelAxes | DonorPoolAxes
 ) -> dict[str, list[object]]:
     """The values of each of `axes`' fields that actually appear in `frame`.
 
@@ -288,7 +294,12 @@ def _realised_block(
     Only an exactly-integral float is narrowed, so a genuinely fractional value
     cannot be silently truncated into agreement.
     """
-    shape = "cross_section" if isinstance(axes, CrossSectionAxes) else "panel"
+    if isinstance(axes, CrossSectionAxes):
+        shape = "cross_section"
+    elif isinstance(axes, DonorPoolAxes):
+        shape = "donor_pool"
+    else:
+        shape = "panel"
     rows = frame[frame["shape"] == shape]
     block: dict[str, list[object]] = {}
     for name, requested in asdict(axes).items():
@@ -337,7 +348,7 @@ def _axis_discrepancies(sidecar: Mapping[str, object]) -> list[str]:
     simply has no realised block to compare against.
     """
     lines: list[str] = []
-    for shape in ("cross_section", "panel"):
+    for shape in ("cross_section", "panel", "donor_pool"):
         requested = sidecar.get(shape)
         realised = sidecar.get(f"{shape}_realised")
         if not isinstance(requested, dict) or not isinstance(realised, dict):

@@ -5,7 +5,13 @@ import pandas as pd
 import pytest
 from cp_cli.__main__ import main
 from cp_cli.io import read_benchmark, write_benchmark
-from cp_evaluation.grid import CrossSectionAxes, CrossSectionCell, GridConfig, expand_cells
+from cp_evaluation.grid import (
+    CrossSectionAxes,
+    CrossSectionCell,
+    DonorPoolAxes,
+    GridConfig,
+    expand_cells,
+)
 from cp_evaluation.run import run_grid
 from cp_evaluation.tiers import ci_config, full_config
 from cp_simulation.params import AXIS_NAMES
@@ -149,6 +155,45 @@ def test_the_realised_block_renders_integers_as_integers(ci_run):
     # requested, not off whether the value happens to be whole.
     strengths = sidecar["cross_section_realised"]["confounding_strength"]
     assert all(isinstance(value, float) for value in strengths), strengths
+
+
+def _sidecar_for(config, frame):
+    return bench_module.build_sidecar("t", config, ["synthetic_control"], 10, 0, 0, frame, {})
+
+
+def test_the_sidecar_records_the_donor_arm_requested_and_realised():
+    axes = DonorPoolAxes(scenarios=("S0", "S1", "S2"))
+    config = GridConfig(cross_section=None, panel=None, donor_pool=axes, replications=1)
+    frame = pd.DataFrame(
+        {"shape": ["donor_pool", "donor_pool", "panel"], "scenario": ["S0", "S1", "E"]}
+    )
+
+    sidecar = _sidecar_for(config, frame)
+
+    assert sidecar["donor_pool"] == {"scenarios": ["S0", "S1", "S2"]}
+    # S2 was asked for and absent from the rows; the panel row is not a donor row.
+    assert sidecar["donor_pool_realised"] == {"scenarios": ["S0", "S1"]}
+    lines = bench_module._axis_discrepancies(sidecar)
+    assert len(lines) == 1
+    assert "donor_pool.scenarios" in lines[0]
+
+
+def test_a_grid_with_no_donor_arm_records_none_for_it():
+    config = GridConfig(
+        cross_section=CrossSectionAxes(
+            scenarios=("A",), n_units=(200,), confounding_strength=(1.0,)
+        ),
+        panel=None,
+        replications=1,
+    )
+    frame = pd.DataFrame(
+        {"shape": ["cross_section"], "scenario": ["A"], "n_units": [200]}
+    ).assign(**{name: 1.0 for name in AXIS_NAMES if name not in ("scenarios", "n_units")})
+
+    sidecar = _sidecar_for(config, frame)
+
+    assert sidecar["donor_pool"] is None
+    assert sidecar["donor_pool_realised"] is None
 
 
 def test_a_fractional_value_is_never_narrowed_into_agreement():
