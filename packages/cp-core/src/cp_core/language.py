@@ -18,7 +18,14 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-_SENTENCE = re.compile(r"[^.!?]*[.!?]|[^.!?]+$")
+# A blank line ends a sentence as well as `.`, `!` and `?`. Prose is composed
+# from fragments joined by a blank line, and a fragment need not end in
+# punctuation -- real "not covered" reasons do not.
+# Without this boundary an unpunctuated fragment merged with the next one, and
+# a "no" or "cannot" in the first licensed an unhedged "proves" in the second.
+# The blank line is consumed as the terminator, so the next sentence starts
+# cleanly on its own first character.
+_SENTENCE = re.compile(r"(?:[^.!?\n]|\n(?![ \t]*\n))*(?:[.!?]|\n[ \t]*\n)|[^.!?]+$")
 
 # Negation is scoped to the clause, not the sentence; see `_is_negated`.
 _CLAUSE_BOUNDARY = re.compile(r"--|[,;:()–—]")

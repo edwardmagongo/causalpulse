@@ -51,22 +51,21 @@ def test_interpolated_text_is_linted_too():
         require_clean_prose([("assumption table", f"Balance on {covariate} is within threshold.")])
 
 
-def test_a_hedge_spans_a_fragment_boundary_that_lacks_terminal_punctuation():
-    # Neither fragment ends its sentence with punctuation, so under the real
-    # "\n\n" separator they read as one continuous sentence and the hedge in
-    # the first fragment covers the causal claim completed by the second --
-    # exactly the shape of "If the parallel-trends assumption holds, the
-    # policy causes a 2-point lift" split across two report sections. Under
-    # a separator ending in a sentence terminator (". "), the fragments
-    # would instead form two separate sentences, the hedge would no longer
-    # reach the second, and this would wrongly raise. This pins design point
-    # 1: the lint must run over the concatenation, not fragment by fragment.
-    require_clean_prose(
-        [
-            ("validity band", "If the assumption holds, the estimate"),
-            ("interpretation", "causes a measurable shift."),
-        ]
-    )
+def test_a_hedge_does_not_span_a_fragment_boundary_that_lacks_terminal_punctuation():
+    # A fragment is a hard sentence boundary. An earlier version let a sentence
+    # run across fragments, so a hedge -- or a negation -- in one fragment
+    # covered a claim completed by the next. Negation and hedge words are
+    # exactly what unrelated fragments contain ("cannot share a panel axis"),
+    # so the leak licensed unhedged claims. Every real caller passes whole
+    # prose fields, none of which is a sentence begun in one and finished in
+    # another.
+    with pytest.raises(ReportLanguageError):
+        require_clean_prose(
+            [
+                ("validity band", "If the assumption holds, the estimate"),
+                ("interpretation", "causes a measurable shift."),
+            ]
+        )
 
 
 def test_every_violation_is_reported_not_only_the_first():
@@ -149,3 +148,41 @@ def test_two_offending_terms_in_one_sentence_both_attribute_to_it():
     assert "[validity band]" not in message
     assert "proves" in message
     assert "causes" in message
+
+
+def test_a_negation_in_an_unpunctuated_fragment_does_not_license_the_next_fragment():
+    # The real `cp_evaluation.study.NOT_COVERED` reasons end without a period
+    # and sit directly before caller-supplied limitation text in the benchmark
+    # report. Read as one sentence, their "cannot" would excuse "proves".
+    from cp_evaluation.study import NOT_COVERED
+
+    fragments = [("Limitations", reason) for _, reason in NOT_COVERED]
+    fragments.append(("Limitations", "This proves unconfoundedness."))
+
+    with pytest.raises(ReportLanguageError) as excinfo:
+        require_clean_prose(fragments)
+
+    assert "'proves'" in str(excinfo.value)
+
+
+def test_the_unpunctuated_offender_is_attributed_to_its_own_section():
+    with pytest.raises(ReportLanguageError) as excinfo:
+        require_clean_prose(
+            [
+                ("coverage", "these cannot share a panel axis"),
+                ("limitations", "This proves unconfoundedness."),
+            ]
+        )
+
+    message = str(excinfo.value)
+    assert "[limitations]" in message
+    assert "[coverage]" not in message
+
+
+def test_an_unpunctuated_fragment_may_still_negate_its_own_term():
+    require_clean_prose(
+        [
+            ("limitations", "a balance table does not prove unconfoundedness"),
+            ("caption", "Overlap holds across arms."),
+        ]
+    )

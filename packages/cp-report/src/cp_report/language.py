@@ -12,11 +12,12 @@ proven uplift is what this refusal exists to catch, and a caption is
 arguably the likeliest place for it: it reads like a sentence about what the
 picture shows, which is exactly the shape an unhedged causal claim takes.
 
-The lint runs over the concatenation of every section's prose rather than
-over each fragment alone. Each `interpretation` and `rationale` string in
-this codebase was written to stand beside its own number; a claim that only
-emerges when they are read in sequence is real, and linting fragments
-separately would miss it by construction.
+The lint runs over the concatenation of every section's prose, with a blank
+line between fragments. `cp_core.language` treats a blank line as a sentence
+boundary, so each fragment is its own sentence run even when it lacks terminal
+punctuation: a negation or hedge in one fragment ("...cannot share a panel
+axis") must not license an unhedged claim in the next. A fragment is never a
+sentence begun in one section and finished in another.
 """
 
 from __future__ import annotations
@@ -65,14 +66,12 @@ def _format_violation(offsets: Sequence[tuple[int, str]], violation: LanguageVio
     lookup is a direct position lookup -- no re-segmentation of `document` is
     needed here at all.
 
-    One correction is still required: `start` is the position of the *raw*
-    match, which for every non-initial sentence includes the `_SEPARATOR`
-    leading whitespace swept into it (`cp_core.language._SENTENCE`'s `[^.!?]`
-    character class does not exclude newlines, so a fragment boundary is
-    consumed as ordinary sentence content rather than ending a match). That
-    raw position can land inside the *previous* fragment's offset span
-    rather than the current one's, so the lookup uses the position of the
-    sentence's actual first character instead.
+    One correction is still required: after a fragment ending in `.`, `!` or
+    `?` the `_SEPARATOR` is not part of that match, so it leads the next
+    sentence, and `start` (the raw match position) lands inside the *previous*
+    fragment's offset span. The lookup therefore uses the position of the
+    sentence's actual first character. (After an unpunctuated fragment the
+    separator is the previous match's terminator and there is nothing to skip.)
     """
     stripped = violation.sentence.strip()
     leading_whitespace = len(violation.sentence) - len(violation.sentence.lstrip())
