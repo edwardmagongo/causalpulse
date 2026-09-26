@@ -2,7 +2,14 @@ import numpy as np
 import pandas as pd
 import pytest
 from cp_core.values import EstimatorConfig
-from cp_evaluation.grid import CrossSectionAxes, CrossSectionCell, GridConfig, PanelAxes, cell_rng
+from cp_evaluation.grid import (
+    CrossSectionAxes,
+    CrossSectionCell,
+    DonorPoolAxes,
+    GridConfig,
+    PanelAxes,
+    cell_rng,
+)
 from cp_evaluation.resolve import resolve_cell
 from cp_evaluation.run import ROW_COLUMNS, run_grid
 from cp_evaluation.tiers import full_config
@@ -27,6 +34,15 @@ def _tiny_cross_section(
             **axes,
         ),
         panel=None,
+        replications=replications,
+    )
+
+
+def _tiny_donor_pool(scenarios=("S1",), replications=1) -> GridConfig:
+    return GridConfig(
+        cross_section=None,
+        panel=None,
+        donor_pool=DonorPoolAxes(scenarios=scenarios),
         replications=replications,
     )
 
@@ -466,3 +482,66 @@ def test_realised_treated_share_is_not_the_undisturbed_sigmoid_of_the_intercept(
 
     assert ScenarioParams().treatment_intercept == 0.0
     assert frame["realised_treated_share"].iloc[0] != 0.5
+
+
+def test_synthetic_control_is_eligible_on_a_donor_pool_cell():
+    frame = run_grid(_tiny_donor_pool(), estimators=["synthetic_control"])
+
+    row = frame[frame.method == "synthetic_control"]
+    assert len(row) == 1
+    assert row.status.iloc[0] == "fitted"
+    assert row.estimand.iloc[0] == "ATT"
+    assert row.ci_basis.iloc[0] == "permutation"
+
+
+def test_bsts_is_eligible_on_a_donor_pool_cell():
+    frame = run_grid(_tiny_donor_pool(), estimators=["bsts"])
+
+    row = frame[frame.method == "bsts"]
+    assert len(row) == 1
+    assert row.status.iloc[0] == "fitted"
+    assert row.ci_basis.iloc[0] == "posterior"
+
+
+def test_synthetic_control_and_bsts_stay_ineligible_off_the_donor_pool_shape():
+    # The boundary this phase opens, checked on both sides: still ineligible
+    # on cross-section and panel, exactly as before.
+    cross = run_grid(_tiny_cross_section(), estimators=["synthetic_control", "bsts"])
+    panel_config = GridConfig(
+        cross_section=None,
+        panel=PanelAxes(scenarios=("P1",), n_units=(150,), n_periods=(6,)),
+        replications=1,
+    )
+    panel = run_grid(panel_config, estimators=["synthetic_control", "bsts"])
+
+    assert (cross.status == "ineligible").all()
+    assert (panel.status == "ineligible").all()
+
+
+def test_s5_leaves_synthetic_control_and_bsts_ineligible_on_insufficient_pre_periods():
+    # S5 narrows to 2 pre-periods; both estimators declare min_pre_periods=10,
+    # so the router should refuse eligibility before any fit is attempted.
+    frame = run_grid(_tiny_donor_pool(scenarios=("S5",)), estimators=["synthetic_control", "bsts"])
+
+    assert (frame.status == "ineligible").all()
+    assert frame.reason.str.contains("pre-treatment").all()
+
+
+def test_donor_pool_rows_carry_the_registrys_own_n_units_and_n_periods():
+    from cp_simulation.donor_scenarios import DONOR_SCENARIOS
+
+    frame = run_grid(_tiny_donor_pool(scenarios=("S1",)), estimators=["synthetic_control"])
+
+    spec = DONOR_SCENARIOS["S1"]
+    assert (frame.n_units == spec.n_units).all()
+    assert (frame.n_periods == spec.n_periods).all()
+    assert frame.confounding_strength.isna().all()
+    assert frame.realised_treated_share.isna().all()
+    assert (frame["shape"] == "donor_pool").all()
+
+
+def test_cross_section_and_panel_estimator_ineligibility_is_unchanged_by_this_phase():
+    # Regression guard: adding the third shape must not perturb the existing
+    # two shapes' router outcomes.
+    frame = run_grid(_tiny_cross_section(), estimators=["twfe"])
+    assert frame.status.iloc[0] == "ineligible"

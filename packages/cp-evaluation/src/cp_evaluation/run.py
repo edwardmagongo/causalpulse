@@ -19,8 +19,9 @@ import pandas as pd
 from cp_causal.registry import all_estimators, get_estimator
 from cp_causal.router import route
 from cp_core.values import EstimatorConfig
+from cp_simulation.donor_scenarios import DONOR_SCENARIOS
 
-from cp_evaluation.grid import Cell, CrossSectionCell, GridConfig, expand_cells
+from cp_evaluation.grid import Cell, CrossSectionCell, DonorPoolCell, GridConfig, expand_cells
 from cp_evaluation.resolve import ResolvedCell, resolve_cell, truth_for
 
 if TYPE_CHECKING:
@@ -133,6 +134,24 @@ def _cell_columns(cell: Cell, resolved: ResolvedCell) -> dict[str, object]:
             "heterogeneity_scale": cell.heterogeneity_scale,
             "realised_treated_share": _realised_treated_share(resolved),
             "n_periods": np.nan,
+            "seed": cell.seed,
+        }
+    if isinstance(cell, DonorPoolCell):
+        # DonorPoolCell carries no n_units/n_periods of its own -- DONOR_SCENARIOS
+        # fixes both per scenario (grid.py's DonorPoolCell docstring). Recorded
+        # here for readability of the output frame, not because they vary.
+        spec = DONOR_SCENARIOS[cell.scenario]
+        return {
+            "shape": "donor_pool",
+            "scenario": cell.scenario,
+            "n_units": spec.n_units,
+            "confounding_strength": np.nan,
+            "treatment_intercept": np.nan,
+            "noise_scale": np.nan,
+            "effect_scale": np.nan,
+            "heterogeneity_scale": np.nan,
+            "realised_treated_share": np.nan,
+            "n_periods": spec.n_periods,
             "seed": cell.seed,
         }
     return {
