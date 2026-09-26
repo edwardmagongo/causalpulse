@@ -22,8 +22,16 @@ def _passing() -> pd.DataFrame:
         rows("difference_in_means", "D", 100, bias=0.5),
         rows("aipw", "D", 100, bias=0.02),
         rows("twfe", "P4", 100, bias=0.5, panel=True),
-        rows("callaway_santanna", "P4", 100, bias=0.02, panel=True),
-        rows("hierarchical_did", "P1", 100, hit_fraction=0.95, panel=True, runtime=25.0),
+        rows("callaway_santanna", "P4", 100, bias=0.02, panel=True, ci_basis="bootstrap"),
+        rows(
+            "hierarchical_did",
+            "P1",
+            100,
+            hit_fraction=0.95,
+            panel=True,
+            runtime=25.0,
+            ci_basis="posterior",
+        ),
         rows("difference_in_means", "H", 20, status="refused"),
         rows("difference_in_means", "H", 20, status="ineligible"),
     ]
@@ -84,15 +92,29 @@ def test_e3_fails_when_the_naive_estimators_larger_bias_is_within_noise():
 def test_e4_fails_when_twfe_is_not_the_more_biased_estimator():
     data = frame(
         rows("twfe", "P4", 100, bias=0.02, panel=True),
-        rows("callaway_santanna", "P4", 100, bias=0.5, panel=True),
+        rows("callaway_santanna", "P4", 100, bias=0.5, panel=True, ci_basis="bootstrap"),
     )
 
     assert _verdicts(data)["E4"] == "failed"
 
 
 def test_e5_fails_only_when_coverage_is_clearly_below_ninety_percent():
-    low = rows("hierarchical_did", "P1", 200, hit_fraction=0.70, panel=True)
-    borderline = rows("hierarchical_did", "P1", 200, hit_fraction=0.89, panel=True)
+    low = rows(
+        "hierarchical_did",
+        "P1",
+        200,
+        hit_fraction=0.70,
+        panel=True,
+        ci_basis="posterior",
+    )
+    borderline = rows(
+        "hierarchical_did",
+        "P1",
+        200,
+        hit_fraction=0.89,
+        panel=True,
+        ci_basis="posterior",
+    )
 
     assert _verdicts(low)["E5"] == "failed"
     # 0.89 sits within 2 MCSE of 0.90 at 200 rows, so it is not a failure.
@@ -113,7 +135,7 @@ def test_e6_is_inconclusive_when_scenario_h_is_absent():
 
 def test_e7_fails_when_another_estimator_is_slower_than_hierarchical_did():
     data = frame(
-        rows("hierarchical_did", "P1", 50, panel=True, runtime=2.0),
+        rows("hierarchical_did", "P1", 50, panel=True, runtime=2.0, ci_basis="posterior"),
         rows("twfe", "P1", 50, panel=True, runtime=30.0),
     )
 
