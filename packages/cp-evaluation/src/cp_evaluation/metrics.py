@@ -141,6 +141,22 @@ def _interval_hits(
     return hits
 
 
+def _donor_pool_basis(rows: pd.DataFrame, basis: str) -> pd.DataFrame:
+    """Rows of one donor-pool CI basis, e.g. synthetic_control's "permutation".
+
+    Gated to `shape == "donor_pool"` as well as `ci_basis`, deliberately not
+    just the latter: `hierarchical_did` also reports `ci_basis="posterior"`
+    and `callaway_santanna` reports `ci_basis="bootstrap"` on panel/
+    cross-section rows respectively, and a basis-only filter would silently
+    start moving their rows out of `coverage_analytic`'s population -- see
+    the design doc section 7. `"shape"` may be absent from a hand-built test
+    frame that only carries what its own metric reads.
+    """
+    if "shape" not in rows.columns:
+        return rows.iloc[0:0]
+    return rows[(rows["shape"] == "donor_pool") & (rows["ci_basis"] == basis)]
+
+
 def coverage_metrics(frame: pd.DataFrame) -> dict[str, MetricValue]:
     """Coverage for the analytic and bootstrap intervals, and mean CI width.
 
@@ -159,6 +175,14 @@ def coverage_metrics(frame: pd.DataFrame) -> dict[str, MetricValue]:
         ),
         "coverage_bootstrap": _share_with_mcse(
             _interval_hits(rows, "bootstrap_ci_lower", "bootstrap_ci_upper")
+        ),
+        "coverage_permutation": _share_with_mcse(
+            _interval_hits(_donor_pool_basis(rows, "permutation"), "ci_lower",
+                           "ci_upper")
+        ),
+        "coverage_posterior": _share_with_mcse(
+            _interval_hits(_donor_pool_basis(rows, "posterior"), "ci_lower",
+                           "ci_upper")
         ),
         "mean_ci_width": _mean_with_mcse(widths),
     }
