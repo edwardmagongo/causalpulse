@@ -30,13 +30,19 @@ stay available in `full`, which has no such budget.
 `hierarchical_did` are: it is a NumPyro/NUTS sampler, the same cost class,
 measured at ~17.5s/fit (`bsts.py`'s own `PRODUCTION_MCMC_CONFIG` docstring) --
 enough to blow the ~2 minute budget on its own. `synthetic_control` (SLSQP +
-permutation over ~17 donors) is not: it is in the same cost class as the
-other estimators already in this tuple, and is included.
-
-`synthetic_control` is in the `ci` tier WITHOUT committed `TOLERANCE_BANDS`
-entries: this change wires the donor-pool arm into the grid only. Deriving
-its bands, with the same discriminating-power check the other bands got, is
-left as follow-up work.
+permutation over ~17 donors) is excluded from `ci` on measured cost as well.
+With the donor-pool arm wired into `ci` (all six scenarios, 15
+replications) this tier measured 338s (2026-09-26), against 257s with the arm
+removed again -- ~80s of marginal cost, about 3.2s per `synthetic_control`
+fit across 75 fitted cells (the earlier 2026-09-05 measured run above, 96.7s,
+predates later phases and no longer describes this tree). No `TOLERANCE_BANDS`
+entry exists for `synthetic_control`, so that cost bought zero assertions. The
+donor-pool arm therefore lives in `full`/`study` only; `ci_config()` has no
+`donor_pool`, and its cell set is identical to what it was before the
+donor-pool shape existed. Deriving `synthetic_control` bands (with the same
+discriminating-power check as the other bands) and a cheaper ci donor arm is
+follow-up work. The `bsts`/`synthetic_control` fit costs measured in
+`full_config()`'s docstring stand as measured.
 
 Scenario H (missing outcomes) is excluded from `ci_config()`'s axes because
 every estimator refuses it (Phase 11's missing-data refusal): a scenario
@@ -100,11 +106,10 @@ from cp_core.values import EstimatorConfig
 
 from cp_evaluation.grid import CrossSectionAxes, DonorPoolAxes, GridConfig, PanelAxes
 
-# All six donor-pool scenarios, in both ci and full/study -- clean recovery
+# All six donor-pool scenarios, in full/study -- clean recovery
 # (S0, S1) and adversarial ones (S2-S5) alike, the same mix A-H and P1-P7
-# already are. synthetic_control is cheap enough (SLSQP + permutation) for
-# ci's budget; bsts (NumPyro/NUTS) is not, same cost class as
-# hierarchical_did -- see CI_ESTIMATORS/FULL_ESTIMATORS below.
+# already are. Used by full/study only; ci carries no donor-pool arm, on
+# measured cost -- see the module docstring.
 _ALL_DONOR_POOL_SCENARIOS: tuple[str, ...] = ("S0", "S1", "S2", "S3", "S4", "S5")
 
 
@@ -125,7 +130,7 @@ class Band:
 
 # The estimators measured and shipped in the `ci` tier. See the module
 # docstring for why each excluded estimator (causal_forest, hierarchical_did,
-# bsts) is missing from this list.
+# synthetic_control, bsts) is missing from this list.
 CI_ESTIMATORS: tuple[str, ...] = (
     "difference_in_means",
     "lin_regression",
@@ -135,7 +140,6 @@ CI_ESTIMATORS: tuple[str, ...] = (
     "twfe",
     "event_study",
     "callaway_santanna",
-    "synthetic_control",
 )
 
 # Cost is linear in bootstrap_reps; 200 rather than the EstimatorConfig
@@ -145,8 +149,8 @@ CI_FIT_CONFIG = EstimatorConfig(random_seed=0, bootstrap_reps=200)
 
 
 def ci_config() -> GridConfig:
-    """The gating grid: 3 cross-sectional scenarios, 2 panel scenarios, all
-    six donor-pool scenarios, 15 reps.
+    """The gating grid: 3 cross-sectional scenarios, 2 panel scenarios, 15 reps.
+    No donor-pool arm: excluded on measured cost (see module docstring).
 
     Scenario H is left off both axes (see module docstring). Run with
     `CI_ESTIMATORS` and `CI_FIT_CONFIG`, not the defaults `run_grid` would
@@ -157,7 +161,6 @@ def ci_config() -> GridConfig:
             scenarios=("A", "B", "D"), n_units=(500,), confounding_strength=(1.0,)
         ),
         panel=PanelAxes(scenarios=("P1", "P2"), n_units=(150,), n_periods=(6,)),
-        donor_pool=DonorPoolAxes(scenarios=_ALL_DONOR_POOL_SCENARIOS),
         replications=15,
     )
 
@@ -419,8 +422,7 @@ TOLERANCE_BANDS: Mapping[tuple[str, str], tuple[Band, ...]] = {
 
 # The estimators `ci` drops on cost are back: `full` runs on demand and has
 # no two-minute budget. synthetic_control and bsts are both included here;
-# only bsts was excluded from `ci`, on the same NumPyro/NUTS cost basis as
-# hierarchical_did (see the module docstring).
+# both were excluded from `ci` on measured cost (see the module docstring).
 FULL_ESTIMATORS: tuple[str, ...] = (
     "difference_in_means",
     "lin_regression",

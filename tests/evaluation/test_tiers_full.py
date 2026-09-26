@@ -61,21 +61,21 @@ def test_full_includes_synthetic_control_and_bsts():
     assert "bsts" in FULL_ESTIMATORS
 
 
-def test_ci_includes_synthetic_control_but_not_bsts():
-    # synthetic_control is SLSQP + permutation, the ci tier's cost class.
-    # bsts is NumPyro/NUTS, the same cost class hierarchical_did is excluded
-    # from ci for -- see the module docstring's measured numbers.
-    assert "synthetic_control" in CI_ESTIMATORS
+def test_ci_excludes_the_donor_pool_arm():
+    # Measured cost, see tiers.py: the arm added ~240s to a ~97s gate and no
+    # tolerance bands exist for it.
+    assert "synthetic_control" not in CI_ESTIMATORS
     assert "bsts" not in CI_ESTIMATORS
+    assert ci_config().donor_pool is None
 
 
-def test_both_tiers_cover_all_six_donor_pool_scenarios():
+def test_full_and_study_cover_all_six_donor_pool_scenarios():
+    from cp_evaluation.tiers import study_config
     from cp_simulation.donor_scenarios import DONOR_SCENARIOS
 
-    assert ci_config().donor_pool is not None
-    assert set(ci_config().donor_pool.scenarios) == set(DONOR_SCENARIOS)
-    assert full_config().donor_pool is not None
-    assert set(full_config().donor_pool.scenarios) == set(DONOR_SCENARIOS)
+    for config in (full_config(), study_config()):
+        assert config.donor_pool is not None
+        assert set(config.donor_pool.scenarios) == set(DONOR_SCENARIOS)
 
 
 def test_adding_the_donor_pool_arm_does_not_perturb_any_existing_cell():
