@@ -9,7 +9,13 @@ from cp_evaluation.execute import (
     longest_first,
     pool_environment,
 )
-from cp_evaluation.grid import CrossSectionCell, PanelCell, cell_key, expand_cells
+from cp_evaluation.grid import (
+    CrossSectionCell,
+    DonorPoolCell,
+    PanelCell,
+    cell_key,
+    expand_cells,
+)
 from cp_evaluation.store import RunStore, write_shard
 
 from evaluation import _tasks
@@ -163,6 +169,19 @@ def test_the_dearest_cells_are_submitted_first_whatever_order_they_arrive_in():
     assert isinstance(forward[0], PanelCell)
     cross = [c for c in forward if isinstance(c, CrossSectionCell)]
     assert [c.n_units for c in cross] == sorted((c.n_units for c in cross), reverse=True)
+
+
+def test_a_donor_pool_cell_orders_with_the_panel_cells_and_does_not_raise():
+    donors = [DonorPoolCell("S0", 0), DonorPoolCell("S3", 1)]
+    cells = [*expand_cells(mixed_config()), *donors]
+
+    forward = longest_first(cells)
+    backward = longest_first(list(reversed(cells)))
+
+    assert forward == backward
+    nuts = [c for c in forward if not isinstance(c, CrossSectionCell)]
+    assert forward[: len(nuts)] == nuts
+    assert all(d in nuts for d in donors)
 
 
 # -- the process pool ---------------------------------------------------------

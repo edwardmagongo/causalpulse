@@ -24,8 +24,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from cp_core.values import EstimatorConfig
+from cp_simulation.donor_scenarios import DONOR_SCENARIOS
 
-from cp_evaluation.grid import Cell, PanelCell, cell_key
+from cp_evaluation.grid import Cell, CrossSectionCell, DonorPoolCell, cell_key
 from cp_evaluation.run import fit_cell, resolve_candidates
 from cp_evaluation.store import LedgerEntry, RunStore, write_shard
 
@@ -88,15 +89,27 @@ TaskFunction = Callable[[CellTask], LedgerEntry]
 def longest_first(cells: Sequence[Cell]) -> list[Cell]:
     """Cells ordered so the dearest are submitted first.
 
-    Panel cells carry the slow estimators (`hierarchical_did` samples with NUTS)
-    and larger samples cost more, so submitting them first stops the run ending
+    Panel and donor-pool cells carry the slow estimators (`hierarchical_did` and
+    `bsts` sample with NUTS) so they go before cross-sectional cells; within a
+    shape, larger samples (`n_units`; a donor cell's comes from its scenario's
+    spec) cost more. Submitting the dear cells first stops the run ending
     with one straggler while the other workers idle. The key ends in `cell_key`,
     so the order is total and does not depend on the input's. It changes only
     when cells finish, never what they compute.
     """
+
+    def n_units(cell: Cell) -> int:
+        if isinstance(cell, DonorPoolCell):
+            return DONOR_SCENARIOS[cell.scenario].n_units
+        return cell.n_units
+
     return sorted(
         cells,
-        key=lambda cell: (not isinstance(cell, PanelCell), -cell.n_units, cell_key(cell)),
+        key=lambda cell: (
+            isinstance(cell, CrossSectionCell),
+            -n_units(cell),
+            cell_key(cell),
+        ),
     )
 
 
