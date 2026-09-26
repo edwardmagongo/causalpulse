@@ -141,14 +141,14 @@ analysis: no CLI command currently produces a report, because the arrays most fi
 never persisted.
 
 The causal core is complete. Phase 17 recorded four items deliberately left open rather than
-built. Three remain, after Phase 18 (below) closed the first: the CATE arm of the benchmark grid
-(CATE correlation, RMSE, and calibration slope, which need their own cell shape and array-valued
-diagnostics); the donor-pool arm of the benchmark grid (`synthetic_control` and `bsts`, which need a
-donor-pool cell shape); and a residual from Phases 9 and 10 — `SyntheticControl`'s CI half-width and
-`donor_contamination_check`'s threshold are still calibrated against the simplex placebo spread,
-while `falsify`'s own placebo distribution is convex-hull-aware, and closing that gap is blocked on
-the donor-pool benchmark arm for measurement. Each is recorded as a decision at Phase 16's kickoff,
-not an oversight, and each would be its own phase if wanted.
+built. Two remain, after Phase 18 (below) closed the first and the donor-pool benchmark arm (below)
+closed the second: the CATE arm of the benchmark grid (CATE correlation, RMSE, and calibration
+slope, which need their own cell shape and array-valued diagnostics); and a residual from Phases 9
+and 10 — `SyntheticControl`'s CI half-width and `donor_contamination_check`'s threshold are still
+calibrated against the simplex placebo spread, while `falsify`'s own placebo distribution is
+convex-hull-aware. Closing that gap was blocked on the donor-pool benchmark arm for measurement;
+that arm now exists, so it is unblocked but not done. Each is recorded as a decision at Phase 16's
+kickoff, not an oversight, and each would be its own phase if wanted.
 
 **Phase 18** closed the first of those four items: the missing benchmark-grid axes.
 `PropensityAssignment` gained an intercept and `LogisticBaseline` an additive noise scale, both
@@ -171,9 +171,10 @@ plus a ledger, so an interrupted run resumes (`--resume`) and a finished one ext
 --replications N`); a parallel executor fits cells through the same `fit_cell` the serial `run_grid`
 does. `bench study` turns a finished run into the headline tables, pooled over each scenario's
 baseline slice with Monte Carlo standard errors, and scores eight expectations that were written into
-`docs/specs/2026-09-21-benchmark-study-design.md` before any result existed. The study does not cover
-`synthetic_control`, `bsts`, the CATE metrics or scenario P7; the causal-core items that would close
-those are still open. Results are not committed (`benchmarks/runs/` is ignored).
+`docs/specs/2026-09-21-benchmark-study-design.md` before any result existed. That study run does not
+cover `synthetic_control`, `bsts`, the CATE metrics or scenario P7 (the donor-pool arm below adds the
+first two to the tier definition, not to the run already in progress). Results are not committed
+(`benchmarks/runs/` is ignored).
 
 **The 4,000-cell run completed 2026-09-23** (ten estimators, thirteen scenarios). Seven of eight
 pre-registered expectations were met. The eighth -- `hierarchical_did`'s pooled panel coverage not
@@ -187,6 +188,25 @@ fixed here; see `docs/specs/2026-09-21-benchmark-study-design.md` section 13.7 f
 and why a fix was left for its own follow-up rather than done inside this analysis. The other seven
 expectations, including the false-positive rate under the null scenario and confounding bias on the
 scenarios built to show it, measured as expected.
+
+**The donor-pool benchmark arm** closed the second of the four open causal-core items. The grid gained
+a third cell shape, `DonorPoolCell`, which is just a scenario and a replication index: `DONOR_SCENARIOS`
+(S0-S5) already fixes each scenario's size, so there is no size axis to cross. Ground truth reuses the
+panel branch's `true_att_overall`, which for one treated unit is that unit's own post-period ATT.
+`full_config()` and so `study_config()` now carry all six donor scenarios (800 to 860 cells at `full`,
+4,000 to 4,300 at `study`); `ci_config()` deliberately does not, because `synthetic_control` has no
+committed tolerance bands and the arm added about 81 seconds (338s against 257s) to the gating tier
+for no assertion. On a donor cell the router makes three estimators eligible, not the two the arm was
+designed around: `synthetic_control`, `bsts`, and `hierarchical_did`, whose own requirements allow a
+single treated unit and one pre-period. On S5 (two pre-periods) only `hierarchical_did` is eligible.
+The pre-registered E5 and E7 expectations were therefore scoped to panel and non-donor rows so their
+populations did not change, and the rendered expectation says so when donor rows were excluded.
+The whole-branch review found what six task-scoped reviews could not: the sharded store's run
+identity never recorded the donor arm, so a `study` run would have reported "4000/4000 done" with
+`synthetic_control` and `bsts` appearing only as ineligible rows and no mention in the coverage
+document; `longest_first` raised on a donor cell; and the `hierarchical_did` eligibility above. Every
+wall-clock figure in the tier docstrings was measured while another job ran on the machine and should
+be re-measured on an idle one. See `docs/specs/2026-09-23-donor-pool-benchmark-arm-design.md`.
 
 No CLI command currently produces an evidence report, either: the report generator built in Phase 17
 takes live result objects, the same as the figures do, because the arrays six of the eight figures
