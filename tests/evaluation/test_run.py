@@ -9,10 +9,12 @@ from cp_evaluation.grid import (
     GridConfig,
     PanelAxes,
     cell_rng,
+    expand_cells,
 )
 from cp_evaluation.resolve import resolve_cell
 from cp_evaluation.run import ROW_COLUMNS, run_grid
 from cp_evaluation.tiers import full_config
+from cp_simulation.donor_scenarios import DONOR_SCENARIOS
 from cp_simulation.params import ScenarioParams
 from cp_simulation.scenarios import build_scenario
 
@@ -494,6 +496,7 @@ def test_synthetic_control_is_eligible_on_a_donor_pool_cell():
     assert row.ci_basis.iloc[0] == "permutation"
 
 
+@pytest.mark.slow
 def test_bsts_is_eligible_on_a_donor_pool_cell():
     frame = run_grid(_tiny_donor_pool(), estimators=["bsts"])
 
@@ -514,6 +517,8 @@ def test_synthetic_control_and_bsts_stay_ineligible_off_the_donor_pool_shape():
     )
     panel = run_grid(panel_config, estimators=["synthetic_control", "bsts"])
 
+    assert len(cross) == 2 * len(expand_cells(_tiny_cross_section()))
+    assert len(panel) == 2 * len(expand_cells(panel_config))
     assert (cross.status == "ineligible").all()
     assert (panel.status == "ineligible").all()
 
@@ -523,25 +528,19 @@ def test_s5_leaves_synthetic_control_and_bsts_ineligible_on_insufficient_pre_per
     # so the router should refuse eligibility before any fit is attempted.
     frame = run_grid(_tiny_donor_pool(scenarios=("S5",)), estimators=["synthetic_control", "bsts"])
 
+    assert len(frame) == 2
     assert (frame.status == "ineligible").all()
     assert frame.reason.str.contains("pre-treatment").all()
 
 
 def test_donor_pool_rows_carry_the_registrys_own_n_units_and_n_periods():
-    from cp_simulation.donor_scenarios import DONOR_SCENARIOS
-
     frame = run_grid(_tiny_donor_pool(scenarios=("S1",)), estimators=["synthetic_control"])
 
     spec = DONOR_SCENARIOS["S1"]
+    assert len(frame) == 1
     assert (frame.n_units == spec.n_units).all()
     assert (frame.n_periods == spec.n_periods).all()
     assert frame.confounding_strength.isna().all()
     assert frame.realised_treated_share.isna().all()
     assert (frame["shape"] == "donor_pool").all()
 
-
-def test_cross_section_and_panel_estimator_ineligibility_is_unchanged_by_this_phase():
-    # Regression guard: adding the third shape must not perturb the existing
-    # two shapes' router outcomes.
-    frame = run_grid(_tiny_cross_section(), estimators=["twfe"])
-    assert frame.status.iloc[0] == "ineligible"

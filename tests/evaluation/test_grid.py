@@ -343,6 +343,27 @@ def test_cell_rng_reproduces_across_processes_with_a_non_default_hash_seed():
     assert np.array_equal(expected, from_subprocess)
 
 
+def test_donor_pool_cell_rng_reproduces_across_processes_with_a_non_default_hash_seed():
+    # The same guard as the cross-section test above, for the third shape: a
+    # DonorPoolCell's stream must come from sha256, not the salted builtin hash.
+    cell = DonorPoolCell("S1", 0)
+    expected = cell_rng(cell, root_entropy=12345).normal(size=5).tolist()
+
+    script = (
+        "import json\n"
+        "from cp_evaluation.grid import DonorPoolCell, cell_rng\n"
+        "draws = cell_rng(DonorPoolCell('S1', 0), root_entropy=12345).normal(size=5)\n"
+        "print(json.dumps(draws.tolist()))\n"
+    )
+    env = dict(os.environ, PYTHONHASHSEED="12345")
+
+    result = subprocess.run(
+        [sys.executable, "-c", script], env=env, capture_output=True, text=True, check=True
+    )
+
+    assert np.array_equal(expected, json.loads(result.stdout))
+
+
 def test_the_two_shapes_cannot_collide_on_one_stream():
     # A cross-sectional cell and a panel cell with the same numbers must not
     # share a stream just because their field values happen to coincide.

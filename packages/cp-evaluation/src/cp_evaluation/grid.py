@@ -1,14 +1,15 @@
 """What a benchmark cell is, and how a configuration expands into cells.
 
-The two scenario registries are not symmetric, so neither are the cells. A
+The three scenario registries are not symmetric, so neither are the cells. A
 cross-sectional scenario is built by a `Callable[[ScenarioParams], CrossSectionDGP]`
 taking the full set of axis values (`build_scenario` also accepts a bare
 `confounding_strength` float for the pre-Phase-18 call shape, which it widens
 to a `ScenarioParams` before reaching the registry), and generated with
 `n_units`. A panel scenario is built by a `Callable[[], PanelDGP |
 BinaryPanelDGP]` taking nothing at all, and generated with `n_units` and
-`n_periods`. Forcing one dataclass over both would mean a field that is
-meaningless for half its instances.
+`n_periods`. A donor-pool scenario (`DONOR_SCENARIOS`, S0-S5) fixes its own
+size, so its cell carries only a scenario and a seed. Forcing one dataclass
+over all three would mean a field that is meaningless for some of its instances.
 """
 
 from __future__ import annotations
@@ -206,6 +207,8 @@ class GridConfig:
     dataclass's own docstring for how they enumerate. The panel arm has no
     such axes: `PanelAxes` builds each scenario with
     `Callable[[], PanelDGP | BinaryPanelDGP]`, which takes nothing at all.
+    `donor_pool` is the optional third arm (`DonorPoolAxes`, S0-S5); it defaults
+    to `None`, so a config that does not mention it has no donor cells.
     """
 
     cross_section: CrossSectionAxes | None
@@ -459,10 +462,10 @@ def _expand_cross_section(
 
 
 def cell_sort_key(cell: Cell) -> tuple[object, ...]:
-    """A total order over both cell shapes.
+    """A total order over all three cell shapes.
 
-    The shape tag leads, so cross-sectional and panel cells never interleave
-    and the two blocks stay independently readable. The four new axes sort
+    The shape tag leads, so the shapes never interleave
+    and the blocks stay independently readable. The four new axes sort
     after `confounding_strength` and before `seed`, in `AXIS_NAMES` order, so
     the extra cells `_expand_cross_section` adds sort predictably alongside
     the pre-existing axes rather than trailing off separately.

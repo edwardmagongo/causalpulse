@@ -234,6 +234,35 @@ def test_coverage_analytic_and_bootstrap_are_unchanged_by_the_new_columns():
     assert np.isnan(result["coverage_posterior"].value)
 
 
+def test_a_bootstrap_row_on_a_non_donor_shape_stays_in_analytic_only():
+    # Like callaway_santanna: a cross-section/panel row whose ci_basis is
+    # "bootstrap" counts in coverage_analytic (the shape gate keeps the donor
+    # bases out of it) and never in the donor-only permutation/posterior sets.
+    frame = _covered_frame(
+        [0.0], [2.0], truth=1.0, shape="cross_section", ci_basis="bootstrap"
+    )
+
+    result = coverage_metrics(frame)
+
+    assert result["coverage_analytic"].n_used == 1
+    assert result["coverage_permutation"].n_used == 0
+    assert result["coverage_posterior"].n_used == 0
+
+
+def test_coverage_metrics_works_on_a_frame_with_no_shape_column():
+    frame = _covered_frame([0.0, 0.0], [2.0, 0.5], truth=1.0, ci_basis="analytic").drop(
+        columns="shape"
+    )
+
+    result = coverage_metrics(frame)
+
+    assert "shape" not in frame.columns
+    assert result["coverage_analytic"].value == pytest.approx(0.5)
+    assert result["coverage_analytic"].n_used == 2
+    assert result["coverage_permutation"].n_used == 0
+    assert result["coverage_posterior"].n_used == 0
+
+
 def test_hierarchical_dids_posterior_ci_still_counts_as_analytic_not_posterior():
     # Deliberate, documented scope boundary (design doc section 7): the new
     # columns are gated to shape == "donor_pool", not to ci_basis alone, so a
