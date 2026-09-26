@@ -55,15 +55,26 @@ REPORT_PROFILE_SELECTIONS: tuple[tuple[str, str, str], ...] = (
 # keeps the full set as a record; the document shows a curated few, not a raw dump.
 REPORT_TABLES: tuple[str, ...] = ("accuracy__scenario", "coverage__scenario")
 
-# `coverage_metrics` puts every estimator's `ci_lower`/`ci_upper` in `coverage_analytic`
-# regardless of `ci_basis` (design doc 2026-09-21 §13.11), so for these two estimators
-# the column name overclaims. The note is code, not narrative, so no author can forget
-# it; re-read it if `coverage_metrics` is ever made basis-aware.
+# `coverage_metrics` reports coverage per `ci_basis` (design doc 2026-09-21 §13.11 and
+# 2026-09-23-coverage-basis-metrics-design.md): `coverage_analytic` is analytic intervals
+# only, so it is blank for the two estimators whose primary interval is not analytic. The
+# note is code, not narrative, so no author can forget it; re-read it against
+# `coverage_metrics` if the columns change again.
 COVERAGE_COLUMN_NOTE = (
-    "The coverage_analytic column reports how often each estimator's primary reported "
-    "interval contains the true effect, whatever kind of interval that is: for "
-    "hierarchical_did it is a posterior credible interval, and for callaway_santanna it "
-    "is a Wald interval built from a cluster-bootstrap standard error."
+    "Coverage is reported per kind of interval, because an estimator's primary interval "
+    "is not always analytic. The coverage_analytic column covers analytic intervals only, "
+    "so it is blank for hierarchical_did, whose interval is a posterior credible interval "
+    "reported as coverage_posterior, and for callaway_santanna, whose interval is a Wald "
+    "interval built from a cluster-bootstrap standard error reported as "
+    "coverage_bootstrap_se. The coverage_bootstrap column is a separate percentile-bootstrap "
+    "interval, where an estimator reports one."
+)
+
+# Appended to the coverage_analytic heatmap's caption: its blank cells are those two
+# estimators, not missing data.
+_BLANK_ANALYTIC_CELLS = (
+    " Blank cells are estimators whose primary interval is not analytic; the coverage "
+    "table names the column that covers them."
 )
 
 
@@ -173,15 +184,32 @@ class MethodComparisonsData:
         return (self.exploratory_note, *((self.coverage_note,) if self.coverage_note else ()))
 
 
+def _drop_empty_metrics(frame: pd.DataFrame) -> pd.DataFrame:
+    """Drop every metric with no value in any row, with its `_mcse` and `_n_used`.
+
+    A metric column is empty when no estimator has that kind of interval yet:
+    `coverage_permutation` is blank for every estimator until a donor-pool arm exists.
+    A metric is recognised by having an `_n_used` sibling, so status and identity columns
+    are never dropped. A frame with no rows is returned unchanged.
+    """
+    if frame.empty:
+        return frame
+    empty = [c for c in frame.columns if f"{c}_n_used" in frame.columns and frame[c].isna().all()]
+    drop = [name for c in empty for name in (c, f"{c}_mcse", f"{c}_n_used")]
+    return frame.drop(columns=drop)
+
+
 def method_comparisons_data(
     tables: dict[str, pd.DataFrame], exploratory_note: str
 ) -> MethodComparisonsData:
     """Curate `REPORT_TABLES` out of the full `headline_tables()` set.
 
     A curated name missing from `tables` is skipped rather than raising: the document
-    renders what it has.
+    renders what it has. Metrics empty in every row are dropped from each table.
     """
-    selected = {name: tables[name] for name in REPORT_TABLES if name in tables}
+    selected = {
+        name: _drop_empty_metrics(tables[name]) for name in REPORT_TABLES if name in tables
+    }
     has_coverage = any(name.startswith("coverage") for name in selected)
     return MethodComparisonsData(
         tables=selected,
@@ -256,7 +284,10 @@ def _report_figures(frame: pd.DataFrame) -> tuple[ReportFigure, ...]:
     present = {str(s) for s in frame["scenario"].unique()}
     figures = [
         ReportFigure(
-            caption=f"{metric} by method and scenario, pooled over each scenario's baseline slice.",
+            caption=(
+                f"{metric} by method and scenario, pooled over each scenario's baseline slice."
+                + (_BLANK_ANALYTIC_CELLS if metric == "coverage_analytic" else "")
+            ),
             draw=partial(draw_heatmap, heatmap_data(pooled, metric)),
         )
         for metric in REPORT_HEATMAP_METRICS

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import pandas as pd
 import pytest
 from cp_core.language import causal_language_lint
 from cp_evaluation.store import IncompleteRunError, RunStore
@@ -105,10 +106,46 @@ def test_the_coverage_note_travels_with_a_coverage_table_and_only_then():
     assert without.prose_fragments() == ("note",)
 
 
-def test_the_coverage_note_names_both_non_analytic_estimators_and_passes_the_lint():
-    assert "hierarchical_did" in COVERAGE_COLUMN_NOTE
-    assert "callaway_santanna" in COVERAGE_COLUMN_NOTE
+def test_the_coverage_note_names_each_non_analytic_estimator_and_the_column_covering_it():
+    for phrase in (
+        "hierarchical_did",
+        "coverage_posterior",
+        "callaway_santanna",
+        "coverage_bootstrap_se",
+        "analytic intervals only",
+    ):
+        assert phrase in COVERAGE_COLUMN_NOTE
     assert causal_language_lint(COVERAGE_COLUMN_NOTE) == ()
+
+
+def _coverage_frame() -> pd.DataFrame:
+    nan = float("nan")
+    return pd.DataFrame(
+        {
+            "method": ["a", "b"],
+            "n_fitted": [3, 3],
+            "coverage_analytic": [0.9, nan],
+            "coverage_analytic_mcse": [0.05, nan],
+            "coverage_analytic_n_used": [3, 0],
+            "coverage_permutation": [nan, nan],
+            "coverage_permutation_mcse": [nan, nan],
+            "coverage_permutation_n_used": [0, 0],
+        }
+    )
+
+
+def test_a_metric_empty_in_every_row_is_dropped_with_its_siblings():
+    data = method_comparisons_data({"coverage__scenario": _coverage_frame()}, "note")
+
+    # coverage_permutation has no value for any estimator; coverage_analytic is blank for
+    # one estimator but not all, so it stays for every row.
+    assert list(data.tables["coverage__scenario"].columns) == [
+        "method",
+        "n_fitted",
+        "coverage_analytic",
+        "coverage_analytic_mcse",
+        "coverage_analytic_n_used",
+    ]
 
 
 def test_limitations_prose_is_every_reason_then_every_statement_but_no_names():
@@ -136,6 +173,9 @@ def test_benchmark_evidence_from_run_builds_from_a_real_tiny_study(d_run):
     assert evidence.limitations == ("A stand-in limitation for this tiny fixture.",)
     # One heatmap per REPORT_HEATMAP_METRICS, one profile per REPORT_PROFILE_SELECTIONS.
     assert len(evidence.figures) == 3
+    # Only the coverage_analytic heatmap says why some of its cells are blank.
+    captions = [figure.caption for figure in evidence.figures]
+    assert sum("Blank cells" in caption for caption in captions) == 1
 
 
 def test_narratives_reach_the_headline_rows(d_run):
