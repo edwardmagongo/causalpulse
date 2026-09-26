@@ -123,6 +123,40 @@ def test_coverage_is_reported_separately_for_the_two_interval_types():
     assert "coverage_analytic_mcse" in table.index and "coverage_bootstrap_mcse" in table.index
 
 
+def test_the_baseline_slice_keeps_donor_pool_rows():
+    # A donor-pool row carries no cross-sectional axes (they are NaN), the
+    # same reason a panel row passes.
+    data = frame(rows("synthetic_control", "S1", 5, donor_pool=True))
+
+    kept = baseline_slice(data)
+
+    assert len(kept) == 5
+    assert kept["scenario"].unique().tolist() == ["S1"]
+
+
+def test_not_covered_no_longer_names_synthetic_control_or_bsts():
+    names = {name for name, _ in NOT_COVERED}
+    assert "synthetic_control" not in names
+    assert "bsts" not in names
+
+
+def test_the_coverage_table_reports_permutation_coverage_for_donor_pool_rows_only():
+    donor = rows("synthetic_control", "S1", 20, donor_pool=True, hit_fraction=0.75)
+    donor["ci_basis"] = "permutation"
+    data = frame(donor, rows("aipw", "A", 20))
+
+    table = headline_tables(data)["coverage__scenario"].set_index("method")
+
+    assert table.loc["synthetic_control", "coverage_permutation"] == pytest.approx(0.75)
+    assert table.loc["synthetic_control", "coverage_permutation_n_used"] == 20
+    assert "coverage_permutation_mcse" in table.columns
+    assert np.isnan(table.loc["synthetic_control", "coverage_posterior"])
+    assert table.loc["synthetic_control", "coverage_posterior_n_used"] == 0
+    assert np.isnan(table.loc["aipw", "coverage_permutation"])
+    assert table.loc["aipw", "coverage_permutation_n_used"] == 0
+    assert np.isnan(table.loc["aipw", "coverage_posterior"])
+
+
 def test_the_false_positive_table_holds_only_null_scenarios():
     data = frame(
         rows("aipw", "A", 100, truth=1.0),

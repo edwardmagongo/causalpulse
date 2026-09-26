@@ -25,6 +25,7 @@ def rows(
     runtime: float = 1.0,
     status: str = "fitted",
     panel: bool = False,
+    donor_pool: bool = False,
     n_periods: float = 7,
     noise: float = 0.01,
     axes: dict[str, float] | None = None,
@@ -41,18 +42,19 @@ def rows(
         point = truth + bias + jitter
         centre = truth if i < hits else truth + 10.0
         record: dict[str, object] = dict.fromkeys(ROW_COLUMNS, np.nan)
+        shape = "donor_pool" if donor_pool else ("panel" if panel else "cross_section")
         record.update(
-            shape="panel" if panel else "cross_section",
+            shape=shape,
             scenario=scenario,
             n_units=n_units,
-            n_periods=n_periods if panel else np.nan,
+            n_periods=n_periods if (panel or donor_pool) else np.nan,
             seed=i,
             method=method,
             status=status,
             reason="" if status == "fitted" else "not fitted",
-            estimand="ATT" if panel else "ATE",
+            estimand="ATT" if (panel or donor_pool) else "ATE",
         )
-        if not panel:
+        if not panel and not donor_pool:
             record.update(AXIS_BASELINES)
             record["realised_treated_share"] = 0.3
         if status == "fitted":

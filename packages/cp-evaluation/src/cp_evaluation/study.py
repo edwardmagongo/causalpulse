@@ -29,7 +29,13 @@ STATUS_COLUMNS: tuple[str, ...] = ("n_fitted", "n_ineligible", "n_refused")
 # Each headline table's metrics, in the parent design's section 8.2 order.
 TABLE_METRICS: dict[str, tuple[str, ...]] = {
     "accuracy": ("bias", "relative_bias", "rmse", "mae"),
-    "coverage": ("coverage_analytic", "coverage_bootstrap", "mean_ci_width"),
+    "coverage": (
+        "coverage_analytic",
+        "coverage_bootstrap",
+        "coverage_permutation",
+        "coverage_posterior",
+        "mean_ci_width",
+    ),
     "se_calibration": ("se_calibration",),
     "sign_and_magnitude": ("type_s", "type_m"),
     "detection": ("power", "false_positive_rate"),
@@ -98,10 +104,7 @@ def markdown_table(frame: pd.DataFrame) -> str:
 # What the study did not run, and why. The parent design's grid has arms the
 # shipped `full` tier leaves out; the study reports them by name rather than
 # letting a reader assume they were covered.
-_DONOR_POOL = "the donor-pool arm has no grid or metrics yet (a causal-core item still open)"
 NOT_COVERED: tuple[tuple[str, str], ...] = (
-    ("synthetic_control", _DONOR_POOL),
-    ("bsts", _DONOR_POOL),
     (
         "CATE metrics",
         "the heterogeneity metrics (CATE correlation, RMSE, calibration slope) have no arm yet",
