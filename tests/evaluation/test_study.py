@@ -9,6 +9,7 @@ from cp_evaluation.study import (
     coverage_of_study_markdown,
     headline_tables,
     markdown_table,
+    not_covered_for,
 )
 
 from evaluation._study_frames import frame, rows
@@ -286,3 +287,33 @@ def test_the_coverage_document_names_what_was_not_run_and_the_mcse_it_implies():
     for name, _ in NOT_COVERED:
         assert name in text
     assert "aipw" in text and "refused" in text
+
+
+def test_a_frame_with_no_donor_rows_gets_the_constant_exactly():
+    data = frame(
+        rows("aipw", "A", 5),
+        rows("hierarchical_did", "P1", 5, panel=True, ci_basis="posterior"),
+    )
+
+    assert not_covered_for(data) == NOT_COVERED
+
+
+def test_a_refused_only_donor_estimator_is_not_called_ineligible():
+    data = frame(
+        rows("synthetic_control", "S1", 5, donor_pool=True, ci_basis="permutation"),
+        rows("bsts", "S1", 5, donor_pool=True, status="refused", ci_basis="posterior"),
+    )
+
+    section = _listed(data)
+
+    assert "**bsts**: it fitted on no cell of this run (ineligible or refused)" in section
+
+
+def test_a_mixed_ineligible_and_refused_donor_estimator_gets_the_hedged_reason():
+    data = frame(
+        rows("synthetic_control", "S1", 5, donor_pool=True, ci_basis="permutation"),
+        rows("bsts", "S5", 5, donor_pool=True, status="ineligible", ci_basis="posterior"),
+        rows("bsts", "S1", 5, donor_pool=True, status="refused", ci_basis="posterior"),
+    )
+
+    assert "(ineligible or refused)" in _listed(data)

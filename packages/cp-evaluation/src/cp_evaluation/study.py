@@ -128,18 +128,19 @@ def not_covered_for(frame: pd.DataFrame) -> tuple[tuple[str, str], ...]:
     """
     fitted = set(frame.loc[frame["status"] == "fitted", "method"])
     has_donor_arm = bool((frame["shape"] == "donor_pool").any())
-    seen = set(frame["method"])
     out: list[tuple[str, str]] = []
     for name, reason in NOT_COVERED:
         if name in _DONOR_ESTIMATORS:
             if name in fitted:
                 continue
             if has_donor_arm:
-                reason = (
-                    "it was ineligible on every cell of this run"
-                    if name in seen
-                    else "it produced no rows in this run"
-                )
+                statuses = set(frame.loc[frame["method"] == name, "status"])
+                if not statuses:
+                    reason = "it produced no rows in this run"
+                elif statuses == {"ineligible"}:
+                    reason = "it was ineligible on every cell of this run"
+                else:
+                    reason = "it fitted on no cell of this run (ineligible or refused)"
         out.append((name, reason))
     return tuple(out)
 
