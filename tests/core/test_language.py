@@ -105,6 +105,45 @@ def test_start_is_the_real_offset_of_the_violations_sentence() -> None:
     assert text[violation.start : violation.start + len(violation.sentence)] == violation.sentence
 
 
+# Copied from `cp_evaluation.study.NOT_COVERED` (cp_core must not import it):
+# real reasons that genuinely end without terminal punctuation.
+_UNPUNCTUATED_REASONS = (
+    "P7 and P8 have no arm yet",
+    "the sixteen-period scenarios cannot share a panel axis with P1 to P6",
+)
+
+
+@pytest.mark.parametrize("negating", _UNPUNCTUATED_REASONS)
+def test_a_blank_line_ends_a_sentence_so_a_negation_does_not_leak_across_it(
+    negating: str,
+) -> None:
+    # The report joins fragments with a blank line, and a fragment need not end
+    # in punctuation. A "no"/"cannot" in the first must not license an
+    # unhedged claim in the next.
+    violations = causal_language_lint(f"{negating}\n\nThis proves unconfoundedness.")
+    assert [v.term for v in violations] == ["proves"]
+
+
+def test_the_smaller_repro_is_flagged_like_its_unnegated_twin() -> None:
+    assert causal_language_lint("cannot share a panel axis\n\nThis proves unconfoundedness.")
+    assert causal_language_lint("needs sixteen periods\n\nThis proves unconfoundedness.")
+
+
+def test_a_hedge_in_an_unpunctuated_paragraph_does_not_license_a_causal_term_after_it() -> None:
+    assert causal_language_lint("if the data allow\n\nThe rollout causes a lift.")
+
+
+def test_an_unpunctuated_fragment_may_still_negate_its_own_term() -> None:
+    text = "a balance table does not prove unconfoundedness\n\nOverlap holds."
+    assert causal_language_lint(text) == ()
+
+
+def test_start_still_slices_the_sentence_across_a_paragraph_break() -> None:
+    text = "no arm yet\n\nThis proves causation."
+    (violation,) = causal_language_lint(text)
+    assert text[violation.start : violation.start + len(violation.sentence)] == violation.sentence
+
+
 def _message_literals(path: pathlib.Path) -> list[str]:
     """Every string constant in a file that is not a docstring.
 

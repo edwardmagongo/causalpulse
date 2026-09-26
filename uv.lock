@@ -386,6 +386,7 @@ dependencies = [
     { name = "cp-causal" },
     { name = "cp-core" },
     { name = "cp-evaluation" },
+    { name = "cp-report" },
     { name = "cp-simulation" },
     { name = "cp-statistics" },
     { name = "numpy" },
@@ -398,6 +399,7 @@ requires-dist = [
     { name = "cp-causal", editable = "packages/cp-causal" },
     { name = "cp-core", editable = "packages/cp-core" },
     { name = "cp-evaluation", editable = "packages/cp-evaluation" },
+    { name = "cp-report", editable = "packages/cp-report" },
     { name = "cp-simulation", editable = "packages/cp-simulation" },
     { name = "cp-statistics", editable = "packages/cp-statistics" },
     { name = "numpy", specifier = ">=2.0" },
@@ -476,6 +478,7 @@ version = "0.1.0"
 source = { editable = "packages/cp-report" }
 dependencies = [
     { name = "cp-core" },
+    { name = "cp-evaluation" },
     { name = "cp-figures" },
     { name = "matplotlib" },
 ]
@@ -483,6 +486,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "cp-core", editable = "packages/cp-core" },
+    { name = "cp-evaluation", editable = "packages/cp-evaluation" },
     { name = "cp-figures", editable = "packages/cp-figures" },
     { name = "matplotlib", specifier = ">=3.9" },
 ]

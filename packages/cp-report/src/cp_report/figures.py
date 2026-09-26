@@ -92,13 +92,26 @@ def _draw(figure: ReportFigure, fig: Figure) -> None:
     figure.draw(ax)
 
 
+# matplotlib stamps an SVG with the current time (`<dc:date>`) and derives every element id
+# from a random salt, so the same figure saved twice differs byte for byte. Pinning both makes
+# a report regenerated from the same data reproduce its figures exactly, so a committed copy
+# does not churn in git. The salt is any fixed string; it only has to be the same every run.
+_SVG_METADATA: dict[str, str | None] = {"Date": None}
+_SVG_HASH_SALT = "causalpulse"
+
+
+def _save_svg(fig: Figure, target: io.StringIO | Path) -> None:
+    with plt.rc_context({"svg.hashsalt": _SVG_HASH_SALT}):
+        fig.savefig(target, format="svg", metadata=_SVG_METADATA)
+
+
 def figure_to_inline_svg(figure: ReportFigure) -> str:
     """Render `figure` to an SVG fragment safe to inline into an HTML body."""
     fig = plt.figure()  # a bare plt.figure() essentially cannot raise
     try:
         _draw(figure, fig)
         buffer = io.StringIO()
-        fig.savefig(buffer, format="svg")
+        _save_svg(fig, buffer)
         return _strip_xml_preamble(buffer.getvalue())
     finally:
         plt.close(fig)
@@ -115,7 +128,7 @@ def figure_to_file(figure: ReportFigure, directory: Path) -> Path:
     try:
         _draw(figure, fig)
         path = directory / _filename(figure.caption)
-        fig.savefig(path, format="svg")
+        _save_svg(fig, path)
         return path
     finally:
         plt.close(fig)

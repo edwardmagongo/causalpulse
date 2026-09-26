@@ -152,3 +152,21 @@ def test_captions_differing_only_in_punctuation_do_not_collide(tmp_path):
     assert first != second
     assert first.exists()
     assert second.exists()
+
+
+def test_a_figure_renders_to_identical_bytes_every_time(tmp_path):
+    # matplotlib stamps an SVG with the wall-clock time and derives element ids from a random
+    # salt, so a report regenerated from the same data would differ in every figure and churn
+    # a committed copy in git. Both are pinned; the report's own claim to be regeneratable
+    # rests on this.
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+
+    path_one = figure_to_file(_figure(), first)
+    path_two = figure_to_file(_figure(), second)
+
+    assert path_one.name == path_two.name
+    assert path_one.read_bytes() == path_two.read_bytes()
+    assert figure_to_inline_svg(_figure()) == figure_to_inline_svg(_figure())

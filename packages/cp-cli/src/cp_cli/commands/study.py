@@ -31,6 +31,11 @@ from cp_figures.benchmark import (
     draw_heatmap,
     heatmap_data,
 )
+from cp_report.benchmark import (
+    benchmark_evidence_from_run,
+    render_html_benchmark_report,
+    write_markdown_benchmark_report,
+)
 from matplotlib.figure import Figure
 
 from cp_cli.commands.bench import load_run
@@ -162,4 +167,54 @@ def run_study(args: argparse.Namespace) -> int:
     return 0
 
 
-__all__: Sequence[str] = ("status", "compact", "run_study")
+_HTML_REPORT_NAME = "benchmark-report.html"
+
+
+def add_study_report_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("directory", help="A finished sharded run written by `bench run`.")
+    parser.add_argument("--out", required=True, help="An existing directory for the report.")
+    parser.add_argument("--format", choices=("html", "markdown"), default="markdown")
+    parser.add_argument(
+        "--limitation",
+        action="append",
+        default=[],
+        metavar="TEXT",
+        help="A limitation to state in the report; repeat for several.",
+    )
+    parser.add_argument(
+        "--narratives",
+        metavar="PATH",
+        help="A JSON object mapping an expectation id to the paragraph that explains it.",
+    )
+
+
+def _read_narratives(path: str | None) -> dict[str, str]:
+    if path is None:
+        return {}
+    loaded = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(loaded, dict) or not all(
+        isinstance(key, str) and isinstance(value, str) for key, value in loaded.items()
+    ):
+        raise ValueError(f"{path} must hold one JSON object mapping expectation ids to text")
+    return loaded
+
+
+def run_study_report(args: argparse.Namespace) -> int:
+    out = Path(args.out)
+    if not out.is_dir():
+        raise FileNotFoundError(f"--out must be an existing directory, got {out}")
+    evidence = benchmark_evidence_from_run(
+        Path(args.directory),
+        limitations=tuple(args.limitation),
+        narratives=_read_narratives(args.narratives),
+    )
+    if args.format == "html":
+        path = out / _HTML_REPORT_NAME
+        path.write_text(render_html_benchmark_report(evidence), encoding="utf-8")
+    else:
+        path = write_markdown_benchmark_report(evidence, out)
+    print(f"wrote the benchmark study report to {path}")
+    return 0
+
+
+__all__: Sequence[str] = ("status", "compact", "run_study", "run_study_report")
