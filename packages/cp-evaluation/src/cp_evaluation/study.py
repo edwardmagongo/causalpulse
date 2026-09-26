@@ -32,8 +32,9 @@ TABLE_METRICS: dict[str, tuple[str, ...]] = {
     "coverage": (
         "coverage_analytic",
         "coverage_bootstrap",
-        "coverage_permutation",
         "coverage_posterior",
+        "coverage_permutation",
+        "coverage_bootstrap_se",
         "mean_ci_width",
     ),
     "se_calibration": ("se_calibration",),

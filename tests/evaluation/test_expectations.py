@@ -22,8 +22,16 @@ def _passing() -> pd.DataFrame:
         rows("difference_in_means", "D", 100, bias=0.5),
         rows("aipw", "D", 100, bias=0.02),
         rows("twfe", "P4", 100, bias=0.5, panel=True),
-        rows("callaway_santanna", "P4", 100, bias=0.02, panel=True),
-        rows("hierarchical_did", "P1", 100, hit_fraction=0.95, panel=True, runtime=25.0),
+        rows("callaway_santanna", "P4", 100, bias=0.02, panel=True, ci_basis="bootstrap"),
+        rows(
+            "hierarchical_did",
+            "P1",
+            100,
+            hit_fraction=0.95,
+            panel=True,
+            runtime=25.0,
+            ci_basis="posterior",
+        ),
         rows("difference_in_means", "H", 20, status="refused"),
         rows("difference_in_means", "H", 20, status="ineligible"),
     ]
@@ -84,15 +92,29 @@ def test_e3_fails_when_the_naive_estimators_larger_bias_is_within_noise():
 def test_e4_fails_when_twfe_is_not_the_more_biased_estimator():
     data = frame(
         rows("twfe", "P4", 100, bias=0.02, panel=True),
-        rows("callaway_santanna", "P4", 100, bias=0.5, panel=True),
+        rows("callaway_santanna", "P4", 100, bias=0.5, panel=True, ci_basis="bootstrap"),
     )
 
     assert _verdicts(data)["E4"] == "failed"
 
 
 def test_e5_fails_only_when_coverage_is_clearly_below_ninety_percent():
-    low = rows("hierarchical_did", "P1", 200, hit_fraction=0.70, panel=True)
-    borderline = rows("hierarchical_did", "P1", 200, hit_fraction=0.89, panel=True)
+    low = rows(
+        "hierarchical_did",
+        "P1",
+        200,
+        hit_fraction=0.70,
+        panel=True,
+        ci_basis="posterior",
+    )
+    borderline = rows(
+        "hierarchical_did",
+        "P1",
+        200,
+        hit_fraction=0.89,
+        panel=True,
+        ci_basis="posterior",
+    )
 
     assert _verdicts(low)["E5"] == "failed"
     # 0.89 sits within 2 MCSE of 0.90 at 200 rows, so it is not a failure.
@@ -113,7 +135,7 @@ def test_e6_is_inconclusive_when_scenario_h_is_absent():
 
 def test_e7_fails_when_another_estimator_is_slower_than_hierarchical_did():
     data = frame(
-        rows("hierarchical_did", "P1", 50, panel=True, runtime=2.0),
+        rows("hierarchical_did", "P1", 50, panel=True, runtime=2.0, ci_basis="posterior"),
         rows("twfe", "P1", 50, panel=True, runtime=30.0),
     )
 
@@ -121,31 +143,53 @@ def test_e7_fails_when_another_estimator_is_slower_than_hierarchical_did():
 
 
 def test_e5_ignores_donor_pool_rows_of_hierarchical_did():
-    # Pooled over these donor rows too, coverage would be 0.5 and E5 would fail.
-    panel = rows("hierarchical_did", "P1", 200, hit_fraction=0.95, panel=True)
-    donor = rows("hierarchical_did", "S1", 200, hit_fraction=0.05, donor_pool=True)
+    # coverage_posterior filters on ci_basis alone, so pooled over these donor rows too,
+    # coverage would be 0.5 over 400 rows and E5 would fail.
+    panel = rows("hierarchical_did", "P1", 200, hit_fraction=0.95, panel=True, ci_basis="posterior")
+    donor = rows(
+        "hierarchical_did", "S1", 200, hit_fraction=0.05, donor_pool=True, ci_basis="posterior"
+    )
 
-    assert _verdicts(panel)["E5"] == "met"
-    assert _verdicts(frame(panel, donor))["E5"] == "met"
+    alone = {r.id: r for r in evaluate_expectations(panel, COMPLETE)}["E5"]
+    with_donor = {r.id: r for r in evaluate_expectations(frame(panel, donor), COMPLETE)}["E5"]
+
+    assert alone.verdict == with_donor.verdict == "met"
+    assert with_donor.measurements == alone.measurements
+    assert with_donor.measurements[0].n_used == 200
+    assert "coverage_posterior" in with_donor.measurements[0].label
 
 
 def test_e5_is_inconclusive_when_hierarchical_did_has_only_donor_pool_rows():
-    donor = rows("hierarchical_did", "S1", 200, hit_fraction=0.05, donor_pool=True)
+    # Donor rows at 5% posterior coverage: pooled, they would fail E5 outright, so
+    # inconclusive here means they were excluded, not that the column was empty.
+    donor = rows(
+        "hierarchical_did", "S1", 200, hit_fraction=0.05, donor_pool=True, ci_basis="posterior"
+    )
 
     assert _verdicts(donor)["E5"] == "inconclusive"
+
+
+def test_e5_reads_posterior_coverage_not_analytic():
+    # hierarchical_did's interval is a posterior credible interval; a row mislabelled
+    # analytic is not in coverage_posterior's population, so E5 has nothing to score.
+    mislabelled = rows("hierarchical_did", "P1", 200, hit_fraction=0.95, panel=True)
+
+    assert _verdicts(mislabelled)["E5"] == "inconclusive"
 
 
 def test_e7_ranking_is_unchanged_by_donor_pool_rows():
     # A slow donor-pool bsts or synthetic_control fit would otherwise take rank 1 from
     # hierarchical_did; the ten-estimator ranking is over panel and cross-section rows only.
     base = frame(
-        rows("hierarchical_did", "P1", 50, panel=True, runtime=25.0),
+        rows("hierarchical_did", "P1", 50, panel=True, runtime=25.0, ci_basis="posterior"),
         rows("twfe", "P1", 50, panel=True, runtime=2.0),
     )
     donor = frame(
-        rows("bsts", "S1", 50, donor_pool=True, runtime=200.0),
-        rows("synthetic_control", "S1", 50, donor_pool=True, runtime=90.0),
-        rows("hierarchical_did", "S1", 50, donor_pool=True, runtime=1.0),
+        rows("bsts", "S1", 50, donor_pool=True, runtime=200.0, ci_basis="posterior"),
+        rows(
+            "synthetic_control", "S1", 50, donor_pool=True, runtime=90.0, ci_basis="permutation"
+        ),
+        rows("hierarchical_did", "S1", 50, donor_pool=True, runtime=1.0, ci_basis="posterior"),
     )
 
     with_donor = {r.id: r for r in evaluate_expectations(frame(base, donor), COMPLETE)}
@@ -153,6 +197,15 @@ def test_e7_ranking_is_unchanged_by_donor_pool_rows():
 
     assert with_donor["E7"].verdict == without["E7"].verdict == "met"
     assert with_donor["E7"].measurements == without["E7"].measurements
+
+
+def test_e7_is_inconclusive_on_a_donor_pool_only_frame():
+    donor = frame(
+        rows("bsts", "S1", 50, donor_pool=True, runtime=200.0, ci_basis="posterior"),
+        rows("hierarchical_did", "S1", 50, donor_pool=True, runtime=1.0, ci_basis="posterior"),
+    )
+
+    assert _verdicts(donor)["E7"] == "inconclusive"
 
 
 def test_e8_fails_on_remaining_cells_or_orphans():

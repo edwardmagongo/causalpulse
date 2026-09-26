@@ -126,7 +126,7 @@ def test_coverage_is_reported_separately_for_the_two_interval_types():
 def test_the_baseline_slice_keeps_donor_pool_rows():
     # A donor-pool row carries no cross-sectional axes (they are NaN), the
     # same reason a panel row passes.
-    data = frame(rows("synthetic_control", "S1", 5, donor_pool=True))
+    data = frame(rows("synthetic_control", "S1", 5, donor_pool=True, ci_basis="permutation"))
 
     kept = baseline_slice(data)
 
@@ -140,18 +140,43 @@ def test_not_covered_no_longer_names_synthetic_control_or_bsts():
     assert "bsts" not in names
 
 
-def test_the_coverage_table_reports_permutation_coverage_for_donor_pool_rows_only():
-    donor = rows("synthetic_control", "S1", 20, donor_pool=True, hit_fraction=0.75)
-    donor["ci_basis"] = "permutation"
-    data = frame(donor, rows("aipw", "A", 20))
+def test_the_coverage_table_reports_each_basis_in_its_own_column():
+    data = frame(
+        rows("hierarchical_did", "P1", 50, hit_fraction=0.8, panel=True, ci_basis="posterior"),
+    )
+
+    table = headline_tables(data)["coverage__scenario"].iloc[0]
+
+    assert table["coverage_posterior"] == pytest.approx(0.8)
+    assert table["coverage_posterior_n_used"] == 50
+    assert table["coverage_analytic_n_used"] == 0
+    for column in ("coverage_permutation", "coverage_bootstrap_se"):
+        assert column in table.index
+
+
+def test_the_coverage_table_reports_donor_pool_coverage_under_each_rows_own_basis():
+    data = frame(
+        rows(
+            "synthetic_control", "S1", 20, donor_pool=True, hit_fraction=0.75,
+            ci_basis="permutation",
+        ),
+        rows("bsts", "S1", 20, donor_pool=True, hit_fraction=0.5, ci_basis="posterior"),
+        rows("aipw", "A", 20),
+    )
 
     table = headline_tables(data)["coverage__scenario"].set_index("method")
 
     assert table.loc["synthetic_control", "coverage_permutation"] == pytest.approx(0.75)
     assert table.loc["synthetic_control", "coverage_permutation_n_used"] == 20
     assert "coverage_permutation_mcse" in table.columns
+    assert table.loc["synthetic_control", "coverage_analytic_n_used"] == 0
     assert np.isnan(table.loc["synthetic_control", "coverage_posterior"])
     assert table.loc["synthetic_control", "coverage_posterior_n_used"] == 0
+    assert table.loc["bsts", "coverage_posterior"] == pytest.approx(0.5)
+    assert table.loc["bsts", "coverage_posterior_n_used"] == 20
+    assert table.loc["bsts", "coverage_analytic_n_used"] == 0
+    assert table.loc["bsts", "coverage_permutation_n_used"] == 0
+    assert table.loc["aipw", "coverage_analytic_n_used"] == 20
     assert np.isnan(table.loc["aipw", "coverage_permutation"])
     assert table.loc["aipw", "coverage_permutation_n_used"] == 0
     assert np.isnan(table.loc["aipw", "coverage_posterior"])

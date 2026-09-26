@@ -29,6 +29,7 @@ def rows(
     n_periods: float = 7,
     noise: float = 0.01,
     axes: dict[str, float] | None = None,
+    ci_basis: str = "analytic",
 ) -> pd.DataFrame:
     """`n` rows for one (method, scenario, n_units); `hit_fraction` of them cover the truth.
 
@@ -64,7 +65,7 @@ def rows(
                 se=half_width / 1.96,
                 ci_lower=centre - half_width,
                 ci_upper=centre + half_width,
-                ci_basis="normal",
+                ci_basis=ci_basis,
                 bootstrap_ci_lower=centre - half_width,
                 bootstrap_ci_upper=centre + half_width,
                 runtime_seconds=runtime,

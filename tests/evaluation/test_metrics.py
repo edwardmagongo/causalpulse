@@ -115,6 +115,7 @@ def test_rmse_mcse_is_nan_when_mean_squared_error_is_exactly_zero():
 
 
 def _covered_frame(lowers, uppers, truth=1.0, **overrides) -> pd.DataFrame:
+    overrides.setdefault("ci_basis", "analytic")
     frame = _frame([1.0] * len(lowers), truth=truth, **overrides)
     frame["ci_lower"] = list(lowers)
     frame["ci_upper"] = list(uppers)
@@ -169,13 +170,83 @@ def test_bootstrap_coverage_is_reported_separately_and_skips_missing_intervals()
     assert result["coverage_bootstrap"].n_used == 1
 
 
-def test_permutation_coverage_is_reported_for_donor_pool_rows_only():
+def test_each_non_analytic_basis_gets_its_own_coverage_column():
+    frame = pd.concat(
+        [
+            _covered_frame([0.0, 5.0], [2.0, 6.0], truth=1.0, ci_basis="posterior"),
+            _covered_frame([0.0], [2.0], truth=1.0, ci_basis="permutation"),
+            _covered_frame([0.0, 0.0, 5.0], [2.0, 2.0, 6.0], truth=1.0, ci_basis="bootstrap"),
+        ],
+        ignore_index=True,
+    )
+
+    result = coverage_metrics(frame)
+
+    assert result["coverage_posterior"].value == pytest.approx(0.5)
+    assert result["coverage_posterior"].n_used == 2
+    assert result["coverage_permutation"].value == pytest.approx(1.0)
+    assert result["coverage_permutation"].n_used == 1
+    assert result["coverage_bootstrap_se"].value == pytest.approx(2 / 3)
+    assert result["coverage_bootstrap_se"].n_used == 3
+
+
+def test_coverage_analytic_counts_only_analytic_rows():
+    frame = pd.concat(
+        [
+            _covered_frame([0.0, 5.0], [2.0, 6.0], truth=1.0, ci_basis="analytic"),
+            _covered_frame([0.0, 0.0], [2.0, 2.0], truth=1.0, ci_basis="posterior"),
+        ],
+        ignore_index=True,
+    )
+
+    result = coverage_metrics(frame)
+
+    assert result["coverage_analytic"].value == pytest.approx(0.5)
+    assert result["coverage_analytic"].n_used == 2
+
+
+def test_a_basis_with_no_rows_reports_nan_and_n_used_zero():
+    result = coverage_metrics(_covered_frame([0.0], [2.0], truth=1.0))
+
+    for name in ("coverage_posterior", "coverage_permutation", "coverage_bootstrap_se"):
+        assert np.isnan(result[name].value)
+        assert result[name].n_used == 0
+
+
+def test_bootstrap_ci_coverage_ignores_ci_basis():
+    # coverage_bootstrap reads the separate bootstrap_ci field for any basis.
+    frame = _covered_frame([0.0], [2.0], truth=1.0, ci_basis="bootstrap")
+    frame["bootstrap_ci_lower"] = [0.0]
+    frame["bootstrap_ci_upper"] = [2.0]
+
+    result = coverage_metrics(frame)
+
+    assert result["coverage_bootstrap"].n_used == 1
+    assert result["coverage_bootstrap_se"].n_used == 1
+    assert result["coverage_analytic"].n_used == 0
+
+
+def test_mean_ci_width_still_pools_every_basis():
+    frame = pd.concat(
+        [
+            _covered_frame([0.0], [2.0], truth=1.0, ci_basis="analytic"),
+            _covered_frame([0.0], [4.0], truth=1.0, ci_basis="posterior"),
+        ],
+        ignore_index=True,
+    )
+
+    assert coverage_metrics(frame)["mean_ci_width"].value == pytest.approx(3.0)
+
+
+def test_a_donor_pool_permutation_row_counts_in_permutation_not_analytic():
+    # synthetic_control on a donor-pool cell: its placebo interval is permutation
+    # coverage, never analytic, and a cross-section analytic row beside it stays
+    # analytic only.
     donor = _covered_frame(
-        [0.0, 0.0], [2.0, 2.0], truth=1.0, shape="donor_pool",
-        ci_basis="permutation"
+        [0.0, 0.0], [2.0, 2.0], truth=1.0, shape="donor_pool", ci_basis="permutation"
     )
     cross_section = _covered_frame(
-        [0.0], [2.0], truth=1.0, shape="cross_section", ci_basis="analytic"
+        [5.0], [6.0], truth=1.0, shape="cross_section", ci_basis="analytic"
     )
     frame = pd.concat([donor, cross_section], ignore_index=True)
 
@@ -183,70 +254,22 @@ def test_permutation_coverage_is_reported_for_donor_pool_rows_only():
 
     assert result["coverage_permutation"].value == pytest.approx(1.0)
     assert result["coverage_permutation"].n_used == 2
+    assert result["coverage_analytic"].value == pytest.approx(0.0)
+    assert result["coverage_analytic"].n_used == 1
 
 
-def test_posterior_coverage_is_reported_for_donor_pool_rows_only():
+def test_a_donor_pool_posterior_row_counts_in_posterior_not_analytic():
+    # bsts on a donor-pool cell.
     donor = _covered_frame(
-        [5.0, 0.0], [6.0, 2.0], truth=1.0, shape="donor_pool",
-        ci_basis="posterior"
+        [5.0, 0.0], [6.0, 2.0], truth=1.0, shape="donor_pool", ci_basis="posterior"
     )
 
     result = coverage_metrics(donor)
 
     assert result["coverage_posterior"].value == pytest.approx(0.5)
     assert result["coverage_posterior"].n_used == 2
-
-
-def test_permutation_and_posterior_coverage_do_not_mix():
-    mixed = pd.concat(
-        [
-            _covered_frame(
-                [0.0], [2.0], truth=1.0, shape="donor_pool",
-                ci_basis="permutation"
-            ),
-            _covered_frame(
-                [0.0], [2.0], truth=1.0, shape="donor_pool",
-                ci_basis="posterior"
-            ),
-        ],
-        ignore_index=True,
-    )
-
-    result = coverage_metrics(mixed)
-
-    assert result["coverage_permutation"].n_used == 1
-    assert result["coverage_posterior"].n_used == 1
-
-
-def test_coverage_analytic_and_bootstrap_are_unchanged_by_the_new_columns():
-    # A cross-section/panel-only frame must be byte-identical before and
-    # after this phase: no shape column filtering was added to the two
-    # pre-existing coverage computations.
-    frame = _covered_frame(
-        [0.0, 0.0, 2.0, 2.5], [2.0, 2.0, 3.0, 3.0], truth=1.0
-    )
-
-    result = coverage_metrics(frame)
-
-    assert result["coverage_analytic"].value == pytest.approx(0.5)
-    assert result["coverage_analytic"].n_used == 4
-    assert np.isnan(result["coverage_permutation"].value)
-    assert np.isnan(result["coverage_posterior"].value)
-
-
-def test_a_bootstrap_row_on_a_non_donor_shape_stays_in_analytic_only():
-    # Like callaway_santanna: a cross-section/panel row whose ci_basis is
-    # "bootstrap" counts in coverage_analytic (the shape gate keeps the donor
-    # bases out of it) and never in the donor-only permutation/posterior sets.
-    frame = _covered_frame(
-        [0.0], [2.0], truth=1.0, shape="cross_section", ci_basis="bootstrap"
-    )
-
-    result = coverage_metrics(frame)
-
-    assert result["coverage_analytic"].n_used == 1
+    assert result["coverage_analytic"].n_used == 0
     assert result["coverage_permutation"].n_used == 0
-    assert result["coverage_posterior"].n_used == 0
 
 
 def test_coverage_metrics_works_on_a_frame_with_no_shape_column():
@@ -263,20 +286,34 @@ def test_coverage_metrics_works_on_a_frame_with_no_shape_column():
     assert result["coverage_posterior"].n_used == 0
 
 
-def test_hierarchical_dids_posterior_ci_still_counts_as_analytic_not_posterior():
-    # Deliberate, documented scope boundary (design doc section 7): the new
-    # columns are gated to shape == "donor_pool", not to ci_basis alone, so a
-    # panel-shape posterior row (hierarchical_did) is left exactly as today --
-    # counted in coverage_analytic, absent from coverage_posterior. Fixing
-    # that mislabeling is explicitly out of this phase's scope.
-    frame = _covered_frame(
-        [0.0], [2.0], truth=1.0, shape="panel", ci_basis="posterior"
+def test_hierarchical_dids_panel_posterior_ci_counts_as_posterior_not_analytic():
+    # hierarchical_did's panel interval is a posterior credible interval, so it
+    # belongs to coverage_posterior and never to coverage_analytic.
+    frame = _covered_frame([0.0], [2.0], truth=1.0, shape="panel", ci_basis="posterior")
+
+    result = coverage_metrics(frame)
+
+    assert result["coverage_analytic"].n_used == 0
+    assert result["coverage_posterior"].value == pytest.approx(1.0)
+    assert result["coverage_posterior"].n_used == 1
+
+
+def test_coverage_posterior_pools_panel_and_donor_pool_rows_it_is_handed():
+    # The basis filter ignores shape by design. A caller pooling one method's
+    # rows across shapes with by=[] gets both populations in one figure, which
+    # is why E5 scopes hierarchical_did to panel rows itself before pooling.
+    frame = pd.concat(
+        [
+            _covered_frame([0.0], [2.0], truth=1.0, shape="panel", ci_basis="posterior"),
+            _covered_frame([5.0], [6.0], truth=1.0, shape="donor_pool", ci_basis="posterior"),
+        ],
+        ignore_index=True,
     )
 
     result = coverage_metrics(frame)
 
-    assert result["coverage_analytic"].n_used == 1
-    assert result["coverage_posterior"].n_used == 0
+    assert result["coverage_posterior"].value == pytest.approx(0.5)
+    assert result["coverage_posterior"].n_used == 2
 
 
 def test_se_calibration_is_mean_reported_se_over_empirical_sd():

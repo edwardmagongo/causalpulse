@@ -345,7 +345,7 @@ def test_hierarchical_did_is_ineligible_on_a_binary_panel():
     # sigma_y)`); nothing in this file represents a Bernoulli/logit-link
     # outcome. Before this declaration restricted `supports_outcome_types`,
     # the router's default (`{"binary", "continuous"}`) treated this as
-    # eligible for P6 ("Binary panel") -- measured at 0.01 analytic coverage
+    # eligible for P6 ("Binary panel") -- measured at 0.01 credible-interval coverage
     # against a nominal 0.95, worse than every peer DiD estimator on the
     # identical generated data (docs/specs/2026-09-21-benchmark-study-design.md
     # §13.7). P6's own scenario is used rather than a hand-built fixture

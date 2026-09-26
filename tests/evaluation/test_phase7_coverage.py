@@ -23,13 +23,13 @@ panel scenarios P1/P3/P4, `n_units=150`, `n_periods=7`, 40 replications,
 `EstimatorConfig(random_seed=0, bootstrap_reps=1000)`, root entropy 0. Total
 elapsed 2207s. Full summary saved at `/tmp/t10b_summary.csv`.
 
-    scenario  coverage_analytic  mcse     bias      bias_mcse  se_calibration  n_fitted
+    scenario  coverage_posterior mcse     bias      bias_mcse  se_calibration  n_fitted
     P1        1.00000            0.07500  0.04935   0.01632    1.12892         40
     P3        0.95000            0.03446  0.01384   0.01714    1.01449         40
     P4        0.95000            0.03446  -0.01756  0.01807    0.99587         40
 
 **Finding 1: this measurement does not reproduce Phase 7's reported 0.842.**
-At this protocol the analytic credible intervals cover at or above the
+At this protocol the credible intervals cover at or above the
 nominal 0.95 across all three scenarios -- 1.00, 0.95, 0.95 -- and
 `se_calibration` (mean reported SE / empirical SD of the point estimate) is
 1.13, 1.01, and 1.00, meaning the reported standard errors match or slightly
@@ -80,24 +80,24 @@ import pytest
 # and the /tmp/t10b_summary.csv this was read from.
 _MEASURED: dict[str, dict[str, float]] = {
     "P1": {
-        "coverage_analytic": 1.00000,
-        "coverage_analytic_mcse": 0.07500,
+        "coverage_posterior": 1.00000,
+        "coverage_posterior_mcse": 0.07500,
         "bias": 0.04935,
         "bias_mcse": 0.01632,
         "se_calibration": 1.12892,
         "n_fitted": 40,
     },
     "P3": {
-        "coverage_analytic": 0.95000,
-        "coverage_analytic_mcse": 0.03446,
+        "coverage_posterior": 0.95000,
+        "coverage_posterior_mcse": 0.03446,
         "bias": 0.01384,
         "bias_mcse": 0.01714,
         "se_calibration": 1.01449,
         "n_fitted": 40,
     },
     "P4": {
-        "coverage_analytic": 0.95000,
-        "coverage_analytic_mcse": 0.03446,
+        "coverage_posterior": 0.95000,
+        "coverage_posterior_mcse": 0.03446,
         "bias": -0.01756,
         "bias_mcse": 0.01807,
         "se_calibration": 0.99587,
@@ -176,7 +176,7 @@ _BIAS_BANDS = {
 @pytest.mark.parametrize("scenario", ["P1", "P3", "P4"])
 def test_measured_coverage_stays_within_its_recorded_band(scenario):
     band = _COVERAGE_BANDS[scenario]
-    value = _MEASURED[scenario]["coverage_analytic"]
+    value = _MEASURED[scenario]["coverage_posterior"]
     assert band.low <= value <= band.high, band.note
 
 
