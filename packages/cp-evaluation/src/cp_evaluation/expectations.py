@@ -132,8 +132,16 @@ def _hierarchical_coverage(baseline: pd.DataFrame) -> ExpectationResult:
     # coverage_posterior filters on ci_basis alone, and pooling with by=[] ignores shape, so the
     # panel scoping has to happen here: without it the donor-pool posterior rows would pool in.
     rows = baseline[(baseline["method"] == "hierarchical_did") & (baseline["shape"] == "panel")]
+    excluded = int(
+        ((baseline["method"] == "hierarchical_did") & (baseline["shape"] == "donor_pool")).sum()
+    )
+    note = (
+        f"Pooled over panel rows only; {excluded} donor-pool hierarchical_did rows excluded."
+        if excluded
+        else ""
+    )
     if rows.empty:
-        return ExpectationResult("E5", statement, rule, "inconclusive", ())
+        return ExpectationResult("E5", statement, rule, "inconclusive", (), note)
     pooled = summarise(rows, by=[])
     row = pooled.iloc[0]
     measurement = Measurement(
@@ -143,9 +151,11 @@ def _hierarchical_coverage(baseline: pd.DataFrame) -> ExpectationResult:
         n_used=int(row["coverage_posterior_n_used"]),
     )
     if not _usable(measurement):
-        return ExpectationResult("E5", statement, rule, "inconclusive", (measurement,))
+        return ExpectationResult("E5", statement, rule, "inconclusive", (measurement,), note)
     failed = measurement.value + TOLERANCE_MCSE * measurement.mcse < 0.90
-    return ExpectationResult("E5", statement, rule, "failed" if failed else "met", (measurement,))
+    return ExpectationResult(
+        "E5", statement, rule, "failed" if failed else "met", (measurement,), note
+    )
 
 
 def _no_fits_on_missing_outcomes(frame: pd.DataFrame) -> ExpectationResult:
@@ -169,13 +179,20 @@ def _slowest_is_hierarchical(frame: pd.DataFrame) -> ExpectationResult:
     # (bsts, synthetic_control and hierarchical_did fitted on S0-S5) are excluded entirely, so
     # the ranking, and the hierarchical_did figure in it, is identical whether or not the run
     # carries a donor arm.
+    donor_rows = frame[frame["shape"] == "donor_pool"]
     ranked_rows = frame[frame["shape"] != "donor_pool"]
+    note = (
+        "Ranked over non-donor rows; donor-pool rows (methods: "
+        f"{', '.join(sorted(set(donor_rows['method'])))}) excluded."
+        if len(donor_rows)
+        else ""
+    )
     if ranked_rows.empty:
-        return ExpectationResult("E7", statement, rule, "inconclusive", ())
+        return ExpectationResult("E7", statement, rule, "inconclusive", (), note)
     per_method = summarise(ranked_rows, by=[])
     per_method = per_method[per_method["runtime_seconds_n_used"] > 0]
     if "hierarchical_did" not in set(per_method["method"]):
-        return ExpectationResult("E7", statement, rule, "inconclusive", ())
+        return ExpectationResult("E7", statement, rule, "inconclusive", (), note)
     ranked = per_method.sort_values("runtime_seconds", ascending=False)
     measurements = tuple(
         Measurement(
@@ -188,7 +205,12 @@ def _slowest_is_hierarchical(frame: pd.DataFrame) -> ExpectationResult:
     )
     top = str(ranked.iloc[0]["method"])
     return ExpectationResult(
-        "E7", statement, rule, "met" if top == "hierarchical_did" else "failed", measurements
+        "E7",
+        statement,
+        rule,
+        "met" if top == "hierarchical_did" else "failed",
+        measurements,
+        note,
     )
 
 

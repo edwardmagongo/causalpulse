@@ -208,6 +208,42 @@ def test_e7_is_inconclusive_on_a_donor_pool_only_frame():
     assert _verdicts(donor)["E7"] == "inconclusive"
 
 
+def test_e5_and_e7_notes_name_the_excluded_donor_pool_population():
+    base = frame(
+        rows("hierarchical_did", "P1", 50, panel=True, runtime=25.0, ci_basis="posterior"),
+        rows("twfe", "P1", 50, panel=True, runtime=2.0),
+    )
+    donor = frame(
+        rows("bsts", "S1", 30, donor_pool=True, ci_basis="posterior"),
+        rows("hierarchical_did", "S1", 40, donor_pool=True, ci_basis="posterior"),
+    )
+
+    results = {r.id: r for r in evaluate_expectations(frame(base, donor), COMPLETE)}
+
+    assert results["E5"].note == (
+        "Pooled over panel rows only; 40 donor-pool hierarchical_did rows excluded."
+    )
+    assert results["E7"].note == (
+        "Ranked over non-donor rows; donor-pool rows (methods: bsts, hierarchical_did) excluded."
+    )
+    assert results["E5"].note in expectations_markdown(list(results.values()))
+
+
+def test_e5_and_e7_are_identical_to_the_no_donor_output_when_the_frame_has_no_donor_rows():
+    base = frame(
+        rows("hierarchical_did", "P1", 50, panel=True, runtime=25.0, ci_basis="posterior"),
+        rows("twfe", "P1", 50, panel=True, runtime=2.0),
+    )
+
+    results = {r.id: r for r in evaluate_expectations(base, COMPLETE)}
+
+    for id_ in ("E5", "E7"):
+        assert results[id_].note == ""
+    assert results["E5"].rule == "failed only if pooled coverage_posterior + 2 MCSE < 0.90"
+    assert results["E7"].rule == "rank 1 by mean runtime_seconds over each method's fitted rows"
+    assert results["E5"].verdict == results["E7"].verdict == "met"
+
+
 def test_e8_fails_on_remaining_cells_or_orphans():
     remaining = RunStatus(expected=10, done=9, orphans=0, by_scenario={})
     orphaned = RunStatus(expected=10, done=10, orphans=1, by_scenario={})
