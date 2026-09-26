@@ -1,8 +1,9 @@
 import numpy as np
 import pytest
 from cp_core.dataset import CausalDataset
-from cp_evaluation.grid import CrossSectionCell, DonorPoolCell, PanelCell
+from cp_evaluation.grid import CrossSectionCell, DonorPoolCell, PanelCell, cell_rng
 from cp_evaluation.resolve import resolve_cell, truth_for
+from cp_simulation.donor_scenarios import DONOR_SCENARIOS, build_donor_scenario
 from cp_simulation.panel_scenarios import PANEL_SCENARIOS
 from cp_simulation.params import ScenarioParams
 from cp_simulation.scenarios import SCENARIOS
@@ -129,46 +130,71 @@ def test_s5_resolves_to_its_own_narrower_protocol():
     assert len(resolved.dataset.frame) == 18 * 6
 
 
-def test_donor_pool_truth_matches_a_single_treated_units_own_att():
-    # DONOR_SCENARIOS reuses PanelDGP unchanged with exactly one treated unit,
-    # so true_att_overall's "weight by treated (unit, period) cells" average
-    # reduces to that one unit's own post-period ATT -- cross-checked here
-    # against a hand-built PanelDGP call using the same build the registry
-    # uses, not assumed correct by construction.
-    from cp_simulation.donor_scenarios import DONOR_SCENARIOS, build_donor_scenario
-    from cp_evaluation.grid import cell_rng
-
+def test_s1_truth_equals_the_treated_units_hand_averaged_post_period_effects():
+    # Independent: the treated unit's row of `true_effect_matrix` (per-cell
+    # potential-outcome difference), averaged by hand over its post-adoption
+    # cells, is compared with resolve_cell's truth["ATT"] and with S1's
+    # constant tau=1.0. That is a different reduction from true_att_overall's
+    # masked mean over the whole matrix.
+    # NOT independent: the matrix and true_att_overall come from the same
+    # generate() call (rebuilt here with the stream resolve_cell uses); this
+    # does not re-derive the effect matrix itself.
     cell = DonorPoolCell(scenario="S1", seed=0)
     resolved = resolve_cell(cell, root_entropy=1)
 
     spec = DONOR_SCENARIOS["S1"]
-    rng = cell_rng(cell, root_entropy=1)
-    panel = build_donor_scenario("S1").generate(n_units=spec.n_units, n_periods=spec.n_periods, rng=rng)
+    panel = build_donor_scenario("S1").generate(
+        n_units=spec.n_units,
+        n_periods=spec.n_periods,
+        rng=cell_rng(cell, root_entropy=1),
+    )
+    truth = panel.truth
+    treated_rows = np.flatnonzero(truth.true_cohorts > 0)
+    assert len(treated_rows) == 1
+    row = truth.true_effect_matrix[treated_rows[0]]
+    post = row != 0.0
+    assert post.sum() > 0
+    hand_mean = float(row[post].mean())
 
-    assert resolved.truth["ATT"] == pytest.approx(float(panel.truth.true_att_overall))
+    assert resolved.truth["ATT"] == pytest.approx(hand_mean)
+    assert hand_mean == pytest.approx(1.0)
+    assert len(truth.true_att_by_cohort) == 1
+    only_cohort_att = next(iter(truth.true_att_by_cohort.values()))
+    assert resolved.truth["ATT"] == pytest.approx(only_cohort_att)
 
 
 def test_donor_pool_resolution_is_reproducible():
     cell = DonorPoolCell(scenario="S2", seed=1)
 
-    first = resolve_cell(cell, root_entropy=5).dataset.frame
-    second = resolve_cell(cell, root_entropy=5).dataset.frame
+    first = resolve_cell(cell, root_entropy=5)
+    second = resolve_cell(cell, root_entropy=5)
 
-    assert first.equals(second)
+    assert first.dataset.frame.equals(second.dataset.frame)
+    assert first.truth["ATT"] == second.truth["ATT"]
 
 
-def test_s4s_contamination_does_not_move_the_truth_away_from_s1s():
-    # S4 wraps S1's DGP and shocks one donor's outcome after generation --
-    # never the treated unit's -- so its truth computation is the identical
-    # true_att_overall path S1 uses. This does not assert the *values* match
-    # (different seeds draw different unit effects); it asserts the shape and
-    # finiteness the shared code path guarantees.
-    cell = DonorPoolCell(scenario="S4", seed=0)
+def test_s4_shocks_a_donor_column_but_leaves_truth_equal_to_its_base_dgps():
+    # Identically seeded generators for S4 and its unwrapped `.base` PanelDGP:
+    # same units and effects, so any difference is the shock alone.
+    spec = DONOR_SCENARIOS["S4"]
+    s4 = build_donor_scenario("S4")
+    kwargs = {"n_units": spec.n_units, "n_periods": spec.n_periods}
+    contaminated = s4.generate(rng=np.random.default_rng(123), **kwargs)
+    base = s4.base.generate(rng=np.random.default_rng(123), **kwargs)
 
-    resolved = resolve_cell(cell, root_entropy=1)
+    assert contaminated.truth.true_att_overall == base.truth.true_att_overall
 
-    assert set(resolved.truth) == {"ATT"}
-    assert np.isfinite(resolved.truth["ATT"])
+    cf = contaminated.dataset.frame
+    bf = base.dataset.frame
+    treated_unit = bf.loc[bf["cohort"] > 0, "unit_id"].iloc[0]
+    donors = (bf["unit_id"] != treated_unit).to_numpy()
+    c_out = cf["outcome"].to_numpy()
+    b_out = bf["outcome"].to_numpy()
+    differing = c_out != b_out
+
+    assert differing.any()
+    assert not (differing & ~donors).any()
+    assert cf.loc[differing, "unit_id"].nunique() == 1
 
 
 def test_asking_a_donor_pool_cell_for_ate_truth_raises_rather_than_defaulting():

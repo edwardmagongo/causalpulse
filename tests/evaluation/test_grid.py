@@ -136,7 +136,8 @@ def test_donor_pool_cells_sort_after_panel_cells():
     cells = expand_cells(config)
 
     shapes = [type(c).__name__ for c in cells]
-    assert shapes == sorted(shapes, key=lambda name: {"CrossSectionCell": 0, "PanelCell": 1, "DonorPoolCell": 2}[name])
+    order = {"CrossSectionCell": 0, "PanelCell": 1, "DonorPoolCell": 2}
+    assert shapes == sorted(shapes, key=order.__getitem__)
 
 
 def test_the_same_donor_pool_cell_always_gets_the_same_stream():
