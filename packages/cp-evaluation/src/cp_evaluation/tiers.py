@@ -26,12 +26,17 @@ table was even built: both are documented as costing minutes per fit in this
 tree, not seconds, which would blow the ~2 minute budget on their own. They
 stay available in `full`, which has no such budget.
 
-`synthetic_control` and `bsts` are excluded because they need a donor-pool
-registry this phase does not build; `route()` marks them `ineligible` in
-every cell of this grid, so including them would add zero fitted rows at
-zero cost -- there is nothing wrong with listing them, but they contribute
-nothing, so they are left out of `CI_ESTIMATORS` for the same reason
-scenario H is left out of the axes below.
+`bsts` is excluded from `CI_ESTIMATORS` for the same reason `causal_forest` and
+`hierarchical_did` are: it is a NumPyro/NUTS sampler, the same cost class,
+measured at ~17.5s/fit (`bsts.py`'s own `PRODUCTION_MCMC_CONFIG` docstring) --
+enough to blow the ~2 minute budget on its own. `synthetic_control` (SLSQP +
+permutation over ~17 donors) is not: it is in the same cost class as the
+other estimators already in this tuple, and is included.
+
+`synthetic_control` is in the `ci` tier WITHOUT committed `TOLERANCE_BANDS`
+entries: this change wires the donor-pool arm into the grid only. Deriving
+its bands, with the same discriminating-power check the other bands got, is
+left as follow-up work.
 
 Scenario H (missing outcomes) is excluded from `ci_config()`'s axes because
 every estimator refuses it (Phase 11's missing-data refusal): a scenario
@@ -93,7 +98,14 @@ from dataclasses import dataclass, replace
 
 from cp_core.values import EstimatorConfig
 
-from cp_evaluation.grid import CrossSectionAxes, GridConfig, PanelAxes
+from cp_evaluation.grid import CrossSectionAxes, DonorPoolAxes, GridConfig, PanelAxes
+
+# All six donor-pool scenarios, in both ci and full/study -- clean recovery
+# (S0, S1) and adversarial ones (S2-S5) alike, the same mix A-H and P1-P7
+# already are. synthetic_control is cheap enough (SLSQP + permutation) for
+# ci's budget; bsts (NumPyro/NUTS) is not, same cost class as
+# hierarchical_did -- see CI_ESTIMATORS/FULL_ESTIMATORS below.
+_ALL_DONOR_POOL_SCENARIOS: tuple[str, ...] = ("S0", "S1", "S2", "S3", "S4", "S5")
 
 
 @dataclass(frozen=True)
@@ -113,7 +125,7 @@ class Band:
 
 # The estimators measured and shipped in the `ci` tier. See the module
 # docstring for why each excluded estimator (causal_forest, hierarchical_did,
-# synthetic_control, bsts) is missing from this list.
+# bsts) is missing from this list.
 CI_ESTIMATORS: tuple[str, ...] = (
     "difference_in_means",
     "lin_regression",
@@ -123,6 +135,7 @@ CI_ESTIMATORS: tuple[str, ...] = (
     "twfe",
     "event_study",
     "callaway_santanna",
+    "synthetic_control",
 )
 
 # Cost is linear in bootstrap_reps; 200 rather than the EstimatorConfig
@@ -132,7 +145,8 @@ CI_FIT_CONFIG = EstimatorConfig(random_seed=0, bootstrap_reps=200)
 
 
 def ci_config() -> GridConfig:
-    """The gating grid: 3 cross-sectional scenarios, 2 panel scenarios, 15 reps.
+    """The gating grid: 3 cross-sectional scenarios, 2 panel scenarios, all
+    six donor-pool scenarios, 15 reps.
 
     Scenario H is left off both axes (see module docstring). Run with
     `CI_ESTIMATORS` and `CI_FIT_CONFIG`, not the defaults `run_grid` would
@@ -143,6 +157,7 @@ def ci_config() -> GridConfig:
             scenarios=("A", "B", "D"), n_units=(500,), confounding_strength=(1.0,)
         ),
         panel=PanelAxes(scenarios=("P1", "P2"), n_units=(150,), n_periods=(6,)),
+        donor_pool=DonorPoolAxes(scenarios=_ALL_DONOR_POOL_SCENARIOS),
         replications=15,
     )
 
@@ -402,11 +417,10 @@ TOLERANCE_BANDS: Mapping[tuple[str, str], tuple[Band, ...]] = {
 }
 
 
-# The estimators `ci` drops on cost are back: `full` runs on demand and has no
-# two-minute budget. synthetic_control and bsts stay out -- they need a
-# donor-pool cell shape this phase does not add, and would contribute nothing
-# but `ineligible` rows (see the module docstring's discussion of the same
-# exclusion for `ci`).
+# The estimators `ci` drops on cost are back: `full` runs on demand and has
+# no two-minute budget. synthetic_control and bsts are both included here;
+# only bsts was excluded from `ci`, on the same NumPyro/NUTS cost basis as
+# hierarchical_did (see the module docstring).
 FULL_ESTIMATORS: tuple[str, ...] = (
     "difference_in_means",
     "lin_regression",
@@ -418,6 +432,8 @@ FULL_ESTIMATORS: tuple[str, ...] = (
     "event_study",
     "callaway_santanna",
     "hierarchical_did",
+    "synthetic_control",
+    "bsts",
 )
 
 # The EstimatorConfig default. `ci`'s 200 is a concession to its two-minute
@@ -604,9 +620,23 @@ def full_config() -> GridConfig:
     Scenario H (missing outcomes) is included, unlike in `ci_config()`: its
     rows are all refusals, which contributes no fitted rows to any band but
     is worth recording once in a full study even though `ci` leaves it out
-    to save cost. `synthetic_control` and `bsts` are excluded from
-    `FULL_ESTIMATORS` above for the same donor-pool reason `ci` excludes
-    them.
+    to save cost.
+
+    The donor-pool arm adds all six scenarios (S0-S5) crossed against
+    synthetic_control and bsts: 12 cells at this tier's 10 replications.
+
+    MEASURED 2026-09-26, this tree, `run_grid(DonorPoolAxes(scenarios=S0..S5)
+    only, estimators=['synthetic_control', 'bsts'], fit_config=
+    FULL_FIT_CONFIG)` at `replications=1`: 206.4s, 12 rows (10 fitted, 2
+    ineligible, 0 refused). Both estimators are `fitted` on S0-S4 and
+    `ineligible` on S5, which has 2 pre-periods against the >=10 both
+    require; the ineligible rows cost ~nothing, so the 206.4s is 10 fitted
+    cells (5 scenarios x 2 estimators), ~20.6s per fitted cell on average.
+    The per-estimator split was not timed separately. Only the 206.4s/12-row
+    figures are measured; the rest are extrapolations, assuming cost linear
+    in replications, as for every other arm above: ~2,064s (~34 minutes) at
+    this tier's 10 replications, and ~10,320s (~2.9 hours) at `study_config()`'s
+    50, on top of the cross-sectional and panel arms' own cost.
     """
     return GridConfig(
         cross_section=CrossSectionAxes(
@@ -623,6 +653,7 @@ def full_config() -> GridConfig:
             n_units=(150,),
             n_periods=(7, 10),
         ),
+        donor_pool=DonorPoolAxes(scenarios=_ALL_DONOR_POOL_SCENARIOS),
         replications=10,
     )
 

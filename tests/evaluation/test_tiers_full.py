@@ -1,3 +1,6 @@
+import dataclasses
+from collections import Counter
+
 import pytest
 from cp_evaluation.grid import CrossSectionCell, expand_cells
 from cp_evaluation.tiers import (
@@ -53,11 +56,44 @@ def test_full_includes_the_estimators_ci_had_to_drop():
     assert set(CI_ESTIMATORS) <= set(FULL_ESTIMATORS)
 
 
-def test_full_excludes_the_donor_pool_estimators():
-    # They need a donor-pool cell shape this phase does not add; including them
-    # would produce nothing but `ineligible` rows.
-    assert "synthetic_control" not in FULL_ESTIMATORS
-    assert "bsts" not in FULL_ESTIMATORS
+def test_full_includes_synthetic_control_and_bsts():
+    assert "synthetic_control" in FULL_ESTIMATORS
+    assert "bsts" in FULL_ESTIMATORS
+
+
+def test_ci_includes_synthetic_control_but_not_bsts():
+    # synthetic_control is SLSQP + permutation, the ci tier's cost class.
+    # bsts is NumPyro/NUTS, the same cost class hierarchical_did is excluded
+    # from ci for -- see the module docstring's measured numbers.
+    assert "synthetic_control" in CI_ESTIMATORS
+    assert "bsts" not in CI_ESTIMATORS
+
+
+def test_both_tiers_cover_all_six_donor_pool_scenarios():
+    from cp_simulation.donor_scenarios import DONOR_SCENARIOS
+
+    assert ci_config().donor_pool is not None
+    assert set(ci_config().donor_pool.scenarios) == set(DONOR_SCENARIOS)
+    assert full_config().donor_pool is not None
+    assert set(full_config().donor_pool.scenarios) == set(DONOR_SCENARIOS)
+
+
+def test_adding_the_donor_pool_arm_does_not_perturb_any_existing_cell():
+    # Grid-independence regression: standing up the third shape must not
+    # change the identity, seed, or multiplicity of any pre-existing
+    # cross-section/panel cell. Compares the full cell multisets (cells are
+    # frozen dataclasses carrying their seed), not just counts, so a shifted
+    # seed or a duplicated/dropped cell is caught.
+    from cp_evaluation.grid import CrossSectionCell, PanelCell, expand_cells
+
+    with_donor_pool = expand_cells(full_config())
+    without_donor_pool = expand_cells(dataclasses.replace(full_config(), donor_pool=None))
+
+    for shape in (CrossSectionCell, PanelCell):
+        with_ = Counter(c for c in with_donor_pool if isinstance(c, shape))
+        without = Counter(c for c in without_donor_pool if isinstance(c, shape))
+        assert with_ == without
+        assert sum(with_.values()) > 0
 
 
 @pytest.mark.parametrize("name", FULL_ESTIMATORS)

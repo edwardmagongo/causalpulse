@@ -15,16 +15,17 @@ def test_the_study_tier_is_the_full_tier_at_fifty_replications():
 
 
 def test_the_study_grid_is_five_times_the_full_grid():
-    # 800 cells at 10 replications is 80 configurations; 50 replications of
-    # each is 4,000. Counted from the shipped grids rather than stated.
-    assert len(expand_cells(full_config())) == 800
-    assert len(expand_cells(study_config())) == 4000
+    # 860 cells at 10 replications is 86 configurations (80 cross-section/panel
+    # plus the six donor-pool scenarios); 50 replications of each is 4,300.
+    # Counted from the shipped grids rather than stated.
+    assert len(expand_cells(full_config())) == 860
+    assert len(expand_cells(study_config())) == 4300
 
 
 def test_every_study_cell_has_its_own_key():
     keys = [cell_key(cell) for cell in expand_cells(study_config())]
 
-    assert len(set(keys)) == len(keys) == 4000
+    assert len(set(keys)) == len(keys) == 4300
 
 
 def test_a_cell_key_does_not_depend_on_how_many_replications_were_asked_for():
@@ -34,4 +35,4 @@ def test_a_cell_key_does_not_depend_on_how_many_replications_were_asked_for():
     large = {cell_key(c) for c in expand_cells(dataclasses.replace(full_config(), replications=50))}
 
     assert small < large
-    assert len(small) == 400
+    assert len(small) == 430
