@@ -125,17 +125,17 @@ def _more_biased(
 
 def _hierarchical_coverage(baseline: pd.DataFrame) -> ExpectationResult:
     statement = "hierarchical_did's credible-interval coverage is not below 0.90, pooled"
-    rule = "failed only if pooled coverage_analytic + 2 MCSE < 0.90"
+    rule = "failed only if pooled coverage_posterior + 2 MCSE < 0.90"
     rows = baseline[baseline["method"] == "hierarchical_did"]
     if rows.empty:
         return ExpectationResult("E5", statement, rule, "inconclusive", ())
     pooled = summarise(rows, by=[])
     row = pooled.iloc[0]
     measurement = Measurement(
-        label="hierarchical_did pooled: coverage_analytic",
-        value=float(row["coverage_analytic"]),
-        mcse=float(row["coverage_analytic_mcse"]),
-        n_used=int(row["coverage_analytic_n_used"]),
+        label="hierarchical_did pooled: coverage_posterior",
+        value=float(row["coverage_posterior"]),
+        mcse=float(row["coverage_posterior_mcse"]),
+        n_used=int(row["coverage_posterior_n_used"]),
     )
     if not _usable(measurement):
         return ExpectationResult("E5", statement, rule, "inconclusive", (measurement,))

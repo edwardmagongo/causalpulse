@@ -115,6 +115,7 @@ def test_rmse_mcse_is_nan_when_mean_squared_error_is_exactly_zero():
 
 
 def _covered_frame(lowers, uppers, truth=1.0, **overrides) -> pd.DataFrame:
+    overrides.setdefault("ci_basis", "analytic")
     frame = _frame([1.0] * len(lowers), truth=truth, **overrides)
     frame["ci_lower"] = list(lowers)
     frame["ci_upper"] = list(uppers)
@@ -167,6 +168,74 @@ def test_bootstrap_coverage_is_reported_separately_and_skips_missing_intervals()
 
     assert result["coverage_bootstrap"].value == pytest.approx(1.0)
     assert result["coverage_bootstrap"].n_used == 1
+
+
+def test_each_non_analytic_basis_gets_its_own_coverage_column():
+    frame = pd.concat(
+        [
+            _covered_frame([0.0, 5.0], [2.0, 6.0], truth=1.0, ci_basis="posterior"),
+            _covered_frame([0.0], [2.0], truth=1.0, ci_basis="permutation"),
+            _covered_frame([0.0, 0.0, 5.0], [2.0, 2.0, 6.0], truth=1.0, ci_basis="bootstrap"),
+        ],
+        ignore_index=True,
+    )
+
+    result = coverage_metrics(frame)
+
+    assert result["coverage_posterior"].value == pytest.approx(0.5)
+    assert result["coverage_posterior"].n_used == 2
+    assert result["coverage_permutation"].value == pytest.approx(1.0)
+    assert result["coverage_permutation"].n_used == 1
+    assert result["coverage_bootstrap_se"].value == pytest.approx(2 / 3)
+    assert result["coverage_bootstrap_se"].n_used == 3
+
+
+def test_coverage_analytic_counts_only_analytic_rows():
+    frame = pd.concat(
+        [
+            _covered_frame([0.0, 5.0], [2.0, 6.0], truth=1.0, ci_basis="analytic"),
+            _covered_frame([0.0, 0.0], [2.0, 2.0], truth=1.0, ci_basis="posterior"),
+        ],
+        ignore_index=True,
+    )
+
+    result = coverage_metrics(frame)
+
+    assert result["coverage_analytic"].value == pytest.approx(0.5)
+    assert result["coverage_analytic"].n_used == 2
+
+
+def test_a_basis_with_no_rows_reports_nan_and_n_used_zero():
+    result = coverage_metrics(_covered_frame([0.0], [2.0], truth=1.0))
+
+    for name in ("coverage_posterior", "coverage_permutation", "coverage_bootstrap_se"):
+        assert np.isnan(result[name].value)
+        assert result[name].n_used == 0
+
+
+def test_bootstrap_ci_coverage_ignores_ci_basis():
+    # coverage_bootstrap reads the separate bootstrap_ci field for any basis.
+    frame = _covered_frame([0.0], [2.0], truth=1.0, ci_basis="bootstrap")
+    frame["bootstrap_ci_lower"] = [0.0]
+    frame["bootstrap_ci_upper"] = [2.0]
+
+    result = coverage_metrics(frame)
+
+    assert result["coverage_bootstrap"].n_used == 1
+    assert result["coverage_bootstrap_se"].n_used == 1
+    assert result["coverage_analytic"].n_used == 0
+
+
+def test_mean_ci_width_still_pools_every_basis():
+    frame = pd.concat(
+        [
+            _covered_frame([0.0], [2.0], truth=1.0, ci_basis="analytic"),
+            _covered_frame([0.0], [4.0], truth=1.0, ci_basis="posterior"),
+        ],
+        ignore_index=True,
+    )
+
+    assert coverage_metrics(frame)["mean_ci_width"].value == pytest.approx(3.0)
 
 
 def test_se_calibration_is_mean_reported_se_over_empirical_sd():

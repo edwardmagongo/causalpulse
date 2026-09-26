@@ -141,25 +141,42 @@ def _interval_hits(
     return hits
 
 
-def coverage_metrics(frame: pd.DataFrame) -> dict[str, MetricValue]:
-    """Coverage for the analytic and bootstrap intervals, and mean CI width.
+def _basis(rows: pd.DataFrame, basis: str) -> pd.DataFrame:
+    """Rows whose own `ci_basis` is `basis`: one basis-labelled coverage column's population.
 
-    Reported separately rather than combined, because the parent spec's
-    headline question is precisely where the two diverge -- where asymptotic
-    standard errors break down and the bootstrap does not, or the reverse.
+    Filters on `ci_basis` alone. `summarise` groups by `method` first, so two
+    estimators sharing a basis never share a group and a shape gate adds nothing.
+    """
+    return rows[rows["ci_basis"] == basis]
+
+
+def coverage_metrics(frame: pd.DataFrame) -> dict[str, MetricValue]:
+    """Coverage of each kind of interval an estimator reports, and mean CI width.
+
+    `ci_lower`/`ci_upper` is the estimator's primary interval and its meaning
+    depends on `ci_basis`, so its coverage is reported per basis rather than
+    under one name: `coverage_analytic` is analytic intervals only, and
+    posterior, permutation and bootstrap-SE intervals each have their own
+    column. `coverage_bootstrap` is a different quantity: coverage of the
+    separately reported `bootstrap_ci` (a percentile bootstrap), whatever the
+    primary interval's basis. `mean_ci_width` pools every basis.
     """
     rows = _fitted(frame)
 
     widths = (rows["ci_upper"] - rows["ci_lower"]).to_numpy(dtype=float)
     widths = widths[np.isfinite(widths)]
 
+    def primary(basis: str) -> MetricValue:
+        return _share_with_mcse(_interval_hits(_basis(rows, basis), "ci_lower", "ci_upper"))
+
     return {
-        "coverage_analytic": _share_with_mcse(
-            _interval_hits(rows, "ci_lower", "ci_upper")
-        ),
+        "coverage_analytic": primary("analytic"),
         "coverage_bootstrap": _share_with_mcse(
             _interval_hits(rows, "bootstrap_ci_lower", "bootstrap_ci_upper")
         ),
+        "coverage_posterior": primary("posterior"),
+        "coverage_permutation": primary("permutation"),
+        "coverage_bootstrap_se": primary("bootstrap"),
         "mean_ci_width": _mean_with_mcse(widths),
     }
 
