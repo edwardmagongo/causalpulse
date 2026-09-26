@@ -126,7 +126,10 @@ def _more_biased(
 def _hierarchical_coverage(baseline: pd.DataFrame) -> ExpectationResult:
     statement = "hierarchical_did's credible-interval coverage is not below 0.90, pooled"
     rule = "failed only if pooled coverage_analytic + 2 MCSE < 0.90"
-    rows = baseline[baseline["method"] == "hierarchical_did"]
+    # The population is hierarchical_did's pooled PANEL coverage. hierarchical_did also fits on
+    # every donor-pool cell (it is eligible by its own requirements), and those rows are a
+    # different population that E5 was never pre-registered against, so they are excluded.
+    rows = baseline[(baseline["method"] == "hierarchical_did") & (baseline["shape"] == "panel")]
     if rows.empty:
         return ExpectationResult("E5", statement, rule, "inconclusive", ())
     pooled = summarise(rows, by=[])
@@ -160,7 +163,14 @@ def _no_fits_on_missing_outcomes(frame: pd.DataFrame) -> ExpectationResult:
 def _slowest_is_hierarchical(frame: pd.DataFrame) -> ExpectationResult:
     statement = "hierarchical_did has the largest mean runtime_seconds of the estimators"
     rule = "rank 1 by mean runtime_seconds over each method's fitted rows"
-    per_method = summarise(frame, by=[])
+    # The original ten-estimator ranking was over panel and cross-section rows. Donor-pool rows
+    # (bsts, synthetic_control and hierarchical_did fitted on S0-S5) are excluded entirely, so
+    # the ranking, and the hierarchical_did figure in it, is identical whether or not the run
+    # carries a donor arm.
+    ranked_rows = frame[frame["shape"] != "donor_pool"]
+    if ranked_rows.empty:
+        return ExpectationResult("E7", statement, rule, "inconclusive", ())
+    per_method = summarise(ranked_rows, by=[])
     per_method = per_method[per_method["runtime_seconds_n_used"] > 0]
     if "hierarchical_did" not in set(per_method["method"]):
         return ExpectationResult("E7", statement, rule, "inconclusive", ())

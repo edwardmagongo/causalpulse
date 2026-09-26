@@ -120,6 +120,41 @@ def test_e7_fails_when_another_estimator_is_slower_than_hierarchical_did():
     assert _verdicts(data)["E7"] == "failed"
 
 
+def test_e5_ignores_donor_pool_rows_of_hierarchical_did():
+    # Pooled over these donor rows too, coverage would be 0.5 and E5 would fail.
+    panel = rows("hierarchical_did", "P1", 200, hit_fraction=0.95, panel=True)
+    donor = rows("hierarchical_did", "S1", 200, hit_fraction=0.05, donor_pool=True)
+
+    assert _verdicts(panel)["E5"] == "met"
+    assert _verdicts(frame(panel, donor))["E5"] == "met"
+
+
+def test_e5_is_inconclusive_when_hierarchical_did_has_only_donor_pool_rows():
+    donor = rows("hierarchical_did", "S1", 200, hit_fraction=0.05, donor_pool=True)
+
+    assert _verdicts(donor)["E5"] == "inconclusive"
+
+
+def test_e7_ranking_is_unchanged_by_donor_pool_rows():
+    # A slow donor-pool bsts or synthetic_control fit would otherwise take rank 1 from
+    # hierarchical_did; the ten-estimator ranking is over panel and cross-section rows only.
+    base = frame(
+        rows("hierarchical_did", "P1", 50, panel=True, runtime=25.0),
+        rows("twfe", "P1", 50, panel=True, runtime=2.0),
+    )
+    donor = frame(
+        rows("bsts", "S1", 50, donor_pool=True, runtime=200.0),
+        rows("synthetic_control", "S1", 50, donor_pool=True, runtime=90.0),
+        rows("hierarchical_did", "S1", 50, donor_pool=True, runtime=1.0),
+    )
+
+    with_donor = {r.id: r for r in evaluate_expectations(frame(base, donor), COMPLETE)}
+    without = {r.id: r for r in evaluate_expectations(base, COMPLETE)}
+
+    assert with_donor["E7"].verdict == without["E7"].verdict == "met"
+    assert with_donor["E7"].measurements == without["E7"].measurements
+
+
 def test_e8_fails_on_remaining_cells_or_orphans():
     remaining = RunStatus(expected=10, done=9, orphans=0, by_scenario={})
     orphaned = RunStatus(expected=10, done=10, orphans=1, by_scenario={})
