@@ -60,6 +60,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     study.add_study_arguments(bench_study)
     bench_study.set_defaults(handler=study.run_study)
+    bench_study_report = bench_commands.add_parser(
+        "study-report", help="Write the benchmark study's research report."
+    )
+    study.add_study_report_arguments(bench_study_report)
+    bench_study_report.set_defaults(handler=study.run_study_report)
 
     return parser
 
