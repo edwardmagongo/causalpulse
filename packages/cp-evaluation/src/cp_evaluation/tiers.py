@@ -34,8 +34,8 @@ permutation over ~17 donors) is excluded from `ci` on a different basis: it
 has no committed `TOLERANCE_BANDS`, so in `ci` it adds cost for zero
 assertions. MEASURED 2026-09-26, this tree: the `ci` tier took 338s with the
 donor-pool arm (all six scenarios, 15 replications) and 257s without it, so
-the arm's marginal cost was ~81s (+~32%), ~1.1s per fitted cell over 75
-fitted cells. The donor-pool arm therefore lives in `full`/`study` only;
+the arm's marginal cost was ~81s (+~32%), ~1.1s per fitted row over 75
+fitted rows. The donor-pool arm therefore lives in `full`/`study` only;
 `ci_config()` has no `donor_pool`, and its cell set is identical to what it
 was before the donor-pool shape existed. Deriving `synthetic_control` bands
 (with the same discriminating-power check as the other bands) is follow-up
@@ -43,8 +43,8 @@ work. Caveat: these 2026-09-26 timings were taken while another Claude
 session ran a multi-hour CPU-heavy benchmark study on the same machine, so
 they are likely inflated by contention and should be re-measured on an idle
 machine. The per-fit figures quoted in this module are not comparable with
-each other: ~1.1s per `synthetic_control` cell (ci, derived from the 81s
-delta, `bootstrap_reps=200`), ~20.6s average per fitted donor cell in
+each other: ~1.1s per `synthetic_control` fitted row (ci, derived from the 81s
+delta, `bootstrap_reps=200`), ~20.6s average per fitted donor row in
 `full_config()`'s docstring (averaged over both estimators, at
 `bootstrap_reps=1000`), and `bsts.py`'s ~17.5s/fit (a different environment
 and config) differ in estimator mix, configuration and date.
@@ -429,7 +429,9 @@ TOLERANCE_BANDS: Mapping[tuple[str, str], tuple[Band, ...]] = {
 
 # The estimators `ci` drops on cost are back: `full` runs on demand and has
 # no two-minute budget. synthetic_control and bsts are both included here;
-# both were excluded from `ci` on measured cost (see the module docstring).
+# neither is in `ci`: synthetic_control because it has no committed bands (its
+# ~81s marginal cost is the measurement), bsts on its NUTS cost (see the module
+# docstring).
 FULL_ESTIMATORS: tuple[str, ...] = (
     "difference_in_means",
     "lin_regression",
@@ -656,7 +658,7 @@ def full_config() -> GridConfig:
     and EXCLUDES hierarchical_did. Both were `fitted` on S0-S4 and
     `ineligible` on S5, which has 2 pre-periods against the >=10 both
     require; the ineligible rows cost ~nothing, so the 206.4s is 10 fitted
-    cells (5 scenarios x 2 estimators), ~20.6s per fitted cell on average.
+    rows (5 scenarios x 2 estimators), ~20.6s per fitted row on average.
     hierarchical_did was NOT part of that measurement. Single reviewer runs of
     one hierarchical_did fit each, taken under contention and not in a quiet
     run, took S1 28.7s, S5 19.7s and S0 23.8s (~24s each).

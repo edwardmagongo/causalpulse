@@ -90,12 +90,15 @@ def longest_first(cells: Sequence[Cell]) -> list[Cell]:
     """Cells ordered so the dearest are submitted first.
 
     Panel and donor-pool cells carry the slow estimators (`hierarchical_did` and
-    `bsts` sample with NUTS) so they go before cross-sectional cells; within a
-    shape, larger samples (`n_units`; a donor cell's comes from its scenario's
-    spec) cost more. Submitting the dear cells first stops the run ending
-    with one straggler while the other workers idle. The key ends in `cell_key`,
-    so the order is total and does not depend on the input's. It changes only
-    when cells finish, never what they compute.
+    `bsts` sample with NUTS) so they go before cross-sectional cells; panel and
+    donor-pool cells are then sorted together by descending `n_units` (a donor
+    cell's comes from its scenario's spec), larger samples being assumed to cost
+    more. Donor cells land after panel cells only because their sample is
+    smaller (18 units against 150), not because of their shape. Submitting the
+    dear cells first stops the run ending with one straggler while the other
+    workers idle. The key ends in `cell_key`, so the order is total and does not
+    depend on the input's. It changes only when
+    cells finish, never what they compute.
     """
 
     def n_units(cell: Cell) -> int:
