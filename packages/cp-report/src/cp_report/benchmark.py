@@ -20,6 +20,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from functools import partial
+from html import escape
 from pathlib import Path
 
 import numpy as np
@@ -27,10 +28,18 @@ import pandas as pd
 from cp_evaluation.expectations import ExpectationResult, Verdict, evaluate_expectations
 from cp_evaluation.metrics import summarise
 from cp_evaluation.store import RunStatus, RunStore
-from cp_evaluation.study import NOT_COVERED, baseline_slice, headline_tables
+from cp_evaluation.study import (
+    NOT_COVERED,
+    baseline_slice,
+    format_value,
+    headline_tables,
+    markdown_table,
+)
 from cp_figures.benchmark import axis_profile_data, draw_axis_profile, draw_heatmap, heatmap_data
 
 from cp_report.evidence import ReportFigure
+from cp_report.figures import figure_to_file, figure_to_inline_svg
+from cp_report.language import require_clean_prose
 
 # One heatmap per metric over the baseline-slice pooled summary -- a subset of the
 # metrics `cp_cli.commands.study` draws, so a reader comparing the report against
@@ -307,3 +316,235 @@ def benchmark_evidence_from_run(
             tables.get("coverage__scenario_by_size", pd.DataFrame())
         ),
     )
+
+
+# -- prose assembly and the language lint -----------------------------------------
+
+
+def _section_data(
+    evidence: BenchmarkEvidence,
+) -> tuple[OverviewData, HeadlineFindingsData, MethodComparisonsData, LimitationsData]:
+    """The four sections, rebuilt from `evidence` in one place so a fifth section is a
+    one-place edit and the prose the lint sees cannot drift from the prose rendered."""
+    return (
+        overview_data(
+            len(evidence.estimators_run),
+            len(evidence.scenarios_run),
+            evidence.status.expected,
+            evidence.replications,
+        ),
+        headline_findings_data(evidence.expectations, evidence.narratives),
+        method_comparisons_data(evidence.tables, evidence.exploratory_note),
+        limitations_data(evidence.not_covered, evidence.limitations),
+    )
+
+
+def document_prose_fragments(evidence: BenchmarkEvidence) -> list[tuple[str, str]]:
+    """Every fragment of reader-facing prose a report built from `evidence` shows,
+    tagged with its section, in rendering order. Mirrors
+    `cp_report.sections.document_prose_fragments`; a figure caption is its own fragment
+    because it reaches the reader as a `<figcaption>` or an image's alt text."""
+    overview, findings, comparisons, limitations = _section_data(evidence)
+    fragments = [("Overview", text) for text in overview.prose_fragments()]
+    fragments += [("Headline Findings", text) for text in findings.prose_fragments()]
+    fragments += [("Figures", figure.caption) for figure in evidence.figures]
+    fragments += [("Method Comparisons", text) for text in comparisons.prose_fragments()]
+    fragments += [("Limitations", text) for text in limitations.prose_fragments()]
+    return fragments
+
+
+# -- HTML -------------------------------------------------------------------------
+
+_STYLE = (
+    "body{font-family:sans-serif;max-width:960px;margin:2rem auto;padding:0 1rem;}"
+    "table{border-collapse:collapse;width:100%;margin:1rem 0;}"
+    "th,td{border:1px solid #ccc;padding:4px 8px;text-align:left;}"
+    "figure{margin:1rem 0;}figcaption{font-style:italic;}"
+)
+
+
+def _html_cell(value: object) -> str:
+    return escape(format_value(value)) if value is not None else "—"
+
+
+def _dataframe_to_html(frame: pd.DataFrame) -> str:
+    header = "".join(f"<th>{escape(str(c))}</th>" for c in frame.columns)
+    rows = "".join(
+        "<tr>" + "".join(f"<td>{_html_cell(v)}</td>" for v in row) + "</tr>"
+        for row in frame.itertuples(index=False, name=None)
+    )
+    return f"<table><tr>{header}</tr>{rows}</table>"
+
+
+def render_overview_html(data: OverviewData) -> str:
+    return (
+        "<section><h2>Overview</h2>"
+        f"<p>{data.n_estimators} estimators, {data.n_scenarios} scenarios, "
+        f"{data.n_cells} cells, {data.replications} replications per configuration "
+        f"(coverage MCSE ~= {data.coverage_mcse:.3f}).</p></section>"
+    )
+
+
+def render_headline_findings_html(data: HeadlineFindingsData) -> str:
+    rows = "".join(
+        f"<tr><td>{escape(row.id)}</td><td>{escape(row.verdict)}</td>"
+        f"<td>{escape(row.narrative)}</td></tr>"
+        for row in data.rows
+    )
+    summary = f"Met: {data.n_met} · Failed: {data.n_failed} · Inconclusive: {data.n_inconclusive}"
+    return (
+        "<section><h2>Headline Findings</h2>"
+        f"<p>{summary}</p>"
+        "<table><tr><th>ID</th><th>Verdict</th><th>Explanation</th></tr>"
+        f"{rows}</table></section>"
+    )
+
+
+def render_method_comparisons_html(data: MethodComparisonsData) -> str:
+    tables = "".join(
+        f"<h3>{escape(name)}</h3>{_dataframe_to_html(frame)}" for name, frame in data.tables.items()
+    )
+    coverage_note = f"<p>{escape(data.coverage_note)}</p>" if data.coverage_note else ""
+    return (
+        "<section><h2>Method Comparisons</h2>"
+        f"{tables}{coverage_note}<p><em>{escape(data.exploratory_note)}</em></p></section>"
+    )
+
+
+def render_limitations_html(data: LimitationsData) -> str:
+    not_covered = "".join(
+        f"<li>{escape(name)}: {escape(reason)}</li>" for name, reason in data.not_covered
+    )
+    statements = "".join(f"<li>{escape(s)}</li>" for s in data.statements)
+    return f"<section><h2>Limitations</h2><ul>{not_covered}{statements}</ul></section>"
+
+
+def _render_figures_html(figures: tuple[ReportFigure, ...]) -> str:
+    if not figures:
+        return ""
+    body = "".join(
+        f"<figure>{figure_to_inline_svg(figure)}<figcaption>{escape(figure.caption)}"
+        "</figcaption></figure>"
+        for figure in figures
+    )
+    return f"<section><h2>Figures</h2>{body}</section>"
+
+
+def render_html_benchmark_report(evidence: BenchmarkEvidence) -> str:
+    """Render the report as one self-contained HTML document.
+
+    Lints before rendering, and carries its own `require_clean_prose` call rather than
+    sharing one with the Markdown entry point, so a guard removed from one format
+    cannot mask a gap in the other.
+    """
+    overview, findings, comparisons, limitations = _section_data(evidence)
+    require_clean_prose(document_prose_fragments(evidence))
+
+    body = "".join(
+        [
+            render_overview_html(overview),
+            render_headline_findings_html(findings),
+            _render_figures_html(evidence.figures),
+            render_method_comparisons_html(comparisons),
+            render_limitations_html(limitations),
+        ]
+    )
+    return (
+        "<!DOCTYPE html>\n"
+        '<html lang="en">\n'
+        "<head>\n"
+        '<meta charset="utf-8">\n'
+        "<title>CausalPulse Benchmark Study Report</title>\n"
+        f"<style>{_STYLE}</style>\n"
+        "</head>\n"
+        "<body>\n"
+        "<h1>CausalPulse Benchmark Study Report</h1>\n"
+        f"{body}\n"
+        "</body>\n"
+        "</html>\n"
+    )
+
+
+# -- Markdown ---------------------------------------------------------------------
+
+_DOCUMENT_NAME = "benchmark-report.md"
+
+
+def _md_cell(text: str) -> str:
+    """A table cell: a pipe or a newline would end the row early."""
+    return text.replace("|", "\\|").replace("\n", " ")
+
+
+def render_overview_markdown(data: OverviewData) -> str:
+    return (
+        "## Overview\n\n"
+        f"{data.n_estimators} estimators, {data.n_scenarios} scenarios, "
+        f"{data.n_cells} cells, {data.replications} replications per configuration "
+        f"(coverage MCSE ~= {data.coverage_mcse:.3f})."
+    )
+
+
+def render_headline_findings_markdown(data: HeadlineFindingsData) -> str:
+    summary = f"Met: {data.n_met} · Failed: {data.n_failed} · Inconclusive: {data.n_inconclusive}"
+    rows = [f"| {row.id} | {row.verdict} | {_md_cell(row.narrative)} |" for row in data.rows]
+    table = "\n".join(["| ID | Verdict | Explanation |", "| --- | --- | --- |", *rows])
+    return f"## Headline Findings\n\n{summary}\n\n{table}"
+
+
+def render_method_comparisons_markdown(data: MethodComparisonsData) -> str:
+    parts = ["## Method Comparisons"]
+    for name, frame in data.tables.items():
+        parts.extend([f"### {name}", markdown_table(frame).rstrip("\n")])
+    if data.coverage_note:
+        parts.append(data.coverage_note)
+    parts.append(f"*{data.exploratory_note}*")
+    return "\n\n".join(parts)
+
+
+def render_limitations_markdown(data: LimitationsData) -> str:
+    lines = [f"- {name}: {reason}" for name, reason in data.not_covered]
+    lines.extend(f"- {statement}" for statement in data.statements)
+    return "\n".join(["## Limitations", "", *lines])
+
+
+def _render_figures_markdown(figures: tuple[ReportFigure, ...], paths: list[Path]) -> str:
+    if not figures:
+        return ""
+    links = "\n".join(
+        f"![{figure.caption}]({path.name})" for figure, path in zip(figures, paths, strict=True)
+    )
+    return f"## Figures\n\n{links}"
+
+
+def write_markdown_benchmark_report(evidence: BenchmarkEvidence, directory: Path) -> Path:
+    """Write the report as one Markdown document plus its SVG figures under `directory`.
+
+    Lints before writing anything, and `directory` must already exist -- the two
+    guarantees of `cp_report.markdown.write_markdown_report`, for the same reasons: a
+    refusal must never leave a half-written directory, and this never silently `mkdir`s
+    a path a caller may not have meant to create.
+    """
+    overview, findings, comparisons, limitations = _section_data(evidence)
+    require_clean_prose(document_prose_fragments(evidence))
+
+    if not directory.is_dir():
+        raise FileNotFoundError(
+            f"write_markdown_benchmark_report requires an existing directory, got {directory!r}"
+        )
+
+    figure_paths = [figure_to_file(figure, directory) for figure in evidence.figures]
+    document = "\n\n".join(
+        part
+        for part in [
+            "# CausalPulse Benchmark Study Report",
+            render_overview_markdown(overview),
+            render_headline_findings_markdown(findings),
+            _render_figures_markdown(evidence.figures, figure_paths),
+            render_method_comparisons_markdown(comparisons),
+            render_limitations_markdown(limitations),
+        ]
+        if part
+    )
+    path = directory / _DOCUMENT_NAME
+    path.write_text(document, encoding="utf-8")
+    return path
