@@ -23,7 +23,7 @@ panel scenarios P1/P3/P4, `n_units=150`, `n_periods=7`, 40 replications,
 `EstimatorConfig(random_seed=0, bootstrap_reps=1000)`, root entropy 0. Total
 elapsed 2207s. Full summary saved at `/tmp/t10b_summary.csv`.
 
-    scenario  coverage_posterior  mcse     bias      bias_mcse  se_calibration  n_fitted
+    scenario  coverage_posterior mcse     bias      bias_mcse  se_calibration  n_fitted
     P1        1.00000            0.07500  0.04935   0.01632    1.12892         40
     P3        0.95000            0.03446  0.01384   0.01714    1.01449         40
     P4        0.95000            0.03446  -0.01756  0.01807    0.99587         40
