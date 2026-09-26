@@ -35,6 +35,7 @@ from cp_core.values import EstimatorConfig
 from cp_evaluation.grid import (
     Cell,
     CrossSectionAxes,
+    DonorPoolAxes,
     GridConfig,
     PanelAxes,
     cell_key,
@@ -102,6 +103,10 @@ class RunIdentity:
             else asdict(config.cross_section),
             "panel": None if config.panel is None else asdict(config.panel),
         }
+        if config.donor_pool is not None:
+            # Only when present: a grid without a donor arm keeps the identity
+            # (and so the manifest) it always had.
+            grid["donor_pool"] = asdict(config.donor_pool)
         return cls(
             tier=tier,
             grid=_jsonable(grid),
@@ -150,11 +155,13 @@ def grid_config_of(grid: dict[str, Any], replications: int) -> GridConfig:
     """Rebuild the `GridConfig` an identity's `grid` block describes."""
     cross_section = grid["cross_section"]
     panel = grid["panel"]
+    donor_pool = grid.get("donor_pool")
     return GridConfig(
         cross_section=(
             None if cross_section is None else CrossSectionAxes(**_axes(cross_section))
         ),
         panel=None if panel is None else PanelAxes(**_axes(panel)),
+        donor_pool=None if donor_pool is None else DonorPoolAxes(**_axes(donor_pool)),
         replications=replications,
     )
 

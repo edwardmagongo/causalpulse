@@ -4,7 +4,7 @@ import json
 import pandas as pd
 import pytest
 from cp_core.values import EstimatorConfig
-from cp_evaluation.grid import cell_key, expand_cells
+from cp_evaluation.grid import DonorPoolAxes, DonorPoolCell, cell_key, expand_cells
 from cp_evaluation.run import fit_cell, resolve_candidates
 from cp_evaluation.store import (
     CELLS_DIR,
@@ -16,9 +16,11 @@ from cp_evaluation.store import (
     RunIdentity,
     RunMismatchError,
     RunStore,
+    grid_config_of,
     shard_path,
     write_shard,
 )
+from cp_evaluation.tiers import study_config
 
 from evaluation._run_helpers import (
     ESTIMATORS,
@@ -101,6 +103,37 @@ def test_the_manifest_rebuilds_the_grid_it_was_made_from(tmp_path):
     assert [cell_key(c) for c in expand_cells(rebuilt)] == [
         cell_key(c) for c in expand_cells(store.grid_config())
     ]
+
+
+def test_the_store_expects_every_cell_the_config_expands_to_donor_arm_included(tmp_path):
+    config = study_config()
+    store = RunStore.create(
+        tmp_path / "run",
+        RunIdentity.of("study", config, ESTIMATORS, FIT_CONFIG, 0),
+        config.replications,
+    )
+
+    expected = store.expected_cells()
+
+    assert set(expected) == {cell_key(c) for c in expand_cells(config)}
+    assert len(expected) == len(expand_cells(config)) == 4300
+    assert any(isinstance(c, DonorPoolCell) for c in expected.values())
+
+
+def test_a_grid_with_no_donor_arm_keeps_its_identity_free_of_a_donor_key():
+    identity = identity_for(tiny_config(3))
+
+    assert "donor_pool" not in identity.grid
+
+
+def test_the_donor_arm_survives_the_identity_round_trip():
+    config = dataclasses.replace(
+        tiny_config(3), donor_pool=DonorPoolAxes(scenarios=("S0", "S3"))
+    )
+    identity = identity_for(config)
+
+    assert identity.grid["donor_pool"] == {"scenarios": ["S0", "S3"]}
+    assert grid_config_of(identity.grid, 3) == config
 
 
 def test_create_refuses_a_directory_that_already_holds_a_run(tmp_path):
