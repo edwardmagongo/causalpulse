@@ -105,13 +105,43 @@ def markdown_table(frame: pd.DataFrame) -> str:
 # What the study did not run, and why. The parent design's grid has arms the
 # shipped `full` tier leaves out; the study reports them by name rather than
 # letting a reader assume they were covered.
+_DONOR_POOL = "the donor-pool arm has no grid or metrics yet (a causal-core item still open)"
 NOT_COVERED: tuple[tuple[str, str], ...] = (
+    ("synthetic_control", _DONOR_POOL),
+    ("bsts", _DONOR_POOL),
     (
         "CATE metrics",
         "the heterogeneity metrics (CATE correlation, RMSE, calibration slope) have no arm yet",
     ),
     ("scenario P7", "it needs n_periods >= 16 and cannot share a panel axis with P1 to P6"),
 )
+
+_DONOR_ESTIMATORS = ("synthetic_control", "bsts")
+
+
+def not_covered_for(frame: pd.DataFrame) -> tuple[tuple[str, str], ...]:
+    """`NOT_COVERED` as it applies to `frame`.
+
+    A donor estimator with a fitted row is covered and drops out. One that never
+    fitted stays listed; when the frame does contain donor-pool rows the constant's
+    "no grid yet" reason would be false, so it is replaced by what happened.
+    """
+    fitted = set(frame.loc[frame["status"] == "fitted", "method"])
+    has_donor_arm = bool((frame["shape"] == "donor_pool").any())
+    seen = set(frame["method"])
+    out: list[tuple[str, str]] = []
+    for name, reason in NOT_COVERED:
+        if name in _DONOR_ESTIMATORS:
+            if name in fitted:
+                continue
+            if has_donor_arm:
+                reason = (
+                    "it was ineligible on every cell of this run"
+                    if name in seen
+                    else "it produced no rows in this run"
+                )
+        out.append((name, reason))
+    return tuple(out)
 
 
 def coverage_of_study_markdown(
@@ -135,7 +165,7 @@ def coverage_of_study_markdown(
         "",
         "## Not covered",
         "",
-        *(f"- **{name}**: {reason}." for name, reason in NOT_COVERED),
+        *(f"- **{name}**: {reason}." for name, reason in not_covered_for(frame)),
         "",
         "## Rows by status, per method",
         "",

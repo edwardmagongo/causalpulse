@@ -134,10 +134,65 @@ def test_the_baseline_slice_keeps_donor_pool_rows():
     assert kept["scenario"].unique().tolist() == ["S1"]
 
 
-def test_not_covered_no_longer_names_synthetic_control_or_bsts():
-    names = {name for name, _ in NOT_COVERED}
-    assert "synthetic_control" not in names
-    assert "bsts" not in names
+def test_not_covered_constant_still_names_all_four_entries():
+    assert [name for name, _ in NOT_COVERED] == [
+        "synthetic_control",
+        "bsts",
+        "CATE metrics",
+        "scenario P7",
+    ]
+
+
+def _listed(frame_):
+    text = coverage_of_study_markdown(frame_, COMPLETE, 50)
+    return text.split("## Not covered")[1].split("## Rows by status")[0]
+
+
+def test_a_study_50_shaped_frame_lists_the_donor_estimators_as_not_covered():
+    data = frame(
+        rows("aipw", "A", 5),
+        rows("hierarchical_did", "P1", 5, panel=True, ci_basis="posterior"),
+    )
+
+    section = _listed(data)
+
+    assert "**synthetic_control**" in section
+    assert "**bsts**" in section
+    assert "no grid or metrics yet" in section
+
+
+def test_fitted_donor_rows_drop_their_estimators_from_not_covered():
+    data = frame(
+        rows("aipw", "A", 5),
+        rows("synthetic_control", "S1", 5, donor_pool=True, ci_basis="permutation"),
+        rows("bsts", "S1", 5, donor_pool=True, ci_basis="posterior"),
+    )
+
+    section = _listed(data)
+
+    assert "synthetic_control" not in section
+    assert "bsts" not in section
+    assert "**CATE metrics**" in section
+    assert "**scenario P7**" in section
+
+
+def test_a_donor_estimator_with_only_ineligible_rows_stays_listed_with_a_true_reason():
+    data = frame(
+        rows("synthetic_control", "S1", 5, donor_pool=True, ci_basis="permutation"),
+        rows("bsts", "S5", 5, donor_pool=True, status="ineligible", ci_basis="posterior"),
+    )
+
+    section = _listed(data)
+
+    assert "synthetic_control" not in section
+    assert "**bsts**: it was ineligible on every cell of this run" in section
+    assert "no grid or metrics yet" not in section
+
+
+def test_a_donor_estimator_absent_from_a_donor_frame_is_reported_as_not_run():
+    data = frame(rows("synthetic_control", "S1", 5, donor_pool=True, ci_basis="permutation"))
+
+    assert "**bsts**: it produced no rows in this run" in _listed(data)
 
 
 def test_the_coverage_table_reports_each_basis_in_its_own_column():
