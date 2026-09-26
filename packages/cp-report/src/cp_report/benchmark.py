@@ -17,7 +17,7 @@ Four sections, each a frozen dataclass with a `prose_fragments()` method, exactl
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import partial
 from html import escape
@@ -36,45 +36,43 @@ from cp_evaluation.study import (
     markdown_table,
 )
 from cp_figures.benchmark import axis_profile_data, draw_axis_profile, draw_heatmap, heatmap_data
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 
 from cp_report.evidence import ReportFigure
 from cp_report.figures import figure_to_file, figure_to_inline_svg
 from cp_report.language import require_clean_prose
 
-# One heatmap per metric over the baseline-slice pooled summary -- a subset of the
-# metrics `cp_cli.commands.study` draws, so a reader comparing the report against
-# `bench study`'s exhaustive figure set is comparing the same quantities. Which
-# figures are worth a reader's attention is an editorial choice recorded in the
-# design doc's "As built" section once real numbers exist; these are the starting set.
-REPORT_HEATMAP_METRICS: tuple[str, ...] = ("bias", "coverage_analytic")
+# One heatmap: each estimator's primary-interval coverage over the baseline-slice pooled
+# summary, in a synthetic `coverage_primary` column (see `_primary_values`). A bias heatmap
+# was tried and dropped: two scenarios built to break the DiD family (P4, P5) have biases
+# hundreds of times the rest, so the colour scale left every other cell one colour, and the
+# bias table already gives the numbers. The choice is recorded in the design doc's
+# "As built" section.
+REPORT_HEATMAP_METRICS: tuple[str, ...] = ("coverage_primary",)
 REPORT_PROFILE_SELECTIONS: tuple[tuple[str, str, str], ...] = (
     ("D", "confounding_strength", "bias"),
 )
 
-# Which of `headline_tables`'s tables the document embeds. `BenchmarkEvidence.tables`
-# keeps the full set as a record; the document shows a curated few, not a raw dump.
-REPORT_TABLES: tuple[str, ...] = ("accuracy__scenario", "coverage__scenario")
+# The two tables the document embeds, each a compact method-by-scenario view built from a
+# `headline_tables` source table (`BenchmarkEvidence.tables` keeps the full set as a record;
+# a 130-row, 18-column source table is not something a reader can read). Bias comes from
+# `accuracy__scenario`, coverage from `coverage__scenario`.
+BIAS_TABLE = "Bias by method and scenario"
+COVERAGE_TABLE = "Coverage of each estimator's primary interval, by scenario"
 
-# `coverage_metrics` reports coverage per `ci_basis` (design doc 2026-09-21 §13.11 and
-# 2026-09-23-coverage-basis-metrics-design.md): `coverage_analytic` is analytic intervals
-# only, so it is blank for the two estimators whose primary interval is not analytic. The
-# note is code, not narrative, so no author can forget it; re-read it against
-# `coverage_metrics` if the columns change again.
+# `coverage_metrics` reports coverage per `ci_basis`
+# (2026-09-23-coverage-basis-metrics-design.md). Each estimator's primary interval has
+# exactly one basis, so the coverage table collapses the basis columns into one value per
+# cell and an `interval` column naming the basis. The note is code, not narrative, so no
+# author can forget what that column means; re-read it against `coverage_metrics` if the
+# basis columns change.
 COVERAGE_COLUMN_NOTE = (
-    "Coverage is reported per kind of interval, because an estimator's primary interval "
-    "is not always analytic. The coverage_analytic column covers analytic intervals only, "
-    "so it is blank for hierarchical_did, whose interval is a posterior credible interval "
-    "reported as coverage_posterior, and for callaway_santanna, whose interval is a Wald "
-    "interval built from a cluster-bootstrap standard error reported as "
-    "coverage_bootstrap_se. The coverage_bootstrap column is a separate percentile-bootstrap "
-    "interval, where an estimator reports one."
-)
-
-# Appended to the coverage_analytic heatmap's caption: its blank cells are those two
-# estimators, not missing data.
-_BLANK_ANALYTIC_CELLS = (
-    " Blank cells are estimators whose primary interval is not analytic; the coverage "
-    "table names the column that covers them."
+    "Each coverage value is how often the interval an estimator reports as its primary one "
+    "contains the true effect, and the interval column names that interval's kind: analytic "
+    "for standard-error intervals, posterior for the credible interval hierarchical_did "
+    "reports, and bootstrap_se for the Wald interval callaway_santanna builds from a "
+    "cluster-bootstrap standard error."
 )
 
 
@@ -184,37 +182,71 @@ class MethodComparisonsData:
         return (self.exploratory_note, *((self.coverage_note,) if self.coverage_note else ()))
 
 
-def _drop_empty_metrics(frame: pd.DataFrame) -> pd.DataFrame:
-    """Drop every metric with no value in any row, with its `_mcse` and `_n_used`.
+# The `coverage_metrics` columns that hold a primary interval's coverage, by the `ci_basis`
+# each reads. An estimator's primary interval has exactly one basis, so at most one of these
+# is populated for any of its rows.
+_PRIMARY_COVERAGE: tuple[tuple[str, str], ...] = (
+    ("analytic", "coverage_analytic"),
+    ("posterior", "coverage_posterior"),
+    ("bootstrap_se", "coverage_bootstrap_se"),
+    ("permutation", "coverage_permutation"),
+)
 
-    A metric column is empty when no estimator has that kind of interval yet:
-    `coverage_permutation` is blank for every estimator until a donor-pool arm exists.
-    A metric is recognised by having an `_n_used` sibling, so status and identity columns
-    are never dropped. A frame with no rows is returned unchanged.
+
+def _primary_values(frame: pd.DataFrame) -> pd.Series:
+    """Each row's primary-interval coverage: the first populated `_PRIMARY_COVERAGE` column.
+
+    Empty when the frame carries none of those columns.
     """
-    if frame.empty:
-        return frame
-    empty = [c for c in frame.columns if f"{c}_n_used" in frame.columns and frame[c].isna().all()]
-    drop = [name for c in empty for name in (c, f"{c}_mcse", f"{c}_n_used")]
-    return frame.drop(columns=drop)
+    columns = [column for _, column in _PRIMARY_COVERAGE if column in frame.columns]
+    if not columns:
+        return pd.Series(np.nan, index=frame.index)
+    return frame[columns].bfill(axis=1).iloc[:, 0]
+
+
+def _bias_table(accuracy: pd.DataFrame) -> pd.DataFrame:
+    """Bias, one row per method and one column per scenario; blank where not fitted."""
+    wide = accuracy.pivot(index="method", columns="scenario", values="bias")
+    wide.columns.name = None
+    return wide.reset_index()
+
+
+def _coverage_table(coverage: pd.DataFrame) -> pd.DataFrame:
+    """Each estimator's primary-interval coverage per scenario, with the interval's kind.
+
+    Whichever `_PRIMARY_COVERAGE` column an estimator populates supplies its values; the
+    `interval` column names that column's basis, and is empty for an estimator with no
+    fitted row anywhere.
+    """
+    present = [(kind, column) for kind, column in _PRIMARY_COVERAGE if column in coverage.columns]
+    values = _primary_values(coverage)
+    kinds = {
+        str(method): next((kind for kind, column in present if rows[column].notna().any()), "")
+        for method, rows in coverage.groupby("method")
+    }
+    wide = coverage.assign(_value=values).pivot(index="method", columns="scenario", values="_value")
+    wide.columns.name = None
+    wide.insert(0, "interval", [kinds[str(method)] for method in wide.index])
+    return wide.reset_index()
 
 
 def method_comparisons_data(
     tables: dict[str, pd.DataFrame], exploratory_note: str
 ) -> MethodComparisonsData:
-    """Curate `REPORT_TABLES` out of the full `headline_tables()` set.
+    """Build the curated bias and coverage tables from the full `headline_tables()` set.
 
-    A curated name missing from `tables` is skipped rather than raising: the document
-    renders what it has. Metrics empty in every row are dropped from each table.
+    A source table missing from `tables` is skipped rather than raising: the document
+    renders what it has. `coverage_note` accompanies the coverage table and only it.
     """
-    selected = {
-        name: _drop_empty_metrics(tables[name]) for name in REPORT_TABLES if name in tables
-    }
-    has_coverage = any(name.startswith("coverage") for name in selected)
+    curated: dict[str, pd.DataFrame] = {}
+    if "accuracy__scenario" in tables:
+        curated[BIAS_TABLE] = _bias_table(tables["accuracy__scenario"])
+    if "coverage__scenario" in tables:
+        curated[COVERAGE_TABLE] = _coverage_table(tables["coverage__scenario"])
     return MethodComparisonsData(
-        tables=selected,
+        tables=curated,
         exploratory_note=exploratory_note,
-        coverage_note=COVERAGE_COLUMN_NOTE if has_coverage else "",
+        coverage_note=COVERAGE_COLUMN_NOTE if COVERAGE_TABLE in curated else "",
     )
 
 
@@ -269,10 +301,37 @@ def _exploratory_note(by_size: pd.DataFrame) -> str:
             "to report in this run."
         )
     return (
-        "Analytic and bootstrap interval coverage are compared across the two cross-sectional "
-        "sample sizes the grid varies. This comparison was not pre-registered as an expectation, "
-        "and no direction is claimed here -- see the full table for the measured values."
+        "Analytic and bootstrap interval coverage were also compared across the two "
+        "cross-sectional sample sizes the grid varies; that comparison is the "
+        "coverage__scenario_by_size table in the study's own output and is not reproduced "
+        "here. It was not pre-registered as an expectation, and no direction is claimed."
     )
+
+
+_HEATMAP_CAPTIONS = {
+    "coverage_primary": (
+        "Coverage of each estimator's primary interval, by method and scenario, "
+        "pooled over each scenario's baseline slice."
+    )
+}
+
+
+def _laid_out(draw: Callable[[Axes], Axes]) -> Callable[[Axes], Axes]:
+    """Wrap a draw function so its figure lays itself out once drawn.
+
+    `figure_to_inline_svg`/`figure_to_file` save a default-margin figure, which clips a
+    long tick label such as `callaway_santanna`; `bench study` avoids that by saving with
+    `bbox_inches="tight"`, which the shared renderers do not do.
+    """
+
+    def drawn(ax: Axes) -> Axes:
+        result = draw(ax)
+        figure = ax.get_figure()
+        if isinstance(figure, Figure):
+            figure.tight_layout()
+        return result
+
+    return drawn
 
 
 def _report_figures(frame: pd.DataFrame) -> tuple[ReportFigure, ...]:
@@ -280,15 +339,13 @@ def _report_figures(frame: pd.DataFrame) -> tuple[ReportFigure, ...]:
     function. A profile selection whose scenario is absent from `frame` is skipped,
     like a missing curated table."""
     pooled = summarise(baseline_slice(frame), by=["scenario"])
+    pooled["coverage_primary"] = _primary_values(pooled)
     per_cell = summarise(frame)
     present = {str(s) for s in frame["scenario"].unique()}
     figures = [
         ReportFigure(
-            caption=(
-                f"{metric} by method and scenario, pooled over each scenario's baseline slice."
-                + (_BLANK_ANALYTIC_CELLS if metric == "coverage_analytic" else "")
-            ),
-            draw=partial(draw_heatmap, heatmap_data(pooled, metric)),
+            caption=_HEATMAP_CAPTIONS[metric],
+            draw=_laid_out(partial(draw_heatmap, heatmap_data(pooled, metric))),
         )
         for metric in REPORT_HEATMAP_METRICS
     ]
@@ -298,9 +355,11 @@ def _report_figures(frame: pd.DataFrame) -> tuple[ReportFigure, ...]:
         figures.append(
             ReportFigure(
                 caption=f"{metric} on scenario {scenario}, varying {axis} one value at a time.",
-                draw=partial(
-                    draw_axis_profile,
-                    axis_profile_data(per_cell, metric, axis=axis, scenario=scenario),
+                draw=_laid_out(
+                    partial(
+                        draw_axis_profile,
+                        axis_profile_data(per_cell, metric, axis=axis, scenario=scenario),
+                    )
                 ),
             )
         )

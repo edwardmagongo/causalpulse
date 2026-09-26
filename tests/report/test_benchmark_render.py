@@ -170,4 +170,4 @@ def test_both_formats_render_from_a_real_tiny_study(d_run, tmp_path):
 
     assert "<h1>CausalPulse Benchmark Study Report</h1>" in html
     assert path.read_text().startswith("# CausalPulse Benchmark Study Report")
-    assert len(list(out.glob("*.svg"))) == len(evidence.figures) == 3
+    assert len(list(out.glob("*.svg"))) == len(evidence.figures) == 2

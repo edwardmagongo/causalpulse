@@ -3,13 +3,15 @@
 
 from __future__ import annotations
 
+import matplotlib.pyplot as plt
 import pandas as pd
 import pytest
 from cp_core.language import causal_language_lint
 from cp_evaluation.store import IncompleteRunError, RunStore
 from cp_report.benchmark import (
+    BIAS_TABLE,
     COVERAGE_COLUMN_NOTE,
-    REPORT_TABLES,
+    COVERAGE_TABLE,
     ExpectationRow,
     HeadlineFindingsData,
     OverviewData,
@@ -80,22 +82,61 @@ def test_headline_prose_fragments_repeat_nothing_when_narrative_equals_statement
     assert fragments == ("same text", "stmt", "narrative")
 
 
-def test_method_comparisons_data_embeds_only_the_curated_tables():
+def test_method_comparisons_data_curates_a_bias_table_and_a_coverage_table():
     data = method_comparisons_data(tables(), "an exploratory note")
 
-    assert set(data.tables) == set(REPORT_TABLES)
-    assert "runtime__scenario" not in data.tables
+    assert list(data.tables) == [BIAS_TABLE, COVERAGE_TABLE]  # runtime__scenario is not curated in
+    bias = data.tables[BIAS_TABLE]
+    assert list(bias.columns) == ["method", "A", "B"]
+    assert bias.set_index("method").loc["lin_regression", "B"] == 0.04
 
 
-def test_method_comparisons_data_skips_a_curated_table_missing_from_the_input():
+def _coverage_by_basis() -> pd.DataFrame:
+    nan = float("nan")
+    return pd.DataFrame(
+        {
+            "method": ["ipw", "ipw", "hierarchical_did", "hierarchical_did"]
+            + ["callaway_santanna", "callaway_santanna", "aipw"],
+            "scenario": ["A", "B", "P1", "P2", "P1", "P2", "H"],
+            "coverage_analytic": [0.95, 0.94, nan, nan, nan, nan, nan],
+            "coverage_posterior": [nan, nan, 0.97, 0.93, nan, nan, nan],
+            "coverage_bootstrap_se": [nan, nan, nan, nan, 0.89, 0.91, nan],
+            "coverage_permutation": [nan] * 7,
+        }
+    )
+
+
+def test_the_coverage_table_shows_each_estimators_primary_interval_and_its_kind():
+    data = method_comparisons_data({"coverage__scenario": _coverage_by_basis()}, "note")
+
+    table = data.tables[COVERAGE_TABLE].set_index("method")
+    assert list(data.tables[COVERAGE_TABLE].columns) == [
+        "method",
+        "interval",
+        "A",
+        "B",
+        "H",
+        "P1",
+        "P2",
+    ]
+    assert table.loc["ipw", "interval"] == "analytic" and table.loc["ipw", "B"] == 0.94
+    assert table.loc["hierarchical_did", "interval"] == "posterior"
+    assert table.loc["hierarchical_did", "P1"] == 0.97
+    assert table.loc["callaway_santanna", "interval"] == "bootstrap_se"
+    assert table.loc["callaway_santanna", "P2"] == 0.91
+    assert pd.isna(table.loc["hierarchical_did", "A"])  # not run there
+    assert table.loc["aipw", "interval"] == ""  # no interval anywhere: nothing fitted
+
+
+def test_method_comparisons_data_skips_a_source_table_missing_from_the_input():
     only_accuracy = {"accuracy__scenario": tables()["accuracy__scenario"]}
 
     data = method_comparisons_data(only_accuracy, "note")
 
-    assert set(data.tables) == {"accuracy__scenario"}
+    assert list(data.tables) == [BIAS_TABLE]
 
 
-def test_the_coverage_note_travels_with_a_coverage_table_and_only_then():
+def test_the_coverage_note_travels_with_the_coverage_table_and_only_then():
     with_coverage = method_comparisons_data(tables(), "note")
     accuracy_only = {"accuracy__scenario": tables()["accuracy__scenario"]}
     without = method_comparisons_data(accuracy_only, "note")
@@ -106,46 +147,16 @@ def test_the_coverage_note_travels_with_a_coverage_table_and_only_then():
     assert without.prose_fragments() == ("note",)
 
 
-def test_the_coverage_note_names_each_non_analytic_estimator_and_the_column_covering_it():
+def test_the_coverage_note_names_each_non_analytic_estimator_and_its_interval_kind():
     for phrase in (
         "hierarchical_did",
-        "coverage_posterior",
+        "posterior",
         "callaway_santanna",
-        "coverage_bootstrap_se",
-        "analytic intervals only",
+        "bootstrap_se",
+        "analytic",
     ):
         assert phrase in COVERAGE_COLUMN_NOTE
     assert causal_language_lint(COVERAGE_COLUMN_NOTE) == ()
-
-
-def _coverage_frame() -> pd.DataFrame:
-    nan = float("nan")
-    return pd.DataFrame(
-        {
-            "method": ["a", "b"],
-            "n_fitted": [3, 3],
-            "coverage_analytic": [0.9, nan],
-            "coverage_analytic_mcse": [0.05, nan],
-            "coverage_analytic_n_used": [3, 0],
-            "coverage_permutation": [nan, nan],
-            "coverage_permutation_mcse": [nan, nan],
-            "coverage_permutation_n_used": [0, 0],
-        }
-    )
-
-
-def test_a_metric_empty_in_every_row_is_dropped_with_its_siblings():
-    data = method_comparisons_data({"coverage__scenario": _coverage_frame()}, "note")
-
-    # coverage_permutation has no value for any estimator; coverage_analytic is blank for
-    # one estimator but not all, so it stays for every row.
-    assert list(data.tables["coverage__scenario"].columns) == [
-        "method",
-        "n_fitted",
-        "coverage_analytic",
-        "coverage_analytic_mcse",
-        "coverage_analytic_n_used",
-    ]
 
 
 def test_limitations_prose_is_every_reason_then_every_statement_but_no_names():
@@ -171,11 +182,35 @@ def test_benchmark_evidence_from_run_builds_from_a_real_tiny_study(d_run):
     assert evidence.replications == 2
     assert len(evidence.expectations) > 0
     assert evidence.limitations == ("A stand-in limitation for this tiny fixture.",)
+    assert "coverage__scenario_by_size" in evidence.exploratory_note
     # One heatmap per REPORT_HEATMAP_METRICS, one profile per REPORT_PROFILE_SELECTIONS.
-    assert len(evidence.figures) == 3
-    # Only the coverage_analytic heatmap says why some of its cells are blank.
-    captions = [figure.caption for figure in evidence.figures]
-    assert sum("Blank cells" in caption for caption in captions) == 1
+    assert [figure.caption for figure in evidence.figures] == [
+        "Coverage of each estimator's primary interval, by method and scenario, "
+        "pooled over each scenario's baseline slice.",
+        "bias on scenario D, varying confounding_strength one value at a time.",
+    ]
+    comparisons = method_comparisons_data(evidence.tables, evidence.exploratory_note)
+    bias = comparisons.tables[BIAS_TABLE]
+    assert set(bias["method"]) == {"difference_in_means", "lin_regression"}
+    assert {"D", "P1"} <= set(bias.columns)
+
+
+def test_the_report_figures_leave_no_estimator_label_clipped(d_run):
+    # A default-margin figure clips a long label such as `callaway_santanna`; the report's
+    # figures lay themselves out so every tick label sits inside the figure.
+    evidence = benchmark_evidence_from_run(d_run)
+    fig = plt.figure()
+    try:
+        evidence.figures[0].draw(fig.subplots())
+        fig.canvas.draw()
+        inside = fig.bbox
+        labels = fig.axes[0].get_yticklabels()
+        assert labels
+        for label in labels:
+            box = label.get_window_extent()
+            assert box.x0 >= inside.x0 and box.x1 <= inside.x1
+    finally:
+        plt.close(fig)
 
 
 def test_narratives_reach_the_headline_rows(d_run):

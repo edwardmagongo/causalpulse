@@ -38,15 +38,26 @@ def draw(ax):
 
 
 def tables() -> dict[str, pd.DataFrame]:
+    """Source tables shaped like `headline_tables`'s: one row per (method, scenario)."""
+    nan = float("nan")
+    keys = {
+        "method": ["difference_in_means"] * 2 + ["lin_regression"] * 2,
+        "scenario": ["A", "B", "A", "B"],
+    }
     return {
-        "accuracy__scenario": pd.DataFrame({"method": ["difference_in_means"], "bias": [0.01]}),
+        "accuracy__scenario": pd.DataFrame({**keys, "bias": [0.01, 0.02, 0.03, 0.04]}),
         "coverage__scenario": pd.DataFrame(
-            {"method": ["difference_in_means"], "coverage_analytic": [0.94]}
+            {
+                **keys,
+                "coverage_analytic": [0.94, 0.95, 0.96, 0.93],
+                "coverage_bootstrap": [0.94, 0.95, nan, nan],
+                "coverage_posterior": [nan] * 4,
+                "coverage_bootstrap_se": [nan] * 4,
+                "coverage_permutation": [nan] * 4,
+            }
         ),
-        # Present in the full set but not in REPORT_TABLES: proves curation filters.
-        "runtime__scenario": pd.DataFrame(
-            {"method": ["difference_in_means"], "runtime_seconds": [0.2]}
-        ),
+        # Present in the full set but not curated into the report: proves curation filters.
+        "runtime__scenario": pd.DataFrame({**keys, "runtime_seconds": [0.2, 0.2, 0.3, 0.3]}),
     }
 
 
