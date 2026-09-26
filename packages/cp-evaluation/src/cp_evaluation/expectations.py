@@ -181,9 +181,10 @@ def _slowest_is_hierarchical(frame: pd.DataFrame) -> ExpectationResult:
     # carries a donor arm.
     donor_rows = frame[frame["shape"] == "donor_pool"]
     ranked_rows = frame[frame["shape"] != "donor_pool"]
+    fitted_methods = sorted(set(donor_rows.loc[donor_rows["status"] == "fitted", "method"]))
     note = (
-        "Ranked over non-donor rows; donor-pool rows (methods: "
-        f"{', '.join(sorted(set(donor_rows['method'])))}) excluded."
+        f"Ranked over non-donor rows; {len(donor_rows)} donor-pool rows excluded, "
+        f"fitted methods: {', '.join(fitted_methods) or 'none'}."
         if len(donor_rows)
         else ""
     )

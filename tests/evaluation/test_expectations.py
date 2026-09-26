@@ -224,7 +224,8 @@ def test_e5_and_e7_notes_name_the_excluded_donor_pool_population():
         "Pooled over panel rows only; 40 donor-pool hierarchical_did rows excluded."
     )
     assert results["E7"].note == (
-        "Ranked over non-donor rows; donor-pool rows (methods: bsts, hierarchical_did) excluded."
+        "Ranked over non-donor rows; 70 donor-pool rows excluded, "
+        "fitted methods: bsts, hierarchical_did."
     )
     assert results["E5"].note in expectations_markdown(list(results.values()))
 
@@ -258,3 +259,21 @@ def test_the_expectations_document_lists_each_verdict_and_its_measurements():
     assert "8 met, 0 failed, 0 inconclusive." in text
     assert "## E1 - MET" in text
     assert "| measurement | value | MCSE | n |" in text
+
+
+def test_e7_note_lists_only_methods_with_fitted_donor_rows():
+    base = frame(
+        rows("hierarchical_did", "P1", 50, panel=True, runtime=25.0, ci_basis="posterior"),
+        rows("twfe", "P1", 50, panel=True, runtime=2.0),
+    )
+    donor = frame(
+        rows("bsts", "S1", 10, donor_pool=True, ci_basis="posterior"),
+        rows("twfe", "S5", 7, donor_pool=True, status="ineligible"),
+        rows("aipw", "S5", 3, donor_pool=True, status="ineligible"),
+    )
+
+    results = {r.id: r for r in evaluate_expectations(frame(base, donor), COMPLETE)}
+
+    assert results["E7"].note == (
+        "Ranked over non-donor rows; 20 donor-pool rows excluded, fitted methods: bsts."
+    )
