@@ -145,7 +145,8 @@ def _basis(rows: pd.DataFrame, basis: str) -> pd.DataFrame:
     """Rows whose own `ci_basis` is `basis`: one basis-labelled coverage column's population.
 
     Filters on `ci_basis` alone. `summarise` groups by `method` first, so two
-    estimators sharing a basis never share a group and a shape gate adds nothing.
+    estimators sharing a basis never share a group and a shape gate adds nothing for
+    per-cell groups. A caller pooling with `by=[]` across shapes must scope rows itself, as E5 must.
     """
     return rows[rows["ci_basis"] == basis]
 
