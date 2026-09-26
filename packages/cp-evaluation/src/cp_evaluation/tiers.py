@@ -644,8 +644,10 @@ def full_config() -> GridConfig:
     and one pre-period, so it fits on every donor cell including S5) = 160
     fitted rows (800 at 50 replications). The other nine estimators are
     ineligible on every donor cell (cross-section or panel-only designs). The
-    hierarchical_did donor rows carry `ci_basis == "posterior"`. The
-    pre-registered expectations E5 and E7 are scoped to exclude donor rows.
+    hierarchical_did donor rows carry `ci_basis == "posterior"`, so they feed
+    `coverage_posterior` (as bsts's do; synthetic_control's feed
+    `coverage_permutation`), never `coverage_analytic`. The pre-registered
+    expectations E5 and E7 are scoped to exclude donor rows.
 
     MEASURED 2026-09-26, this tree, `run_grid(DonorPoolAxes(scenarios=S0..S5)
     only, estimators=['synthetic_control', 'bsts'], fit_config=
