@@ -30,19 +30,20 @@ stay available in `full`, which has no such budget.
 `hierarchical_did` are: it is a NumPyro/NUTS sampler, the same cost class,
 measured at ~17.5s/fit (`bsts.py`'s own `PRODUCTION_MCMC_CONFIG` docstring) --
 enough to blow the ~2 minute budget on its own. `synthetic_control` (SLSQP +
-permutation over ~17 donors) is excluded from `ci` on measured cost as well.
-With the donor-pool arm wired into `ci` (all six scenarios, 15
-replications) this tier measured 338s (2026-09-26), against 257s with the arm
-removed again -- ~80s of marginal cost, about 3.2s per `synthetic_control`
-fit across 75 fitted cells (the earlier 2026-09-05 measured run above, 96.7s,
-predates later phases and no longer describes this tree). No `TOLERANCE_BANDS`
-entry exists for `synthetic_control`, so that cost bought zero assertions. The
-donor-pool arm therefore lives in `full`/`study` only; `ci_config()` has no
-`donor_pool`, and its cell set is identical to what it was before the
-donor-pool shape existed. Deriving `synthetic_control` bands (with the same
-discriminating-power check as the other bands) and a cheaper ci donor arm is
-follow-up work. The `bsts`/`synthetic_control` fit costs measured in
-`full_config()`'s docstring stand as measured.
+permutation over ~17 donors) is excluded from `ci` on a different basis: it
+has no committed `TOLERANCE_BANDS`, so in `ci` it adds cost for zero
+assertions. MEASURED 2026-09-26, this tree: the `ci` tier took 338s with the
+donor-pool arm (all six scenarios, 15 replications) and 257s without it, so
+the arm's marginal cost was ~81s (+~32%), ~1.1s per fitted cell over 75
+fitted cells. The donor-pool arm therefore lives in `full`/`study` only;
+`ci_config()` has no `donor_pool`, and its cell set is identical to what it
+was before the donor-pool shape existed. Deriving `synthetic_control` bands
+(with the same discriminating-power check as the other bands) is follow-up
+work. Caveat: these 2026-09-26 timings were taken while another Claude
+session ran a multi-hour CPU-heavy benchmark study on the same machine, so
+they are likely inflated by contention and should be re-measured on an idle
+machine. The `bsts`/`synthetic_control` fit costs measured in
+`full_config()`'s docstring stand as measured (same caveat).
 
 Scenario H (missing outcomes) is excluded from `ci_config()`'s axes because
 every estimator refuses it (Phase 11's missing-data refusal): a scenario
@@ -63,7 +64,9 @@ another.
 **Measured run** (2026-09-05, `ci_config()` above, `CI_FIT_CONFIG` below):
 `run_grid` took 96.7s, produced 600 rows (300 fitted, 300 ineligible, 0
 refused), and `summarise` took under 0.1s. Comfortably inside the ~2 minute
-budget.
+budget. (Historical: superseded by the 2026-09-26 measurement, in which the
+`ci` tier without any donor-pool arm took 257s, so the ~2 minute budget claim
+is stale independent of the donor-pool arm.)
 
 **Discriminating power is proportional to each arm's effect size, not
 absolute.** The comment above `TOLERANCE_BANDS` checks every shipped band
@@ -634,6 +637,10 @@ def full_config() -> GridConfig:
     `ineligible` on S5, which has 2 pre-periods against the >=10 both
     require; the ineligible rows cost ~nothing, so the 206.4s is 10 fitted
     cells (5 scenarios x 2 estimators), ~20.6s per fitted cell on average.
+    Caveat: this run, its extrapolations below, and the `ci` 338s/257s figures
+    in the module docstring were all measured while another Claude session ran
+    a multi-hour CPU-heavy benchmark on the same machine; wall-clock figures are
+    likely inflated by contention and should be re-measured on an idle machine.
     The per-estimator split was not timed separately. Only the 206.4s/12-row
     figures are measured; the rest are extrapolations, assuming cost linear
     in replications, as for every other arm above: ~2,064s (~34 minutes) at
