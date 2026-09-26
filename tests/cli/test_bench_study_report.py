@@ -28,8 +28,9 @@ def test_markdown_is_the_default_and_skips_a_profile_whose_scenario_the_run_lack
 
     text = (out / "benchmark-report.md").read_text()
     assert text.startswith("# CausalPulse Benchmark Study Report")
-    # The tiny grid has scenarios A and P1 only: two heatmaps, and no scenario-D profile.
-    assert len(list(out.glob("*.svg"))) == 2
+    # The tiny grid has scenarios A and P1 only: the coverage heatmap, and no scenario-D
+    # profile (skipped, not refused).
+    assert len(list(out.glob("*.svg"))) == 1
     assert "wrote the benchmark study report to" in capsys.readouterr().out
 
 
