@@ -1,11 +1,14 @@
 import numpy as np
 import pandas as pd
 import pytest
+from cp_causal.registry import all_estimators
+from cp_causal.router import route
 from cp_core.values import EstimatorConfig
 from cp_evaluation.grid import (
     CrossSectionAxes,
     CrossSectionCell,
     DonorPoolAxes,
+    DonorPoolCell,
     GridConfig,
     PanelAxes,
     cell_rng,
@@ -544,3 +547,34 @@ def test_donor_pool_rows_carry_the_registrys_own_n_units_and_n_periods():
     assert frame.realised_treated_share.isna().all()
     assert (frame["shape"] == "donor_pool").all()
 
+
+def _eligible_on_donor_cell(scenario: str) -> set[str]:
+    dataset = resolve_cell(DonorPoolCell(scenario, 0), 0).dataset
+    return {d.estimator_name for d in route(dataset) if d.eligible}
+
+
+def test_exactly_three_estimators_are_eligible_on_a_donor_cell():
+    # Read from each estimator's own requirements, not from route's output: a donor cell has
+    # a single treated unit and no covariates, so only a panel estimator whose treated-unit
+    # floor is 1 can be eligible on it.
+    single_treated_panel = {
+        name
+        for name, cls in all_estimators().items()
+        if cls.requirements.needs_panel
+        and not cls.requirements.needs_covariates
+        and cls.requirements.min_treated_units <= 1
+    }
+    assert single_treated_panel == {"synthetic_control", "bsts", "hierarchical_did"}
+
+    assert _eligible_on_donor_cell("S1") == single_treated_panel
+
+
+def test_only_hierarchical_did_is_eligible_on_the_short_pre_period_donor_cell():
+    # S5 has 2 pre-periods; synthetic_control and bsts each require at least 10, and
+    # hierarchical_did requires at most 2.
+    estimators = all_estimators()
+    assert estimators["synthetic_control"].requirements.min_pre_periods == 10
+    assert estimators["bsts"].requirements.min_pre_periods == 10
+    assert estimators["hierarchical_did"].requirements.min_pre_periods <= 2
+
+    assert _eligible_on_donor_cell("S5") == {"hierarchical_did"}
