@@ -42,8 +42,12 @@ was before the donor-pool shape existed. Deriving `synthetic_control` bands
 work. Caveat: these 2026-09-26 timings were taken while another Claude
 session ran a multi-hour CPU-heavy benchmark study on the same machine, so
 they are likely inflated by contention and should be re-measured on an idle
-machine. The `bsts`/`synthetic_control` fit costs measured in
-`full_config()`'s docstring stand as measured (same caveat).
+machine. The per-fit figures quoted in this module are not comparable with
+each other: ~1.1s per `synthetic_control` cell (ci, derived from the 81s
+delta, `bootstrap_reps=200`), ~20.6s average per fitted donor cell in
+`full_config()`'s docstring (averaged over both estimators, at
+`bootstrap_reps=1000`), and `bsts.py`'s ~17.5s/fit (a different environment
+and config) differ in estimator mix, configuration and date.
 
 Scenario H (missing outcomes) is excluded from `ci_config()`'s axes because
 every estimator refuses it (Phase 11's missing-data refusal): a scenario
@@ -64,9 +68,9 @@ another.
 **Measured run** (2026-09-05, `ci_config()` above, `CI_FIT_CONFIG` below):
 `run_grid` took 96.7s, produced 600 rows (300 fitted, 300 ineligible, 0
 refused), and `summarise` took under 0.1s. Comfortably inside the ~2 minute
-budget. (Historical: superseded by the 2026-09-26 measurement, in which the
-`ci` tier without any donor-pool arm took 257s, so the ~2 minute budget claim
-is stale independent of the donor-pool arm.)
+budget. (Historical, and superseded: on 2026-09-26 the `ci` tier without any
+donor-pool arm measured 257s, so the ~2 minute claim is stale independent of
+the donor-pool arm.)
 
 **Discriminating power is proportional to each arm's effect size, not
 absolute.** The comment above `TOLERANCE_BANDS` checks every shipped band
@@ -153,8 +157,8 @@ CI_FIT_CONFIG = EstimatorConfig(random_seed=0, bootstrap_reps=200)
 
 def ci_config() -> GridConfig:
     """The gating grid: 3 cross-sectional scenarios, 2 panel scenarios, 15 reps.
-    No donor-pool arm: excluded on measured cost (see module docstring).
 
+    No donor-pool arm: excluded on measured cost (see module docstring).
     Scenario H is left off both axes (see module docstring). Run with
     `CI_ESTIMATORS` and `CI_FIT_CONFIG`, not the defaults `run_grid` would
     otherwise use -- `TOLERANCE_BANDS` is only valid against that combination.
@@ -628,7 +632,10 @@ def full_config() -> GridConfig:
     to save cost.
 
     The donor-pool arm adds all six scenarios (S0-S5) crossed against
-    synthetic_control and bsts: 12 cells at this tier's 10 replications.
+    synthetic_control and bsts. A cell does not include the estimator, so at this
+    tier's 10 replications the arm is 60 cells (6 scenarios x 10; the 800 -> 860
+    change in the grid's cell count), producing 120 estimator rows; at
+    `study_config()`'s 50 it is 300 cells and 600 rows.
 
     MEASURED 2026-09-26, this tree, `run_grid(DonorPoolAxes(scenarios=S0..S5)
     only, estimators=['synthetic_control', 'bsts'], fit_config=
@@ -641,7 +648,9 @@ def full_config() -> GridConfig:
     in the module docstring were all measured while another Claude session ran
     a multi-hour CPU-heavy benchmark on the same machine; wall-clock figures are
     likely inflated by contention and should be re-measured on an idle machine.
-    The per-estimator split was not timed separately. Only the 206.4s/12-row
+    The per-estimator split of the 206.4s was not timed, and ~20.6s is not
+    comparable with the ci tier's per-cell figure (different estimator mix and
+    `bootstrap_reps`). Only the 206.4s/12-row
     figures are measured; the rest are extrapolations, assuming cost linear
     in replications, as for every other arm above: ~2,064s (~34 minutes) at
     this tier's 10 replications, and ~10,320s (~2.9 hours) at `study_config()`'s

@@ -62,8 +62,8 @@ def test_full_includes_synthetic_control_and_bsts():
 
 
 def test_ci_excludes_the_donor_pool_arm():
-    # Measured cost, see tiers.py: the arm added ~240s to a ~97s gate and no
-    # tolerance bands exist for it.
+    # Measured cost, see tiers.py: the arm added ~81s (338s with vs 257s
+    # without, measured 2026-09-26) and no tolerance bands exist for it.
     assert "synthetic_control" not in CI_ESTIMATORS
     assert "bsts" not in CI_ESTIMATORS
     assert ci_config().donor_pool is None
@@ -84,7 +84,7 @@ def test_adding_the_donor_pool_arm_does_not_perturb_any_existing_cell():
     # cross-section/panel cell. Compares the full cell multisets (cells are
     # frozen dataclasses carrying their seed), not just counts, so a shifted
     # seed or a duplicated/dropped cell is caught.
-    from cp_evaluation.grid import CrossSectionCell, PanelCell, expand_cells
+    from cp_evaluation.grid import PanelCell
 
     with_donor_pool = expand_cells(full_config())
     without_donor_pool = expand_cells(dataclasses.replace(full_config(), donor_pool=None))
