@@ -32,3 +32,27 @@ def evidence() -> Evidence:
         limitations=("The donor pool is small.",),
         figures=(ReportFigure(caption="Effect estimates.", draw=_draw),),
     )
+
+
+@pytest.fixture
+def benchmark_evidence():
+    from report.benchmark_builders import make_benchmark_evidence
+
+    return make_benchmark_evidence()
+
+
+@pytest.fixture
+def d_run(tmp_path, monkeypatch):
+    """A real, freshly fitted sharded run over the tiny D+P1 grid."""
+    import cp_cli.commands.bench as bench_module
+    from cp_cli.__main__ import main
+    from evaluation._run_helpers import ESTIMATORS, FIT_CONFIG
+
+    from report.benchmark_builders import tiny_grid_with_scenario_d
+
+    monkeypatch.setitem(
+        bench_module.TIERS, "study", (tiny_grid_with_scenario_d, ESTIMATORS, FIT_CONFIG)
+    )
+    run_dir = tmp_path / "run"
+    assert main(["bench", "run", "--tier", "study", "--out", str(run_dir)]) == 0
+    return run_dir

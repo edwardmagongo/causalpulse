@@ -476,6 +476,7 @@ version = "0.1.0"
 source = { editable = "packages/cp-report" }
 dependencies = [
     { name = "cp-core" },
+    { name = "cp-evaluation" },
     { name = "cp-figures" },
     { name = "matplotlib" },
 ]
@@ -483,6 +484,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "cp-core", editable = "packages/cp-core" },
+    { name = "cp-evaluation", editable = "packages/cp-evaluation" },
     { name = "cp-figures", editable = "packages/cp-figures" },
     { name = "matplotlib", specifier = ">=3.9" },
 ]
