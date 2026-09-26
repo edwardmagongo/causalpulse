@@ -310,8 +310,9 @@ def _exploratory_note(by_size: pd.DataFrame) -> str:
 
 _HEATMAP_CAPTIONS = {
     "coverage_primary": (
-        "Coverage of each estimator's primary interval, by method and scenario, "
-        "pooled over each scenario's baseline slice."
+        "Coverage of each estimator's primary interval, by method and scenario, pooled over "
+        "each scenario's baseline slice. Lighter cells have higher coverage; grey cells have "
+        "no fitted result."
     )
 }
 

@@ -185,8 +185,9 @@ def test_benchmark_evidence_from_run_builds_from_a_real_tiny_study(d_run):
     assert "coverage__scenario_by_size" in evidence.exploratory_note
     # One heatmap per REPORT_HEATMAP_METRICS, one profile per REPORT_PROFILE_SELECTIONS.
     assert [figure.caption for figure in evidence.figures] == [
-        "Coverage of each estimator's primary interval, by method and scenario, "
-        "pooled over each scenario's baseline slice.",
+        "Coverage of each estimator's primary interval, by method and scenario, pooled over "
+        "each scenario's baseline slice. Lighter cells have higher coverage; grey cells have "
+        "no fitted result.",
         "bias on scenario D, varying confounding_strength one value at a time.",
     ]
     comparisons = method_comparisons_data(evidence.tables, evidence.exploratory_note)
