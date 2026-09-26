@@ -123,6 +123,20 @@ def test_coverage_is_reported_separately_for_the_two_interval_types():
     assert "coverage_analytic_mcse" in table.index and "coverage_bootstrap_mcse" in table.index
 
 
+def test_the_coverage_table_reports_each_basis_in_its_own_column():
+    data = frame(
+        rows("hierarchical_did", "P1", 50, hit_fraction=0.8, panel=True, ci_basis="posterior"),
+    )
+
+    table = headline_tables(data)["coverage__scenario"].iloc[0]
+
+    assert table["coverage_posterior"] == pytest.approx(0.8)
+    assert table["coverage_posterior_n_used"] == 50
+    assert table["coverage_analytic_n_used"] == 0
+    for column in ("coverage_permutation", "coverage_bootstrap_se"):
+        assert column in table.index
+
+
 def test_the_false_positive_table_holds_only_null_scenarios():
     data = frame(
         rows("aipw", "A", 100, truth=1.0),

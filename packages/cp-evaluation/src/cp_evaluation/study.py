@@ -29,7 +29,14 @@ STATUS_COLUMNS: tuple[str, ...] = ("n_fitted", "n_ineligible", "n_refused")
 # Each headline table's metrics, in the parent design's section 8.2 order.
 TABLE_METRICS: dict[str, tuple[str, ...]] = {
     "accuracy": ("bias", "relative_bias", "rmse", "mae"),
-    "coverage": ("coverage_analytic", "coverage_bootstrap", "mean_ci_width"),
+    "coverage": (
+        "coverage_analytic",
+        "coverage_bootstrap",
+        "coverage_posterior",
+        "coverage_permutation",
+        "coverage_bootstrap_se",
+        "mean_ci_width",
+    ),
     "se_calibration": ("se_calibration",),
     "sign_and_magnitude": ("type_s", "type_m"),
     "detection": ("power", "false_positive_rate"),
