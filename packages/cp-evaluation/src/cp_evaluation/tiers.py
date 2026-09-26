@@ -631,30 +631,48 @@ def full_config() -> GridConfig:
     is worth recording once in a full study even though `ci` leaves it out
     to save cost.
 
-    The donor-pool arm adds all six scenarios (S0-S5) crossed against
-    synthetic_control and bsts. A cell does not include the estimator, so at this
-    tier's 10 replications the arm is 60 cells (6 scenarios x 10; the 800 -> 860
-    change in the grid's cell count), producing 120 estimator rows; at
-    `study_config()`'s 50 it is 300 cells and 600 rows.
+    The donor-pool arm adds all six scenarios (S0-S5). A cell does not include
+    the estimator, so at this tier's 10 replications the arm is 60 cells (6
+    scenarios x 10; the 800 -> 860 change in the grid's cell count).
+    `fit_cell` writes one row per candidate estimator and `FULL_ESTIMATORS` has
+    12 entries, so those 60 cells are 720 estimator rows (3,600 at
+    `study_config()`'s 50, from 300 cells). Most are ineligible: three
+    estimators are FITTED on donor cells, each eligible by its own
+    `requirements`: synthetic_control, bsts and hierarchical_did. Per 10
+    replications that is 50 synthetic_control + 50 bsts (both ineligible on S5,
+    which has too few pre-periods) + 60 hierarchical_did (min_treated_units=1
+    and one pre-period, so it fits on every donor cell including S5) = 160
+    fitted rows (800 at 50 replications). The other nine estimators are
+    ineligible on every donor cell (cross-section or panel-only designs). The
+    hierarchical_did donor rows carry `ci_basis == "posterior"`. The
+    pre-registered expectations E5 and E7 are scoped to exclude donor rows.
 
     MEASURED 2026-09-26, this tree, `run_grid(DonorPoolAxes(scenarios=S0..S5)
     only, estimators=['synthetic_control', 'bsts'], fit_config=
     FULL_FIT_CONFIG)` at `replications=1`: 206.4s, 12 rows (10 fitted, 2
-    ineligible, 0 refused). Both estimators are `fitted` on S0-S4 and
+    ineligible, 0 refused). That run was restricted to those two estimators
+    and EXCLUDES hierarchical_did. Both were `fitted` on S0-S4 and
     `ineligible` on S5, which has 2 pre-periods against the >=10 both
     require; the ineligible rows cost ~nothing, so the 206.4s is 10 fitted
     cells (5 scenarios x 2 estimators), ~20.6s per fitted cell on average.
+    hierarchical_did was NOT part of that measurement. Single reviewer runs of
+    one hierarchical_did fit each, taken under contention and not in a quiet
+    run, took S1 28.7s, S5 19.7s and S0 23.8s (~24s each).
     Caveat: this run, its extrapolations below, and the `ci` 338s/257s figures
     in the module docstring were all measured while another Claude session ran
     a multi-hour CPU-heavy benchmark on the same machine; wall-clock figures are
     likely inflated by contention and should be re-measured on an idle machine.
     The per-estimator split of the 206.4s was not timed, and ~20.6s is not
     comparable with the ci tier's per-cell figure (different estimator mix and
-    `bootstrap_reps`). Only the 206.4s/12-row
-    figures are measured; the rest are extrapolations, assuming cost linear
-    in replications, as for every other arm above: ~2,064s (~34 minutes) at
-    this tier's 10 replications, and ~10,320s (~2.9 hours) at `study_config()`'s
-    50, on top of the cross-sectional and panel arms' own cost.
+    `bootstrap_reps`). Only the 206.4s/12-row figure and the three single
+    hierarchical_did fits are measured; the rest are extrapolations, assuming
+    cost linear in replications, as for every other arm above. For the
+    synthetic_control + bsts part: ~2,064s (~34 minutes) at this tier's 10
+    replications, and ~10,320s (~2.9 hours) at `study_config()`'s 50. For
+    hierarchical_did, an extrapolation from those single runs under
+    contention: ~60 fits x ~24s ~= 24 minutes per full run and ~300 fits x
+    ~24s ~= 2 hours per study run. All of this is on top of the cross-sectional
+    and panel arms' own cost.
     """
     return GridConfig(
         cross_section=CrossSectionAxes(
