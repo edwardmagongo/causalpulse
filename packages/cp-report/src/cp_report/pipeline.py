@@ -37,6 +37,7 @@ from cp_figures.effects import (
 )
 
 from cp_report.evidence import Evidence, ReportFigure
+from cp_report.figures import strip_xml_preamble
 from cp_report.html import render_html_report
 from cp_report.markdown import write_markdown_report
 
@@ -219,20 +220,22 @@ def render_estimate_report(
     with tempfile.TemporaryDirectory() as tmp:
         directory = Path(tmp)
         document = write_markdown_report(evidence, directory)
-        markdown = document.read_text()
+        markdown = document.read_text(encoding="utf-8")
         # `write_markdown_report` writes each figure via `figure_to_file`, which
         # (unlike `figure_to_inline_svg`) keeps the XML declaration and DOCTYPE,
-        # since the file on disk is a whole standalone document. An asset held
-        # here is not written to disk again as its own file -- it is read back
-        # by a caller expecting an SVG fragment, the same contract
-        # `figure_to_inline_svg` promises -- so the same preamble is stripped
-        # before it is stored.
-        assets = {}
-        for path in sorted(directory.iterdir()):
-            if path == document:
-                continue
-            text = path.read_text()
-            assets[path.name] = text[text.index("<svg") :]
+        # since the file it writes is a whole standalone document. Per spec §6,
+        # this same asset is later served one-per-URL as `image/svg+xml` and
+        # written back to disk by `cp analyze --report` (Task 4) -- so the
+        # preamble is stripped here with `strip_xml_preamble` so a stored asset
+        # has one shape whether it is served, written, or inlined. The result
+        # is still a valid standalone SVG file: the root `<svg>` element
+        # declares its own namespaces, so dropping the XML declaration and
+        # DOCTYPE in front of it loses nothing a consumer needs.
+        assets = {
+            path.name: strip_xml_preamble(path.read_text(encoding="utf-8"))
+            for path in sorted(directory.iterdir())
+            if path != document
+        }
     return EstimateReport(
         estimate=estimate, score=score, html=html, markdown=markdown, assets=assets
     )
