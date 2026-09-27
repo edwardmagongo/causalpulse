@@ -1,10 +1,15 @@
+import dataclasses
+
 import numpy as np
 import pandas as pd
 import pytest
-from cp_causal.registry import all_estimators
+from cp_causal.registry import all_estimators, get_estimator
 from cp_causal.router import route
-from cp_core.values import EstimatorConfig
+from cp_core.values import Diagnostic, EstimatorConfig
+from cp_evaluation.cate import CATE_METRIC_COLUMNS
 from cp_evaluation.grid import (
+    CateAxes,
+    CateCell,
     CrossSectionAxes,
     CrossSectionCell,
     DonorPoolAxes,
@@ -15,8 +20,9 @@ from cp_evaluation.grid import (
     expand_cells,
 )
 from cp_evaluation.resolve import resolve_cell
-from cp_evaluation.run import ROW_COLUMNS, run_grid
+from cp_evaluation.run import ROW_COLUMNS, fit_cell, resolve_candidates, run_grid
 from cp_evaluation.tiers import full_config
+from cp_simulation.cate_scenarios import CATE_N_UNITS
 from cp_simulation.donor_scenarios import DONOR_SCENARIOS
 from cp_simulation.params import ScenarioParams
 from cp_simulation.scenarios import build_scenario
@@ -578,3 +584,103 @@ def test_only_hierarchical_did_is_eligible_on_the_short_pre_period_donor_cell():
     assert estimators["hierarchical_did"].requirements.min_pre_periods <= 2
 
     assert _eligible_on_donor_cell("S5") == {"hierarchical_did"}
+
+
+def _tiny_cate(scenarios=("RICH",), replications=1) -> GridConfig:
+    return GridConfig(
+        cross_section=None,
+        panel=None,
+        cate=CateAxes(scenarios=scenarios),
+        replications=replications,
+    )
+
+
+_CHEAP = EstimatorConfig(random_seed=0, bootstrap_reps=50)
+
+
+def _reporting_per_unit_cate(per_unit: np.ndarray):
+    """`difference_in_means`, plus a `per_unit_cate` diagnostic fixed by the test."""
+    base = get_estimator("difference_in_means")
+
+    class _Reports:
+        name = base.name
+        requirements = base.requirements
+
+        def fit(self, dataset, config):
+            estimate = base().fit(dataset, config)
+            return dataclasses.replace(
+                estimate,
+                diagnostics={
+                    **estimate.diagnostics,
+                    "per_unit_cate": Diagnostic(
+                        name="per_unit_cate", value=per_unit, unit=None, interpretation="test"
+                    ),
+                },
+            )
+
+    return _Reports
+
+
+def _fit_with(monkeypatch, cell, per_unit):
+    monkeypatch.setattr(
+        "cp_evaluation.run.get_estimator", lambda name: _reporting_per_unit_cate(per_unit)
+    )
+    return fit_cell(
+        cell,
+        root_entropy=0,
+        fit_config=_CHEAP,
+        candidates=resolve_candidates(["difference_in_means"]),
+    )
+
+
+def test_row_columns_end_with_the_three_cate_metrics():
+    assert ROW_COLUMNS[-3:] == CATE_METRIC_COLUMNS
+
+
+def test_a_cate_cell_row_carries_its_identity_and_a_measured_treated_share():
+    frame = run_grid(_tiny_cate(), estimators=["difference_in_means"], fit_config=_CHEAP)
+
+    assert len(frame) == 1
+    row = frame.iloc[0]
+    assert row["shape"] == "cate"
+    assert row["scenario"] == "RICH"
+    assert row["n_units"] == CATE_N_UNITS
+    assert row["status"] == "fitted"
+    assert 0.3 < row["realised_treated_share"] < 0.7
+    for column in (*_NEW_AXIS_COLUMNS, "confounding_strength", "n_periods"):
+        assert np.isnan(row[column]), column
+
+
+def test_an_estimator_without_a_per_unit_cate_leaves_the_cate_columns_blank():
+    frame = run_grid(_tiny_cate(), estimators=["difference_in_means"], fit_config=_CHEAP)
+
+    row = frame.iloc[0]
+    assert row["status"] == "fitted"
+    assert row["reason"] == ""
+    for column in CATE_METRIC_COLUMNS:
+        assert np.isnan(row[column]), column
+
+
+def test_a_per_unit_cate_equal_to_the_truth_scores_perfectly(monkeypatch):
+    cell = CateCell("RICH", 0)
+    truth = resolve_cell(cell, root_entropy=0).cate_truth.values
+
+    (row,) = _fit_with(monkeypatch, cell, truth.copy())
+
+    assert row["cate_correlation"] == pytest.approx(1.0)
+    assert row["cate_rmse"] == pytest.approx(0.0)
+    assert row["cate_calibration_slope"] == pytest.approx(1.0)
+
+
+def test_a_per_unit_cate_on_a_cross_sectional_cell_is_not_scored(monkeypatch):
+    cell = CrossSectionCell(scenario="A", n_units=400, confounding_strength=1.0, seed=0)
+
+    (row,) = _fit_with(monkeypatch, cell, np.zeros(400))
+
+    for column in CATE_METRIC_COLUMNS:
+        assert np.isnan(row[column]), column
+
+
+def test_a_misaligned_per_unit_cate_raises_rather_than_scoring(monkeypatch):
+    with pytest.raises(ValueError, match="shape"):
+        _fit_with(monkeypatch, CateCell("RICH", 0), np.zeros(CATE_N_UNITS - 1))

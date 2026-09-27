@@ -19,8 +19,10 @@ import pandas as pd
 from cp_causal.registry import all_estimators, get_estimator
 from cp_causal.router import route
 from cp_core.values import EstimatorConfig
+from cp_simulation.cate_scenarios import CATE_N_UNITS
 from cp_simulation.donor_scenarios import DONOR_SCENARIOS
 
+from cp_evaluation.cate import CATE_METRIC_COLUMNS, cate_row_metrics
 from cp_evaluation.grid import (
     CateCell,
     Cell,
@@ -80,6 +82,9 @@ ROW_COLUMNS: tuple[str, ...] = (
     "n_treated",
     "n_control",
     "runtime_seconds",
+    # Per-fit CATE recovery (cp_evaluation.cate). NaN on every row except a
+    # fitted CATE-cell row whose estimate reports `per_unit_cate`.
+    *CATE_METRIC_COLUMNS,
 )
 
 
@@ -182,16 +187,26 @@ def _cell_columns(cell: Cell, resolved: ResolvedCell) -> dict[str, object]:
             "seed": cell.seed,
         }
 
-    # CateCell: not yet threaded through `run_grid` (a later task in the CATE
-    # metrics benchmark arm wires this in, alongside `resolve_cell` and
-    # `store`). `expand_cells` can already produce a `CateCell` -- see
-    # `GridConfig.cate` -- but nothing routes one to this function yet, so
-    # this is reached only by a bug, not by a supported CATE run.
-    assert isinstance(cell, CateCell)
-    raise NotImplementedError(
-        "CateCell is not yet supported by run_grid; a later task threads it "
-        "through resolve_cell and the row/store schema"
-    )
+    if isinstance(cell, CateCell):
+        # Size fixed by the registry (grid.py's CateCell docstring). A CATE
+        # dataset is cross-sectional, so its treated share is measured as for
+        # a CrossSectionCell; the axis columns are NaN because the arm varies
+        # none of them.
+        return {
+            "shape": "cate",
+            "scenario": cell.scenario,
+            "n_units": CATE_N_UNITS,
+            "confounding_strength": np.nan,
+            "treatment_intercept": np.nan,
+            "noise_scale": np.nan,
+            "effect_scale": np.nan,
+            "heterogeneity_scale": np.nan,
+            "realised_treated_share": _realised_treated_share(resolved),
+            "n_periods": np.nan,
+            "seed": cell.seed,
+        }
+
+    raise TypeError(f"unhandled cell shape {type(cell).__name__}")
 
 
 def _blank_row(
@@ -228,6 +243,9 @@ def _fitted_row(
             "runtime_seconds": estimate.fit_metadata.runtime_seconds,
         }
     )
+    per_unit = estimate.diagnostics.get("per_unit_cate")
+    if resolved.cate_truth is not None and per_unit is not None:
+        row.update(cate_row_metrics(per_unit.value, resolved.cate_truth))
     return row
 
 

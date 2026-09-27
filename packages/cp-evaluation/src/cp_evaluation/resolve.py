@@ -14,13 +14,15 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from cp_core.dataset import CausalDataset
+from cp_simulation.cate_scenarios import CATE_N_UNITS, CATE_SCENARIOS, build_cate_scenario
 from cp_simulation.donor_scenarios import DONOR_SCENARIOS, build_donor_scenario
 from cp_simulation.oracle import oracle_ate, oracle_att
 from cp_simulation.panel_scenarios import build_panel_scenario
 from cp_simulation.params import ScenarioParams
 from cp_simulation.scenarios import build_scenario
 
-from cp_evaluation.grid import Cell, CrossSectionCell, PanelCell, cell_rng
+from cp_evaluation.cate import CateTruth
+from cp_evaluation.grid import CateCell, Cell, CrossSectionCell, DonorPoolCell, PanelCell, cell_rng
 
 
 @dataclass(frozen=True, eq=False)
@@ -33,6 +35,11 @@ class ResolvedCell:
 
     dataset: CausalDataset
     truth: Mapping[str, float]
+    # Per-unit truth, set only for a `CateCell` (design section 5). A
+    # cross-sectional DGP records `true_cate` as well, but the CATE arm scores
+    # only `CATE_SCENARIOS` (design decision 2), and `None` here is how
+    # `run._fitted_row` knows not to.
+    cate_truth: CateTruth | None = None
 
 
 def resolve_cell(cell: Cell, root_entropy: int) -> ResolvedCell:
@@ -74,6 +81,20 @@ def resolve_cell(cell: Cell, root_entropy: int) -> ResolvedCell:
             dataset=panel.dataset,
             truth={"ATT": float(panel.truth.true_att_overall)},
         )
+
+    if isinstance(cell, CateCell):
+        simulated = build_cate_scenario(cell.scenario).generate(n_units=CATE_N_UNITS, rng=rng)
+        return ResolvedCell(
+            dataset=simulated.dataset,
+            truth={"ATE": oracle_ate(simulated), "ATT": oracle_att(simulated)},
+            cate_truth=CateTruth(
+                values=simulated.truth.true_cate,
+                heterogeneous=CATE_SCENARIOS[cell.scenario].heterogeneous,
+            ),
+        )
+
+    if not isinstance(cell, DonorPoolCell):
+        raise TypeError(f"unhandled cell shape {type(cell).__name__}")
 
     # DonorPoolCell: DONOR_SCENARIOS reuses PanelDGP unchanged with exactly
     # one treated unit, so true_att_overall's "weight by treated (unit,

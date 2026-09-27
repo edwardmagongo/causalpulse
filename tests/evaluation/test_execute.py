@@ -10,6 +10,7 @@ from cp_evaluation.execute import (
     pool_environment,
 )
 from cp_evaluation.grid import (
+    CateCell,
     CrossSectionCell,
     DonorPoolCell,
     PanelCell,
@@ -182,6 +183,20 @@ def test_a_donor_pool_cell_orders_with_the_panel_cells_and_does_not_raise():
     nuts = [c for c in forward if not isinstance(c, CrossSectionCell)]
     assert forward[: len(nuts)] == nuts
     assert all(d in nuts for d in donors)
+
+
+def test_cate_cells_are_scheduled_among_the_dear_cells_by_their_registry_size():
+    cells = [
+        CrossSectionCell(scenario="A", n_units=2000, confounding_strength=1.0, seed=0),
+        DonorPoolCell("S1", 0),
+        CateCell("RICH", 0),
+    ]
+
+    ordered = longest_first(cells)
+
+    # Not cross-sectional, so ahead of every cross-sectional cell; 2000 units
+    # against the donor cell's 18, so ahead of it too.
+    assert [type(c) for c in ordered] == [CateCell, DonorPoolCell, CrossSectionCell]
 
 
 # -- the process pool ---------------------------------------------------------

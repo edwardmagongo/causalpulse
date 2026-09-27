@@ -1,8 +1,9 @@
 import numpy as np
 import pytest
 from cp_core.dataset import CausalDataset
-from cp_evaluation.grid import CrossSectionCell, DonorPoolCell, PanelCell, cell_rng
+from cp_evaluation.grid import CateCell, CrossSectionCell, DonorPoolCell, PanelCell, cell_rng
 from cp_evaluation.resolve import resolve_cell, truth_for
+from cp_simulation.cate_scenarios import CATE_N_UNITS
 from cp_simulation.donor_scenarios import DONOR_SCENARIOS, build_donor_scenario
 from cp_simulation.panel_scenarios import PANEL_SCENARIOS
 from cp_simulation.params import ScenarioParams
@@ -203,3 +204,33 @@ def test_asking_a_donor_pool_cell_for_ate_truth_raises_rather_than_defaulting():
 
     with pytest.raises(KeyError, match="ATE"):
         truth_for(resolved, "ATE")
+
+
+def test_a_cate_cell_resolves_its_scenario_at_the_registry_size_with_per_unit_truth():
+    resolved = resolve_cell(CateCell("RICH", 0), root_entropy=0)
+
+    assert len(resolved.dataset.frame) == CATE_N_UNITS
+    assert set(resolved.truth) == {"ATE", "ATT"}
+    assert resolved.cate_truth is not None
+    assert resolved.cate_truth.heterogeneous is True
+    assert resolved.cate_truth.values.shape == (CATE_N_UNITS,)
+    # The ATE truth is the mean of the same per-unit truth, not a second measurement.
+    assert resolved.truth["ATE"] == pytest.approx(float(resolved.cate_truth.values.mean()))
+
+
+def test_null_resolves_as_declared_constant():
+    resolved = resolve_cell(CateCell("NULL", 0), root_entropy=0)
+
+    assert resolved.cate_truth is not None
+    assert resolved.cate_truth.heterogeneous is False
+
+
+def test_only_a_cate_cell_carries_per_unit_truth():
+    cross = resolve_cell(
+        CrossSectionCell(scenario="F", n_units=300, confounding_strength=1.0, seed=0),
+        root_entropy=0,
+    )
+
+    # F's DGP records true_cate too; the arm deliberately does not score it
+    # (design decision 2).
+    assert cross.cate_truth is None
