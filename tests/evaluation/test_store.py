@@ -6,6 +6,7 @@ import pytest
 from cp_core.values import EstimatorConfig
 from cp_evaluation.grid import (
     CateAxes,
+    CateCell,
     CrossSectionAxes,
     DonorPoolAxes,
     DonorPoolCell,
@@ -113,7 +114,9 @@ def test_the_manifest_rebuilds_the_grid_it_was_made_from(tmp_path):
     ]
 
 
-def test_the_store_expects_every_cell_the_config_expands_to_donor_arm_included(tmp_path):
+def test_the_store_expects_every_cell_the_config_expands_to_donor_and_cate_arms_included(
+    tmp_path,
+):
     config = study_config()
     store = RunStore.create(
         tmp_path / "run",
@@ -124,8 +127,9 @@ def test_the_store_expects_every_cell_the_config_expands_to_donor_arm_included(t
     expected = store.expected_cells()
 
     assert set(expected) == {cell_key(c) for c in expand_cells(config)}
-    assert len(expected) == len(expand_cells(config)) == 4300
+    assert len(expected) == len(expand_cells(config)) == 4450
     assert any(isinstance(c, DonorPoolCell) for c in expected.values())
+    assert any(isinstance(c, CateCell) for c in expected.values())
 
 
 def test_a_grid_with_no_donor_arm_keeps_its_identity_free_of_a_donor_key():
