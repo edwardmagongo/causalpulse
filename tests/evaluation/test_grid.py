@@ -7,6 +7,8 @@ import sys
 import numpy as np
 import pytest
 from cp_evaluation.grid import (
+    CateAxes,
+    CateCell,
     CrossSectionAxes,
     CrossSectionCell,
     DonorPoolAxes,
@@ -14,11 +16,15 @@ from cp_evaluation.grid import (
     GridConfig,
     PanelAxes,
     PanelCell,
+    cell_key,
     cell_rng,
     expand_cells,
 )
 from cp_simulation.params import AXIS_NAMES, ScenarioParams
 from cp_simulation.scenarios import SCENARIOS
+
+# `cell_key(DonorPoolCell("S1", 0))` on `cate-metrics-arm` before Task 3's edit.
+_DONOR_S1_0_KEY = "f2f8e3cc570c30a4c802daea"
 
 
 def test_cross_section_axes_expand_to_a_cross_product():
@@ -877,3 +883,85 @@ def test_scenario_axes_cannot_be_mutated_by_a_caller():
 
     with pytest.raises(TypeError):
         SCENARIO_AXES["C"] = frozenset()  # type: ignore[index]
+
+
+def _cate_only(scenarios=("RICH", "NULL", "NOISY"), replications=3) -> GridConfig:
+    return GridConfig(
+        cross_section=None,
+        panel=None,
+        cate=CateAxes(scenarios=scenarios),
+        replications=replications,
+    )
+
+
+def test_cate_axes_expand_one_cell_per_scenario_per_replication():
+    cells = expand_cells(_cate_only())
+
+    assert len(cells) == 9
+    assert all(isinstance(cell, CateCell) for cell in cells)
+    assert [(c.scenario, c.seed) for c in cells] == [
+        (s, seed) for s in ("NOISY", "NULL", "RICH") for seed in range(3)
+    ]
+
+
+def test_a_grid_with_only_a_cate_arm_is_valid():
+    assert expand_cells(_cate_only(scenarios=("RICH",), replications=1)) == (
+        CateCell("RICH", 0),
+    )
+
+
+def test_an_unknown_cate_scenario_is_refused_by_name():
+    with pytest.raises(ValueError, match="unknown CATE scenarios"):
+        expand_cells(_cate_only(scenarios=("RICH", "WIDE")))
+
+
+def test_cate_cells_sort_after_every_other_shape():
+    config = GridConfig(
+        cross_section=CrossSectionAxes(
+            scenarios=("A",), n_units=(200,), confounding_strength=(1.0,)
+        ),
+        panel=PanelAxes(scenarios=("P1",), n_units=(50,), n_periods=(7,)),
+        donor_pool=DonorPoolAxes(scenarios=("S1",)),
+        cate=CateAxes(scenarios=("RICH",)),
+        replications=1,
+    )
+
+    shapes = [type(cell) for cell in expand_cells(config)]
+
+    assert shapes == [CrossSectionCell, PanelCell, DonorPoolCell, CateCell]
+
+
+def test_a_cate_cell_and_a_donor_cell_with_the_same_fields_never_share_a_stream():
+    donor = DonorPoolCell("S1", 0)
+    cate = CateCell("S1", 0)
+
+    assert cell_key(donor) != cell_key(cate)
+    assert not np.array_equal(
+        cell_rng(donor, root_entropy=1).normal(size=5),
+        cell_rng(cate, root_entropy=1).normal(size=5),
+    )
+
+
+def test_adding_the_cate_shape_does_not_move_a_donor_cells_stream():
+    # Pinned before Task 3: the donor branch used to be the fall-through of
+    # `_identity_payload`; making it explicit must not change its payload.
+    assert cell_key(DonorPoolCell("S1", 0)) == _DONOR_S1_0_KEY
+
+
+def test_cate_cell_rng_reproduces_across_processes_with_a_non_default_hash_seed():
+    cell = CateCell("RICH", 0)
+    expected = cell_rng(cell, root_entropy=12345).normal(size=5).tolist()
+
+    script = (
+        "import json\n"
+        "from cp_evaluation.grid import CateCell, cell_rng\n"
+        "draws = cell_rng(CateCell('RICH', 0), root_entropy=12345).normal(size=5)\n"
+        "print(json.dumps(draws.tolist()))\n"
+    )
+    env = dict(os.environ, PYTHONHASHSEED="12345")
+
+    result = subprocess.run(
+        [sys.executable, "-c", script], env=env, capture_output=True, text=True, check=True
+    )
+
+    assert np.array_equal(expected, json.loads(result.stdout))

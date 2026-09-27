@@ -21,7 +21,15 @@ from cp_causal.router import route
 from cp_core.values import EstimatorConfig
 from cp_simulation.donor_scenarios import DONOR_SCENARIOS
 
-from cp_evaluation.grid import Cell, CrossSectionCell, DonorPoolCell, GridConfig, expand_cells
+from cp_evaluation.grid import (
+    CateCell,
+    Cell,
+    CrossSectionCell,
+    DonorPoolCell,
+    GridConfig,
+    PanelCell,
+    expand_cells,
+)
 from cp_evaluation.resolve import ResolvedCell, resolve_cell, truth_for
 
 if TYPE_CHECKING:
@@ -154,24 +162,36 @@ def _cell_columns(cell: Cell, resolved: ResolvedCell) -> dict[str, object]:
             "n_periods": spec.n_periods,
             "seed": cell.seed,
         }
-    return {
-        "shape": "panel",
-        "scenario": cell.scenario,
-        "n_units": cell.n_units,
-        "confounding_strength": np.nan,
-        # The four axes Phase 18 adds, and the treated share measured from
-        # them, are cross-sectional-only -- `ScenarioParams` reaches a
-        # scenario through `build_scenario`, which the panel arm never
-        # calls. Follows the same np.nan convention as
-        # `confounding_strength` above, rather than inventing a second one.
-        "treatment_intercept": np.nan,
-        "noise_scale": np.nan,
-        "effect_scale": np.nan,
-        "heterogeneity_scale": np.nan,
-        "realised_treated_share": np.nan,
-        "n_periods": cell.n_periods,
-        "seed": cell.seed,
-    }
+    if isinstance(cell, PanelCell):
+        return {
+            "shape": "panel",
+            "scenario": cell.scenario,
+            "n_units": cell.n_units,
+            "confounding_strength": np.nan,
+            # The four axes Phase 18 adds, and the treated share measured from
+            # them, are cross-sectional-only -- `ScenarioParams` reaches a
+            # scenario through `build_scenario`, which the panel arm never
+            # calls. Follows the same np.nan convention as
+            # `confounding_strength` above, rather than inventing a second one.
+            "treatment_intercept": np.nan,
+            "noise_scale": np.nan,
+            "effect_scale": np.nan,
+            "heterogeneity_scale": np.nan,
+            "realised_treated_share": np.nan,
+            "n_periods": cell.n_periods,
+            "seed": cell.seed,
+        }
+
+    # CateCell: not yet threaded through `run_grid` (a later task in the CATE
+    # metrics benchmark arm wires this in, alongside `resolve_cell` and
+    # `store`). `expand_cells` can already produce a `CateCell` -- see
+    # `GridConfig.cate` -- but nothing routes one to this function yet, so
+    # this is reached only by a bug, not by a supported CATE run.
+    assert isinstance(cell, CateCell)
+    raise NotImplementedError(
+        "CateCell is not yet supported by run_grid; a later task threads it "
+        "through resolve_cell and the row/store schema"
+    )
 
 
 def _blank_row(

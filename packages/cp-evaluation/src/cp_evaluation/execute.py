@@ -26,7 +26,7 @@ from pathlib import Path
 from cp_core.values import EstimatorConfig
 from cp_simulation.donor_scenarios import DONOR_SCENARIOS
 
-from cp_evaluation.grid import Cell, CrossSectionCell, DonorPoolCell, cell_key
+from cp_evaluation.grid import CateCell, Cell, CrossSectionCell, DonorPoolCell, cell_key
 from cp_evaluation.run import fit_cell, resolve_candidates
 from cp_evaluation.store import LedgerEntry, RunStore, write_shard
 
@@ -104,6 +104,15 @@ def longest_first(cells: Sequence[Cell]) -> list[Cell]:
     def n_units(cell: Cell) -> int:
         if isinstance(cell, DonorPoolCell):
             return DONOR_SCENARIOS[cell.scenario].n_units
+        if isinstance(cell, CateCell):
+            # Not yet threaded through this run path -- a later task in the
+            # CATE metrics benchmark arm wires `CateCell` into
+            # `fit_cell`/`resolve_candidates`. `longest_first` ordering a
+            # cell type it cannot yet run is a bug, not a supported case.
+            raise NotImplementedError(
+                "CateCell is not yet supported by longest_first/execute; a "
+                "later task threads it through fit_cell and the run path"
+            )
         return cell.n_units
 
     return sorted(

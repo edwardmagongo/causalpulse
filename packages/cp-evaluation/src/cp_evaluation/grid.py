@@ -1,6 +1,6 @@
 """What a benchmark cell is, and how a configuration expands into cells.
 
-The three scenario registries are not symmetric, so neither are the cells. A
+The four scenario registries are not symmetric, so neither are the cells. A
 cross-sectional scenario is built by a `Callable[[ScenarioParams], CrossSectionDGP]`
 taking the full set of axis values (`build_scenario` also accepts a bare
 `confounding_strength` float for the pre-Phase-18 call shape, which it widens
@@ -10,6 +10,8 @@ BinaryPanelDGP]` taking nothing at all, and generated with `n_units` and
 `n_periods`. A donor-pool scenario (`DONOR_SCENARIOS`, S0-S5) fixes its own
 size, so its cell carries only a scenario and a seed. Forcing one dataclass
 over all three would mean a field that is meaningless for some of its instances.
+A CATE scenario (`CATE_SCENARIOS`, RICH/NULL/NOISY) fixes its size too, so its
+cell is also only a scenario and a seed.
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 
 import numpy as np
+from cp_simulation.cate_scenarios import CATE_SCENARIOS
 from cp_simulation.donor_scenarios import DONOR_SCENARIOS
 from cp_simulation.panel_scenarios import PANEL_SCENARIOS
 from cp_simulation.params import AXIS_NAMES, ScenarioParams
@@ -143,7 +146,21 @@ class DonorPoolCell:
     seed: int
 
 
-Cell = CrossSectionCell | PanelCell | DonorPoolCell
+@dataclass(frozen=True)
+class CateCell:
+    """One CATE benchmark cell.
+
+    Like `DonorPoolCell`, there is no size axis: `CATE_SCENARIOS`
+    (`cp_simulation.cate_scenarios`) fixes every scenario at `CATE_N_UNITS`, and
+    its heterogeneity is set from a detection floor measured at that size, so a
+    CATE cell's identity is its scenario and its replication index.
+    """
+
+    scenario: str
+    seed: int
+
+
+Cell = CrossSectionCell | PanelCell | DonorPoolCell | CateCell
 
 
 @dataclass(frozen=True)
@@ -197,6 +214,13 @@ class DonorPoolAxes:
 
 
 @dataclass(frozen=True)
+class CateAxes:
+    """Which of `CATE_SCENARIOS` to include. No size axis -- see `CateCell`."""
+
+    scenarios: Sequence[str]
+
+
+@dataclass(frozen=True)
 class GridConfig:
     """The axes of a benchmark run.
 
@@ -208,13 +232,16 @@ class GridConfig:
     such axes: `PanelAxes` builds each scenario with
     `Callable[[], PanelDGP | BinaryPanelDGP]`, which takes nothing at all.
     `donor_pool` is the optional third arm (`DonorPoolAxes`, S0-S5); it defaults
-    to `None`, so a config that does not mention it has no donor cells.
+    to `None`, so a config that does not mention it has no donor cells. `cate`
+    is the optional fourth arm (`CateAxes`, `CATE_SCENARIOS`), defaulting to
+    `None` the same way.
     """
 
     cross_section: CrossSectionAxes | None
     panel: PanelAxes | None
     replications: int
     donor_pool: DonorPoolAxes | None = None
+    cate: CateAxes | None = None
 
     def __post_init__(self) -> None:
         if self.replications < 1:
@@ -228,9 +255,14 @@ def expand_cells(config: GridConfig) -> tuple[Cell, ...]:
     identity, and a grid whose row order depended on dict iteration would make
     two runs of the same configuration hard to compare.
     """
-    if config.cross_section is None and config.panel is None and config.donor_pool is None:
+    if (
+        config.cross_section is None
+        and config.panel is None
+        and config.donor_pool is None
+        and config.cate is None
+    ):
         raise ValueError(
-            "a GridConfig needs at least one of cross_section, panel or donor_pool"
+            "a GridConfig needs at least one of cross_section, panel, donor_pool or cate"
         )
 
     cells: list[Cell] = []
@@ -270,6 +302,19 @@ def expand_cells(config: GridConfig) -> tuple[Cell, ...]:
         cells.extend(
             DonorPoolCell(scenario=scenario, seed=seed)
             for scenario in axes_dp.scenarios
+            for seed in range(config.replications)
+        )
+
+    if config.cate is not None:
+        axes_c = config.cate
+        unknown = sorted(set(axes_c.scenarios) - set(CATE_SCENARIOS))
+        if unknown:
+            raise ValueError(
+                f"unknown CATE scenarios {unknown}; available: {sorted(CATE_SCENARIOS)}"
+            )
+        cells.extend(
+            CateCell(scenario=scenario, seed=seed)
+            for scenario in axes_c.scenarios
             for seed in range(config.replications)
         )
 
@@ -462,7 +507,7 @@ def _expand_cross_section(
 
 
 def cell_sort_key(cell: Cell) -> tuple[object, ...]:
-    """A total order over all three cell shapes.
+    """A total order over all four cell shapes.
 
     The shape tag leads, so the shapes never interleave
     and the blocks stay independently readable. The four new axes sort
@@ -481,7 +526,9 @@ def cell_sort_key(cell: Cell) -> tuple[object, ...]:
         )
     if isinstance(cell, PanelCell):
         return (1, cell.scenario, cell.n_units, cell.n_periods, cell.seed)
-    return (2, cell.scenario, cell.seed)
+    if isinstance(cell, DonorPoolCell):
+        return (2, cell.scenario, cell.seed)
+    return (3, cell.scenario, cell.seed)
 
 
 def _identity_payload(cell: Cell) -> dict[str, object]:
@@ -523,7 +570,9 @@ def _identity_payload(cell: Cell) -> dict[str, object]:
             "n_periods": cell.n_periods,
             "seed": cell.seed,
         }
-    return {"shape": "donor_pool", "scenario": cell.scenario, "seed": cell.seed}
+    if isinstance(cell, DonorPoolCell):
+        return {"shape": "donor_pool", "scenario": cell.scenario, "seed": cell.seed}
+    return {"shape": "cate", "scenario": cell.scenario, "seed": cell.seed}
 
 
 def cell_key(cell: Cell) -> str:
