@@ -49,9 +49,10 @@ markers = [
     # Excluded by `make test-fast` only. `make test` and `make check` still run
     # them, which is deliberate: the full gate should not have a blind spot.
     "slow: reference parity, measured-rate protocols, and MCMC-cost tests; skipped by test-fast",
-    # Needs PostgreSQL and Redis. Each test skips unless DATABASE_URL (and, for
-    # Redis, REDIS_URL) is set, so `make check` stays service-free;
-    # `make check-services` starts both with docker compose and runs these.
+    # Needs PostgreSQL and Redis. Each test skips unless TEST_DATABASE_URL
+    # (and, for Redis, TEST_REDIS_URL) is set, so `make check` stays
+    # service-free; `make check-services` starts both with docker compose and
+    # runs these.
     "services: needs PostgreSQL and Redis; run by make check-services",
 ]
 # Warnings are failures. A numpy overflow in a hand-rolled sigmoid reached the

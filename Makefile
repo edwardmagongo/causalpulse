@@ -26,9 +26,12 @@ cov:
 
 check: lint types imports test
 
-SERVICES_ENV = DATABASE_URL=postgresql+psycopg://causalpulse:causalpulse@localhost:5433/causalpulse REDIS_URL=redis://localhost:6380/0
+SERVICES_ENV = TEST_DATABASE_URL=postgresql+psycopg://causalpulse:causalpulse@localhost:5434/causalpulse TEST_REDIS_URL=redis://localhost:6381/0
+TEST_STACK = CP_POSTGRES_PORT=5434 CP_REDIS_PORT=6381 docker compose -p causalpulse-test
 
-# Serial, not -n auto: the tests share one database.
+# Serial, not -n auto: the tests share one database. Runs against its own
+# compose project on 5434/6381, never the demo stack's 5433/6380, so it can
+# never wipe a running demo.
 check-services:
-	docker compose up -d --wait postgres redis
-	$(SERVICES_ENV) uv run pytest -v -m "services and not slow"; status=$$?; docker compose down -v; exit $$status
+	$(TEST_STACK) up -d --wait postgres redis || { $(TEST_STACK) down -v; exit 1; }
+	$(SERVICES_ENV) uv run pytest -v -m "services and not slow"; status=$$?; $(TEST_STACK) down -v; exit $$status

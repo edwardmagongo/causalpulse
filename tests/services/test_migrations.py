@@ -22,9 +22,13 @@ def test_the_migration_builds_exactly_the_models_tables(migrated):
 def test_downgrade_removes_every_table_and_upgrade_restores_them(migrated):
     engine = make_engine(migrated)
     try:
-        downgrade(migrated)
-        assert set(inspect(engine).get_table_names()) <= {"alembic_version"}
-        upgrade(migrated)
+        try:
+            downgrade(migrated)
+            assert set(inspect(engine).get_table_names()) <= {"alembic_version"}
+        finally:
+            # Always restore, in the `finally`, so a failed assertion above
+            # can't leave the database at base for later tests.
+            upgrade(migrated)
         assert set(inspect(engine).get_table_names()) >= set(Base.metadata.tables)
     finally:
         engine.dispose()
