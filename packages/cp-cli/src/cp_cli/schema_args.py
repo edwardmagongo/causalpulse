@@ -11,12 +11,10 @@ serialises rather than inventing a second format or growing ten more flags.
 from __future__ import annotations
 
 import argparse
-import dataclasses
 import json
 from pathlib import Path
-from typing import Any
 
-from cp_core.dataset import CausalSchema
+from cp_core.dataset import CausalSchema, schema_from_dict
 
 _FLAG_FIELDS = ("unit", "treatment", "outcome", "covariates", "outcome_type")
 
@@ -30,54 +28,8 @@ def add_schema_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--outcome-type", help="One of: binary, continuous.")
 
 
-def _schema_field_names() -> set[str]:
-    return {f.name for f in dataclasses.fields(CausalSchema)}
-
-
-def _required_schema_field_names() -> set[str]:
-    return {
-        f.name
-        for f in dataclasses.fields(CausalSchema)
-        if f.default is dataclasses.MISSING and f.default_factory is dataclasses.MISSING
-    }
-
-
-def _tuple_fields(data: dict[str, Any]) -> dict[str, Any]:
-    """JSON has no tuple type, so every tuple-typed field arrives as a list.
-
-    `covariates` and `auxiliary_columns` are `CausalSchema`'s only two such
-    fields as of this phase; a third would need the same treatment.
-
-    `covariates` is a *required* `CausalSchema` field -- it gets no default
-    here. Defaulting it would mean a schema file that omits it silently
-    produces a schema with no confounders, and the resulting estimates would
-    answer a question the user did not ask. `auxiliary_columns` genuinely
-    defaults to `()` on `CausalSchema`, so defaulting it here is correct.
-    """
-    if "covariates" in data:
-        data["covariates"] = tuple(data["covariates"])
-    data["auxiliary_columns"] = tuple(data.get("auxiliary_columns", ()))
-    return data
-
-
 def _schema_from_file(schema_file: str) -> CausalSchema:
-    data = dict(json.loads(Path(schema_file).read_text()))
-
-    unknown = sorted(set(data) - _schema_field_names())
-    if unknown:
-        raise ValueError(f"unknown schema field(s): {unknown}")
-
-    try:
-        return CausalSchema(**_tuple_fields(data))
-    except TypeError as exc:
-        # A required field (e.g. `covariates`) is missing. The dataclass
-        # constructor's own TypeError would otherwise reach the user as an
-        # uncaught traceback; name the missing field(s) instead, the same
-        # way the flag path already does.
-        missing = sorted(_required_schema_field_names() - set(data))
-        if not missing:
-            raise
-        raise ValueError(f"schema file is missing required field(s): {missing}") from exc
+    return schema_from_dict(json.loads(Path(schema_file).read_text()))
 
 
 def schema_from_args(args: argparse.Namespace) -> CausalSchema:

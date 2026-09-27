@@ -15,7 +15,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from cp_core.results import EffectEstimate
+from cp_core.results import EffectEstimate, estimate_summary
 
 ESTIMATE_COLUMNS: tuple[str, ...] = (
     "method",
@@ -39,22 +39,11 @@ _SIDECAR_NAME = "run.json"
 def estimates_frame(estimates: Sequence[EffectEstimate]) -> pd.DataFrame:
     rows = []
     for estimate in estimates:
-        bootstrap = estimate.bootstrap_ci
+        summary = estimate_summary(estimate)
         rows.append(
             {
-                "method": estimate.method,
-                "estimand": estimate.estimand,
-                "point": estimate.point,
-                "se": np.nan if estimate.se is None else estimate.se,
-                "ci_lower": estimate.ci.lower,
-                "ci_upper": estimate.ci.upper,
-                "ci_basis": estimate.ci_basis,
-                "bootstrap_ci_lower": np.nan if bootstrap is None else bootstrap.lower,
-                "bootstrap_ci_upper": np.nan if bootstrap is None else bootstrap.upper,
-                "p_value": np.nan if estimate.p_value is None else estimate.p_value,
-                "n_treated": estimate.n_treated,
-                "n_control": estimate.n_control,
-                "runtime_seconds": estimate.fit_metadata.runtime_seconds,
+                column: np.nan if summary[column] is None else summary[column]
+                for column in ESTIMATE_COLUMNS
             }
         )
     return pd.DataFrame(rows, columns=list(ESTIMATE_COLUMNS))
