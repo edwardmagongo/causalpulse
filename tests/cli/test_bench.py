@@ -6,6 +6,7 @@ import pytest
 from cp_cli.__main__ import main
 from cp_cli.io import read_benchmark, write_benchmark
 from cp_evaluation.grid import (
+    CateAxes,
     CrossSectionAxes,
     CrossSectionCell,
     DonorPoolAxes,
@@ -194,6 +195,32 @@ def test_a_grid_with_no_donor_arm_records_none_for_it():
 
     assert sidecar["donor_pool"] is None
     assert sidecar["donor_pool_realised"] is None
+
+
+def test_the_sidecar_records_the_cate_arm_requested_and_realised():
+    config = GridConfig(
+        cross_section=None, panel=None, cate=CateAxes(scenarios=("RICH", "NULL")), replications=1
+    )
+    frame = pd.DataFrame({"shape": ["cate", "donor_pool"], "scenario": ["RICH", "S1"]})
+
+    sidecar = _sidecar_for(config, frame)
+
+    assert sidecar["cate"] == {"scenarios": ["RICH", "NULL"]}
+    assert sidecar["cate_realised"] == {"scenarios": ["RICH"]}
+    lines = bench_module._axis_discrepancies(sidecar)
+    assert len(lines) == 1
+    assert "cate.scenarios" in lines[0]
+
+
+def test_a_grid_with_no_cate_arm_records_none_for_it():
+    config = GridConfig(cross_section=None, panel=None, donor_pool=DonorPoolAxes(("S1",)),
+                        replications=1)
+    frame = pd.DataFrame({"shape": ["donor_pool"], "scenario": ["S1"]})
+
+    sidecar = _sidecar_for(config, frame)
+
+    assert sidecar["cate"] is None
+    assert sidecar["cate_realised"] is None
 
 
 def test_a_fractional_value_is_never_narrowed_into_agreement():

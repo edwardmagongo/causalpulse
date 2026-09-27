@@ -4,7 +4,15 @@ import json
 import pandas as pd
 import pytest
 from cp_core.values import EstimatorConfig
-from cp_evaluation.grid import DonorPoolAxes, DonorPoolCell, cell_key, expand_cells
+from cp_evaluation.grid import (
+    CateAxes,
+    CrossSectionAxes,
+    DonorPoolAxes,
+    DonorPoolCell,
+    GridConfig,
+    cell_key,
+    expand_cells,
+)
 from cp_evaluation.run import fit_cell, resolve_candidates
 from cp_evaluation.store import (
     CELLS_DIR,
@@ -134,6 +142,30 @@ def test_the_donor_arm_survives_the_identity_round_trip():
 
     assert identity.grid["donor_pool"] == {"scenarios": ["S0", "S3"]}
     assert grid_config_of(identity.grid, 3) == config
+
+
+def _cross_only() -> GridConfig:
+    return GridConfig(
+        cross_section=CrossSectionAxes(
+            scenarios=("A",), n_units=(200,), confounding_strength=(1.0,)
+        ),
+        panel=None,
+        replications=2,
+    )
+
+
+def test_a_grid_without_a_cate_arm_keeps_the_identity_it_always_had():
+    identity = RunIdentity.of("t", _cross_only(), ["ipw"], EstimatorConfig(), 0)
+
+    assert set(identity.grid) == {"cross_section", "panel"}
+
+
+def test_the_cate_arm_round_trips_through_the_identity():
+    config = dataclasses.replace(_cross_only(), cate=CateAxes(scenarios=("RICH", "NULL")))
+    identity = RunIdentity.of("t", config, ["causal_forest"], EstimatorConfig(), 0)
+
+    assert identity.grid["cate"] == {"scenarios": ["RICH", "NULL"]}
+    assert grid_config_of(identity.grid, replications=2) == config
 
 
 def test_create_refuses_a_directory_that_already_holds_a_run(tmp_path):

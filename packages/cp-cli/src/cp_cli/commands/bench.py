@@ -19,7 +19,7 @@ from pathlib import Path
 import pandas as pd
 from cp_core.results import git_commit, package_versions
 from cp_evaluation.execute import DEFAULT_WORKERS, execute
-from cp_evaluation.grid import CrossSectionAxes, DonorPoolAxes, GridConfig, PanelAxes
+from cp_evaluation.grid import CateAxes, CrossSectionAxes, DonorPoolAxes, GridConfig, PanelAxes
 from cp_evaluation.metrics import summarise
 from cp_evaluation.run import run_grid
 from cp_evaluation.store import MANIFEST_NAME, RunIdentity, RunStore
@@ -103,6 +103,7 @@ def build_sidecar(
         "donor_pool": (
             None if config.donor_pool is None else _axis_block(config.donor_pool)
         ),
+        "cate": None if config.cate is None else _axis_block(config.cate),
         # What the grid was *asked* for is not what it necessarily produced.
         # A scenario is crossed only against the axes it declares
         # (`SCENARIOS[id].axes`), so an axis it does not declare is pinned to
@@ -126,6 +127,9 @@ def build_sidecar(
         ),
         "donor_pool_realised": (
             None if config.donor_pool is None else _realised_block(frame, config.donor_pool)
+        ),
+        "cate_realised": (
+            None if config.cate is None else _realised_block(frame, config.cate)
         ),
         **provenance,
     }
@@ -256,13 +260,15 @@ def load_run(
     return frame, sidecar
 
 
-def _axis_block(axes: CrossSectionAxes | PanelAxes | DonorPoolAxes) -> dict[str, list[object]]:
+def _axis_block(
+    axes: CrossSectionAxes | PanelAxes | DonorPoolAxes | CateAxes,
+) -> dict[str, list[object]]:
     """One axis dataclass, as JSON-ready lists, every field included."""
     return {name: list(values) for name, values in asdict(axes).items()}
 
 
 def _realised_block(
-    frame: pd.DataFrame, axes: CrossSectionAxes | PanelAxes | DonorPoolAxes
+    frame: pd.DataFrame, axes: CrossSectionAxes | PanelAxes | DonorPoolAxes | CateAxes
 ) -> dict[str, list[object]]:
     """The values of each of `axes`' fields that actually appear in `frame`.
 
@@ -298,6 +304,8 @@ def _realised_block(
         shape = "cross_section"
     elif isinstance(axes, DonorPoolAxes):
         shape = "donor_pool"
+    elif isinstance(axes, CateAxes):
+        shape = "cate"
     else:
         shape = "panel"
     rows = frame[frame["shape"] == shape]
@@ -348,7 +356,7 @@ def _axis_discrepancies(sidecar: Mapping[str, object]) -> list[str]:
     simply has no realised block to compare against.
     """
     lines: list[str] = []
-    for shape in ("cross_section", "panel", "donor_pool"):
+    for shape in ("cross_section", "panel", "donor_pool", "cate"):
         requested = sidecar.get(shape)
         realised = sidecar.get(f"{shape}_realised")
         if not isinstance(requested, dict) or not isinstance(realised, dict):
