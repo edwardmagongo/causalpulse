@@ -477,6 +477,7 @@ name = "cp-report"
 version = "0.1.0"
 source = { editable = "packages/cp-report" }
 dependencies = [
+    { name = "cp-causal" },
     { name = "cp-core" },
     { name = "cp-evaluation" },
     { name = "cp-figures" },
@@ -485,6 +486,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cp-causal", editable = "packages/cp-causal" },
     { name = "cp-core", editable = "packages/cp-core" },
     { name = "cp-evaluation", editable = "packages/cp-evaluation" },
     { name = "cp-figures", editable = "packages/cp-figures" },
