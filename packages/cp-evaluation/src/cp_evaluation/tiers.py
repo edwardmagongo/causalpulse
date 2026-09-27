@@ -111,13 +111,17 @@ from dataclasses import dataclass, replace
 
 from cp_core.values import EstimatorConfig
 
-from cp_evaluation.grid import CrossSectionAxes, DonorPoolAxes, GridConfig, PanelAxes
+from cp_evaluation.grid import CateAxes, CrossSectionAxes, DonorPoolAxes, GridConfig, PanelAxes
 
 # All six donor-pool scenarios, in full/study -- clean recovery
 # (S0, S1) and adversarial ones (S2-S5) alike, the same mix A-H and P1-P7
 # already are. Used by full/study only; ci carries no donor-pool arm, on
 # measured cost -- see the module docstring.
 _ALL_DONOR_POOL_SCENARIOS: tuple[str, ...] = ("S0", "S1", "S2", "S3", "S4", "S5")
+
+# Every CATE scenario, sorted as `expand_cells` sorts them. NULL included: its
+# RMSE measures invented heterogeneity (design decision 3).
+_ALL_CATE_SCENARIOS: tuple[str, ...] = ("NOISY", "NULL", "RICH")
 
 
 @dataclass(frozen=True)
@@ -677,6 +681,13 @@ def full_config() -> GridConfig:
     contention: ~60 fits x ~24s ~= 24 minutes per full run and ~300 fits x
     ~24s ~= 2 hours per study run. All of this is on top of the cross-sectional
     and panel arms' own cost.
+
+    The CATE arm (`CateAxes`, RICH/NULL/NOISY at `CATE_N_UNITS` = 2000) adds
+    3 x 10 = 30 cells here and 150 at `study_config()`'s 50 replications. Each
+    fits the five cross-sectional estimators; the seven panel and donor-pool
+    estimators are ineligible. Only `causal_forest` reports a per-unit CATE, so
+    only its rows carry `cate_correlation`/`cate_rmse`/`cate_calibration_slope`;
+    the other four are scored on their ATE as on any cross-sectional cell.
     """
     return GridConfig(
         cross_section=CrossSectionAxes(
@@ -694,6 +705,7 @@ def full_config() -> GridConfig:
             n_periods=(7, 10),
         ),
         donor_pool=DonorPoolAxes(scenarios=_ALL_DONOR_POOL_SCENARIOS),
+        cate=CateAxes(scenarios=_ALL_CATE_SCENARIOS),
         replications=10,
     )
 

@@ -2,14 +2,16 @@ import dataclasses
 from collections import Counter
 
 import pytest
-from cp_evaluation.grid import CrossSectionCell, expand_cells
+from cp_evaluation.grid import CateCell, CrossSectionCell, expand_cells
 from cp_evaluation.tiers import (
     CI_ESTIMATORS,
     FULL_ESTIMATORS,
     FULL_FIT_CONFIG,
     ci_config,
     full_config,
+    study_config,
 )
+from cp_simulation.cate_scenarios import CATE_SCENARIOS
 from cp_simulation.params import AXIS_NAMES, ScenarioParams
 from cp_simulation.scenarios import SCENARIOS
 
@@ -176,3 +178,33 @@ def test_full_config_crosses_confounding_strength_only_where_it_is_declared():
             assert seen == set(axes.confounding_strength), scenario
         else:
             assert seen == {default.confounding_strength}, scenario
+
+
+def test_full_and_study_cover_all_three_cate_scenarios():
+    for config in (full_config(), study_config()):
+        assert config.cate is not None
+        assert set(config.cate.scenarios) == set(CATE_SCENARIOS)
+
+
+def test_ci_excludes_the_cate_arm():
+    # causal_forest is already out of ci on measured cost (tiers.py docstring).
+    assert ci_config().cate is None
+
+
+def test_full_has_30_cate_cells_and_study_150():
+    for config, expected in ((full_config(), 30), (study_config(), 150)):
+        cells = [c for c in expand_cells(config) if isinstance(c, CateCell)]
+        assert len(cells) == expected
+
+
+def test_adding_the_cate_arm_does_not_perturb_any_existing_cell():
+    from cp_evaluation.grid import DonorPoolCell, PanelCell
+
+    with_cate = expand_cells(full_config())
+    without_cate = expand_cells(dataclasses.replace(full_config(), cate=None))
+
+    for shape in (CrossSectionCell, PanelCell, DonorPoolCell):
+        with_ = Counter(c for c in with_cate if isinstance(c, shape))
+        without = Counter(c for c in without_cate if isinstance(c, shape))
+        assert with_ == without
+        assert sum(with_.values()) > 0
