@@ -77,6 +77,13 @@ class CATEScenarioSpec:
     name: str
     description: str
     build: Callable[[], CrossSectionDGP]
+    # Whether the scenario's true CATE is meant to vary across units. Declared
+    # rather than measured: NULL's realised truth has sd ~3e-17 (rounding of a
+    # constant), so a variance test cannot tell it apart without a tolerance
+    # chosen to fit. `tests/simulation/test_cate_scenarios.py` checks the
+    # declaration against realised data. The benchmark's CATE arm reads it to
+    # decide whether correlation and calibration slope are defined.
+    heterogeneous: bool
 
 
 def _baseline() -> LogisticBaseline:
@@ -109,6 +116,7 @@ CATE_SCENARIOS: dict[str, CATEScenarioSpec] = {
             assignment=RandomAssignment(share=0.5),
             scenario_id="RICH",
         ),
+        heterogeneous=True,
     ),
     "NULL": CATEScenarioSpec(
         scenario_id="NULL",
@@ -127,6 +135,7 @@ CATE_SCENARIOS: dict[str, CATEScenarioSpec] = {
             assignment=RandomAssignment(share=0.5),
             scenario_id="NULL",
         ),
+        heterogeneous=False,
     ),
     "NOISY": CATEScenarioSpec(
         scenario_id="NOISY",
@@ -145,6 +154,7 @@ CATE_SCENARIOS: dict[str, CATEScenarioSpec] = {
             assignment=RandomAssignment(share=0.5),
             scenario_id="NOISY",
         ),
+        heterogeneous=True,
     ),
 }
 

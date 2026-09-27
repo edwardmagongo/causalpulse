@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from cp_simulation.cate_scenarios import CATE_N_UNITS, CATE_SCENARIOS, build_cate_scenario
 from cp_simulation.components import MultivariateHeterogeneousEffect
 
@@ -96,3 +97,27 @@ def test_noisy_scenario_has_more_covariates_than_true_drivers():
 
 def test_every_cate_scenario_is_covered_by_this_registry():
     assert set(CATE_SCENARIOS) == {"RICH", "NULL", "NOISY"}
+
+
+def test_only_null_is_declared_constant():
+    constant = {sid for sid, spec in CATE_SCENARIOS.items() if not spec.heterogeneous}
+
+    assert constant == {"NULL"}
+
+
+@pytest.mark.parametrize("scenario_id", sorted(CATE_SCENARIOS))
+def test_the_heterogeneity_declaration_matches_the_realised_truth(scenario_id):
+    # The benchmark turns CATE correlation and calibration slope off on the
+    # declaration alone, so the declaration must agree with the data. Measured
+    # 2026-09-27: RICH/NOISY true-CATE sd 0.119-0.121, NULL ~3e-17. The two
+    # bounds sit orders of magnitude from both, so neither is tuned to a seed.
+    spec = CATE_SCENARIOS[scenario_id]
+    for seed in range(3):
+        simulated = spec.build().generate(
+            n_units=CATE_N_UNITS, rng=np.random.default_rng(seed)
+        )
+        spread = float(np.std(simulated.truth.true_cate))
+        if spec.heterogeneous:
+            assert spread > 0.05, (scenario_id, seed, spread)
+        else:
+            assert spread < 1e-12, (scenario_id, seed, spread)
