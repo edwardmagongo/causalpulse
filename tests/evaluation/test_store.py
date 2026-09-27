@@ -1,4 +1,5 @@
 import dataclasses
+import hashlib
 import json
 
 import pandas as pd
@@ -162,6 +163,32 @@ def test_a_grid_without_a_cate_arm_keeps_the_identity_it_always_had():
     identity = RunIdentity.of("t", _cross_only(), ["ipw"], EstimatorConfig(), 0)
 
     assert set(identity.grid) == {"cross_section", "panel"}
+
+    # Design doc section 9: a `GridConfig` without `cate` must serialise to a
+    # byte-identical identity to the one it produced before this phase added
+    # the CATE arm. Pinned from the pre-branch code at merge-base e4a2aaa
+    # (not from this branch, which would make the check self-consistent):
+    #
+    #   git -C <a clone of the repository> \
+    #       worktree add /tmp/cate-pin-e4a2aaa e4a2aaa
+    #   PYTHONPATH=/tmp/cate-pin-e4a2aaa/packages/cp-evaluation/src:\
+    #   /tmp/cate-pin-e4a2aaa/packages/cp-core/src:\
+    #   /tmp/cate-pin-e4a2aaa/packages/cp-causal/src:\
+    #   /tmp/cate-pin-e4a2aaa/packages/cp-simulation/src:\
+    #   /tmp/cate-pin-e4a2aaa/packages/cp-statistics/src:\
+    #   /tmp/cate-pin-e4a2aaa/packages/cp-report/src:\
+    #   /tmp/cate-pin-e4a2aaa/packages/cp-figures/src:\
+    #   /tmp/cate-pin-e4a2aaa/packages/cp-cli/src \
+    #       uv run --frozen python -c \
+    #       '...RunIdentity.of("t", _cross_only(), ["ipw"], EstimatorConfig(), 0)...'
+    #   git worktree remove /tmp/cate-pin-e4a2aaa
+    #
+    # confirming `cp_evaluation.__file__` pointed into that worktree first.
+    payload = json.dumps(identity.to_json(), sort_keys=True)
+    assert (
+        hashlib.sha256(payload.encode()).hexdigest()
+        == "696f2a0c2cf22a97e1e29465403e5a76872c3f11ee9262db81d4668173a786f2"
+    )
 
 
 def test_the_cate_arm_round_trips_through_the_identity():

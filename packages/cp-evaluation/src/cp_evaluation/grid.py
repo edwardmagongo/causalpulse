@@ -9,7 +9,7 @@ to a `ScenarioParams` before reaching the registry), and generated with
 BinaryPanelDGP]` taking nothing at all, and generated with `n_units` and
 `n_periods`. A donor-pool scenario (`DONOR_SCENARIOS`, S0-S5) fixes its own
 size, so its cell carries only a scenario and a seed. Forcing one dataclass
-over all three would mean a field that is meaningless for some of its instances.
+over all four would mean a field that is meaningless for some of its instances.
 A CATE scenario (`CATE_SCENARIOS`, RICH/NULL/NOISY) fixes its size too, so its
 cell is also only a scenario and a seed.
 """

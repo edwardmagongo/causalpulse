@@ -22,7 +22,7 @@ from cp_evaluation.grid import (
 from cp_evaluation.resolve import resolve_cell
 from cp_evaluation.run import ROW_COLUMNS, fit_cell, resolve_candidates, run_grid
 from cp_evaluation.tiers import full_config
-from cp_simulation.cate_scenarios import CATE_N_UNITS
+from cp_simulation.cate_scenarios import CATE_N_UNITS, CATE_SCENARIOS
 from cp_simulation.donor_scenarios import DONOR_SCENARIOS
 from cp_simulation.params import ScenarioParams
 from cp_simulation.scenarios import build_scenario
@@ -684,3 +684,86 @@ def test_a_per_unit_cate_on_a_cross_sectional_cell_is_not_scored(monkeypatch):
 def test_a_misaligned_per_unit_cate_raises_rather_than_scoring(monkeypatch):
     with pytest.raises(ValueError, match="shape"):
         _fit_with(monkeypatch, CateCell("RICH", 0), np.zeros(CATE_N_UNITS - 1))
+
+
+def _computing_per_unit_cate(reverse_rows: bool):
+    """`difference_in_means`, plus a `per_unit_cate` diagnostic computed inside
+    `fit` from the dataset it is handed -- not precomputed from `resolve_cell`.
+
+    Takes the covariates in `dataset.schema.covariates` order out of
+    `dataset.frame` and applies the RICH scenario's own effect component's
+    `tau_values`. This is deliberately not the cell's clipped truth
+    (`clip(p0 + tau, 0, 1) - p0`): it is the unclipped tau, so it can only
+    ever be highly correlated with the truth, never identical to it -- which
+    is what makes this test able to fail on a real row misalignment rather
+    than passing by construction. `reverse_rows=True` feeds the covariates
+    back in reversed row order, breaking the dataset/truth alignment as a
+    negative control.
+    """
+    base = get_estimator("difference_in_means")
+    effect = CATE_SCENARIOS["RICH"].build().effect
+
+    class _Computes:
+        name = base.name
+        requirements = base.requirements
+
+        def fit(self, dataset, config):
+            estimate = base().fit(dataset, config)
+            covariates = dataset.frame[list(dataset.schema.covariates)].to_numpy()
+            if reverse_rows:
+                covariates = covariates[::-1]
+            per_unit = effect.tau_values(covariates)
+            return dataclasses.replace(
+                estimate,
+                diagnostics={
+                    **estimate.diagnostics,
+                    "per_unit_cate": Diagnostic(
+                        name="per_unit_cate", value=per_unit, unit=None, interpretation="test"
+                    ),
+                },
+            )
+
+    return _Computes
+
+
+def test_a_per_unit_cate_computed_from_the_datasets_own_covariates_scores_highly(monkeypatch):
+    # Guards against a future row reordering in `generate`/`resolve`: unlike
+    # `test_a_per_unit_cate_equal_to_the_truth_scores_perfectly`, whose
+    # estimate IS the truth (so it cannot detect a reordering that shifts
+    # both identically), this stub derives its estimate independently, from
+    # the dataset `fit` is actually handed. It reports the unclipped
+    # `tau_values`, not the cell's truth (`clip(p0 + tau, 0, 1) - p0`), so a
+    # correlation just under 1.0 is expected in general -- clipping bites
+    # only where `p0 + tau` leaves `[0, 1]`, which this seed's draw happens
+    # not to trigger.
+    cell = CateCell("RICH", 0)
+    monkeypatch.setattr(
+        "cp_evaluation.run.get_estimator", lambda name: _computing_per_unit_cate(False)
+    )
+    (row,) = fit_cell(
+        cell,
+        root_entropy=0,
+        fit_config=_CHEAP,
+        candidates=resolve_candidates(["difference_in_means"]),
+    )
+
+    assert row["cate_correlation"] > 0.99
+
+
+def test_reversing_the_dataset_row_order_visibly_degrades_the_correlation(monkeypatch):
+    # The negative control proving the positive test above can fail: feeding
+    # the same effect component the same covariates in reversed row order
+    # misaligns every row against the cell's truth, and the correlation must
+    # drop sharply.
+    cell = CateCell("RICH", 0)
+    monkeypatch.setattr(
+        "cp_evaluation.run.get_estimator", lambda name: _computing_per_unit_cate(True)
+    )
+    (row,) = fit_cell(
+        cell,
+        root_entropy=0,
+        fit_config=_CHEAP,
+        candidates=resolve_candidates(["difference_in_means"]),
+    )
+
+    assert row["cate_correlation"] < 0.5

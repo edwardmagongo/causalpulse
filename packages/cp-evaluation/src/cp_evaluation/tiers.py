@@ -20,8 +20,9 @@ scenario P1 at n=150x6):
     event_study            5.63s       1.18s
     callaway_santanna      0.47s       0.12s
 
-`causal_forest` (an econml doubly-robust forest with internal cross-fitting)
-and `hierarchical_did` (a NumPyro/NUTS sampler) were excluded before this
+`causal_forest` (this repo's own honest causal forest, with hand-rolled
+recursive splitting and internal cross-fitting) and `hierarchical_did` (a
+NumPyro/NUTS sampler) were excluded before this
 table was even built: both are documented as costing minutes per fit in this
 tree, not seconds, which would blow the ~2 minute budget on their own. They
 stay available in `full`, which has no such budget.
