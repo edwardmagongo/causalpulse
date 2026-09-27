@@ -4,6 +4,7 @@ import pytest
 from cp_evaluation.metrics import (
     MetricValue,
     accuracy_metrics,
+    cate_metrics,
     coverage_metrics,
     detection_metrics,
     se_calibration,
@@ -622,3 +623,55 @@ def test_summarise_separates_every_new_axis_not_just_the_first(axis, value):
     )
 
     assert len(summarise(frame)) == 2
+
+
+def _cate_rows(correlations, status="fitted") -> pd.DataFrame:
+    records = []
+    for seed, value in enumerate(correlations):
+        row = dict.fromkeys(ROW_COLUMNS, np.nan)
+        row.update(
+            shape="cate", scenario="RICH", n_units=2000, seed=seed, method="causal_forest",
+            status=status, reason="", estimand="ATE", truth=0.1, point=0.1,
+            cate_correlation=value, cate_rmse=0.05, cate_calibration_slope=0.9,
+            se=0.02, ci_lower=0.06, ci_upper=0.14, ci_basis="analytic",
+            runtime_seconds=1.0,
+        )
+        records.append(row)
+    return pd.DataFrame(records, columns=list(ROW_COLUMNS))
+
+
+def test_cate_metrics_average_over_fitted_rows_with_an_mcse():
+    metrics = cate_metrics(_cate_rows([0.8, 0.9, 0.7, 0.8]))
+
+    assert metrics["cate_correlation"].value == pytest.approx(0.8)
+    assert metrics["cate_correlation"].mcse == pytest.approx(
+        float(np.std([0.8, 0.9, 0.7, 0.8], ddof=1) / 2.0)
+    )
+    assert metrics["cate_correlation"].n_used == 4
+    assert metrics["cate_rmse"].value == pytest.approx(0.05)
+
+
+def test_cate_metrics_skip_rows_that_carry_no_cate():
+    frame = pd.concat(
+        [_cate_rows([0.8, 0.9]), _cate_rows([np.nan, np.nan])], ignore_index=True
+    )
+
+    assert cate_metrics(frame)["cate_correlation"].n_used == 2
+
+
+def test_a_frame_written_before_the_cate_columns_existed_reports_nothing():
+    old = _cate_rows([0.8, 0.9]).drop(columns=["cate_correlation", "cate_rmse",
+                                              "cate_calibration_slope"])
+
+    metrics = cate_metrics(old)
+
+    assert all(m.n_used == 0 and np.isnan(m.value) for m in metrics.values())
+
+
+def test_summarise_carries_the_three_cate_columns():
+    summary = summarise(_cate_rows([0.8, 0.9, 0.7]))
+
+    for name in ("cate_correlation", "cate_rmse", "cate_calibration_slope"):
+        for suffix in ("", "_mcse", "_n_used"):
+            assert f"{name}{suffix}" in summary.columns
+    assert summary.loc[0, "cate_correlation_n_used"] == 3

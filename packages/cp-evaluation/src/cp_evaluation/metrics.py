@@ -22,6 +22,8 @@ import numpy as np
 import pandas as pd
 from cp_simulation.params import AXIS_NAMES
 
+from cp_evaluation.cate import CATE_METRIC_COLUMNS
+
 
 @dataclass(frozen=True)
 class MetricValue:
@@ -321,6 +323,27 @@ def detection_metrics(frame: pd.DataFrame) -> dict[str, MetricValue]:
     return {"power": share, "false_positive_rate": _EMPTY}
 
 
+def cate_metrics(frame: pd.DataFrame) -> dict[str, MetricValue]:
+    """CATE correlation, RMSE and calibration slope, averaged over replications.
+
+    Each is a per-fit number (`cp_evaluation.cate`); this is its mean over one
+    group's fitted rows that carry it, with an MCSE like every other family. A
+    row without a per-unit CATE is NaN and does not count. A frame read from a
+    store written before these columns existed has none of them, and reports
+    every metric as unused rather than refusing: that store is complete for
+    the grid it ran.
+    """
+    rows = _fitted(frame)
+    out: dict[str, MetricValue] = {}
+    for column in CATE_METRIC_COLUMNS:
+        if column not in rows.columns:
+            out[column] = _EMPTY
+            continue
+        values = rows[column].to_numpy(dtype=float)
+        out[column] = _mean_with_mcse(values[np.isfinite(values)])
+    return out
+
+
 # A cell's identity, which is what a metric is computed *within*. Every axis
 # the grid can vary has to appear here: two cells that differ on an axis are
 # different cells, and pooling them averages the axis away.
@@ -456,6 +479,7 @@ def summarise(
             **coverage_metrics(group),
             **sign_and_magnitude(group),
             **detection_metrics(group),
+            **cate_metrics(group),
             "se_calibration": se_calibration(
                 group, seed=_group_seed(seed, group_columns, key_tuple)
             ),
