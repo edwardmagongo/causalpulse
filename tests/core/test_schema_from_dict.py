@@ -37,6 +37,11 @@ def test_covariates_given_as_one_string_is_refused_not_split_into_characters():
         schema_from_dict({**MINIMAL, "covariates": "x1"})
 
 
+def test_auxiliary_columns_given_as_one_string_is_refused_not_split_into_characters():
+    with pytest.raises(ValueError, match="list of column names"):
+        schema_from_dict({**MINIMAL, "auxiliary_columns": "zip_code"})
+
+
 def test_optional_fields_pass_through():
     schema = schema_from_dict(
         {**MINIMAL, "assignment_provenance": "randomised", "auxiliary_columns": ["z"]}

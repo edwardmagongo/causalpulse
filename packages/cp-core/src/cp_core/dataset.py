@@ -166,9 +166,9 @@ def schema_from_dict(data: Mapping[str, Any]) -> CausalSchema:
     estimates would answer a question the user did not ask.
     `auxiliary_columns` genuinely defaults to `()`.
 
-    The manifest reader, the command line's `--schema` file, and the HTTP API
-    all parse this shape, so all three call this function rather than each
-    keeping its own copy.
+    The manifest reader and the command line's `--schema` file parse this
+    shape, and the backend API will too, so callers call this function rather
+    than each keeping its own copy.
     """
     fields = dataclasses.fields(CausalSchema)
     unknown = sorted(set(data) - {f.name for f in fields})
@@ -183,12 +183,16 @@ def schema_from_dict(data: Mapping[str, Any]) -> CausalSchema:
     if missing:
         raise ValueError(f"schema is missing required field(s): {missing}")
     values = dict(data)
-    if isinstance(values["covariates"], str):
-        raise ValueError(
-            "covariates must be a list of column names, not a single string; "
-            f"got {values['covariates']!r}"
-        )
-    values["covariates"] = tuple(values["covariates"])
+    for name in ("covariates", "auxiliary_columns"):
+        if name not in values:
+            continue
+        value = values[name]
+        if isinstance(value, str):
+            raise ValueError(
+                f"{name} must be a list of column names, not a single string; "
+                f"got {value!r}"
+            )
+        values[name] = tuple(value)
     values["auxiliary_columns"] = tuple(values.get("auxiliary_columns", ()))
     return CausalSchema(**values)
 
