@@ -176,18 +176,25 @@ def _slowest_is_hierarchical(frame: pd.DataFrame) -> ExpectationResult:
     statement = "hierarchical_did has the largest mean runtime_seconds of the estimators"
     rule = "rank 1 by mean runtime_seconds over each method's fitted rows"
     # The original ten-estimator ranking was over panel and cross-section rows. Donor-pool rows
-    # (bsts, synthetic_control and hierarchical_did fitted on S0-S5) are excluded entirely, so
-    # the ranking, and the hierarchical_did figure in it, is identical whether or not the run
-    # carries a donor arm.
+    # (bsts, synthetic_control and hierarchical_did fitted on S0-S5) and CATE-arm rows (the
+    # heterogeneity arm postdates this pre-registration) are excluded entirely, so the ranking,
+    # and the hierarchical_did figure in it, is identical whether or not the run carries a
+    # donor arm or a CATE arm.
     donor_rows = frame[frame["shape"] == "donor_pool"]
-    ranked_rows = frame[frame["shape"] != "donor_pool"]
+    cate_rows = frame[frame["shape"] == "cate"]
+    ranked_rows = frame[~frame["shape"].isin(("donor_pool", "cate"))]
     fitted_methods = sorted(set(donor_rows.loc[donor_rows["status"] == "fitted", "method"]))
-    note = (
-        f"Ranked over non-donor rows; {len(donor_rows)} donor-pool rows excluded, "
-        f"fitted methods: {', '.join(fitted_methods) or 'none'}."
-        if len(donor_rows)
-        else ""
-    )
+    notes = []
+    if len(donor_rows):
+        notes.append(
+            f"Ranked over non-donor rows; {len(donor_rows)} donor-pool rows excluded, "
+            f"fitted methods: {', '.join(fitted_methods) or 'none'}."
+        )
+    if len(cate_rows):
+        # The CATE arm postdates the pre-registration (design section 4): E7 is
+        # scored over the grid it was registered on.
+        notes.append(f"{len(cate_rows)} CATE-arm rows excluded.")
+    note = " ".join(notes)
     if ranked_rows.empty:
         return ExpectationResult("E7", statement, rule, "inconclusive", (), note)
     per_method = summarise(ranked_rows, by=[])

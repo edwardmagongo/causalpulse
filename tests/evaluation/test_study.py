@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from cp_evaluation.metrics import summarise
+from cp_evaluation.run import ROW_COLUMNS
 from cp_evaluation.store import RunStatus
 from cp_evaluation.study import (
     NOT_COVERED,
@@ -15,6 +16,21 @@ from cp_evaluation.study import (
 from evaluation._study_frames import frame, rows
 
 COMPLETE = RunStatus(expected=10, done=10, orphans=0, by_scenario={})
+
+
+def _with_cate_rows(frame: pd.DataFrame, cate_rmse: float, n: int = 3) -> pd.DataFrame:
+    rows = []
+    for seed in range(n):
+        row = dict.fromkeys(ROW_COLUMNS, np.nan)
+        row.update(shape="cate", scenario="RICH", n_units=2000, seed=seed,
+                   method="causal_forest", status="fitted", reason="", estimand="ATE",
+                   truth=0.1, point=0.1, runtime_seconds=1.0, cate_rmse=cate_rmse)
+        rows.append(row)
+    return pd.concat([frame, pd.DataFrame(rows, columns=list(ROW_COLUMNS))], ignore_index=True)
+
+
+def _names(frame) -> dict[str, str]:
+    return dict(not_covered_for(frame))
 
 
 # -- pooling ---------------------------------------------------------------
@@ -296,6 +312,25 @@ def test_a_frame_with_no_donor_rows_gets_the_constant_exactly():
     )
 
     assert not_covered_for(data) == NOT_COVERED
+
+
+def test_a_frame_without_cate_columns_keeps_the_cate_entry_as_the_constant_says():
+    old = rows("ipw", "A", 5).drop(columns=["cate_correlation", "cate_rmse",
+                                            "cate_calibration_slope"])
+
+    assert _names(old)["CATE metrics"] == dict(NOT_COVERED)["CATE metrics"]
+
+
+def test_a_scored_cate_row_drops_the_cate_entry():
+    assert "CATE metrics" not in _names(_with_cate_rows(rows("ipw", "A", 5), cate_rmse=0.05))
+
+
+def test_a_cate_arm_with_no_scored_row_says_what_happened():
+    data = _with_cate_rows(rows("ipw", "A", 5), cate_rmse=np.nan)
+
+    assert _names(data)["CATE metrics"] == (
+        "the CATE arm ran, but no fitted estimator in it reported a per-unit CATE"
+    )
 
 
 def test_a_refused_only_donor_estimator_is_not_called_ineligible():

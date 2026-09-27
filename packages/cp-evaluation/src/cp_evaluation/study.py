@@ -117,6 +117,7 @@ NOT_COVERED: tuple[tuple[str, str], ...] = (
 )
 
 _DONOR_ESTIMATORS = ("synthetic_control", "bsts")
+_CATE_ENTRY = "CATE metrics"
 
 
 def not_covered_for(frame: pd.DataFrame) -> tuple[tuple[str, str], ...]:
@@ -125,11 +126,22 @@ def not_covered_for(frame: pd.DataFrame) -> tuple[tuple[str, str], ...]:
     A donor estimator with a fitted row is covered and drops out. One that never
     fitted stays listed; when the frame does contain donor-pool rows the constant's
     "no grid yet" reason would be false, so it is replaced by what happened.
+
+    The CATE entry drops out when any fitted row carries a `cate_rmse`; when the
+    frame has CATE cells but none does, its reason is replaced by what happened.
+    A frame without the column (a store from before the arm) keeps the constant's
+    reason.
     """
     fitted = set(frame.loc[frame["status"] == "fitted", "method"])
     has_donor_arm = bool((frame["shape"] == "donor_pool").any())
     out: list[tuple[str, str]] = []
     for name, reason in NOT_COVERED:
+        if name == _CATE_ENTRY and "cate_rmse" in frame.columns:
+            fitted_rows = frame[frame["status"] == "fitted"]
+            if fitted_rows["cate_rmse"].notna().any():
+                continue
+            if (frame["shape"] == "cate").any():
+                reason = "the CATE arm ran, but no fitted estimator in it reported a per-unit CATE"
         if name in _DONOR_ESTIMATORS:
             if name in fitted:
                 continue

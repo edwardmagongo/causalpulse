@@ -1,10 +1,23 @@
+import numpy as np
 import pandas as pd
 from cp_evaluation.expectations import MIN_N_USED, evaluate_expectations, expectations_markdown
+from cp_evaluation.run import ROW_COLUMNS
 from cp_evaluation.store import RunStatus
 
 from evaluation._study_frames import frame, rows
 
 COMPLETE = RunStatus(expected=10, done=10, orphans=0, by_scenario={})
+
+
+def _with_cate_rows(frame: pd.DataFrame, n: int = 3) -> pd.DataFrame:
+    cate_rows = []
+    for seed in range(n):
+        row = dict.fromkeys(ROW_COLUMNS, np.nan)
+        row.update(shape="cate", scenario="RICH", n_units=2000, seed=seed,
+                   method="causal_forest", status="fitted", reason="", estimand="ATE",
+                   truth=0.1, point=0.1, runtime_seconds=1e6, cate_rmse=0.05)
+        cate_rows.append(row)
+    return pd.concat([frame, pd.DataFrame(cate_rows, columns=list(ROW_COLUMNS))], ignore_index=True)
 
 
 def _verdicts(data: pd.DataFrame, status: RunStatus = COMPLETE) -> dict[str, str]:
@@ -277,3 +290,17 @@ def test_e7_note_lists_only_methods_with_fitted_donor_rows():
     assert results["E7"].note == (
         "Ranked over non-donor rows; 20 donor-pool rows excluded, fitted methods: bsts."
     )
+
+
+def test_e7_is_unchanged_by_cate_arm_rows_with_a_huge_runtime():
+    base = frame(
+        rows("hierarchical_did", "P1", 50, panel=True, runtime=25.0, ci_basis="posterior"),
+        rows("twfe", "P1", 50, panel=True, runtime=2.0),
+    )
+
+    with_cate = {r.id: r for r in evaluate_expectations(_with_cate_rows(base), COMPLETE)}
+    without = {r.id: r for r in evaluate_expectations(base, COMPLETE)}
+
+    assert with_cate["E7"].verdict == without["E7"].verdict
+    assert with_cate["E7"].measurements == without["E7"].measurements
+    assert with_cate["E7"].note.endswith("3 CATE-arm rows excluded.")
