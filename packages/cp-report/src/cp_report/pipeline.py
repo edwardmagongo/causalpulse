@@ -15,15 +15,30 @@ is one `replay` could not honour.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import tempfile
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from functools import partial
+from pathlib import Path
 
+from cp_causal.comparison import MethodComparison, compare
 from cp_causal.manifest import run_analysis
 from cp_causal.router import RoutingDecision, route
-from cp_core.dataset import CausalDataset
+from cp_causal.validity import score_validity
+from cp_core.dataset import AssignmentProvenance, CausalDataset
 from cp_core.manifest import AnalysisManifest, DatasetReference
-from cp_core.results import EffectEstimate
+from cp_core.results import CausalValidityScore, CounterfactualPath, EffectEstimate
 from cp_core.values import EstimatorConfig
+from cp_figures.effects import (
+    counterfactual_path_data,
+    draw_counterfactual_path,
+    draw_forest_plot,
+    forest_plot_data,
+)
+
+from cp_report.evidence import Evidence, ReportFigure
+from cp_report.html import render_html_report
+from cp_report.markdown import write_markdown_report
 
 
 @dataclass(frozen=True)
@@ -95,3 +110,193 @@ def fit_each(
         estimators=[(name, config) for name in succeeded],
     )
     return tuple(estimates), tuple(failures), manifest
+
+
+@dataclass(frozen=True, eq=False)
+class EstimateReport:
+    """One estimate, its own score, and its report in both formats.
+
+    `assets` maps each Markdown figure's filename to its SVG text. The
+    Markdown links to its figures by bare filename, so a consumer that keeps
+    only `markdown` is left with broken images; the HTML inlines its SVG.
+    """
+
+    estimate: EffectEstimate
+    score: CausalValidityScore
+    html: str
+    markdown: str
+    assets: Mapping[str, str]
+
+
+@dataclass(frozen=True, eq=False)
+class ComparisonGroup:
+    """Estimates that share an estimand and a scale, compared -- or why not.
+
+    `compare` refuses a mixed estimand or scale (an ATE and an ATT are
+    different quantities) and needs at least two estimates, so a routed set
+    is compared within groups, and a group of one says so.
+    """
+
+    estimand: str
+    scale: str
+    methods: tuple[str, ...]
+    comparison: MethodComparison | None
+    not_compared_reason: str | None
+
+    def to_dict(self) -> dict[str, object]:
+        base: dict[str, object] = {
+            "estimand": self.estimand,
+            "scale": self.scale,
+            "methods": list(self.methods),
+        }
+        if self.comparison is None:
+            base["not_compared_reason"] = self.not_compared_reason
+            return base
+        low, high = self.comparison.point_range
+        base.update(
+            agreement=self.comparison.agreement,
+            verdict=self.comparison.verdict,
+            point_range=[float(low), float(high)],
+            dispersion=float(self.comparison.dispersion),
+        )
+        return base
+
+
+@dataclass(frozen=True, eq=False)
+class AnalysisOutcome:
+    decisions: tuple[RoutingDecision, ...]
+    reports: tuple[EstimateReport, ...]
+    failures: tuple[FitFailure, ...]
+    comparisons: tuple[ComparisonGroup, ...]
+    manifest: AnalysisManifest
+
+    @property
+    def partial(self) -> bool:
+        """Some requested estimators failed while at least one succeeded."""
+        return bool(self.failures)
+
+
+def _figures(estimate: EffectEstimate) -> tuple[ReportFigure, ...]:
+    figures = [
+        ReportFigure(
+            caption=f"Point estimate and interval for {estimate.method}.",
+            draw=partial(draw_forest_plot, forest_plot_data((estimate,))),
+        )
+    ]
+    if isinstance(estimate.counterfactual, CounterfactualPath):
+        figures.append(
+            ReportFigure(
+                caption=(
+                    "Observed outcome against the counterfactual path "
+                    f"{estimate.method} estimated."
+                ),
+                draw=partial(
+                    draw_counterfactual_path, counterfactual_path_data(estimate.counterfactual)
+                ),
+            )
+        )
+    return tuple(figures)
+
+
+def render_estimate_report(
+    estimate: EffectEstimate, provenance: AssignmentProvenance
+) -> EstimateReport:
+    """Score one estimate and render its report.
+
+    The assumption table and the band come from the same tuple:
+    `checks=score.checks`, which `score_validity` read from this estimate.
+    `Evidence` cannot enforce that agreement itself (see its docstring).
+    """
+    score = score_validity(estimate, provenance=provenance)
+    evidence = Evidence(
+        estimates=(estimate,),
+        score=score,
+        checks=score.checks,
+        limitations=(),
+        figures=_figures(estimate),
+    )
+    html = render_html_report(evidence)
+    with tempfile.TemporaryDirectory() as tmp:
+        directory = Path(tmp)
+        document = write_markdown_report(evidence, directory)
+        markdown = document.read_text()
+        # `write_markdown_report` writes each figure via `figure_to_file`, which
+        # (unlike `figure_to_inline_svg`) keeps the XML declaration and DOCTYPE,
+        # since the file on disk is a whole standalone document. An asset held
+        # here is not written to disk again as its own file -- it is read back
+        # by a caller expecting an SVG fragment, the same contract
+        # `figure_to_inline_svg` promises -- so the same preamble is stripped
+        # before it is stored.
+        assets = {}
+        for path in sorted(directory.iterdir()):
+            if path == document:
+                continue
+            text = path.read_text()
+            assets[path.name] = text[text.index("<svg") :]
+    return EstimateReport(
+        estimate=estimate, score=score, html=html, markdown=markdown, assets=assets
+    )
+
+
+def comparison_groups(
+    pairs: Sequence[tuple[EffectEstimate, CausalValidityScore]],
+) -> tuple[ComparisonGroup, ...]:
+    grouped: dict[tuple[str, str], list[tuple[EffectEstimate, CausalValidityScore]]] = {}
+    for estimate, score in pairs:
+        grouped.setdefault((estimate.estimand, estimate.scale), []).append((estimate, score))
+    groups = []
+    for (estimand, scale), members in sorted(grouped.items()):
+        methods = tuple(estimate.method for estimate, _ in members)
+        if len(members) < 2:
+            groups.append(
+                ComparisonGroup(
+                    estimand=estimand,
+                    scale=scale,
+                    methods=methods,
+                    comparison=None,
+                    not_compared_reason=(
+                        f"only one method estimated the {estimand} on the {scale} scale, "
+                        "so there is no second estimate to compare it with"
+                    ),
+                )
+            )
+            continue
+        comparison = compare(
+            tuple(estimate for estimate, _ in members), tuple(score for _, score in members)
+        )
+        groups.append(
+            ComparisonGroup(
+                estimand=estimand,
+                scale=scale,
+                methods=methods,
+                comparison=comparison,
+                not_compared_reason=None,
+            )
+        )
+    return tuple(groups)
+
+
+def analyse(
+    dataset: CausalDataset,
+    reference: DatasetReference,
+    estimators: Sequence[str] | None = None,
+    random_seed: int = 0,
+) -> AnalysisOutcome:
+    """Route, fit each estimator, and report on each estimate separately.
+
+    Raises if the request is refused (unknown or ineligible estimators) or
+    if every estimator fails; otherwise returns, recording any per-estimator
+    failure on the outcome.
+    """
+    decisions, names = select_estimators(dataset, estimators)
+    config = EstimatorConfig(random_seed=random_seed)
+    estimates, failures, manifest = fit_each(dataset, reference, names, config)
+    provenance = dataset.schema.assignment_provenance
+    reports = tuple(render_estimate_report(estimate, provenance) for estimate in estimates)
+    return AnalysisOutcome(
+        decisions=decisions,
+        reports=reports,
+        failures=failures,
+        comparisons=comparison_groups([(r.estimate, r.score) for r in reports]),
+        manifest=manifest,
+    )
