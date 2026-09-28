@@ -767,3 +767,19 @@ def test_reversing_the_dataset_row_order_visibly_degrades_the_correlation(monkey
     )
 
     assert row["cate_correlation"] < 0.5
+
+
+@pytest.mark.slow
+def test_the_real_forest_is_scored_on_a_rich_cell():
+    # Plumbing, not a quality bar: how well the forest recovers CATE is the
+    # study's measurement to report over many replications, not a threshold
+    # to fit to one seed.
+    frame = run_grid(
+        _tiny_cate(), estimators=["causal_forest"], fit_config=EstimatorConfig(random_seed=0)
+    )
+
+    (row,) = frame.to_dict("records")
+    assert row["status"] == "fitted"
+    for column in CATE_METRIC_COLUMNS:
+        assert np.isfinite(row[column]), column
+    assert row["cate_correlation"] > 0.0

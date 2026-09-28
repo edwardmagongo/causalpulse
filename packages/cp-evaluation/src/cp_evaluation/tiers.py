@@ -689,6 +689,18 @@ def full_config() -> GridConfig:
     estimators are ineligible. Only `causal_forest` reports a per-unit CATE, so
     only its rows carry `cate_correlation`/`cate_rmse`/`cate_calibration_slope`;
     the other four are scored on their ATE as on any cross-sectional cell.
+
+    MEASURED 2026-09-28, this tree, idle machine: `run_grid` over the CATE arm
+    alone at `replications=1`, every `FULL_ESTIMATORS` entry, `FULL_FIT_CONFIG`:
+    44.4s, 36 rows (15 fitted, 21 ineligible). Per method (fitted seconds
+    summed over the 3 cells): {'aipw': 25.1, 'causal_forest': 14.9,
+    'difference_in_means': 0.1, 'ipw': 2.7, 'lin_regression': 1.3}.
+    Extrapolated linearly in replications: ~444s at this tier's 10 and
+    ~2,220s at `study_config()`'s 50. That is ~4.0% of `full`'s own
+    documented ~3.10-hour total (~11,166s/10 replications, from this
+    docstring's own paragraph above), well under the one-third threshold the
+    design doc's section 12 sets for stopping to ask before committing to
+    this tier's cost.
     """
     return GridConfig(
         cross_section=CrossSectionAxes(
