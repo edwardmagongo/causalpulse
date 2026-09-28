@@ -225,6 +225,8 @@ a report without writing Python.
 | `cp-figures` | Eight publication-quality matplotlib figures — counterfactual path, event study, love plot, propensity overlap, specification curve, placebo distribution, cross-method forest plot, benchmark heatmaps — each a pure data function plus a thin drawing function. Imports only `cp-core` and `cp-causal`. |
 | `cp-report` | The evidence report generator: assumption table, validity band, cross-method comparison, and stated limitations, rendered to Markdown or one self-contained HTML file with figures inlined as SVG. Refuses to emit prose that fails `causal_language_lint`. |
 | `cp-cli` | The `causalpulse` command-line entry point (`simulate`, `analyze`, `replay`, `bench run`, `bench report`, `bench status`, `bench compact`, `bench study`) and Parquet-plus-JSON-sidecar result persistence. Sits at the top of the layers contract; nothing imports it. |
+| `cp-api` | The FastAPI service: upload a CSV, request an analysis, read what the worker wrote. Not in the layers contract — its own forbidden-imports contract keeps it from importing `cp_causal` directly, so router refusals happen in the worker, not here. |
+| `cp-worker` | The RQ worker that runs a queued analysis through `cp_report.pipeline`: fit, score validity, render each estimate's report. Sits alongside `cp-cli` at the top of the layers contract; may import `cp_api.db` and nothing else from `cp_api`. |
 
 ## Why the import boundary matters
 
@@ -1373,6 +1375,107 @@ strength=2.0)`, `OutcomeProxy(noise_sd=0.5)` unless noted. Full tables in
   0.2×/5× moved `mi_aux`'s empirical SD and calibration by an amount too small to separate from
   noise at 20 seeds. Suggestive, not resolved — carried to a future phase rather than fixed on a
   measurement this uncertain.
+
+## Backend (sub-project 3, phase 1)
+
+A local demo stack: upload a CSV, declare its schema, and get back estimates, validity bands, and
+evidence reports over HTTP. One machine, `docker compose up`; no auth and no multi-user hosting
+here (that is a later backend phase).
+
+```bash
+docker compose up --build
+```
+
+This starts four services: `postgres`, `redis`, a one-shot `migrate` that runs the Alembic
+migrations and exits, and `api`, which waits on `migrate` and serves on `http://localhost:8000`.
+A `worker` also starts, reading jobs off the same Redis queue the API enqueues to. Ports (host
+side) default to `8000` for the API, `5433` for Postgres, and `6380` for Redis; override with
+`CP_API_PORT`, `CP_POSTGRES_PORT`, `CP_REDIS_PORT` if those clash with something else already
+running.
+
+### Routes
+
+All routes are under `/v1`.
+
+| Route | Behaviour |
+|---|---|
+| `POST /datasets` | Multipart CSV, ≤ 50 MB (413 above). Same bytes twice returns the existing row by sha256. |
+| `POST /analyses` | `{dataset_id, schema, estimators?, random_seed}`. Validates the schema via `CausalSchema` and its columns against the CSV header; enqueues; 202 with the id. |
+| `GET /analyses/{id}` | Status, `partial`, error, routing decisions, and per-estimate method/band/error. |
+| `GET /analyses/{id}/estimates/{method}/report.html` | One estimate's evidence report, figures inlined. |
+| `GET /analyses/{id}/estimates/{method}/report.md` | The Markdown report. Its relative figure links resolve against the next route. |
+| `GET /analyses/{id}/estimates/{method}/{filename}` | One Markdown figure, from `report_assets`. |
+| `GET /analyses/{id}/manifest` | The replayable `AnalysisManifest`. |
+| `GET /analyses/{id}/summary` | The comparison groups and their verdicts. |
+| `GET /healthz` | Postgres and Redis reachable. |
+
+### A walkthrough with the LaLonde fixture
+
+```bash
+curl -F file=@tests/fixtures/real_data/lalonde.csv http://localhost:8000/v1/datasets
+# => {"id": "...", "filename": "lalonde.csv", "sha256": "...", "n_bytes": ..., "columns": [...]}
+
+curl -X POST http://localhost:8000/v1/analyses \
+  -H 'content-type: application/json' \
+  -d '{
+        "dataset_id": "<id from above>",
+        "schema": {
+          "unit": "unit_id",
+          "treatment": "treat",
+          "outcome": "re78",
+          "covariates": ["age", "educ", "black", "hisp", "marr", "nodegree", "re74", "re75"],
+          "outcome_type": "continuous"
+        },
+        "estimators": ["difference_in_means", "lin_regression"]
+      }'
+# => {"id": "<analysis id>", "status": "queued"}
+
+curl http://localhost:8000/v1/analyses/<analysis id>
+# poll until "status" is "succeeded" or "failed"
+
+curl http://localhost:8000/v1/analyses/<analysis id>/estimates/lin_regression/report.html
+```
+
+### One report per estimate
+
+Each requested estimator gets its own evidence report and its own validity band, never a report
+merged across estimators. Validity is scored per estimate — `score_validity` reads that one
+estimate's `assumptions` — and mixing several estimates into a single report would put one
+method's band next to another method's assumption table, the exact mismatch `Evidence`'s own
+docstring warns against. `GET /analyses/{id}/summary` covers the cross-method view instead:
+routing decisions and `compare()` verdicts side by side, without collapsing the reports themselves.
+
+### Replay
+
+`GET /analyses/{id}/manifest` returns the analysis's `AnalysisManifest`, which names the uploaded
+dataset by filename and content hash rather than embedding it. Save that manifest, put a copy of
+the original CSV in the same directory under the filename the manifest records (the same name it
+was uploaded as), and:
+
+```bash
+uv run causalpulse replay manifest.json
+```
+
+reproduces the same estimates exactly — this is the check that the API is a thin layer over the
+core rather than a second implementation of it.
+
+### Testing the stack itself
+
+```bash
+make check-services  # postgres + redis only, project causalpulse-test, ports 5434/6381
+make smoke           # the whole stack built and run, project causalpulse-smoke, ports 5435/6382/8001
+```
+
+Three separate compose projects exist so none can step on another: the demo stack above
+(`causalpulse`, ports 8000/5433/6380), `check-services` (`causalpulse-test`, 5434/6381, no image
+build — only `postgres` and `redis`), and `smoke` (`causalpulse-smoke`, 5435/6382/8001, the full
+`docker compose up --build`). The services tests read `TEST_DATABASE_URL` and `TEST_REDIS_URL`
+exclusively — never the app's own `DATABASE_URL`/`REDIS_URL` — precisely so a developer's local
+`DATABASE_URL` export can never point a test run at the demo stack's database by accident.
+
+`make smoke` builds the image, brings the stack up, uploads the LaLonde fixture over real HTTP,
+waits for the analysis to finish, and fetches its report — end to end, through the same routes a
+user would call, not through an in-process test client.
 
 ## On scikit-learn
 

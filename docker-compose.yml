@@ -1,5 +1,12 @@
 # Local demo stack. The credentials are local-only test values, not secrets.
 name: causalpulse
+
+x-app: &app
+  build: .
+  environment:
+    DATABASE_URL: postgresql+psycopg://causalpulse:causalpulse@postgres:5432/causalpulse
+    REDIS_URL: redis://redis:6379/0
+
 services:
   postgres:
     image: postgres:16
@@ -21,3 +28,21 @@ services:
       interval: 2s
       timeout: 3s
       retries: 30
+  migrate:
+    <<: *app
+    command: ["cp-api-migrate"]
+    depends_on:
+      postgres: {condition: service_healthy}
+  api:
+    <<: *app
+    command: ["uvicorn", "--factory", "cp_api.app:create_app", "--host", "0.0.0.0", "--port", "8000"]
+    ports: ["${CP_API_PORT:-8000}:8000"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+  worker:
+    <<: *app
+    command: ["python", "-m", "cp_worker"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
