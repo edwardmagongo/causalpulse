@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import pandas as pd
 import pytest
@@ -153,6 +155,8 @@ def test_the_coverage_note_names_each_non_analytic_estimator_and_its_interval_ki
         "posterior",
         "callaway_santanna",
         "bootstrap_se",
+        "synthetic_control",
+        "permutation",
         "analytic",
     ):
         assert phrase in COVERAGE_COLUMN_NOTE
@@ -169,6 +173,58 @@ def test_limitations_prose_is_every_reason_then_every_statement_but_no_names():
         "Not yet implemented.",
         "hierarchical_did is excluded from scenario P6.",
     )
+
+
+def test_benchmark_evidence_from_run_reads_not_covered_per_frame(d_run):
+    # The tiny D+P1 grid has no donor-pool cells, so `not_covered_for` reduces to exactly
+    # `NOT_COVERED` -- proves the switch away from the bare constant did not silently change
+    # what a donor-free run reports.
+    from cp_evaluation.study import NOT_COVERED
+
+    evidence = benchmark_evidence_from_run(d_run)
+
+    assert evidence.not_covered == NOT_COVERED
+
+
+def test_benchmark_evidence_from_run_drops_a_donor_estimator_once_it_has_a_fitted_row(monkeypatch):
+    # A synthetic frame stands in for a real donor-pool run: real fitting takes hours and this
+    # is `not_covered_for`'s own job to test in cp_evaluation (it already is,
+    # tests/evaluation/test_study.py) -- this test only proves benchmark_evidence_from_run
+    # calls it instead of returning the bare constant, on a frame it does not have to fit.
+    from cp_evaluation.store import RunStatus
+
+    class _FakeStore:
+        replications = 1
+
+        def __init__(self, frame):
+            self._frame = frame
+
+        def read_frame(self):
+            return self._frame
+
+        def status(self):
+            return RunStatus(expected=1, done=1, orphans=0, by_scenario={})
+
+    frame = pd.DataFrame(
+        {
+            "method": ["synthetic_control"],
+            "scenario": ["S0"],
+            "shape": ["donor_pool"],
+            "status": ["fitted"],
+        }
+    )
+    monkeypatch.setattr(
+        "cp_report.benchmark.RunStore",
+        type("_Open", (), {"open": staticmethod(lambda _directory: _FakeStore(frame))}),
+    )
+    monkeypatch.setattr("cp_report.benchmark.evaluate_expectations", lambda _frame, _status: ())
+    monkeypatch.setattr("cp_report.benchmark.headline_tables", lambda _frame: {})
+    monkeypatch.setattr("cp_report.benchmark._report_figures", lambda _frame: ())
+
+    evidence = benchmark_evidence_from_run(Path("unused"))
+
+    assert "synthetic_control" not in dict(evidence.not_covered)
+    assert "bsts" in dict(evidence.not_covered)  # still absent from this frame entirely
 
 
 def test_benchmark_evidence_from_run_builds_from_a_real_tiny_study(d_run):
