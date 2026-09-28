@@ -152,6 +152,54 @@ def test_hull_aware_placebo_runs_share_placebo_runs_unit_swap():
     assert hull_aware.point_estimates[0] != simplex.point_estimates[0]
 
 
+def test_hull_aware_placebo_runs_rmspe_ratios_match_simplex_where_nothing_uses_ridge():
+    # Mirrors test_hull_aware_placebo_runs_share_placebo_runs_unit_swap's own assertion for
+    # point_estimates: wherever a unit's own hull check passes, its ratio must come from the
+    # identical simplex fit `placebo_runs` uses, and the two must agree exactly, not
+    # approximately. Even on S1 ("clean"), some individual placebo donor swaps still fail their
+    # own hull check (each unit's check is against its own donor pool) -- confirmed directly
+    # rather than assumed, so this test does not require the whole array to agree.
+    panel = _generate("S1", seed=0)
+    from cp_causal._panel import donor_matrix, panel_arrays
+
+    treated, donors, pre = donor_matrix(panel_arrays(panel.dataset))
+    post = ~pre
+    simplex = placebo_runs(treated, donors, pre, post)
+    hull_aware = hull_aware_placebo_runs(treated, donors, pre, post)
+
+    assert hull_aware.rmspe_ratios.shape == simplex.rmspe_ratios.shape
+    assert (~hull_aware.used_ridge).any(), "expected at least one unit to pass its own hull check"
+    for index in range(simplex.rmspe_ratios.size):
+        if not hull_aware.used_ridge[index]:
+            assert hull_aware.rmspe_ratios[index] == simplex.rmspe_ratios[index]
+
+
+def test_hull_aware_placebo_runs_rmspe_ratios_differ_from_simplex_under_ridge():
+    # S3 triggers the ridge fallback for the real treated unit (index 0, see
+    # the shared-unit-swap test above). rmspe_ratios is post/pre RMSPE, which
+    # is sensitive to which form built the post-period counterfactual --
+    # unlike fit()'s own pre_rmspe, it is not a pre-period-only statistic
+    # (design doc 2026-09-28-synthetic-control-ci-calibration.md §1.1) -- so
+    # the hull-aware ratio at index 0 must differ from the plain-simplex one,
+    # and must match the ratio computed directly from fit_donor_pool_point's
+    # own post-fallback `synthetic`, not from a second, independent formula.
+    panel = _generate("S3", seed=0)
+    from cp_causal._panel import donor_matrix, panel_arrays
+
+    treated, donors, pre = donor_matrix(panel_arrays(panel.dataset))
+    post = ~pre
+    simplex = placebo_runs(treated, donors, pre, post)
+    hull_aware = hull_aware_placebo_runs(treated, donors, pre, post)
+
+    assert hull_aware.used_ridge[0]
+    assert hull_aware.rmspe_ratios[0] != simplex.rmspe_ratios[0]
+
+    expected = fit_donor_pool_point(treated, donors, pre, post)
+    pre_rmspe = float(np.sqrt(np.mean((treated[pre] - expected.synthetic[pre]) ** 2)))
+    post_rmspe = float(np.sqrt(np.mean((treated[post] - expected.synthetic[post]) ** 2)))
+    assert hull_aware.rmspe_ratios[0] == pytest.approx(post_rmspe / pre_rmspe)
+
+
 def test_permutation_p_value_is_conservative_for_a_typical_donor():
     # A rank right in the middle of 18 draws gives p roughly 0.5, not
     # anything close to significant.
