@@ -8,3 +8,6 @@
 benchmarks/runs
 scratch
 docs
+.env
+.env.*
+!.env.example

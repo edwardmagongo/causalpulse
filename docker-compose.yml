@@ -3,6 +3,7 @@ name: causalpulse
 
 x-app: &app
   build: .
+  image: ${COMPOSE_PROJECT_NAME:-causalpulse}-app
   environment:
     DATABASE_URL: postgresql+psycopg://causalpulse:causalpulse@postgres:5432/causalpulse
     REDIS_URL: redis://redis:6379/0
