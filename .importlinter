@@ -9,12 +9,13 @@ root_packages =
     cp_report
     cp_cli
     cp_api
+    cp_worker
 
 [importlinter:contract:layers]
 name = Package layering
 type = layers
 layers =
-    cp_cli
+    cp_cli | cp_worker
     cp_report
     cp_figures
     cp_evaluation
@@ -30,6 +31,7 @@ source_modules =
     cp_statistics
     cp_causal
     cp_api
+    cp_worker
 forbidden_modules =
     cp_simulation
 
@@ -45,4 +47,14 @@ forbidden_modules =
     cp_figures
     cp_report
     cp_cli
+    cp_worker
     cp_simulation
+
+[importlinter:contract:worker-sees-only-the-db]
+name = The worker imports cp_api.db and nothing else from cp_api
+type = forbidden
+source_modules =
+    cp_worker
+forbidden_modules =
+    cp_api.validation
+    cp_api.migrate

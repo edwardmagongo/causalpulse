@@ -32,6 +32,7 @@ members = [
     "cp-report",
     "cp-simulation",
     "cp-statistics",
+    "cp-worker",
 ]
 
 [[package]]
@@ -157,6 +158,7 @@ dependencies = [
     { name = "cp-report" },
     { name = "cp-simulation" },
     { name = "cp-statistics" },
+    { name = "cp-worker" },
 ]
 
 [package.dev-dependencies]
@@ -187,6 +189,7 @@ requires-dist = [
     { name = "cp-report", editable = "packages/cp-report" },
     { name = "cp-simulation", editable = "packages/cp-simulation" },
     { name = "cp-statistics", editable = "packages/cp-statistics" },
+    { name = "cp-worker", editable = "packages/cp-worker" },
 ]
 
 [package.metadata.requires-dev]
@@ -615,6 +618,27 @@ requires-dist = [
     { name = "cp-core", editable = "packages/cp-core" },
     { name = "numpy", specifier = ">=2.0" },
     { name = "scipy", specifier = ">=1.14" },
+]
+
+[[package]]
+name = "cp-worker"
+version = "0.1.0"
+source = { editable = "packages/cp-worker" }
+dependencies = [
+    { name = "cp-api" },
+    { name = "cp-core" },
+    { name = "cp-report" },
+    { name = "redis" },
+    { name = "rq" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "cp-api", editable = "packages/cp-api" },
+    { name = "cp-core", editable = "packages/cp-core" },
+    { name = "cp-report", editable = "packages/cp-report" },
+    { name = "redis", specifier = ">=5.0" },
+    { name = "rq", specifier = ">=2.0" },
 ]
 
 [[package]]
