@@ -58,3 +58,4 @@ source_modules =
 forbidden_modules =
     cp_api.validation
     cp_api.migrate
+    cp_api.app
