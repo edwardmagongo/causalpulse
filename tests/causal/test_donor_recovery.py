@@ -102,24 +102,26 @@ def test_convex_hull_check_fires_reliably_on_s3():
 
 
 def test_donor_contamination_check_discriminates_clean_from_contaminated():
-    # Corrected during this task: an earlier calibration measured this
-    # check's threshold against one pre-specified donor's z-score (5/100
-    # false positives at threshold=2.0, shock=1.5), but the deployed check
-    # takes the *max* z-score across all 17 donors -- a genuinely different,
-    # much less powerful statistic once the multiple-comparisons gap is
-    # accounted for. Recalibrated by measuring the real max-over-donors
-    # statistic directly (300 seeds): threshold=5.5, false-positive rate
-    # 7/100 on clean S1, true-positive rate 96/100 on S4 (donor 0 shocked by
-    # +5.0, also corrected up from +1.5 -- see donor_contamination_check's
-    # and S4's own docstrings for the full story).
+    # Recalibrated during the SyntheticControl CI/contamination-check phase (design doc
+    # 2026-09-28-synthetic-control-ci-calibration.md): donor_rmspe_ratios moved from
+    # placebo_runs (plain simplex) to hull_aware_placebo_runs, whose ridge-augmented fallback
+    # genuinely widens this statistic's null distribution -- the old threshold=5.5 gave
+    # 34/100 false positives against this file's original 100-seed protocol, well outside its
+    # own bound. Measured directly on the new statistic at 200 seeds (three separate 200-seed
+    # windows checked for stability, not just this one): threshold=7.0, false-positive rate
+    # ~12-18% (25-35/200) on clean S1, true-positive rate ~85-88% (169-176/200) on
+    # contaminated S4 -- see donor_contamination_check's own docstring for the full sweep and
+    # why these margins are real but thinner than the pre-hull-aware 7%/96%. Bounds below give
+    # roughly 3 MCSE of headroom on both sides at n=200, not the tighter margin the 100-seed
+    # protocol would have left at this threshold.
     def contamination_status(scenario_id: str, seed: int) -> str:
         result = SyntheticControl().fit(generate(scenario_id, seed).dataset, CONFIG)
         return {c.name: c.status for c in result.assumptions}["donor_contamination"]
 
-    false_positives = sum(contamination_status("S1", seed) == "FAIL" for seed in range(100))
-    true_positives = sum(contamination_status("S4", seed) == "FAIL" for seed in range(100))
-    assert false_positives <= 16, f"{false_positives}/100 false positives on clean S1"
-    assert true_positives >= 85, f"{true_positives}/100 true positives on contaminated S4"
+    false_positives = sum(contamination_status("S1", seed) == "FAIL" for seed in range(200))
+    true_positives = sum(contamination_status("S4", seed) == "FAIL" for seed in range(200))
+    assert false_positives <= 44, f"{false_positives}/200 false positives on clean S1"
+    assert true_positives >= 160, f"{true_positives}/200 true positives on contaminated S4"
 
 
 def test_sufficient_pre_periods_fires_reliably_on_s5():
@@ -146,6 +148,38 @@ def test_null_scenario_permutation_p_value_stays_under_a_quarter_significant():
         for seed in range(100)
     )
     assert significant / 100 < 0.25
+
+
+def test_fit_ci_coverage_is_measured_on_the_hull_aware_placebo_distribution():
+    # Measured during the SyntheticControl CI/contamination-check phase (design doc
+    # 2026-09-28-synthetic-control-ci-calibration.md §7, 200 seeds, MCSE ~0.015): switching
+    # fit()'s CI half-width from the plain-simplex placebo distribution to the hull-aware one
+    # narrowed it substantially on scenarios where the ridge fallback fires often (mean width
+    # 1.142 -> 0.793 on S0/S1/S3), which pulled coverage down from a consistently
+    # over-nominal 0.970-0.995 to 0.900-0.990, closer to but sometimes just under nominal
+    # 0.95 (S0/S1 0.920, S2 0.900, S3 0.905, S4 0.990). This is recorded, not chased further:
+    # the CI's own construction (a quantile of the placebo spread, following the same
+    # permutation logic as the p-value) carries no formal coverage guarantee to begin with,
+    # and the fix's purpose was internal consistency with the point estimate -- the same
+    # form building both, on every unit -- not a coverage target. S0 and S1 measure
+    # identically here (and always will, at any seed): both share the same donor pool and
+    # pre-period noise at a given seed, differing only in the treated unit's constant true
+    # effect (tau=0 vs tau=1), and this CI's construction never reads the treated unit's own
+    # placebo entry (`point_estimates[1:]` excludes index 0), so tau cancels out of both the
+    # width and the bias `point - true_att` exactly.
+    #
+    # The bound below is a loose sanity floor, not a tight recalibration target -- it exists
+    # to catch a genuine regression (coverage collapsing), not to assert precision this
+    # heuristic interval was never built to promise.
+    def covers(scenario_id: str, seed: int) -> bool:
+        panel = generate(scenario_id, seed)
+        result = SyntheticControl().fit(panel.dataset, CONFIG)
+        true_att = panel.truth.true_att_by_cohort[DONOR_START]
+        return result.ci.lower <= true_att <= result.ci.upper
+
+    for scenario_id in ["S0", "S1", "S2", "S3", "S4"]:
+        hits = sum(covers(scenario_id, seed) for seed in range(50))
+        assert hits / 50 >= 0.7, f"{scenario_id}: {hits}/50 CI coverage, expected >= 0.7"
 
 
 def test_every_donor_scenario_is_covered_by_this_harness():
