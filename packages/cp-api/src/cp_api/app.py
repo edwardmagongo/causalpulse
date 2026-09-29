@@ -13,14 +13,13 @@ import os
 import uuid
 from collections.abc import Iterator
 from datetime import datetime
-from pathlib import PurePath
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 from redis import Redis
-from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import RedisError
 from rq import Queue
 from rq.exceptions import NoSuchJobError
 from rq.job import Job, JobStatus
@@ -57,7 +56,8 @@ class AnalysisRequest(BaseModel):
     dataset_id: uuid.UUID
     causal_schema: dict[str, Any] = Field(alias="schema")
     estimators: list[str] | None = None
-    random_seed: int = 0
+    # `analyses.random_seed` is a 32-bit Integer column.
+    random_seed: int = Field(default=0, ge=0, lt=2**31)
 
 
 def _iso(moment: datetime | None) -> str | None:
@@ -109,7 +109,7 @@ def create_app(
         )
 
     app.add_exception_handler(OperationalError, _unavailable)
-    app.add_exception_handler(RedisConnectionError, _unavailable)
+    app.add_exception_handler(RedisError, _unavailable)
 
     def _analysis_or_404(session: Session, analysis_id: uuid.UUID) -> Analysis:
         analysis = session.get(Analysis, analysis_id)
@@ -147,7 +147,7 @@ def create_app(
         if dataset is None:
             dataset = Dataset(
                 # A bare name only: it becomes the manifest's fixture path.
-                filename=PurePath(file.filename or "upload.csv").name,
+                filename=validation.safe_filename(file.filename),
                 sha256=sha256,
                 n_bytes=len(content),
                 csv=content,
@@ -188,7 +188,7 @@ def create_app(
                 job_id=str(analysis.id),
                 job_timeout=JOB_TIMEOUT_SECONDS,
             )
-        except RedisConnectionError:
+        except RedisError:
             analysis.status = "failed"
             analysis.error = QUEUE_DOWN
             analysis.finished_at = utcnow()

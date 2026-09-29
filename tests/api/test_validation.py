@@ -1,6 +1,12 @@
 import pytest
 from cp_api import validation
-from cp_api.validation import RequestError, check_analysis_request, check_upload, csv_header
+from cp_api.validation import (
+    RequestError,
+    check_analysis_request,
+    check_upload,
+    csv_header,
+    safe_filename,
+)
 
 CSV = b"unit_id,treated,outcome,x1,x2\n1,1,0.5,0.1,0.2\n2,0,0.4,0.3,0.1\n"
 SCHEMA = {
@@ -67,3 +73,27 @@ def test_a_malformed_schema_is_422_with_the_parsers_message():
 def test_an_empty_estimator_list_is_refused():
     with pytest.raises(RequestError, match="at least one"):
         check_analysis_request(SCHEMA, HEADER, [])
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("lalonde.csv", "lalonde.csv"),
+        ("dir/sub/data.csv", "data.csv"),
+        ("../../etc/passwd", "passwd"),
+        ("C:\\x\\y.csv", "y.csv"),
+        ("a/b\\c.csv", "c.csv"),
+        ("..", "upload.csv"),
+        (".", "upload.csv"),
+        ("/", "upload.csv"),
+        ("dir/..", "upload.csv"),
+        ("", "upload.csv"),
+        (None, "upload.csv"),
+    ],
+)
+def test_an_uploaded_filename_is_reduced_to_a_bare_name(raw, expected):
+    assert safe_filename(raw) == expected
+
+
+def test_a_long_uploaded_filename_is_cut_to_the_column_width():
+    assert safe_filename("x" * 300 + ".csv") == "x" * 255

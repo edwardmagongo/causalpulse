@@ -16,6 +16,9 @@ import pandas as pd
 from cp_core.dataset import CausalSchema, schema_from_dict
 
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+FALLBACK_FILENAME = "upload.csv"
+# The width of `datasets.filename`.
+MAX_FILENAME_CHARS = 255
 
 
 class RequestError(Exception):
@@ -25,6 +28,20 @@ class RequestError(Exception):
         super().__init__(message)
         self.status_code = status_code
         self.message = message
+
+
+def safe_filename(raw: str | None) -> str:
+    """The client's filename reduced to one bare path component.
+
+    It becomes the manifest's fixture path, which replay opens relative to the
+    current directory, so no separator, `.` or `..` may survive. Both `/` and
+    `\\` are split on: `PurePath` on POSIX keeps a Windows path like
+    `C:\\x\\y.csv` whole.
+    """
+    name = (raw or "").replace("\\", "/").rsplit("/", 1)[-1]
+    if name in ("", ".", ".."):
+        return FALLBACK_FILENAME
+    return name[:MAX_FILENAME_CHARS]
 
 
 def _parse(content: bytes, nrows: int | None = None) -> pd.DataFrame:
