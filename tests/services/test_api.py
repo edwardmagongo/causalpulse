@@ -171,7 +171,7 @@ def test_a_job_over_its_time_limit_fails_and_fits_nothing_after_it(
 
     def slow(self, dataset, config):
         fitted.append("difference_in_means")
-        time.sleep(10)
+        time.sleep(20)
         raise AssertionError("the job's time limit never fired")
 
     def later(self, dataset, config):
@@ -180,7 +180,9 @@ def test_a_job_over_its_time_limit_fails_and_fits_nothing_after_it(
 
     monkeypatch.setattr(get_estimator("difference_in_means"), "fit", slow)
     monkeypatch.setattr(get_estimator("lin_regression"), "fit", later)
-    monkeypatch.setattr(app_module, "JOB_TIMEOUT_SECONDS", 1)
+    # Two seconds: the job reaches its first fit in milliseconds (imports are
+    # done before the alarm is set), so the limit fires inside `slow`.
+    monkeypatch.setattr(app_module, "JOB_TIMEOUT_SECONDS", 2)
     analysis_id = _submit(client).json()["id"]
 
     _drain(redis_conn)
@@ -188,7 +190,7 @@ def test_a_job_over_its_time_limit_fails_and_fits_nothing_after_it(
 
     assert fitted == ["difference_in_means"]
     assert (body["status"], body["error"]) == (
-        "failed", "the analysis exceeded the 1-second job limit and was stopped"
+        "failed", "the analysis exceeded the 2-second job limit and was stopped"
     )
     assert body["estimates"] == []
     # The job returned normally: its failure is the analysis's, not a lost worker's.

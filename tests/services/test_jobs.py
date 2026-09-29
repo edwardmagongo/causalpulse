@@ -89,7 +89,8 @@ def test_a_storage_failure_fails_the_analysis_with_its_message_and_writes_nothin
     real_store = jobs.store_outcome
 
     def store_then_fail(session, analysis_id, outcome):
-        # Rows are written first, so a missing rollback would leave them behind.
+        # Rows are written first, so marking the failure in this same session
+        # would commit the half-written outcome along with it.
         real_store(session, analysis_id, outcome)
         session.flush()
         raise RuntimeError("disk full")

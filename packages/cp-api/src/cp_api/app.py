@@ -44,7 +44,12 @@ from cp_api.db import (
 from cp_api.validation import RequestError, check_analysis_request, check_upload, csv_header
 
 WORKER_LOST = "worker lost: the job ended without recording a result"
-QUEUE_DOWN = "the job queue was unreachable, so the analysis was never started"
+# A Redis timeout can arrive after the server accepted the job, which a worker
+# may then run anyway; this message is true either way.
+QUEUE_DOWN = (
+    "the job queue could not be reached, so the analysis could not be confirmed as "
+    "queued; submit it again"
+)
 _LOST = {JobStatus.FAILED, JobStatus.STOPPED, JobStatus.CANCELED}
 
 

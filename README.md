@@ -1394,7 +1394,10 @@ default to `8000` for the API, `5433` for Postgres, and `6380` for Redis; overri
 running.
 
 Each analysis has a 30-minute limit; one that runs past it is stopped and marked `failed`, with
-an error stating the limit. `api` and `worker` restart unless stopped. That matters for a worker
+an error stating the limit. The limit takes effect between Python-level steps, so a single hung
+call into compiled code (XLA, LAPACK) is not interrupted, and the restart policy below does not
+help there either, because the worker process is still alive. `api` and `worker` restart unless
+stopped. That matters for a worker
 that dies mid-job: RQ only marks a dead worker's job failed when a live worker cleans up its
 registries, so a killed worker's analysis shows `running` until a worker restarts and the job's
 time limit has passed, and only then becomes "worker lost".
