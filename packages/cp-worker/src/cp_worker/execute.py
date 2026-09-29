@@ -27,7 +27,9 @@ def execute(
     `cp replay` against a copy of the file reproduces the numbers or refuses.
     """
     dataset = CausalDataset(
-        frame=pd.read_csv(io.BytesIO(content), low_memory=False),
+        # Replay parity depends on parsing these bytes exactly as
+        # `cp_core.manifest.resolve_fixture_reference` does: pandas defaults.
+        frame=pd.read_csv(io.BytesIO(content)),
         schema=schema_from_dict(schema),
     )
     reference = FixtureReference(path=filename, content_sha256=hashlib.sha256(content).hexdigest())

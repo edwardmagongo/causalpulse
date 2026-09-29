@@ -2,8 +2,9 @@ import hashlib
 import json
 
 import pytest
-from cp_api.db import Analysis, AnalysisSummary, Dataset, EstimateRow, RoutingDecisionRow
+from cp_api.db import Analysis, AnalysisSummary, Dataset, EstimateRow, RoutingDecisionRow, utcnow
 from cp_causal.registry import get_estimator
+from cp_worker import jobs
 from cp_worker.jobs import run_analysis_job
 from sqlalchemy import select
 from worker.data import scenario_d_upload
@@ -77,7 +78,53 @@ def test_an_unknown_estimator_is_the_workers_to_refuse(sessions, worker_env):
     run_analysis_job(str(analysis_id))
 
     with sessions() as session:
-        assert "unknown estimator(s): ['nope']" in session.get(Analysis, analysis_id).error
+        analysis = session.get(Analysis, analysis_id)
+        assert analysis.status == "failed"
+        assert "unknown estimator(s): ['nope']" in analysis.error
+
+
+def test_a_storage_failure_fails_the_analysis_with_its_message_and_writes_nothing(
+    sessions, worker_env, monkeypatch
+):
+    real_store = jobs.store_outcome
+
+    def store_then_fail(session, analysis_id, outcome):
+        # Rows are written first, so a missing rollback would leave them behind.
+        real_store(session, analysis_id, outcome)
+        session.flush()
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(jobs, "store_outcome", store_then_fail)
+    analysis_id = _queue(sessions, ["difference_in_means", "lin_regression"])
+
+    run_analysis_job(str(analysis_id))
+
+    with sessions() as session:
+        analysis = session.get(Analysis, analysis_id)
+        assert (analysis.status, analysis.error) == ("failed", "disk full")
+        assert analysis.finished_at is not None
+        for table in (EstimateRow, RoutingDecisionRow):
+            assert session.scalars(
+                select(table).where(table.analysis_id == analysis_id)
+            ).all() == []
+        assert session.get(AnalysisSummary, analysis_id) is None
+
+
+def test_starting_a_job_clears_an_error_recorded_before_it_ran(sessions, worker_env):
+    # A read racing the gap between the API's commit and its enqueue can mark a
+    # queued analysis lost; the worker then runs it anyway.
+    analysis_id = _queue(sessions, ["difference_in_means"])
+    with sessions() as session:
+        analysis = session.get(Analysis, analysis_id)
+        analysis.error, analysis.finished_at = "worker lost", utcnow()
+        session.commit()
+
+    run_analysis_job(str(analysis_id))
+
+    with sessions() as session:
+        analysis = session.get(Analysis, analysis_id)
+        assert (analysis.status, analysis.error) == ("succeeded", None)
+        assert analysis.finished_at > analysis.started_at
 
 
 def test_one_failed_fit_makes_the_analysis_partial_not_failed(sessions, worker_env, monkeypatch):

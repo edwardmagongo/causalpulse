@@ -1,15 +1,26 @@
 """The RQ job: load a queued analysis, run it, write the outcome back.
 
-Each status change is its own transaction. Any exception from `execute` --
-a router refusal, a dataset the core rejects, every estimator failing -- is
-stored verbatim on the analysis, which is then `failed`; the job itself
-returns normally, so RQ records it as finished and the API's lost-worker
-check (spec §11.4) only ever fires for a job that died without a word.
+Each status change is its own transaction. The job ends the analysis
+`failed`, and itself returns normally, on each of three paths, and logs each
+with its traceback:
+
+- any exception from `execute` -- a router refusal, a dataset the core
+  rejects, every estimator failing -- stored verbatim;
+- an exception while storing the outcome, after rolling back whatever part
+  of it was written, so no half-written result remains;
+- the job's time limit (`cp_worker.worker.JobTimeLimitExceeded`), with a
+  message stating the limit in seconds.
+
+So RQ records these jobs as finished. The API's lost-worker check (spec
+§11.4) is left for a job that never reached one of them: a worker killed
+mid-job, a job deleted from Redis, a database unreachable even for the
+`failed` write, or an analysis id with no row.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 
 from cp_api.db import (
@@ -24,9 +35,12 @@ from cp_api.db import (
 )
 from cp_core.results import estimate_summary
 from cp_report.pipeline import AnalysisOutcome
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from cp_worker.execute import execute
+from cp_worker.worker import JobTimeLimitExceeded
+
+logger = logging.getLogger(__name__)
 
 
 def store_outcome(session: Session, analysis_id: uuid.UUID, outcome: AnalysisOutcome) -> None:
@@ -64,39 +78,50 @@ def store_outcome(session: Session, analysis_id: uuid.UUID, outcome: AnalysisOut
     )
 
 
-def run_analysis_job(analysis_id: str) -> None:
-    key = uuid.UUID(analysis_id)
-    engine = make_engine()
-    sessions = make_sessionmaker(engine)
-    try:
-        with sessions() as session:
-            analysis = session.get(Analysis, key)
-            if analysis is None:
-                raise LookupError(f"no analysis {analysis_id}")
-            dataset = session.get(Dataset, analysis.dataset_id)
-            if dataset is None:
-                raise LookupError(f"analysis {analysis_id} names a missing dataset")
-            analysis.status = "running"
-            analysis.started_at = utcnow()
-            session.commit()
-            content, filename = dataset.csv, dataset.filename
-            schema = dict(analysis.causal_schema)
-            requested = analysis.requested_estimators
-            seed = analysis.random_seed
-
-        try:
-            outcome = execute(content, filename, schema, requested, seed)
-        except Exception as exc:
-            with sessions() as session:
-                failed = session.get(Analysis, key)
-                assert failed is not None
-                failed.status = "failed"
-                failed.error = str(exc) or type(exc).__name__
-                failed.finished_at = utcnow()
-                session.commit()
+def _fail(
+    sessions: sessionmaker[Session], key: uuid.UUID, error: str, *, unless_finished: bool = False
+) -> None:
+    with sessions() as session:
+        failed = session.get(Analysis, key)
+        assert failed is not None
+        if unless_finished and failed.status in ("succeeded", "failed"):
             return
+        failed.status = "failed"
+        failed.error = error
+        failed.finished_at = utcnow()
+        session.commit()
 
-        with sessions() as session:
+
+def _run(sessions: sessionmaker[Session], key: uuid.UUID) -> None:
+    with sessions() as session:
+        analysis = session.get(Analysis, key)
+        if analysis is None:
+            raise LookupError(f"no analysis {key}")
+        dataset = session.get(Dataset, analysis.dataset_id)
+        if dataset is None:
+            raise LookupError(f"analysis {key} names a missing dataset")
+        analysis.status = "running"
+        analysis.started_at = utcnow()
+        # A read racing the API's commit-then-enqueue gap can have marked this
+        # analysis lost; it is running now, so that verdict no longer holds.
+        analysis.error = None
+        analysis.finished_at = None
+        session.commit()
+        content, filename = dataset.csv, dataset.filename
+        schema = dict(analysis.causal_schema)
+        requested = analysis.requested_estimators
+        seed = analysis.random_seed
+
+    try:
+        outcome = execute(content, filename, schema, requested, seed)
+    except Exception as exc:
+        logger.exception("analysis %s failed", key)
+        # Stored verbatim: a router refusal is the core's own message.
+        _fail(sessions, key, str(exc) or type(exc).__name__)
+        return
+
+    with sessions() as session:
+        try:
             store_outcome(session, key, outcome)
             done = session.get(Analysis, key)
             assert done is not None
@@ -104,5 +129,27 @@ def run_analysis_job(analysis_id: str) -> None:
             done.partial = outcome.partial
             done.finished_at = utcnow()
             session.commit()
+        except Exception as exc:
+            logger.exception("analysis %s ran, but storing its outcome failed", key)
+            session.rollback()
+            error = str(exc) or type(exc).__name__
+        else:
+            return
+    _fail(sessions, key, error)
+
+
+def run_analysis_job(analysis_id: str) -> None:
+    key = uuid.UUID(analysis_id)
+    engine = make_engine()
+    sessions = make_sessionmaker(engine)
+    try:
+        try:
+            _run(sessions, key)
+        except JobTimeLimitExceeded as exc:
+            logger.exception("analysis %s was stopped at its time limit", key)
+            # The alarm is one-shot, so recording this cannot itself be cut off.
+            # It can fire after an outcome was already committed, though, and
+            # that outcome stands.
+            _fail(sessions, key, str(exc), unless_finished=True)
     finally:
         engine.dispose()
