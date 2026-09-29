@@ -1386,12 +1386,18 @@ here (that is a later backend phase).
 docker compose up --build
 ```
 
-This starts four services: `postgres`, `redis`, a one-shot `migrate` that runs the Alembic
-migrations and exits, and `api`, which waits on `migrate` and serves on `http://localhost:8000`.
-A `worker` also starts, reading jobs off the same Redis queue the API enqueues to. Ports (host
-side) default to `8000` for the API, `5433` for Postgres, and `6380` for Redis; override with
+This starts five services: `postgres`, `redis`, a one-shot `migrate` that runs the Alembic
+migrations and exits, `api`, which waits on `migrate` and serves on `http://localhost:8000`, and
+a `worker`, which reads jobs off the same Redis queue the API enqueues to. Ports (host side)
+default to `8000` for the API, `5433` for Postgres, and `6380` for Redis; override with
 `CP_API_PORT`, `CP_POSTGRES_PORT`, `CP_REDIS_PORT` if those clash with something else already
 running.
+
+Each analysis has a 30-minute limit; one that runs past it is stopped and marked `failed`, with
+an error stating the limit. `api` and `worker` restart unless stopped. That matters for a worker
+that dies mid-job: RQ only marks a dead worker's job failed when a live worker cleans up its
+registries, so a killed worker's analysis shows `running` until a worker restarts and the job's
+time limit has passed, and only then becomes "worker lost".
 
 ### Routes
 
@@ -1401,12 +1407,12 @@ All routes are under `/v1`.
 |---|---|
 | `POST /datasets` | Multipart CSV, ≤ 50 MB (413 above). Same bytes twice returns the existing row by sha256. |
 | `POST /analyses` | `{dataset_id, schema, estimators?, random_seed}`. Validates the schema via `CausalSchema` and its columns against the CSV header; enqueues; 202 with the id. |
-| `GET /analyses/{id}` | Status, `partial`, error, routing decisions, and per-estimate method/band/error. |
+| `GET /analyses/{id}` | Status, `partial`, error, routing decisions, and per estimate its method, band, error, and `summary` (point, standard error, intervals, p-value, group sizes). |
 | `GET /analyses/{id}/estimates/{method}/report.html` | One estimate's evidence report, figures inlined. |
 | `GET /analyses/{id}/estimates/{method}/report.md` | The Markdown report. Its relative figure links resolve against the next route. |
 | `GET /analyses/{id}/estimates/{method}/{filename}` | One Markdown figure, from `report_assets`. |
 | `GET /analyses/{id}/manifest` | The replayable `AnalysisManifest`. |
-| `GET /analyses/{id}/summary` | The comparison groups and their verdicts. |
+| `GET /analyses/{id}/summary` | `{"comparisons": ...}`: the comparison groups and their verdicts. |
 | `GET /healthz` | Postgres and Redis reachable. |
 
 ### A walkthrough with the LaLonde fixture
@@ -1442,22 +1448,37 @@ Each requested estimator gets its own evidence report and its own validity band,
 merged across estimators. Validity is scored per estimate — `score_validity` reads that one
 estimate's `assumptions` — and mixing several estimates into a single report would put one
 method's band next to another method's assumption table, the exact mismatch `Evidence`'s own
-docstring warns against. `GET /analyses/{id}/summary` covers the cross-method view instead:
-routing decisions and `compare()` verdicts side by side, without collapsing the reports themselves.
+docstring warns against. The cross-method view lives beside the reports instead of inside them:
+`GET /analyses/{id}/summary` returns the `compare()` verdicts, and `GET /analyses/{id}` the routing
+decisions and every estimate's summary.
 
 ### Replay
 
 `GET /analyses/{id}/manifest` returns the analysis's `AnalysisManifest`, which names the uploaded
-dataset by filename and content hash rather than embedding it. Save that manifest, put a copy of
-the original CSV in the same directory under the filename the manifest records (the same name it
-was uploaded as), and:
+dataset by filename and content hash rather than embedding it. Replay opens that filename relative
+to the current directory, so check an analysis like this:
 
 ```bash
-uv run causalpulse replay manifest.json
+mkdir replay-check && cd replay-check
+curl -s http://localhost:8000/v1/analyses/<analysis id>/manifest > manifest.json
+# The filename the manifest records -- its "dataset" -> "path":
+python3 -c 'import json; print(json.load(open("manifest.json"))["dataset"]["path"])'
+cp /path/to/the/original.csv <that filename>
+uv run --project /path/to/causalpulse causalpulse replay manifest.json
 ```
 
-reproduces the same estimates exactly — this is the check that the API is a thin layer over the
-core rather than a second implementation of it.
+Read the filename from the manifest rather than assuming it: the same bytes uploaded again under
+another name are deduplicated to the first upload, whose filename the manifest keeps. A copy
+whose bytes differ at all is refused, since the manifest records their sha256.
+
+`replay` prints each estimator's point estimate to ten significant figures. Compare those with
+`estimates[].summary.point` from `GET /analyses/{id}`. The verdict `replay` prints on its own
+does not make that comparison: it checks against an `estimates.csv` beside the manifest, which
+only `causalpulse analyze` writes and the API does not serve, and without one it compares two
+replays of the manifest with each other. The exact, bit-for-bit comparison of every point,
+standard error, interval and p-value against the API's stored numbers is what
+`tests/services/test_api.py`'s replay-parity test automates -- the check that the API is a thin
+layer over the core rather than a second implementation of it.
 
 ### Testing the stack itself
 

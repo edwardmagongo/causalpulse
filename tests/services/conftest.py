@@ -81,7 +81,8 @@ def worker_env(monkeypatch, migrated):
     Code under test that reads the app's own variables directly — the worker
     job, `make_engine()` called with no argument — sees the test database
     only for that one test, via `monkeypatch`, never a process-wide export.
-    Nothing uses this yet; Tasks 7 and 8 will.
+    `test_jobs.py` runs the job directly with it; `test_api.py`'s `client`
+    fixture takes it so the jobs its `_drain` runs see the test stack.
     """
     monkeypatch.setenv("DATABASE_URL", migrated)
     redis_url = os.environ.get("TEST_REDIS_URL")

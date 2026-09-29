@@ -38,12 +38,16 @@ services:
     <<: *app
     command: ["uvicorn", "--factory", "cp_api.app:create_app", "--host", "0.0.0.0", "--port", "8000"]
     ports: ["${CP_API_PORT:-8000}:8000"]
+    restart: unless-stopped
     depends_on:
       migrate: {condition: service_completed_successfully}
       redis: {condition: service_healthy}
   worker:
     <<: *app
     command: ["python", "-m", "cp_worker"]
+    # RQ moves a dead worker's job to FAILED only when a live worker cleans
+    # its registries, so a worker that dies must come back.
+    restart: unless-stopped
     depends_on:
       migrate: {condition: service_completed_successfully}
       redis: {condition: service_healthy}

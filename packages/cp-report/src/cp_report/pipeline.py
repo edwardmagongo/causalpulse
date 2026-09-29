@@ -225,7 +225,7 @@ def render_estimate_report(
         # (unlike `figure_to_inline_svg`) keeps the XML declaration and DOCTYPE,
         # since the file it writes is a whole standalone document. Per spec §6,
         # this same asset is later served one-per-URL as `image/svg+xml` and
-        # written back to disk by `cp analyze --report` (Task 4) -- so the
+        # written back to disk by `causalpulse analyze --report` -- so the
         # preamble is stripped here with `strip_xml_preamble` so a stored asset
         # has one shape whether it is served, written, or inlined. The result
         # is still a valid standalone SVG file: the root `<svg>` element

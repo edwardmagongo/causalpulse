@@ -61,13 +61,13 @@ markers = [
 # the project is verified against belongs in the repository, not in habit.
 filterwarnings = [
     "error",
-    # starlette.testclient nudges toward a fork package ("httpx2") that does
-    # not exist on PyPI under that name; this project uses httpx itself, which
-    # starlette's TestClient still fully supports. `warnings.warn(stacklevel=2)`
-    # in starlette.testclient attributes the warning to its *importer*'s
-    # module, which varies by call site, so this omits the module field and
-    # instead targets the exact message and category so no other warning
-    # (starlette or otherwise) is silenced.
+    # starlette.testclient nudges toward a fork package ("httpx2"); this
+    # project uses httpx itself, which starlette's TestClient still fully
+    # supports. `warnings.warn(stacklevel=2)` in starlette.testclient
+    # attributes the warning to its *importer*'s module, which varies by call
+    # site, so this omits the module field and instead targets the exact
+    # message and category so no other warning (starlette or otherwise) is
+    # silenced.
     "ignore:Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.:starlette.exceptions.StarletteDeprecationWarning",
 ]
 
