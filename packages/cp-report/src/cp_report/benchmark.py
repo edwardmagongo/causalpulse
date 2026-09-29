@@ -29,11 +29,11 @@ from cp_evaluation.expectations import ExpectationResult, Verdict, evaluate_expe
 from cp_evaluation.metrics import summarise
 from cp_evaluation.store import RunStatus, RunStore
 from cp_evaluation.study import (
-    NOT_COVERED,
     baseline_slice,
     format_value,
     headline_tables,
     markdown_table,
+    not_covered_for,
 )
 from cp_figures.benchmark import axis_profile_data, draw_axis_profile, draw_heatmap, heatmap_data
 from matplotlib.axes import Axes
@@ -71,8 +71,9 @@ COVERAGE_COLUMN_NOTE = (
     "Each coverage value is how often the interval an estimator reports as its primary one "
     "contains the true effect, and the interval column names that interval's kind: analytic "
     "for standard-error intervals, posterior for the credible interval hierarchical_did "
-    "reports, and bootstrap_se for the Wald interval callaway_santanna builds from a "
-    "cluster-bootstrap standard error."
+    "reports, bootstrap_se for the Wald interval callaway_santanna builds from a "
+    "cluster-bootstrap standard error, and permutation for the interval synthetic_control "
+    "builds from its placebo distribution."
 )
 
 
@@ -399,7 +400,7 @@ def benchmark_evidence_from_run(
         replications=store.replications,
         scenarios_run=tuple(sorted(frame["scenario"].unique())),
         estimators_run=tuple(sorted(frame["method"].unique())),
-        not_covered=NOT_COVERED,
+        not_covered=not_covered_for(frame),
         figures=_report_figures(frame),
         limitations=limitations,
         narratives=narratives,

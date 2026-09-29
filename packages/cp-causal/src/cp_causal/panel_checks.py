@@ -386,7 +386,7 @@ def convex_hull_check(treated_pre_mean: float, donor_pre_means: np.ndarray) -> A
 
 
 def donor_contamination_check(
-    donor_rmspe_ratios: np.ndarray, z_threshold: float = 5.5
+    donor_rmspe_ratios: np.ndarray, z_threshold: float = 7.0
 ) -> AssumptionCheck:
     """Flags a donor whose own placebo RMSPE ratio is a robust outlier.
 
@@ -405,12 +405,25 @@ def donor_contamination_check(
     extreme" and "is the most extreme of 17 donors extreme", caught by
     Task 7's recovery harness, not by this check's own unit tests, which
     never measured the max-over-all-donors statistic's real null
-    distribution. Recalibrated by measuring the *actual* `max` statistic's
-    distribution directly (300 seeds): threshold 5.5, false-positive rate
-    7/100 on a clean donor pool, true-positive rate 96/100 against a donor
-    carrying its own +5.0 hidden shock (also corrected up from +1.5, which
-    was not reliably detectable once the check was properly calibrated --
-    see `donor_scenarios.py`'s S4).
+    distribution.
+
+    **Threshold 7.0, not the original 5.5 (design doc
+    `2026-09-28-synthetic-control-ci-calibration.md`).** `donor_rmspe_ratios`
+    moved from `placebo_runs` (plain simplex) to `hull_aware_placebo_runs`,
+    which refits each donor exactly as `fit()` would, including the
+    ridge-augmented fallback -- and that fallback genuinely widens this
+    statistic's null distribution (a unit whose own convex-hull check fails
+    behaves less predictably than a clean simplex fit even with no
+    contamination). Measured directly on the deployed hull-aware statistic
+    (600 seeds each): threshold 7.0 sits at the best-separating point
+    (Youden's J ≈ 0.715, the sweep's maximum), false-positive rate 14.8%
+    (89/600) on a clean donor pool, true-positive rate 86.3% (518/600)
+    against a donor carrying its own +5.0 hidden shock (`donor_scenarios.py`'s
+    S4, unchanged). **These margins are real but genuinely thinner than the
+    original 7%/96%** -- the hull-aware fix trades some discriminative power
+    for consistency with `fit()`'s own point estimate and CI; recorded
+    honestly rather than forced to look as clean as the statistic it
+    replaced.
     """
     median = float(np.median(donor_rmspe_ratios))
     mad = float(np.median(np.abs(donor_rmspe_ratios - median))) + 1e-9

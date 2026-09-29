@@ -268,18 +268,22 @@ class HullAwarePlacebos:
     `point_estimates[1:]` a distribution the reported point is one draw from
     in the same estimator form rather than a different one.
 
-    Distinct from `PlaceboRuns`, which stays uniformly simplex-based: its
-    ratios are Abadie's permutation statistic and its points back the
-    confidence interval, and both are calibrated against the simplex fit.
-    This type is for the falsification report's placebo-effect distribution
-    only.
+    `PlaceboRuns` stays uniformly simplex-based: `permutation_p_value` is Abadie's construction
+    and is the right inference regardless of which form the reported point takes, so
+    `rmspe_ratios[0]` there keeps meaning "this unit's own simplex fit". This type's
+    `rmspe_ratios`, by contrast, is read by `SyntheticControl.fit()`'s CI and
+    `donor_contamination_check` -- both quantities the ridge/simplex choice genuinely changes
+    (design doc `2026-09-28-synthetic-control-ci-calibration.md` §1.1: `rmspe_ratios` is post/pre
+    RMSPE, sensitive to which form built the post-period counterfactual, unlike
+    `fit_donor_pool_point`'s own pre-period-only `pre_rmspe`).
 
-    `used_ridge` records which units took the fallback, so a caller can say
-    how much of the distribution the hull check actually moved.
+    `used_ridge` records which units took the fallback, so a caller can say how much of the
+    distribution the hull check actually moved.
     """
 
     point_estimates: np.ndarray
     used_ridge: np.ndarray
+    rmspe_ratios: np.ndarray
 
 
 def hull_aware_placebo_runs(
@@ -290,17 +294,28 @@ def hull_aware_placebo_runs(
 ) -> HullAwarePlacebos:
     """`placebo_runs`' unit swap, with each unit fitted as `fit()` would fit it.
 
-    Costs one extra convex-hull check per unit over `placebo_runs`, plus a
-    ridge solve for each unit that fails it. Both are cheap next to the
-    simplex solve that dominates either function.
+    Costs one extra convex-hull check per unit over `placebo_runs`, plus a ridge solve for each
+    unit that fails it. Both are cheap next to the simplex solve that dominates either function.
+    `rmspe_ratios` is computed from each unit's own `fit_donor_pool_point` result -- its
+    post-fallback `synthetic`, the same array `point` above is drawn from -- so a unit that took
+    the ridge fallback has both its point estimate and its ratio read from that one fit, never a
+    mix of the two forms.
     """
+    swaps = list(_unit_swaps(treated_series, donor_series))
     fits = [
-        fit_donor_pool_point(unit_series, pool, pre_mask, post_mask)
-        for unit_series, pool in _unit_swaps(treated_series, donor_series)
+        fit_donor_pool_point(unit_series, pool, pre_mask, post_mask) for unit_series, pool in swaps
     ]
+    ratios = np.empty(len(fits))
+    for index, ((unit_series, _pool), fit) in enumerate(zip(swaps, fits, strict=True)):
+        pre_rmspe = float(np.sqrt(np.mean((unit_series[pre_mask] - fit.synthetic[pre_mask]) ** 2)))
+        post_rmspe = float(
+            np.sqrt(np.mean((unit_series[post_mask] - fit.synthetic[post_mask]) ** 2))
+        )
+        ratios[index] = post_rmspe / pre_rmspe if pre_rmspe > 0 else float("inf")
     return HullAwarePlacebos(
         point_estimates=np.array([fit.point for fit in fits]),
         used_ridge=np.array([fit.use_ridge for fit in fits], dtype=bool),
+        rmspe_ratios=ratios,
     )
 
 
@@ -535,7 +550,21 @@ class SyntheticControl:
 
         runs = placebo_runs(treated_series, donor_series, pre_mask, post_mask)
         p_value = permutation_p_value(runs.rmspe_ratios)
+        # The CI and donor_contamination_check read hull_aware_placebo_runs instead of `runs`
+        # above (design doc 2026-09-28-synthetic-control-ci-calibration.md §1.1, §5, §6):
+        # both are sensitive to which form built the post-period counterfactual, so each unit's
+        # entry should come from the same fit form `fit()` itself would use for that unit, not
+        # uniformly from the simplex one. `p_value` stays on `runs` deliberately -- Abadie's
+        # construction is the right inference regardless of which form the point estimate takes.
+        hull_aware = hull_aware_placebo_runs(treated_series, donor_series, pre_mask, post_mask)
 
+        # `hull_aware`'s own index 0 is this exact fit (its unit swap starts with the real
+        # treated unit against the full pool, `test_hull_aware_placebo_runs_share_placebo_runs_
+        # unit_swap` pins the two identical) -- refit rather than reused because `HullAwarePlacebos`
+        # exposes only `point_estimates`/`used_ridge`/`rmspe_ratios`, not the full weight/path
+        # detail `fit()` reports below. One extra SLSQP solve (occasionally a ridge one) against
+        # the 17 already run inside `hull_aware`, not a cost class this function's docstring
+        # tracks.
         donor_fit = fit_donor_pool_point(treated_series, donor_series, pre_mask, post_mask)
         point = donor_fit.point
         synthetic = donor_fit.synthetic
@@ -564,8 +593,10 @@ class SyntheticControl:
         # A permutation-based interval from the placebo distribution's own
         # spread, following the same logic as the p-value: donors' point
         # estimates under "no true effect on them" are the reference
-        # distribution `point`'s own uncertainty is judged against.
-        placebo_spread = runs.point_estimates[1:]
+        # distribution `point`'s own uncertainty is judged against. Hull-aware
+        # (§1.1 above): each donor's point estimate comes from that donor's
+        # own hull check, matching how the real unit's `point` was built.
+        placebo_spread = hull_aware.point_estimates[1:]
         half_width = float(np.quantile(np.abs(placebo_spread), config.ci_level))
         ci = Interval(lower=point - half_width, upper=point + half_width, level=config.ci_level)
 
@@ -642,7 +673,7 @@ class SyntheticControl:
             assumptions=(
                 pre_treatment_fit_check(pre_rmspe, outcome_sd),
                 convex_hull,
-                donor_contamination_check(runs.rmspe_ratios[1:]),
+                donor_contamination_check(hull_aware.rmspe_ratios[1:]),
                 sufficient_pre_periods_check(panel, minimum=10),
             ),
             counterfactual=path,
