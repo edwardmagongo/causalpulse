@@ -6,23 +6,29 @@ from __future__ import annotations
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import pytest
 from cp_core.language import causal_language_lint
-from cp_evaluation.store import IncompleteRunError, RunStore
+from cp_evaluation.run import ROW_COLUMNS
+from cp_evaluation.store import IncompleteRunError, RunStatus, RunStore
 from cp_report.benchmark import (
     BIAS_TABLE,
+    CATE_NOTE,
     COVERAGE_COLUMN_NOTE,
     COVERAGE_TABLE,
+    CateSectionData,
     ExpectationRow,
     HeadlineFindingsData,
     OverviewData,
     benchmark_evidence_from_run,
+    cate_section_data,
     headline_findings_data,
     limitations_data,
     method_comparisons_data,
     overview_data,
 )
+from cp_report.language import ReportLanguageError, require_clean_prose
 
 from report.benchmark_builders import result, tables
 
@@ -290,3 +296,86 @@ def test_benchmark_evidence_from_run_refuses_an_incomplete_run(d_run):
 
     with pytest.raises(IncompleteRunError):  # propagated from RunStore.read_frame
         benchmark_evidence_from_run(d_run)
+
+
+def _cate_rows(scenario, correlations, *, rmse=0.05, slope=1.2, method="causal_forest"):
+    records = []
+    for seed, correlation in enumerate(correlations):
+        row = dict.fromkeys(ROW_COLUMNS, np.nan)
+        row.update(
+            shape="cate", scenario=scenario, n_units=2000, seed=seed, method=method,
+            status="fitted", reason="", estimand="ATE", truth=0.1, point=0.1,
+            runtime_seconds=1.0, cate_correlation=correlation, cate_rmse=rmse,
+            cate_calibration_slope=slope,
+        )
+        records.append(row)
+    return pd.DataFrame(records, columns=list(ROW_COLUMNS))
+
+
+_CATE_STATUS = RunStatus(expected=4, done=4, orphans=0, by_scenario={})
+
+
+def test_the_cate_section_reports_each_metric_with_its_mcse_and_count():
+    rows = _cate_rows("RICH", [0.8, 0.9, 0.7, 0.8])
+
+    data = cate_section_data(rows, _CATE_STATUS, replications=4)
+
+    assert data is not None
+    (row,) = data.table.to_dict("records")
+    assert row["method"] == "causal_forest"
+    assert row["scenario"] == "RICH"
+    assert row["cate_correlation"] == pytest.approx(0.8)
+    assert row["cate_correlation_mcse"] == pytest.approx(
+        float(np.std([0.8, 0.9, 0.7, 0.8], ddof=1) / 2.0)
+    )
+    assert row["cate_correlation_n_used"] == 4
+    assert row["cate_calibration_slope"] == pytest.approx(1.2)
+    assert (data.replications, data.cells_done, data.cells_expected) == (4, 4, 4)
+
+
+def test_null_keeps_its_rmse_and_leaves_correlation_and_slope_blank():
+    rows = _cate_rows("NULL", [np.nan, np.nan], slope=np.nan)
+
+    data = cate_section_data(rows, _CATE_STATUS, replications=2)
+
+    assert data is not None
+    (row,) = data.table.to_dict("records")
+    assert row["cate_rmse_n_used"] == 2
+    assert np.isnan(row["cate_correlation"])
+    assert np.isnan(row["cate_calibration_slope"])
+
+
+def test_a_method_with_no_per_unit_cate_is_left_out_of_the_table():
+    rows = pd.concat(
+        [
+            _cate_rows("RICH", [0.8, 0.9]),
+            _cate_rows("RICH", [np.nan, np.nan], rmse=np.nan, slope=np.nan,
+                       method="difference_in_means"),
+        ],
+        ignore_index=True,
+    )
+
+    data = cate_section_data(rows, _CATE_STATUS, replications=2)
+
+    assert data is not None
+    assert list(data.table["method"]) == ["causal_forest"]
+
+
+def test_no_scored_row_means_no_section():
+    unscored = _cate_rows("RICH", [np.nan], rmse=np.nan, slope=np.nan)
+
+    assert cate_section_data(unscored, _CATE_STATUS, replications=1) is None
+    assert cate_section_data(unscored.iloc[0:0], _CATE_STATUS, replications=1) is None
+
+
+def test_the_cate_note_passes_the_language_lint_and_the_lint_still_bites():
+    require_clean_prose([("CATE", CATE_NOTE)])
+    with pytest.raises(ReportLanguageError):
+        require_clean_prose([("CATE", CATE_NOTE), ("CATE", "This proves the forest is right.")])
+
+
+def test_the_cate_section_offers_its_note_to_the_lint():
+    data = cate_section_data(_cate_rows("RICH", [0.8]), _CATE_STATUS, replications=1)
+
+    assert isinstance(data, CateSectionData)
+    assert data.prose_fragments() == (CATE_NOTE,)

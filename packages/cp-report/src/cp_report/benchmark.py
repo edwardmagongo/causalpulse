@@ -8,10 +8,11 @@ argument each entry point takes -- and is built by `benchmark_evidence_from_run`
 from a finished study's stored results, the only function here that imports
 `cp_evaluation`.
 
-Four sections, each a frozen dataclass with a `prose_fragments()` method, exactly as
+Five sections, each a frozen dataclass with a `prose_fragments()` method, exactly as
 `cp_report.sections` does: `OverviewData`, `HeadlineFindingsData`,
 `MethodComparisonsData`, `LimitationsData` (this module's own, distinct from
-`cp_report.sections.LimitationsData`). No new figure-drawing code: every
+`cp_report.sections.LimitationsData`) and `CateSectionData` (omitted when there is no
+scored CATE row). No new figure-drawing code: every
 `ReportFigure` wraps an existing `cp_figures.benchmark` draw function via `partial`.
 """
 
@@ -25,6 +26,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from cp_evaluation.cate import CATE_METRIC_COLUMNS
 from cp_evaluation.expectations import ExpectationResult, Verdict, evaluate_expectations
 from cp_evaluation.metrics import summarise
 from cp_evaluation.store import RunStatus, RunStore
@@ -273,6 +275,73 @@ def limitations_data(
     not_covered: tuple[tuple[str, str], ...], statements: tuple[str, ...]
 ) -> LimitationsData:
     return LimitationsData(not_covered=not_covered, statements=statements)
+
+
+# Fixed prose, linted with the rest of the document. It states what each figure
+# measures and how to read a calibration slope; it claims nothing about why an
+# estimator scores as it does (design §6.3).
+CATE_NOTE = (
+    "Each figure here compares the per-unit effect an estimator reports with the true "
+    "per-unit effect of the same simulated units, and is a mean over the stated number of "
+    "replications with its Monte Carlo standard error. Correlation measures how closely the "
+    "estimates track the true effects across units, and RMSE their typical distance from "
+    "them. The calibration slope is the least-squares slope of the true effects on the "
+    "estimates: 1 means the estimates vary as widely as the true effects, and a slope above 1 "
+    "means they vary less. Scenario NULL gives every unit the same true effect, so only its "
+    "RMSE is defined."
+)
+
+
+@dataclass(frozen=True, eq=False)
+class CateSectionData:
+    """Per-unit CATE recovery, one row per method and scenario with a scored fit.
+
+    `eq=False`: holds a DataFrame. `replications` and the cell counts describe the
+    store the rows came from, which need not be the main study's.
+    """
+
+    table: pd.DataFrame
+    replications: int
+    cells_done: int
+    cells_expected: int
+    note: str
+
+    def prose_fragments(self) -> tuple[str, ...]:
+        """Included: the note. Excluded: `table`, numeric data."""
+        return (self.note,)
+
+
+def cate_section_data(
+    rows: pd.DataFrame, status: RunStatus, replications: int
+) -> CateSectionData | None:
+    """The CATE section over `rows`, or `None` when no fitted row was scored.
+
+    The numbers are `summarise`'s own, pooled per method and scenario, so they are
+    exactly what `bench report` prints for the same rows.
+    """
+    if rows.empty:
+        return None
+    summary = summarise(rows, by=["scenario"])
+    counts = [f"{metric}_n_used" for metric in CATE_METRIC_COLUMNS]
+    scored = summary[summary[counts].sum(axis=1) > 0]
+    if scored.empty:
+        return None
+    columns = [
+        "method",
+        "scenario",
+        *(
+            f"{metric}{suffix}"
+            for metric in CATE_METRIC_COLUMNS
+            for suffix in ("", "_mcse", "_n_used")
+        ),
+    ]
+    return CateSectionData(
+        table=scored[columns].reset_index(drop=True),
+        replications=replications,
+        cells_done=status.done,
+        cells_expected=status.expected,
+        note=CATE_NOTE,
+    )
 
 
 @dataclass(frozen=True, eq=False)
