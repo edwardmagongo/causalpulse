@@ -58,6 +58,39 @@ def d_run(tmp_path, monkeypatch):
     return run_dir
 
 
+@pytest.fixture
+def cate_run(tmp_path, monkeypatch):
+    """A real, freshly fitted `cate`-tier run: two RICH and two NULL cells.
+
+    `causal_forest` with 20 trees, so it fits in seconds and still reports a real
+    per-unit CATE through the sharded executor's worker processes (a monkeypatched
+    stub estimator would not reach them).
+    """
+    import cp_cli.commands.bench as bench_module
+    from cp_cli.__main__ import main
+    from cp_core.values import EstimatorConfig
+    from cp_evaluation.grid import CateAxes, GridConfig
+
+    def tiny_cate():
+        return GridConfig(
+            cross_section=None, panel=None, cate=CateAxes(scenarios=("RICH", "NULL")),
+            replications=2,
+        )
+
+    monkeypatch.setitem(
+        bench_module.TIERS,
+        "cate",
+        (
+            tiny_cate,
+            ("difference_in_means", "causal_forest"),
+            EstimatorConfig(random_seed=0, bootstrap_reps=20, options={"n_trees": 20}),
+        ),
+    )
+    run_dir = tmp_path / "cate"
+    assert main(["bench", "run", "--tier", "cate", "--out", str(run_dir)]) == 0
+    return run_dir
+
+
 @pytest.fixture(scope="module")
 def cross_section():
     """Scenario D at n=400: small, cross-sectional, and fits in well under a second

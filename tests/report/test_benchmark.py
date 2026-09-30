@@ -379,3 +379,105 @@ def test_the_cate_section_offers_its_note_to_the_lint():
 
     assert isinstance(data, CateSectionData)
     assert data.prose_fragments() == (CATE_NOTE,)
+
+
+def test_a_cate_run_adds_a_cate_section_and_clears_not_covered(d_run, cate_run):
+    evidence = benchmark_evidence_from_run(d_run, cate_directory=cate_run)
+
+    assert evidence.cate_section is not None
+    table = evidence.cate_section.table
+    assert set(table["scenario"]) == {"RICH", "NULL"}
+    assert set(table["method"]) == {"causal_forest"}
+    assert evidence.cate_section.replications == 2
+    assert "CATE metrics" not in dict(evidence.not_covered)
+
+
+def test_without_a_cate_run_there_is_no_section_and_the_entry_stays(d_run):
+    evidence = benchmark_evidence_from_run(d_run)
+
+    assert evidence.cate_section is None
+    assert "CATE metrics" in dict(evidence.not_covered)
+
+
+def test_the_cate_run_changes_no_ate_view(d_run, cate_run):
+    without = benchmark_evidence_from_run(d_run)
+    with_cate = benchmark_evidence_from_run(d_run, cate_directory=cate_run)
+
+    # repr, not ==: Measurement.mcse is NaN for the E8 counts, and NaN != NaN.
+    assert [repr(e) for e in with_cate.expectations] == [repr(e) for e in without.expectations]
+    assert with_cate.scenarios_run == without.scenarios_run
+    assert with_cate.estimators_run == without.estimators_run
+    assert with_cate.tables.keys() == without.tables.keys()
+    for name in without.tables:
+        pd.testing.assert_frame_equal(with_cate.tables[name], without.tables[name])
+    assert [f.caption for f in with_cate.figures] == [f.caption for f in without.figures]
+
+
+def test_cate_rows_in_the_main_store_stay_out_of_every_ate_view(d_run, monkeypatch):
+    # A future store that carries the arm itself: its CATE rows feed the CATE
+    # section and nothing else.
+    real = RunStore.open(d_run)
+    frame = real.read_frame()
+    status = real.status()
+    combined = pd.concat([frame, _cate_rows("RICH", [0.8, 0.9])], ignore_index=True)
+
+    class _Store:
+        replications = real.replications
+
+        def __init__(self, rows):
+            self._rows = rows
+
+        def read_frame(self):
+            return self._rows
+
+        def status(self):
+            return status
+
+    without = benchmark_evidence_from_run(d_run)
+    monkeypatch.setattr(
+        "cp_report.benchmark.RunStore",
+        type("_Open", (), {"open": staticmethod(lambda _d: _Store(combined))}),
+    )
+    with_rows = benchmark_evidence_from_run(d_run)
+
+    assert with_rows.scenarios_run == without.scenarios_run
+    assert [repr(e) for e in with_rows.expectations] == [repr(e) for e in without.expectations]
+    for name in without.tables:
+        pd.testing.assert_frame_equal(with_rows.tables[name], without.tables[name])
+    assert with_rows.cate_section is not None
+    assert list(with_rows.cate_section.table["scenario"]) == ["RICH"]
+
+
+def test_a_cate_run_of_the_wrong_tier_is_refused(d_run):
+    with pytest.raises(ValueError, match="'cate'"):
+        benchmark_evidence_from_run(d_run, cate_directory=d_run)
+
+
+def test_two_sources_of_cate_rows_are_refused(d_run, cate_run, monkeypatch):
+    from cp_evaluation.store import RunStore as _RealRunStore
+
+    real = _RealRunStore.open(d_run)
+    combined = pd.concat([real.read_frame(), _cate_rows("RICH", [0.8])], ignore_index=True)
+
+    class _Store:
+        def __init__(self, rows, store):
+            self._rows, self._store = rows, store
+            self.replications = store.replications
+            self.identity = store.identity
+
+        def read_frame(self):
+            return self._rows
+
+        def status(self):
+            return self._store.status()
+
+    def _open(directory):
+        store = _RealRunStore.open(directory)
+        rows = combined if Path(directory) == Path(d_run) else store.read_frame()
+        return _Store(rows, store)
+
+    monkeypatch.setattr(
+        "cp_report.benchmark.RunStore", type("_Open", (), {"open": staticmethod(_open)})
+    )
+    with pytest.raises(ValueError, match="two protocols"):
+        benchmark_evidence_from_run(d_run, cate_directory=cate_run)

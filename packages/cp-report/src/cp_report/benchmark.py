@@ -359,6 +359,7 @@ class BenchmarkEvidence:
     limitations: tuple[str, ...]
     narratives: dict[str, str]
     exploratory_note: str
+    cate_section: CateSectionData | None = None
 
 
 def _exploratory_note(by_size: pd.DataFrame) -> str:
@@ -440,6 +441,7 @@ def _report_figures(frame: pd.DataFrame) -> tuple[ReportFigure, ...]:
 def benchmark_evidence_from_run(
     directory: Path,
     *,
+    cate_directory: Path | None = None,
     limitations: tuple[str, ...] = (),
     narratives: Mapping[str, str] | None = None,
 ) -> BenchmarkEvidence:
@@ -450,10 +452,38 @@ def benchmark_evidence_from_run(
     states something the stored data cannot: no text is baked in here, including the
     `hierarchical_did`/P6 exclusion, which the generating command states explicitly.
     A narrative keyed to an expectation id that does not exist is refused, not ignored.
+
+    Every existing view is built from the study's rows whose `shape` is not `"cate"`:
+    the expectations, tables and figures are ATE views registered on the ATE grid,
+    the precedent expectation E7 follows (design
+    `docs/specs/2026-09-30-cate-report-section-design.md` §6.2). CATE rows feed only
+    the CATE section. They come from the study itself or, when `cate_directory` is
+    given, from a complete `cate`-tier run; both at once is refused, since that
+    would average two protocols together.
     """
     store = RunStore.open(directory)
-    frame = store.read_frame()
+    full = store.read_frame()
     status = store.status()
+    is_cate = full["shape"] == "cate"
+    frame = full[~is_cate].reset_index(drop=True)
+    cate_rows = full[is_cate].reset_index(drop=True)
+    cate_status, cate_replications = status, store.replications
+
+    if cate_directory is not None:
+        cate_store = RunStore.open(cate_directory)
+        if cate_store.identity.tier != "cate":
+            raise ValueError(
+                f"{cate_directory} is a {cate_store.identity.tier!r} run; the CATE section "
+                "reads a 'cate' run"
+            )
+        if not cate_rows.empty:
+            raise ValueError(
+                f"{directory} already carries CATE rows and {cate_directory} is a CATE run; "
+                "reading both would average two protocols together"
+            )
+        cate_rows = cate_store.read_frame()
+        cate_status, cate_replications = cate_store.status(), cate_store.replications
+
     results = evaluate_expectations(frame, status)
 
     narratives = dict(narratives or {})
@@ -469,13 +499,14 @@ def benchmark_evidence_from_run(
         replications=store.replications,
         scenarios_run=tuple(sorted(frame["scenario"].unique())),
         estimators_run=tuple(sorted(frame["method"].unique())),
-        not_covered=not_covered_for(frame),
+        not_covered=not_covered_for(pd.concat([frame, cate_rows], ignore_index=True)),
         figures=_report_figures(frame),
         limitations=limitations,
         narratives=narratives,
         exploratory_note=_exploratory_note(
             tables.get("coverage__scenario_by_size", pd.DataFrame())
         ),
+        cate_section=cate_section_data(cate_rows, cate_status, cate_replications),
     )
 
 
