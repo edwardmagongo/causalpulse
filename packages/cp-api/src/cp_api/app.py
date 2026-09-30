@@ -31,17 +31,25 @@ from cp_api import validation
 from cp_api.db import (
     JOB_FUNCTION,
     JOB_TIMEOUT_SECONDS,
+    LEGACY_USER,
     QUEUE_NAME,
     Analysis,
     AnalysisSummary,
     Dataset,
     EstimateRow,
     RoutingDecisionRow,
+    User,
     make_engine,
     make_sessionmaker,
     utcnow,
 )
 from cp_api.validation import RequestError, check_analysis_request, check_upload, csv_header
+
+
+# Interim, deleted in Task 4: until routes authenticate, new rows go to `legacy`.
+def _legacy_owner(session: Session) -> uuid.UUID:
+    return session.scalars(select(User.id).where(User.name == LEGACY_USER)).one()
+
 
 WORKER_LOST = "worker lost: the job ended without recording a result"
 # A Redis timeout can arrive after the server accepted the job, which a worker
@@ -151,6 +159,7 @@ def create_app(
         dataset = session.scalars(select(Dataset).where(Dataset.sha256 == sha256)).one_or_none()
         if dataset is None:
             dataset = Dataset(
+                owner_id=_legacy_owner(session),
                 # A bare name only: it becomes the manifest's fixture path.
                 filename=validation.safe_filename(file.filename),
                 sha256=sha256,
@@ -176,6 +185,7 @@ def create_app(
             raise HTTPException(404, f"no dataset {body.dataset_id}")
         check_analysis_request(body.causal_schema, csv_header(dataset.csv), body.estimators)
         analysis = Analysis(
+            owner_id=_legacy_owner(session),
             dataset_id=dataset.id,
             causal_schema=body.causal_schema,
             requested_estimators=body.estimators,

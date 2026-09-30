@@ -19,7 +19,9 @@ import os
 import pytest
 from sqlalchemy import text
 
-TABLES = "analysis_summaries, estimates, routing_decisions, analyses, datasets"
+TABLES = (
+    "analysis_summaries, estimates, routing_decisions, analyses, datasets, api_keys, users"
+)
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
@@ -88,3 +90,21 @@ def worker_env(monkeypatch, migrated):
     redis_url = os.environ.get("TEST_REDIS_URL")
     if redis_url:
         monkeypatch.setenv("REDIS_URL", redis_url)
+
+
+@pytest.fixture
+def api_key_for(sessions):
+    """`api_key_for("alice")` creates that user (once) and returns a new key for them."""
+    from cp_api.accounts import create_user, issue_key
+    from cp_api.db import User
+    from sqlalchemy import select
+
+    def make(name: str) -> str:
+        with sessions() as session:
+            if session.scalars(select(User).where(User.name == name)).one_or_none() is None:
+                create_user(session, name)
+            key = issue_key(session, name)
+            session.commit()
+            return key
+
+    return make

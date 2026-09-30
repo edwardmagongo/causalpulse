@@ -1,5 +1,6 @@
 import hashlib
 import json
+import uuid
 
 import pytest
 from cp_api.db import Analysis, AnalysisSummary, Dataset, EstimateRow, RoutingDecisionRow, utcnow
@@ -13,17 +14,20 @@ pytestmark = pytest.mark.services
 
 
 def _queue(sessions, estimators):
+    from cp_api.accounts import create_user
+
     content, schema = scenario_d_upload()
     with sessions() as session:
+        owner = create_user(session, f"owner-{uuid.uuid4().hex[:8]}")
         dataset = Dataset(
-            filename="d.csv", sha256=hashlib.sha256(content).hexdigest(),
+            owner_id=owner.id, filename="d.csv", sha256=hashlib.sha256(content).hexdigest(),
             n_bytes=len(content), csv=content,
         )
         session.add(dataset)
         session.flush()
         analysis = Analysis(
-            dataset_id=dataset.id, causal_schema=schema, requested_estimators=estimators,
-            random_seed=0, status="queued",
+            owner_id=owner.id, dataset_id=dataset.id, causal_schema=schema,
+            requested_estimators=estimators, random_seed=0, status="queued",
         )
         session.add(analysis)
         session.commit()

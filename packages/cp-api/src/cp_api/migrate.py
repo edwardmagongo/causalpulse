@@ -18,12 +18,12 @@ def alembic_config(url: str) -> Config:
     return config
 
 
-def upgrade(url: str) -> None:
-    command.upgrade(alembic_config(url), "head")
+def upgrade(url: str, revision: str = "head") -> None:
+    command.upgrade(alembic_config(url), revision)
 
 
-def downgrade(url: str) -> None:
-    command.downgrade(alembic_config(url), "base")
+def downgrade(url: str, revision: str = "base") -> None:
+    command.downgrade(alembic_config(url), revision)
 
 
 def main() -> None:

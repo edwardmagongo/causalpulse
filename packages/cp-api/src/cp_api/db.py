@@ -1,4 +1,4 @@
-"""Tables, the engine, and the two constants the API and the worker share.
+"""Tables (including users and API keys), the engine, and the constants both sides share.
 
 The worker imports this module and nothing else from `cp_api`
 (`.importlinter`'s `worker-sees-only-the-db` contract). So the queue name and
@@ -45,12 +45,46 @@ class Base(DeclarativeBase):
     pass
 
 
-class Dataset(Base):
-    __tablename__ = "datasets"
+LEGACY_USER = "legacy"
+
+
+class User(Base):
+    """An identity that owns datasets and analyses. `name` is a handle, not a login."""
+
+    __tablename__ = "users"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(64), unique=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class ApiKey(Base):
+    """One issued key. Only the secret's SHA-256 is stored (see `cp_api.auth`)."""
+
+    __tablename__ = "api_keys"
+
+    id: Mapped[str] = mapped_column(String(12), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    secret_sha256: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Dataset(Base):
+    __tablename__ = "datasets"
+    __table_args__ = (UniqueConstraint("owner_id", "sha256"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     filename: Mapped[str] = mapped_column(String(255))
-    sha256: Mapped[str] = mapped_column(String(64), unique=True)
+    # Unique per owner (see __table_args__): two users uploading the same bytes
+    # each get their own dataset.
+    sha256: Mapped[str] = mapped_column(String(64))
     n_bytes: Mapped[int] = mapped_column(Integer)
     csv: Mapped[bytes] = mapped_column(LargeBinary)
     created_at: Mapped[datetime] = mapped_column(
@@ -62,6 +96,8 @@ class Analysis(Base):
     __tablename__ = "analyses"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    # Always equal to its dataset's owner; the API enforces that at creation.
+    owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     dataset_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("datasets.id"))
     # The column is `schema`, the spec's name; the attribute is not, so it
     # never reads as SQLAlchemy's own `schema` concept.
