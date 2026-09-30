@@ -422,3 +422,10 @@ def test_an_unknown_tier_is_refused_by_name(tmp_path):
 def test_reporting_a_directory_that_was_never_written_is_refused(tmp_path):
     with pytest.raises(FileNotFoundError, match="run.json"):
         main(["bench", "report", str(tmp_path / "nothing")])
+
+
+def test_the_cate_tier_is_registered_and_sharded():
+    from cp_evaluation.tiers import FULL_ESTIMATORS, FULL_FIT_CONFIG, cate_study_config
+
+    assert bench_module.TIERS["cate"] == (cate_study_config, FULL_ESTIMATORS, FULL_FIT_CONFIG)
+    assert "cate" in bench_module.SHARDED_TIERS

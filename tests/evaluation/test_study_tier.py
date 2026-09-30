@@ -1,7 +1,7 @@
 import dataclasses
 
-from cp_evaluation.grid import cell_key, expand_cells
-from cp_evaluation.tiers import STUDY_REPLICATIONS, full_config, study_config
+from cp_evaluation.grid import CateCell, cell_key, expand_cells
+from cp_evaluation.tiers import STUDY_REPLICATIONS, cate_study_config, full_config, study_config
 
 
 def test_the_study_tier_is_the_full_tier_at_fifty_replications():
@@ -36,3 +36,22 @@ def test_a_cell_key_does_not_depend_on_how_many_replications_were_asked_for():
 
     assert small < large
     assert len(small) == 445
+
+
+def test_the_cate_tier_is_exactly_the_studys_cate_cells():
+    # Identity-derived generators: equal cells means byte-identical data, so a
+    # CATE-only run measures exactly what the CATE part of a full study would.
+    cate_only = expand_cells(cate_study_config())
+    from_study = tuple(c for c in expand_cells(study_config()) if isinstance(c, CateCell))
+
+    assert cate_only == from_study
+    assert len(cate_only) == 150
+
+
+def test_the_cate_tier_carries_no_other_arm():
+    config = cate_study_config()
+
+    assert config.cross_section is None
+    assert config.panel is None
+    assert config.donor_pool is None
+    assert config.cate == full_config().cate
