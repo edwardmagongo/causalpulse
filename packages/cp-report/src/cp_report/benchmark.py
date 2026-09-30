@@ -564,6 +564,11 @@ def document_prose_fragments(evidence: BenchmarkEvidence) -> list[tuple[str, str
     fragments += [("Headline Findings", text) for text in findings.prose_fragments()]
     fragments += [("Figures", figure.caption) for figure in evidence.figures]
     fragments += [("Method Comparisons", text) for text in comparisons.prose_fragments()]
+    if evidence.cate_section is not None:
+        fragments += [
+            ("Heterogeneous Effects (CATE)", text)
+            for text in evidence.cate_section.prose_fragments()
+        ]
     fragments += [("Limitations", text) for text in limitations.prose_fragments()]
     return fragments
 
@@ -626,6 +631,21 @@ def render_method_comparisons_html(data: MethodComparisonsData) -> str:
     )
 
 
+def _cate_counts(data: CateSectionData) -> str:
+    return (
+        f"{data.replications} replications per scenario, "
+        f"{data.cells_done} of {data.cells_expected} cells."
+    )
+
+
+def render_cate_section_html(data: CateSectionData) -> str:
+    return (
+        "<section><h2>Heterogeneous Effects (CATE)</h2>"
+        f"<p>{escape(_cate_counts(data))}</p>"
+        f"{_dataframe_to_html(data.table)}<p>{escape(data.note)}</p></section>"
+    )
+
+
 def render_limitations_html(data: LimitationsData) -> str:
     not_covered = "".join(
         f"<li>{escape(name)}: {escape(reason)}</li>" for name, reason in data.not_covered
@@ -661,6 +681,7 @@ def render_html_benchmark_report(evidence: BenchmarkEvidence) -> str:
             render_headline_findings_html(findings),
             _render_figures_html(evidence.figures),
             render_method_comparisons_html(comparisons),
+            render_cate_section_html(evidence.cate_section) if evidence.cate_section else "",
             render_limitations_html(limitations),
         ]
     )
@@ -716,6 +737,17 @@ def render_method_comparisons_markdown(data: MethodComparisonsData) -> str:
     return "\n\n".join(parts)
 
 
+def render_cate_section_markdown(data: CateSectionData) -> str:
+    return "\n\n".join(
+        [
+            "## Heterogeneous Effects (CATE)",
+            _cate_counts(data),
+            markdown_table(data.table).rstrip("\n"),
+            data.note,
+        ]
+    )
+
+
 def render_limitations_markdown(data: LimitationsData) -> str:
     lines = [f"- {name}: {reason}" for name, reason in data.not_covered]
     lines.extend(f"- {statement}" for statement in data.statements)
@@ -756,6 +788,7 @@ def write_markdown_benchmark_report(evidence: BenchmarkEvidence, directory: Path
             render_headline_findings_markdown(findings),
             _render_figures_markdown(evidence.figures, figure_paths),
             render_method_comparisons_markdown(comparisons),
+            render_cate_section_markdown(evidence.cate_section) if evidence.cate_section else "",
             render_limitations_markdown(limitations),
         ]
         if part
