@@ -77,12 +77,18 @@ def _filename(caption: str) -> str:
     return f"{_slugify(caption)}-{digest}.svg"
 
 
-def _strip_xml_preamble(svg: str) -> str:
+def strip_xml_preamble(svg: str) -> str:
     """Drop everything before the opening `<svg` tag.
 
     savefig's DOCTYPE line never itself contains the four characters
     `<svg` (its content is `-//W3C//DTD SVG 1.1//EN` and a `.dtd` URL), so
     the first occurrence in the document is always the real opening tag.
+
+    Public because `cp_report.pipeline` reuses it: the root `<svg>` element
+    savefig writes declares its own namespaces, so the result is a valid
+    standalone SVG even without the XML declaration and DOCTYPE stripped
+    off here -- a caller that stores this text can serve it, write it back
+    to a file, or inline it, all from the one shape.
     """
     return svg[svg.index("<svg") :]
 
@@ -112,7 +118,7 @@ def figure_to_inline_svg(figure: ReportFigure) -> str:
         _draw(figure, fig)
         buffer = io.StringIO()
         _save_svg(fig, buffer)
-        return _strip_xml_preamble(buffer.getvalue())
+        return strip_xml_preamble(buffer.getvalue())
     finally:
         plt.close(fig)
 

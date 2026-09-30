@@ -56,3 +56,17 @@ def d_run(tmp_path, monkeypatch):
     run_dir = tmp_path / "run"
     assert main(["bench", "run", "--tier", "study", "--out", str(run_dir)]) == 0
     return run_dir
+
+
+@pytest.fixture(scope="module")
+def cross_section():
+    """Scenario D at n=400: small, cross-sectional, and fits in well under a second
+    for `difference_in_means` and `lin_regression`, whose assumption tables differ
+    (one check against two) -- which is what lets a test tell their reports apart."""
+    import numpy as np
+    from cp_simulation.params import ScenarioParams
+    from cp_simulation.scenarios import build_scenario
+
+    return build_scenario("D", ScenarioParams()).generate(
+        n_units=400, rng=np.random.default_rng(0)
+    ).dataset

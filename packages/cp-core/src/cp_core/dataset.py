@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -154,6 +155,46 @@ class CausalSchema:
         if self.negative_control_outcome is not None:
             columns.append(self.negative_control_outcome)
         return tuple(columns)
+
+
+def schema_from_dict(data: Mapping[str, Any]) -> CausalSchema:
+    """Build a `CausalSchema` from its JSON shape -- the one parser for it.
+
+    JSON has no tuple type, so the two tuple-typed fields arrive as lists and
+    are converted here. `covariates` is required and gets no default: a
+    schema that omits it would silently mean "no confounders", and the
+    estimates would answer a question the user did not ask.
+    `auxiliary_columns` genuinely defaults to `()`.
+
+    The manifest reader and the command line's `--schema` file parse this
+    shape, and the backend API will too, so callers call this function rather
+    than each keeping its own copy.
+    """
+    fields = dataclasses.fields(CausalSchema)
+    unknown = sorted(set(data) - {f.name for f in fields})
+    if unknown:
+        raise ValueError(f"unknown schema field(s): {unknown}")
+    required = {
+        f.name
+        for f in fields
+        if f.default is dataclasses.MISSING and f.default_factory is dataclasses.MISSING
+    }
+    missing = sorted(required - set(data))
+    if missing:
+        raise ValueError(f"schema is missing required field(s): {missing}")
+    values = dict(data)
+    for name in ("covariates", "auxiliary_columns"):
+        if name not in values:
+            continue
+        value = values[name]
+        if isinstance(value, str):
+            raise ValueError(
+                f"{name} must be a list of column names, not a single string; "
+                f"got {value!r}"
+            )
+        values[name] = tuple(value)
+    values["auxiliary_columns"] = tuple(values.get("auxiliary_columns", ()))
+    return CausalSchema(**values)
 
 
 # eq=False: this holds array-valued fields, so a generated __eq__ would raise

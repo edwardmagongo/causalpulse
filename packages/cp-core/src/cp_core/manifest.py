@@ -42,7 +42,7 @@ from typing import Any
 
 import pandas as pd
 
-from cp_core.dataset import CausalDataset, CausalSchema
+from cp_core.dataset import CausalDataset, CausalSchema, schema_from_dict
 from cp_core.values import EstimatorConfig
 
 MANIFEST_SCHEMA_VERSION = 1
@@ -203,15 +203,7 @@ class AnalysisManifest:
                 f"AnalysisManifest schema_version {payload['schema_version']!r} is not "
                 f"the {MANIFEST_SCHEMA_VERSION} this code reads"
             )
-        # JSON has no tuple type, so every tuple-typed field comes back as a
-        # list and must be converted or the round-tripped schema compares
-        # unequal to the original. `covariates` and `auxiliary_columns` are
-        # `CausalSchema`'s only two such fields as of Phase 13; a third would
-        # need the same treatment here.
-        schema_data = dict(payload["schema"])
-        schema_data["covariates"] = tuple(schema_data["covariates"])
-        schema_data["auxiliary_columns"] = tuple(schema_data.get("auxiliary_columns", ()))
-        schema = CausalSchema(**schema_data)
+        schema = schema_from_dict(payload["schema"])
         estimators = tuple(
             (str(entry["name"]), _config_from_dict(entry["config"]))
             for entry in payload["estimators"]

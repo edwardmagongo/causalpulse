@@ -1,0 +1,53 @@
+# Local demo stack. The credentials are local-only test values, not secrets.
+name: causalpulse
+
+x-app: &app
+  build: .
+  image: ${COMPOSE_PROJECT_NAME:-causalpulse}-app
+  environment:
+    DATABASE_URL: postgresql+psycopg://causalpulse:causalpulse@postgres:5432/causalpulse
+    REDIS_URL: redis://redis:6379/0
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: causalpulse
+      POSTGRES_PASSWORD: causalpulse
+      POSTGRES_DB: causalpulse
+    ports: ["${CP_POSTGRES_PORT:-5433}:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U causalpulse"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  redis:
+    image: redis:7
+    ports: ["${CP_REDIS_PORT:-6380}:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  migrate:
+    <<: *app
+    command: ["cp-api-migrate"]
+    depends_on:
+      postgres: {condition: service_healthy}
+  api:
+    <<: *app
+    command: ["uvicorn", "--factory", "cp_api.app:create_app", "--host", "0.0.0.0", "--port", "8000"]
+    ports: ["${CP_API_PORT:-8000}:8000"]
+    restart: unless-stopped
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+  worker:
+    <<: *app
+    command: ["python", "-m", "cp_worker"]
+    # RQ moves a dead worker's job to FAILED only when a live worker cleans
+    # its registries, so a worker that dies must come back.
+    restart: unless-stopped
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}

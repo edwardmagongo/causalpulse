@@ -17,6 +17,7 @@ left to fail later.
 from __future__ import annotations
 
 import argparse
+import json
 from dataclasses import asdict
 from pathlib import Path
 
@@ -25,7 +26,9 @@ import pandas as pd
 from cp_causal.manifest import run_analysis
 from cp_core.dataset import CausalDataset
 from cp_core.manifest import DatasetReference, FixtureReference, ScenarioReference
+from cp_core.results import EffectEstimate
 from cp_core.values import EstimatorConfig
+from cp_report.pipeline import AnalysisOutcome, analyse
 from cp_simulation.panel_scenarios import PANEL_SCENARIOS
 from cp_simulation.params import ScenarioParams
 from cp_simulation.scenarios import SCENARIOS, build_scenario
@@ -42,10 +45,18 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         "--confounding-strength", type=float, default=1.0, help="With --scenario."
     )
     parser.add_argument("--data", help="Path to a CSV to analyse.")
-    parser.add_argument("--estimators", required=True, help="Comma-separated names.")
+    parser.add_argument(
+        "--estimators",
+        help="Comma-separated names. Optional with --report, where the router chooses.",
+    )
     parser.add_argument("--out", required=True, help="Directory to write results to.")
     parser.add_argument(
         "--random-seed", type=int, default=0, help="EstimatorConfig random_seed."
+    )
+    parser.add_argument(
+        "--report",
+        action="store_true",
+        help="Also write one evidence report per estimate, and a summary.json.",
     )
     add_schema_arguments(parser)
 
@@ -95,18 +106,52 @@ def _load(args: argparse.Namespace) -> tuple[CausalDataset, DatasetReference]:
     return CausalDataset(frame=frame, schema=schema), FixtureReference.from_path(str(args.data))
 
 
+def _write_outcome(outcome: AnalysisOutcome, out: Path) -> None:
+    for report in outcome.reports:
+        directory = out / "reports" / report.estimate.method
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "report.html").write_text(report.html)
+        (directory / "report.md").write_text(report.markdown)
+        for filename, svg in report.assets.items():
+            (directory / filename).write_text(svg)
+    summary = {
+        "routing": [
+            {"estimator": d.estimator_name, "eligible": d.eligible, "reasons": list(d.reasons)}
+            for d in outcome.decisions
+        ],
+        "failures": [{"method": f.method, "error": f.error} for f in outcome.failures],
+        "comparisons": [group.to_dict() for group in outcome.comparisons],
+    }
+    (out / "summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True))
+
+
 def run(args: argparse.Namespace) -> int:
     dataset, reference = _load(args)
-    names = [n for n in str(args.estimators).split(",") if n]
-    config = EstimatorConfig(random_seed=args.random_seed)
-
-    manifest, estimates = run_analysis(dataset, reference, [(n, config) for n in names])
-
+    names = (
+        None
+        if args.estimators is None
+        else [n for n in str(args.estimators).split(",") if n]
+    )
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
+    estimates: tuple[EffectEstimate, ...]
+    if args.report:
+        outcome = analyse(dataset, reference, names, random_seed=args.random_seed)
+        _write_outcome(outcome, out)
+        manifest = outcome.manifest
+        estimates = tuple(report.estimate for report in outcome.reports)
+        for failure in outcome.failures:
+            print(f"{failure.method}: failed: {failure.error}")
+    else:
+        if names is None:
+            raise ValueError(
+                "--estimators is required unless --report is given, in which case "
+                "the router chooses"
+            )
+        config = EstimatorConfig(random_seed=args.random_seed)
+        manifest, estimates = run_analysis(dataset, reference, [(n, config) for n in names])
     write_estimates(estimates, out / "estimates.csv")
     (out / "manifest.json").write_text(manifest.to_json())
-
     for estimate in estimates:
         print(
             f"{estimate.method}: {estimate.point:.4f} "

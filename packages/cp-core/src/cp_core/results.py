@@ -315,6 +315,35 @@ class EffectEstimate:
         return worst_status(check.status for check in self.assumptions)
 
 
+def estimate_summary(estimate: EffectEstimate) -> dict[str, str | float | int | None]:
+    """One estimate as a flat, JSON-safe row.
+
+    `EffectEstimate` itself has no JSON form -- it carries arrays,
+    diagnostics and counterfactual paths. This is the part a table, a CSV
+    row or a stored API record needs. Absent values are `None`, not `NaN`,
+    because JSON has no `NaN`; numpy scalars are cast to Python ones for
+    the same reason.
+    """
+    bootstrap = estimate.bootstrap_ci
+    return {
+        "method": estimate.method,
+        "estimand": estimate.estimand,
+        "scale": estimate.scale,
+        "point": float(estimate.point),
+        "se": None if estimate.se is None else float(estimate.se),
+        "ci_lower": float(estimate.ci.lower),
+        "ci_upper": float(estimate.ci.upper),
+        "ci_level": float(estimate.ci.level),
+        "ci_basis": estimate.ci_basis,
+        "bootstrap_ci_lower": None if bootstrap is None else float(bootstrap.lower),
+        "bootstrap_ci_upper": None if bootstrap is None else float(bootstrap.upper),
+        "p_value": None if estimate.p_value is None else float(estimate.p_value),
+        "n_treated": int(estimate.n_treated),
+        "n_control": int(estimate.n_control),
+        "runtime_seconds": float(estimate.fit_metadata.runtime_seconds),
+    }
+
+
 ValidityBand = Literal["STRONG", "MODERATE", "WEAK", "INSUFFICIENT"]
 
 # Ordered, not just enumerated: the rubric composes several caps and takes the
