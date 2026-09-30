@@ -104,3 +104,19 @@ def test_study_records_which_figures_it_refused_and_why(tmp_path):
     assert refused.startswith("# Figures not drawn")
     # The tiny grid varies no axis, so every profile is refused with a reason.
     assert "A / effect_scale" in refused
+
+
+def test_a_null_scenario_survives_the_csv_only_when_read_as_documented(tmp_path):
+    table = pd.DataFrame({"method": ["causal_forest"], "scenario": ["NULL"], "cate_rmse": [0.04]})
+    path = tmp_path / "t.csv"
+    table.to_csv(path, index=False)
+
+    assert pd.read_csv(path, keep_default_na=False)["scenario"].tolist() == ["NULL"]
+    # Pandas' default reading loses it: this is why the files document how to read them.
+    assert pd.read_csv(path)["scenario"].isna().all()
+
+
+def test_bench_study_documents_how_to_read_its_csvs():
+    from cp_cli.commands import study
+
+    assert "keep_default_na=False" in (study.run_study.__doc__ or "")
