@@ -38,6 +38,7 @@ from cp_evaluation.study import (
     not_covered_for,
 )
 from cp_figures.benchmark import axis_profile_data, draw_axis_profile, draw_heatmap, heatmap_data
+from cp_simulation.cate_scenarios import CATE_SCENARIOS
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
@@ -438,6 +439,27 @@ def _report_figures(frame: pd.DataFrame) -> tuple[ReportFigure, ...]:
     return tuple(figures)
 
 
+def _split_status(status: RunStatus) -> tuple[RunStatus, RunStatus]:
+    """`status` as an (ATE part, CATE part) pair, split by scenario.
+
+    A study store that carries the CATE arm counts its cells in one ledger; the
+    overview counts ATE cells and the CATE section counts CATE cells (design §6.1).
+    Orphan shards are not attributable to a scenario, so they stay on the ATE part.
+    """
+    ate = {k: v for k, v in status.by_scenario.items() if k not in CATE_SCENARIOS}
+    cate = {k: v for k, v in status.by_scenario.items() if k in CATE_SCENARIOS}
+
+    def part(by_scenario: dict[str, tuple[int, int]], orphans: int) -> RunStatus:
+        return RunStatus(
+            expected=sum(total for _, total in by_scenario.values()),
+            done=sum(done for done, _ in by_scenario.values()),
+            orphans=orphans,
+            by_scenario=by_scenario,
+        )
+
+    return part(ate, status.orphans), part(cate, 0)
+
+
 def benchmark_evidence_from_run(
     directory: Path,
     *,
@@ -467,7 +489,8 @@ def benchmark_evidence_from_run(
     is_cate = full["shape"] == "cate"
     frame = full[~is_cate].reset_index(drop=True)
     cate_rows = full[is_cate].reset_index(drop=True)
-    cate_status, cate_replications = status, store.replications
+    ate_status, cate_status = _split_status(status)
+    cate_replications = store.replications
 
     if cate_directory is not None:
         cate_store = RunStore.open(cate_directory)
@@ -495,7 +518,7 @@ def benchmark_evidence_from_run(
     return BenchmarkEvidence(
         expectations=results,
         tables=tables,
-        status=status,
+        status=ate_status,
         replications=store.replications,
         scenarios_run=tuple(sorted(frame["scenario"].unique())),
         estimators_run=tuple(sorted(frame["method"].unique())),

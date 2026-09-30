@@ -418,7 +418,14 @@ def test_cate_rows_in_the_main_store_stay_out_of_every_ate_view(d_run, monkeypat
     # section and nothing else.
     real = RunStore.open(d_run)
     frame = real.read_frame()
-    status = real.status()
+    ate_status = real.status()
+    # The mixed store's own ledger: the ATE cells plus two RICH cells.
+    status = RunStatus(
+        expected=ate_status.expected + 2,
+        done=ate_status.done + 2,
+        orphans=ate_status.orphans,
+        by_scenario={**ate_status.by_scenario, "RICH": (2, 2)},
+    )
     combined = pd.concat([frame, _cate_rows("RICH", [0.8, 0.9])], ignore_index=True)
 
     class _Store:
@@ -441,10 +448,20 @@ def test_cate_rows_in_the_main_store_stay_out_of_every_ate_view(d_run, monkeypat
     with_rows = benchmark_evidence_from_run(d_run)
 
     assert with_rows.scenarios_run == without.scenarios_run
-    assert [repr(e) for e in with_rows.expectations] == [repr(e) for e in without.expectations]
+    assert with_rows.estimators_run == without.estimators_run
+    # E8 checks the whole store's completeness, so it alone sees the two CATE cells.
+    assert [repr(e) for e in with_rows.expectations if e.id != "E8"] == [
+        repr(e) for e in without.expectations if e.id != "E8"
+    ]
     for name in without.tables:
         pd.testing.assert_frame_equal(with_rows.tables[name], without.tables[name])
+    assert [f.caption for f in with_rows.figures] == [f.caption for f in without.figures]
+    # The overview counts ATE cells only; the section counts its own.
+    assert with_rows.status.expected == ate_status.expected
+    assert "RICH" not in with_rows.status.by_scenario
     assert with_rows.cate_section is not None
+    assert with_rows.cate_section.cells_expected == 2
+    assert with_rows.cate_section.cells_done == 2
     assert list(with_rows.cate_section.table["scenario"]) == ["RICH"]
 
 
