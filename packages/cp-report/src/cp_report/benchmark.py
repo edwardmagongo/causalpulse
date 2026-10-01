@@ -355,12 +355,12 @@ _P7_UNITS, _P7_PERIODS = PANEL_PROTOCOLS["P7"]
 
 P7_NOTE = (
     f"Scenario P7 has seven adoption cohorts whose effects differ across cohorts, and runs at "
-    f"its own protocol of {_P7_UNITS} units over {_P7_PERIODS} periods, the size at which a "
-    "hierarchical model's cross-cohort variance can be identified. It is reported apart from "
+    f"its own protocol of {_P7_UNITS} units over {_P7_PERIODS} periods, a size chosen so that a "
+    "hierarchical model's cross-cohort variance is identifiable. It is reported apart from "
     "scenarios P1 to P6, which ran at 150 units over 7 and 10 periods, so its figures are not "
-    "comparable with theirs cell for cell. Each number is a mean over the fits counted in its "
-    "_n_used column, with its Monte Carlo standard error, and coverage is that of each "
-    "estimator's primary interval, whose kind the interval column names."
+    "comparable with theirs cell for cell. Bias, RMSE and coverage are each computed over the "
+    "fits counted in the matching `_n_used` column, with its Monte Carlo standard error, and "
+    "coverage is that of each estimator's primary interval, whose kind the interval column names."
 )
 
 
@@ -774,8 +774,7 @@ def render_cate_section_html(data: CateSectionData) -> str:
 
 def _p7_counts(data: P7SectionData) -> str:
     return (
-        f"{data.replications} replications per estimator, "
-        f"{data.cells_done} of {data.cells_expected} cells."
+        f"{data.replications} replications, {data.cells_done} of {data.cells_expected} cells."
     )
 
 

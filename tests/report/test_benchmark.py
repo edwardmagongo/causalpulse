@@ -31,6 +31,7 @@ from cp_report.benchmark import (
     method_comparisons_data,
     overview_data,
     p7_section_data,
+    write_markdown_benchmark_report,
 )
 from cp_report.language import ReportLanguageError, require_clean_prose
 
@@ -560,6 +561,31 @@ def test_a_p7_run_adds_its_section_and_clears_not_covered(d_run, p7_run):
     assert evidence.p7_section is not None
     assert set(evidence.p7_section.table["method"]) == {"twfe", "callaway_santanna"}
     assert "scenario P7" not in dict(evidence.not_covered)
+    table = evidence.p7_section.table.set_index("method")
+    assert table.loc["callaway_santanna", "interval"] == "bootstrap_se"
+    assert table.loc["twfe", "interval"] == "analytic"
+
+
+def test_the_p7_section_is_the_only_rendered_difference(d_run, cate_run, p7_run, tmp_path):
+    without = benchmark_evidence_from_run(d_run, cate_directory=cate_run)
+    with_p7 = benchmark_evidence_from_run(d_run, cate_directory=cate_run, p7_directory=p7_run)
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    text_without = write_markdown_benchmark_report(without, tmp_path / "a").read_text()
+    text_with = write_markdown_benchmark_report(with_p7, tmp_path / "b").read_text()
+
+    start = text_with.index("## Scenario P7")
+    end = text_with.find("\n## ", start + 1)
+    end = len(text_with) if end == -1 else end + 1
+    stripped_with = text_with[:start] + text_with[end:]
+    stripped_without = "\n".join(
+        line for line in text_without.split("\n") if not line.startswith("- scenario P7:")
+    )
+
+    assert "## Scenario P7" in text_with
+    assert "- scenario P7:" not in text_with
+    assert "- scenario P7:" in text_without
+    assert stripped_with == stripped_without
 
 
 def test_the_p7_run_changes_no_ate_view(d_run, p7_run):

@@ -30,7 +30,7 @@ from cp_simulation.scenarios import SCENARIOS
 _NEW_AXIS_NAMES = tuple(name for name in AXIS_NAMES if name != "confounding_strength")
 
 
-def test_full_covers_every_cross_sectional_scenario_and_all_but_p7():
+def test_full_covers_every_cross_sectional_scenario_and_keeps_p7_out_of_panel_axes():
     from cp_simulation.panel_scenarios import PANEL_SCENARIOS
     from cp_simulation.scenarios import SCENARIOS
 
@@ -42,9 +42,10 @@ def test_full_covers_every_cross_sectional_scenario_and_all_but_p7():
     # cp_simulation.panel_scenarios) and needs n_periods >= 16, but
     # PanelAxes applies one n_periods list to every scenario it carries.
     # Including P7 would force P1-P6 onto that far slower protocol just to
-    # accommodate one scenario, so it is left out and every other panel
-    # scenario is kept. See full_config's docstring for the measurement
-    # that found this.
+    # accommodate one scenario, so it is kept out of `PanelAxes` and runs
+    # instead as `full`'s fixed-protocol `long_panel` arm (see
+    # `test_full_has_10_p7_cells_and_study_50`). Every other panel scenario is
+    # kept in `PanelAxes`.
     assert set(config.panel.scenarios) == set(PANEL_SCENARIOS) - {"P7"}
 
 

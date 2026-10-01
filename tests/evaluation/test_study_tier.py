@@ -69,3 +69,5 @@ def test_the_p7_tier_is_exactly_the_studys_p7_cells():
     assert p7 == tuple(c for c in expand_cells(study_config()) if isinstance(c, LongPanelCell))
     assert len(p7) == 50
     assert (p7_study_config().cross_section, p7_study_config().panel) == (None, None)
+    assert p7_study_config().donor_pool is None
+    assert p7_study_config().cate is None

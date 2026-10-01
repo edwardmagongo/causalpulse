@@ -494,6 +494,8 @@ def full_config() -> GridConfig:
        fixed 600 by 20 protocol, measured at 529.7s a cell. That adds 10
        cells here and 50 at `study_config()`. `ci_config()` never surfaced
        this because it only ever used P1 and P2, and carries no P7 arm.
+       That is ~5,300s serial at this tier's 10 replications (~26,500s at
+       `study_config()`'s 50), on top of the ~3.10-hour total documented below.
 
     3. **The spec's 50 replications, n_units=(150, 500), and n_periods=(6, 10)
        do not fit inside a reasonable on-demand budget.** Measured per-fit
@@ -508,7 +510,7 @@ def full_config() -> GridConfig:
        - **Panel `n_units=500` is dropped**, keeping only `n_units=(150,)`.
          `hierarchical_did` alone costs 79.7s/fit at n_units=500 against
          24.8s/fit at n_units=150 -- more than tripling the panel arm's cost
-         for one axis value, on top of already dropping P7 and moving to
+         for one axis value, on top of already keeping P7 out of `PanelAxes` and moving to
          `n_periods=(7, 10)`.
        - **Replications is 10, not the spec's 50.** This was chosen as the
          largest round number that kept the tier's runtime to a self-chosen

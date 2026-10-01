@@ -9,7 +9,7 @@ to a `ScenarioParams` before reaching the registry), and generated with
 BinaryPanelDGP]` taking nothing at all, and generated with `n_units` and
 `n_periods`. A donor-pool scenario (`DONOR_SCENARIOS`, S0-S5) fixes its own
 size, so its cell carries only a scenario and a seed. Forcing one dataclass
-over all four would mean a field that is meaningless for some of its instances.
+over all five would mean a field that is meaningless for some of its instances.
 A CATE scenario (`CATE_SCENARIOS`, RICH/NULL/NOISY) fixes its size too, so its
 cell is also only a scenario and a seed. A panel scenario that fixes its own
 size (`PANEL_PROTOCOLS`, P7 alone) is a fixed-protocol panel cell, again only a
@@ -570,7 +570,9 @@ def cell_sort_key(cell: Cell) -> tuple[object, ...]:
         return (2, cell.scenario, cell.seed)
     if isinstance(cell, CateCell):
         return (3, cell.scenario, cell.seed)
-    return (4, cell.scenario, cell.seed)
+    if isinstance(cell, LongPanelCell):
+        return (4, cell.scenario, cell.seed)
+    raise TypeError(f"unhandled cell shape {type(cell).__name__}")
 
 
 def _identity_payload(cell: Cell) -> dict[str, object]:
@@ -616,7 +618,9 @@ def _identity_payload(cell: Cell) -> dict[str, object]:
         return {"shape": "donor_pool", "scenario": cell.scenario, "seed": cell.seed}
     if isinstance(cell, CateCell):
         return {"shape": "cate", "scenario": cell.scenario, "seed": cell.seed}
-    return {"shape": "long_panel", "scenario": cell.scenario, "seed": cell.seed}
+    if isinstance(cell, LongPanelCell):
+        return {"shape": "long_panel", "scenario": cell.scenario, "seed": cell.seed}
+    raise TypeError(f"unhandled cell shape {type(cell).__name__}")
 
 
 def cell_key(cell: Cell) -> str:
