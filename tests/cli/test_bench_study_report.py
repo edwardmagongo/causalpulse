@@ -129,6 +129,28 @@ def cate(tmp_path, monkeypatch):
     return tmp_path / "cate"
 
 
+@pytest.fixture
+def p7(tmp_path, monkeypatch):
+    import cp_cli.commands.bench as bench_module
+    from cp_core.values import EstimatorConfig
+    from cp_evaluation.grid import GridConfig, LongPanelAxes
+
+    monkeypatch.setitem(
+        bench_module.TIERS,
+        "p7",
+        (
+            lambda: GridConfig(
+                cross_section=None, panel=None, long_panel=LongPanelAxes(scenarios=("P7",)),
+                replications=2,
+            ),
+            ("callaway_santanna", "twfe"),
+            EstimatorConfig(random_seed=0, bootstrap_reps=20),
+        ),
+    )
+    assert main(["bench", "run", "--tier", "p7", "--out", str(tmp_path / "p7")]) == 0
+    return tmp_path / "p7"
+
+
 @pytest.mark.parametrize("fmt, name", [("markdown", "benchmark-report.md"),
                                        ("html", "benchmark-report.html")])
 def test_a_cate_run_adds_its_section_to_either_format(run, cate, tmp_path, fmt, name):
@@ -146,3 +168,22 @@ def test_a_non_cate_run_is_refused_as_the_cate_run(run, tmp_path):
 
     with pytest.raises(ValueError, match="'cate'"):
         _report(run, out, "--cate-run", str(run))
+
+
+@pytest.mark.parametrize("fmt, name", [("markdown", "benchmark-report.md"),
+                                       ("html", "benchmark-report.html")])
+def test_a_p7_run_adds_its_section_to_either_format(run, p7, tmp_path, fmt, name):
+    out = tmp_path / f"out-{fmt}"
+    out.mkdir()
+
+    assert _report(run, out, "--format", fmt, "--p7-run", str(p7)) == 0
+
+    assert "Scenario P7" in (out / name).read_text()
+
+
+def test_a_non_p7_run_is_refused_as_the_p7_run(run, tmp_path):
+    out = tmp_path / "out"
+    out.mkdir()
+
+    with pytest.raises(ValueError, match="'p7'"):
+        _report(run, out, "--p7-run", str(run))
