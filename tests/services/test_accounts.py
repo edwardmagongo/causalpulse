@@ -52,3 +52,51 @@ def test_revoke_key_sets_revoked_at_once_and_is_idempotent(sessions):
 def test_revoking_an_unknown_key_is_refused(sessions):
     with sessions() as session, pytest.raises(AccountError, match="no API key"):
         revoke_key(session, "AAAAAAAAAAAA")
+
+
+def test_the_cli_creates_a_user_and_prints_only_the_key(sessions, worker_env, capsys):
+    from cp_api.admin import main
+
+    assert main(["create-user", "alice"]) == 0
+    capsys.readouterr()
+    assert main(["issue-key", "alice"]) == 0
+    out = capsys.readouterr().out
+
+    key_id, secret = parse_key(out.strip())
+    assert out == f"cpk_{key_id}_{secret}\n"
+    with sessions() as session:
+        assert session.get(ApiKey, key_id).secret_sha256 == hash_secret(secret)
+
+
+def test_the_cli_revokes_a_key(sessions, worker_env, capsys):
+    from cp_api.admin import main
+
+    main(["create-user", "alice"])
+    main(["issue-key", "alice"])
+    key_id, _ = parse_key(capsys.readouterr().out.strip())
+
+    assert main(["revoke-key", key_id]) == 0
+    with sessions() as session:
+        assert session.get(ApiKey, key_id).revoked_at is not None
+
+
+@pytest.mark.parametrize(
+    ("argv", "message"),
+    [
+        (["issue-key", "nobody"], "no user named 'nobody'"),
+        (["revoke-key", "AAAAAAAAAAAA"], "no API key"),
+    ],
+)
+def test_the_cli_exits_1_naming_the_problem(sessions, worker_env, capsys, argv, message):
+    from cp_api.admin import main
+
+    assert main(argv) == 1
+    assert message in capsys.readouterr().err
+
+
+def test_the_cli_refuses_a_duplicate_user(sessions, worker_env, capsys):
+    from cp_api.admin import main
+
+    main(["create-user", "alice"])
+    assert main(["create-user", "alice"]) == 1
+    assert "already exists" in capsys.readouterr().err

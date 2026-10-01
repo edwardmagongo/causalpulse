@@ -60,4 +60,5 @@ forbidden_modules =
     cp_api.auth
     cp_api.validation
     cp_api.migrate
+    cp_api.admin
     cp_api.app
