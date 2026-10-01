@@ -1377,11 +1377,11 @@ strength=2.0)`, `OutcomeProxy(noise_sd=0.5)` unless noted. Full tables in
   noise at 20 seeds. Suggestive, not resolved — carried to a future phase rather than fixed on a
   measurement this uncertain.
 
-## Backend (sub-project 3, phase 1)
+## Backend (sub-project 3)
 
 A local demo stack: upload a CSV, declare its schema, and get back estimates, validity bands, and
-evidence reports over HTTP. One machine, `docker compose up`; no auth and no multi-user hosting
-here (that is a later backend phase).
+evidence reports over HTTP. One machine, `docker compose up`; every route except `/v1/healthz` needs a
+per-user API key; it runs on one machine, not as a hosted service.
 
 ```bash
 docker compose up --build
@@ -1405,11 +1405,11 @@ time limit has passed, and only then becomes "worker lost".
 
 ### Routes
 
-All routes are under `/v1`.
+All routes are under `/v1`. Every route except `GET /healthz` needs an `Authorization: Bearer <key>` header.
 
 | Route | Behaviour |
 |---|---|
-| `POST /datasets` | Multipart CSV, ≤ 50 MB (413 above). Same bytes twice returns the existing row by sha256. |
+| `POST /datasets` | Multipart CSV, ≤ 50 MB (413 above). Your own copy of the same bytes, uploaded twice, returns the existing row by sha256; another user's identical upload is a separate row. |
 | `POST /analyses` | `{dataset_id, schema, estimators?, random_seed}`. Validates the schema via `CausalSchema` and its columns against the CSV header; enqueues; 202 with the id. |
 | `GET /analyses/{id}` | Status, `partial`, error, routing decisions, and per estimate its method, band, error, and `summary` (point, standard error, intervals, p-value, group sizes). |
 | `GET /analyses/{id}/estimates/{method}/report.html` | One estimate's evidence report, figures inlined. |
@@ -1419,13 +1419,31 @@ All routes are under `/v1`.
 | `GET /analyses/{id}/summary` | `{"comparisons": ...}`: the comparison groups and their verdicts. |
 | `GET /healthz` | Postgres and Redis reachable. |
 
+### Users and API keys
+
+Every route except `/v1/healthz` needs a key, and every dataset and analysis belongs to the user
+whose key created it. Another user's resource answers 404, exactly like one that does not exist.
+A request without a valid key answers 401; the one exception is a request whose body is malformed
+JSON, which answers 422 even with no key, because FastAPI decodes the JSON before it checks the key.
+
+```bash
+docker compose exec api cp-api-admin create-user alice
+export CP_KEY=$(docker compose exec -T api cp-api-admin issue-key alice)
+```
+
+The key is printed once and only its hash is stored. Revoke it with
+`docker compose exec api cp-api-admin revoke-key <key id>`, where the key id is the 12 characters
+after `cpk_`. A database from before this change keeps its rows, which now belong to a user
+named `legacy`. Issue a key for `legacy` to reach them.
+
 ### A walkthrough with the LaLonde fixture
 
 ```bash
-curl -F file=@tests/fixtures/real_data/lalonde.csv http://localhost:8000/v1/datasets
+curl -H "Authorization: Bearer $CP_KEY" -F file=@tests/fixtures/real_data/lalonde.csv http://localhost:8000/v1/datasets
 # => {"id": "...", "filename": "lalonde.csv", "sha256": "...", "n_bytes": ..., "columns": [...]}
 
 curl -X POST http://localhost:8000/v1/analyses \
+  -H "Authorization: Bearer $CP_KEY" \
   -H 'content-type: application/json' \
   -d '{
         "dataset_id": "<id from above>",
@@ -1440,10 +1458,10 @@ curl -X POST http://localhost:8000/v1/analyses \
       }'
 # => {"id": "<analysis id>", "status": "queued"}
 
-curl http://localhost:8000/v1/analyses/<analysis id>
+curl -H "Authorization: Bearer $CP_KEY" http://localhost:8000/v1/analyses/<analysis id>
 # poll until "status" is "succeeded" or "failed"
 
-curl http://localhost:8000/v1/analyses/<analysis id>/estimates/lin_regression/report.html
+curl -H "Authorization: Bearer $CP_KEY" http://localhost:8000/v1/analyses/<analysis id>/estimates/lin_regression/report.html
 ```
 
 ### One report per estimate
@@ -1464,7 +1482,7 @@ to the current directory, so check an analysis like this:
 
 ```bash
 mkdir replay-check && cd replay-check
-curl -s http://localhost:8000/v1/analyses/<analysis id>/manifest > manifest.json
+curl -s -H "Authorization: Bearer $CP_KEY" http://localhost:8000/v1/analyses/<analysis id>/manifest > manifest.json
 # The filename the manifest records -- its "dataset" -> "path":
 python3 -c 'import json; print(json.load(open("manifest.json"))["dataset"]["path"])'
 cp /path/to/the/original.csv <that filename>
@@ -1472,7 +1490,7 @@ uv run --project /path/to/causalpulse causalpulse replay manifest.json
 ```
 
 Read the filename from the manifest rather than assuming it: the same bytes uploaded again under
-another name are deduplicated to the first upload, whose filename the manifest keeps. A copy
+another name are deduplicated, per user, to that user's first upload, whose filename the manifest keeps. A copy
 whose bytes differ at all is refused, since the manifest records their sha256.
 
 `replay` prints each estimator's point estimate to ten significant figures. Compare those with
@@ -1498,7 +1516,8 @@ build — only `postgres` and `redis`), and `smoke` (`causalpulse-smoke`, 5435/6
 exclusively — never the app's own `DATABASE_URL`/`REDIS_URL` — precisely so a developer's local
 `DATABASE_URL` export can never point a test run at the demo stack's database by accident.
 
-`make smoke` builds the image, brings the stack up, uploads the LaLonde fixture over real HTTP,
+`make smoke` builds the image, brings the stack up, issues a real key inside the container with
+`cp-api-admin`, checks that a request without a key gets 401, uploads the LaLonde fixture over real HTTP,
 waits for the analysis to finish, and fetches its report — end to end, through the same routes a
 user would call, not through an in-process test client.
 

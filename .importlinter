@@ -56,6 +56,10 @@ type = forbidden
 source_modules =
     cp_worker
 forbidden_modules =
+    cp_api.accounts
+    cp_api.auth
     cp_api.validation
     cp_api.migrate
+    cp_api.admin
     cp_api.app
+    cp_api.deps

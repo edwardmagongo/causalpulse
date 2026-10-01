@@ -30,8 +30,11 @@ SCENARIO_D_ELIGIBLE = {
 
 
 @pytest.fixture
-def client(sessions, redis_conn, worker_env):
-    return TestClient(create_app(sessions=sessions, redis=redis_conn))
+def client(sessions, redis_conn, worker_env, api_key_for):
+    return TestClient(
+        create_app(sessions=sessions, redis=redis_conn),
+        headers={"Authorization": f"Bearer {api_key_for('alice')}"},
+    )
 
 
 def _drain(redis_conn):
@@ -232,13 +235,18 @@ def test_a_job_that_vanished_is_reported_as_a_lost_worker(client, redis_conn, se
     assert (body["status"], body["error"]) == ("failed", WORKER_LOST)
 
 
-def test_an_unreachable_queue_is_503_and_the_analysis_is_marked_failed(sessions, redis_conn):
+def test_an_unreachable_queue_is_503_and_the_analysis_is_marked_failed(
+    sessions, redis_conn, api_key_for
+):
+    key = api_key_for("alice")
     content, schema = scenario_d_upload()
-    dataset = TestClient(create_app(sessions=sessions, redis=redis_conn)).post(
-        "/v1/datasets", files={"file": ("d.csv", content, "text/csv")}
-    ).json()
+    dataset = TestClient(
+        create_app(sessions=sessions, redis=redis_conn),
+        headers={"Authorization": f"Bearer {key}"},
+    ).post("/v1/datasets", files={"file": ("d.csv", content, "text/csv")}).json()
     broken = TestClient(
-        create_app(sessions=sessions, redis=Redis.from_url("redis://localhost:1/0"))
+        create_app(sessions=sessions, redis=Redis.from_url("redis://localhost:1/0")),
+        headers={"Authorization": f"Bearer {key}"},
     )
 
     response = broken.post("/v1/analyses", json={"dataset_id": dataset["id"], "schema": schema})

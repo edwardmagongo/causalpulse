@@ -16,6 +16,7 @@ dependencies = [
 
 [project.scripts]
 cp-api-migrate = "cp_api.migrate:main"
+cp-api-admin = "cp_api.admin:entry"
 
 [build-system]
 requires = ["hatchling"]

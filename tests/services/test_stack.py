@@ -33,7 +33,12 @@ def test_upload_lalonde_and_fetch_a_report():
     base = os.environ.get("CP_STACK_URL")
     if not base:
         pytest.skip("CP_STACK_URL is not set; run `make smoke`")
-    with httpx.Client(base_url=base, timeout=30) as client:
+    key = os.environ.get("CP_STACK_KEY")
+    if not key:
+        pytest.skip("CP_STACK_KEY is not set; run `make smoke`")
+    with httpx.Client(
+        base_url=base, timeout=30, headers={"Authorization": f"Bearer {key}"}
+    ) as client:
 
         def healthy():
             try:
@@ -64,3 +69,5 @@ def test_upload_lalonde_and_fetch_a_report():
             f"/v1/analyses/{analysis['id']}/estimates/lin_regression/report.html"
         )
         assert report.status_code == 200
+        anonymous = httpx.get(f"{base}/v1/analyses/{analysis['id']}", timeout=30)
+        assert anonymous.status_code == 401
