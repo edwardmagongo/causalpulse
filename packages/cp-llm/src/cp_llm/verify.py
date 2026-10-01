@@ -18,9 +18,9 @@ from dataclasses import dataclass
 
 from cp_core.language import causal_language_lint
 
-from cp_llm.facts import FactTable
+from cp_llm.facts import Fact, FactTable
 from cp_llm.narrative import Narrative
-from cp_llm.render import free_text, placeholder_ids, substitute
+from cp_llm.render import format_fact, free_text, placeholder_ids, substitute
 from cp_llm.vocabulary import ALLOWED_PHRASES, CONTROLLED_WORDS, NUMBER_WORDS
 
 
@@ -48,7 +48,7 @@ _REPORTABLE_STATUSES = frozenset({"FAIL", "WARN"})
 def _words(statement: str) -> list[str]:
     text = free_text(statement).lower()
     for phrase in ALLOWED_PHRASES:
-        text = text.replace(phrase, " ")
+        text = re.sub(rf"\b{re.escape(phrase)}\b", " ", text)
     return re.findall(r"[a-z]+", text)
 
 
@@ -62,8 +62,11 @@ def _resolves(statement: str, facts: FactTable) -> Iterator[str]:
 
 
 def _bare_value(statement: str, facts: FactTable) -> Iterator[str]:
-    if re.search(r"\d", free_text(statement)):
+    text = free_text(statement)
+    if re.search(r"\d", text):
         yield "a digit outside a placeholder; every value must be cited, not written"
+    if "%" in text:
+        yield "a percent sign outside a placeholder; a level fact carries its own"
     for word in dict.fromkeys(_words(statement)):
         if word in NUMBER_WORDS:
             yield f"the number word {word!r} outside a placeholder"
@@ -97,11 +100,25 @@ def _bare_point(statement: str, facts: FactTable) -> Iterator[str]:
             yield f"{{{fact_id}}} appears without both of its interval bounds"
 
 
+_NUMERIC_KINDS = frozenset({"number", "count", "level", "p_value"})
+
+
+def _for_the_lint(fact: Fact) -> str:
+    """A fact as the language lint should read it.
+
+    The lint ends a sentence at every full stop, including the one inside a
+    rendered number, so a hedge before `0.066` would not reach a verb after
+    it. A numeric fact is therefore one token; a word-valued fact is
+    substituted verbatim, because its words are what the lint must read.
+    """
+    return "N" if fact.kind in _NUMERIC_KINDS else format_fact(fact)
+
+
 def _language(statement: str, facts: FactTable) -> Iterator[str]:
     if any(facts.get(fact_id) is None for fact_id in placeholder_ids(statement)):
         # Nothing to render; `_resolves` has already reported why.
         return
-    for violation in causal_language_lint(substitute(statement, facts)):
+    for violation in causal_language_lint(substitute(statement, facts, _for_the_lint)):
         yield f"{violation.term!r}: {violation.reason}"
 
 

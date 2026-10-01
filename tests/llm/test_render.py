@@ -76,3 +76,18 @@ def test_substitute_refuses_a_placeholder_that_names_no_fact():
 
     with pytest.raises(UnknownFactError, match="est.a.power"):
         substitute("{est.a.method} has power {est.a.power}.", facts)
+
+
+def test_substitute_uses_the_formatter_it_is_given():
+    facts = FactTable(
+        (
+            Fact("est.a.method", "name", "aipw", None),
+            Fact("est.a.point", "number", 0.123456, "est.a.method"),
+        )
+    )
+
+    rendered = substitute(
+        "{est.a.method} estimates {est.a.point}.", facts, lambda fact: fact.kind.upper()
+    )
+
+    assert rendered == "NAME estimates NUMBER."

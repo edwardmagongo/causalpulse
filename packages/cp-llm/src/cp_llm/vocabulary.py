@@ -32,6 +32,7 @@ NUMBER_WORDS: frozenset[str] = frozenset(
         "twice",
         "double",
         "percent",
+        "percentage",
     }
 )
 
@@ -40,10 +41,14 @@ _STATUS = "states a check status; cite the status fact"
 _AGREEMENT = "states an agreement verdict; cite the agreement fact"
 _DIRECTION = "states a direction; cite the direction fact"
 _SIGNIFICANCE = "claims significance, which no fact supplies; cite interval_excludes_zero"
+_ZERO = "states a zero or null result; cite the direction or interval_excludes_zero fact"
 _ELIGIBILITY = "states eligibility; cite the eligible fact"
 
 CONTROLLED_WORDS: Mapping[str, str] = {
-    **dict.fromkeys(("strong", "moderate", "weak", "insufficient"), _BAND),
+    **dict.fromkeys(
+        ("strong", "moderate", "weak", "insufficient", "strongly", "weakly", "moderately"),
+        _BAND,
+    ),
     **dict.fromkeys(
         (
             "pass",
@@ -66,6 +71,7 @@ CONTROLLED_WORDS: Mapping[str, str] = {
         (
             "consistent",
             "inconsistent",
+            "assessable",
             "divergent",
             "diverge",
             "diverges",
@@ -89,6 +95,8 @@ CONTROLLED_WORDS: Mapping[str, str] = {
             "decrease",
             "decreases",
             "decreased",
+            "increasing",
+            "decreasing",
         ),
         _DIRECTION,
     ),
@@ -96,6 +104,7 @@ CONTROLLED_WORDS: Mapping[str, str] = {
         ("significant", "significantly", "significance", "insignificant"), _SIGNIFICANCE
     ),
     **dict.fromkeys(("eligible", "ineligible"), _ELIGIBILITY),
+    "zero": _ZERO,
 }
 
 # "consistent with" is one of the language lint's own hedges, and refusing it

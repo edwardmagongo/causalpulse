@@ -1,5 +1,6 @@
 import pytest
 from cp_llm import verify as verify_module
+from cp_llm.facts import Fact, FactTable
 from cp_llm.verify import Violation, verify
 
 from llm.builders import drop, good_narrative, swap
@@ -105,7 +106,14 @@ def test_a_malformed_placeholder_does_not_resolve(tail, facts):
 
 @pytest.mark.parametrize(
     "tail",
-    [" Two checks ran.", " It fell by half.", " That is 10 percent."],
+    [
+        " Two checks ran.",
+        " It fell by half.",
+        " That is a few percent.",
+        " It is twice as large.",
+        " It would double.",
+        " That is 0.5 percentage points.",
+    ],
 )
 def test_a_number_word_is_a_bare_value(tail, facts):
     narrative = swap(good_narrative(), "validity", 1, good_narrative().validity[1] + tail)
@@ -121,12 +129,50 @@ def test_a_number_word_is_a_bare_value(tail, facts):
         " The estimate is positive.",
         " The methods agree.",
         " The two readings are consistent.",
+        " The estimates are inconsistent with each other.",
+        " Its interval excludes zero.",
+        " The effect is zero.",
+        " The method is not assessable.",
+        " The assessable methods differ.",
+        " The effect is increasing.",
+        " The effect is decreasing.",
+        " The effect is strongly supported.",
+        " The effect is weakly supported.",
+        " The effect is moderately supported.",
+        " The method is eligible.",
+        " The method is ineligible.",
     ],
 )
 def test_a_finding_written_as_free_text_is_refused(tail, facts):
     narrative = swap(good_narrative(), "validity", 1, good_narrative().validity[1] + tail)
 
     assert "vocabulary" in {v.rule for v in verify(narrative, facts)}
+
+
+def test_a_percent_sign_after_a_cited_number_is_refused(facts):
+    narrative = swap(
+        good_narrative(),
+        "validity",
+        1,
+        good_narrative().validity[1] + " It moved {est.ipw.point}% overall.",
+    )
+
+    violations = [v for v in verify(narrative, facts) if v.rule == "bare_value"]
+
+    assert [v.reason for v in violations] == [
+        "a percent sign outside a placeholder; a level fact carries its own"
+    ]
+
+
+def test_percentage_points_after_a_cited_number_are_refused(facts):
+    narrative = swap(
+        good_narrative(),
+        "validity",
+        1,
+        good_narrative().validity[1] + " It moved {est.ipw.point} percentage points.",
+    )
+
+    assert "bare_value" in {v.rule for v in verify(narrative, facts)}
 
 
 def test_the_lints_own_hedge_consistent_with_is_allowed(facts):
@@ -167,8 +213,6 @@ def test_naming_both_methods_satisfies_attribution_for_a_comparison(facts):
 def test_the_language_rule_reads_the_rendered_text_not_the_template(facts):
     # The offending word arrives through a fact, so only the rendered
     # statement contains it.
-    from cp_llm.facts import Fact, FactTable
-
     poisoned = FactTable(
         (*facts.facts, Fact("analysis.note", "text", "The treatment causes the outcome.", None))
     )
@@ -196,3 +240,84 @@ def test_a_dropped_comparison_fails_completeness(facts):
     assert [v.reason for v in verify(narrative, facts)] == [
         "the narrative never cites {cmp.ate.percentage_point.agreement}"
     ]
+
+
+def _with_facts(facts, *extra):
+    return FactTable((*facts.facts, *extra))
+
+
+def test_a_failed_check_status_must_be_cited(facts):
+    table = _with_facts(
+        facts, Fact("check.ipw.overlap.status", "label", "FAIL", "est.ipw.method")
+    )
+
+    reasons = [v.reason for v in verify(good_narrative(), table) if v.rule == "completeness"]
+
+    assert reasons == ["the narrative never cites {check.ipw.overlap.status}"]
+
+
+def test_a_passing_or_untestable_check_status_is_not_demanded(facts):
+    statuses = {f.value for f in facts if f.id.startswith("check.") and f.id.endswith(".status")}
+
+    # The real table has both, and the good narrative cites neither.
+    assert {"PASS", "NOT_TESTABLE"} <= statuses
+    assert verify(good_narrative(), facts) == ()
+
+
+def test_a_fit_failure_error_must_be_cited(facts):
+    table = _with_facts(
+        facts,
+        Fact("fail.aipw.method", "name", "aipw", None),
+        Fact("fail.aipw.error", "text", "did not converge", "fail.aipw.method"),
+    )
+
+    reasons = [v.reason for v in verify(good_narrative(), table) if v.rule == "completeness"]
+
+    assert reasons == ["the narrative never cites {fail.aipw.error}"]
+
+
+def test_a_reason_a_comparison_was_not_made_must_be_cited(facts):
+    table = _with_facts(
+        facts,
+        Fact("cmp.att.percentage_point.not_compared_reason", "text", "one method fitted", None),
+    )
+
+    reasons = [v.reason for v in verify(good_narrative(), table) if v.rule == "completeness"]
+
+    assert reasons == ["the narrative never cites {cmp.att.percentage_point.not_compared_reason}"]
+
+
+def test_a_point_needs_both_bounds_not_the_upper_one_alone(facts):
+    narrative = swap(
+        good_narrative(),
+        "estimates",
+        0,
+        "{est.difference_in_means.method} estimates {est.difference_in_means.point}, "
+        "below {est.difference_in_means.ci_upper}.",
+    )
+
+    assert {v.rule for v in verify(narrative, facts)} == {"bare_point"}
+
+
+_HEDGED = (
+    "If the assumptions of {est.ipw.method} hold, with {est.ipw.point} between "
+    "{est.ipw.ci_lower} and {est.ipw.ci_upper}, the treatment causes the outcome."
+)
+
+
+def test_a_hedge_before_a_cited_decimal_still_covers_a_later_causal_verb(facts):
+    narrative = swap(good_narrative(), "estimates", 1, _HEDGED)
+
+    assert verify(narrative, facts) == ()
+
+
+def test_the_same_sentence_without_its_hedge_is_a_causal_claim(facts):
+    narrative = swap(
+        good_narrative(),
+        "estimates",
+        1,
+        "With {est.ipw.point} between {est.ipw.ci_lower} and {est.ipw.ci_upper} "
+        "for {est.ipw.method}, the treatment causes the outcome.",
+    )
+
+    assert {v.rule for v in verify(narrative, facts)} == {"language"}

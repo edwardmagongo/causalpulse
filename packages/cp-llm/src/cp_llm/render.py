@@ -7,6 +7,7 @@ reads the same wherever it appears and the model has no say in its rounding.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from decimal import Decimal
 
 from cp_llm.facts import Fact, FactTable
@@ -62,13 +63,15 @@ def format_fact(fact: Fact) -> str:
     return value
 
 
-def substitute(statement: str, facts: FactTable) -> str:
+def substitute(
+    statement: str, facts: FactTable, formatter: Callable[[Fact], str] = format_fact
+) -> str:
     """`statement` with each placeholder replaced by its fact, formatted."""
 
     def _replace(match: re.Match[str]) -> str:
         fact = facts.get(match.group(1))
         if fact is None:
             raise UnknownFactError(match.group(1))
-        return format_fact(fact)
+        return formatter(fact)
 
     return PLACEHOLDER.sub(_replace, statement)
