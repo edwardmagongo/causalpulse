@@ -191,10 +191,10 @@ def test_mlflow_is_imported_only_by_the_tracking_log_module():
     packages = pathlib.Path(__file__).resolve().parents[1] / "packages"
     allowed = packages / "cp-tracking" / "src" / "cp_tracking" / "log.py"
     offenders = subprocess.run(
-        ["grep", "-rlE", r"^\s*(import mlflow|from mlflow)", str(packages)],
+        ["grep", "-rlE", "--include=*.py", r"^\s*(import mlflow|from mlflow)", str(packages)],
         capture_output=True,
         text=True,
     )
     assert offenders.returncode in (0, 1), offenders.stderr
-    found = {pathlib.Path(p) for p in offenders.stdout.split()} - {allowed}
+    found = {pathlib.Path(p) for p in offenders.stdout.splitlines()} - {allowed}
     assert not found, f"mlflow imported outside {allowed}: {sorted(map(str, found))}"

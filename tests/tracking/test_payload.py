@@ -91,3 +91,90 @@ def test_an_overlong_param_is_truncated_not_dropped(loaded):
 
     value = payload.params["fit.options"]
     assert len(value) <= 6000 and value.endswith("[truncated; see identity.json]")
+
+
+def test_an_overlong_estimator_list_is_truncated_not_dropped(loaded):
+    frame, manifest, sidecar, run_dir = loaded
+    manifest["identity"]["estimators"] = [f"estimator_{i:04d}" for i in range(1000)]
+
+    payload = build_payload(frame, manifest, sidecar, run_dir)
+
+    value = payload.params["estimators"]
+    assert len(value) <= 6000 and value.endswith("[truncated; see identity.json]")
+
+
+def test_the_fingerprint_ignores_key_order_and_sees_a_changed_value(loaded):
+    frame, manifest, _, _ = loaded
+    identity = manifest["identity"]
+    reordered = dict(reversed(list(identity.items())))
+    changed = {**identity, "root_entropy": f"{identity['root_entropy']}0"}
+
+    assert list(reordered) != list(identity)
+    assert fingerprint(reordered, len(frame)) == fingerprint(identity, len(frame))
+    assert fingerprint(changed, len(frame)) != fingerprint(identity, len(frame))
+
+
+def test_metric_values_match_the_headline_tables(loaded):
+    from cp_evaluation.study import headline_tables
+
+    frame, manifest, sidecar, run_dir = loaded
+    payload = build_payload(frame, manifest, sidecar, run_dir)
+    tables = headline_tables(frame)
+
+    for table_name, metric in (
+        ("accuracy__scenario", "bias"),
+        ("coverage__scenario", "coverage_bootstrap"),
+    ):
+        table = tables[table_name]
+        finite = table[metric].notna() & table[f"{metric}_mcse"].notna()
+        rows = table[(table["scenario"] == "A") & finite]
+        assert len(rows), f"no finite A.{metric} row to compare"
+        row = rows.iloc[0]
+        key = f"A.{row['method']}.{metric}"
+        assert payload.metrics[key] == float(row[metric])
+        assert payload.metrics[f"{key}_mcse"] == float(row[f"{metric}_mcse"])
+
+
+def test_a_pair_with_a_finite_value_but_no_finite_mcse_is_skipped(loaded, monkeypatch):
+    import pandas as pd
+
+    frame, manifest, sidecar, run_dir = loaded
+    nan = float("nan")
+    tables = {
+        "accuracy__scenario": pd.DataFrame(
+            {
+                "scenario": ["A", "A"],
+                "method": ["good", "no_mcse"],
+                "bias": [0.1, 0.2],
+                "bias_mcse": [0.01, nan],
+                "rmse": [0.3, 0.4],
+                "rmse_mcse": [0.02, 0.03],
+            }
+        ),
+        "coverage__scenario": pd.DataFrame(
+            {
+                "scenario": ["A"],
+                "method": ["good"],
+                "coverage_analytic": [0.9],
+                "coverage_analytic_mcse": [0.01],
+                "coverage_bootstrap": [0.8],
+                "coverage_bootstrap_mcse": [0.01],
+            }
+        ),
+        "se_calibration__scenario": pd.DataFrame(
+            {
+                "scenario": ["A"],
+                "method": ["good"],
+                "se_calibration": [1.0],
+                "se_calibration_mcse": [0.1],
+            }
+        ),
+    }
+    monkeypatch.setattr("cp_tracking.payload.headline_tables", lambda _frame: tables)
+
+    payload = build_payload(frame, manifest, sidecar, run_dir)
+
+    assert payload.metrics["A.good.bias"] == 0.1 and payload.metrics["A.good.bias_mcse"] == 0.01
+    assert "A.no_mcse.bias" not in payload.metrics
+    assert "A.no_mcse.bias_mcse" not in payload.metrics
+    assert payload.metrics["A.no_mcse.rmse"] == 0.4

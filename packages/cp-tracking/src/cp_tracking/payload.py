@@ -47,21 +47,25 @@ def fingerprint(identity: Mapping[str, Any], n_rows: int) -> str:
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
-def _param(value: object) -> str:
-    text = json.dumps(value, sort_keys=True)
+def _bound(text: str) -> str:
+    """Every param value goes through here, so none can exceed MLflow's limit."""
     if len(text) > _MAX_PARAM:
         # Never dropped silently: the full value is in the identity artifact.
         text = text[: _MAX_PARAM - len(_TRUNCATED)] + _TRUNCATED
     return text
 
 
+def _param(value: object) -> str:
+    return _bound(json.dumps(value, sort_keys=True))
+
+
 def _params(manifest: Mapping[str, Any]) -> dict[str, str]:
     identity = manifest["identity"]
     params = {
-        "tier": str(identity["tier"]),
-        "estimators": ",".join(identity["estimators"]),
-        "root_entropy": str(identity["root_entropy"]),
-        "replications": str(manifest["replications"]),
+        "tier": _bound(str(identity["tier"])),
+        "estimators": _bound(",".join(identity["estimators"])),
+        "root_entropy": _bound(str(identity["root_entropy"])),
+        "replications": _bound(str(manifest["replications"])),
     }
     for field, value in identity["fit_config"].items():
         params[f"fit.{field}"] = _param(value)
