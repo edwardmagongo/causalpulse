@@ -56,7 +56,11 @@ def build_parser() -> argparse.ArgumentParser:
     bench_compact.set_defaults(handler=study.compact)
 
     bench_study = bench_commands.add_parser(
-        "study", help="Write the study's tables, figures and expectations check."
+        "study",
+        help=(
+            "Write the study's tables, figures and expectations check "
+            "(read its CSVs with keep_default_na=False)."
+        ),
     )
     study.add_study_arguments(bench_study)
     bench_study.set_defaults(handler=study.run_study)

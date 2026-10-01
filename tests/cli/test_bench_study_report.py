@@ -105,3 +105,44 @@ def test_an_incomplete_run_is_refused(run, tmp_path):
         _report(run, out)
 
     assert list(out.iterdir()) == []
+
+
+@pytest.fixture
+def cate(tmp_path, monkeypatch):
+    import cp_cli.commands.bench as bench_module
+    from cp_core.values import EstimatorConfig
+    from cp_evaluation.grid import CateAxes, GridConfig
+
+    monkeypatch.setitem(
+        bench_module.TIERS,
+        "cate",
+        (
+            lambda: GridConfig(
+                cross_section=None, panel=None, cate=CateAxes(scenarios=("RICH",)),
+                replications=2,
+            ),
+            ("causal_forest",),
+            EstimatorConfig(random_seed=0, bootstrap_reps=20, options={"n_trees": 20}),
+        ),
+    )
+    assert main(["bench", "run", "--tier", "cate", "--out", str(tmp_path / "cate")]) == 0
+    return tmp_path / "cate"
+
+
+@pytest.mark.parametrize("fmt, name", [("markdown", "benchmark-report.md"),
+                                       ("html", "benchmark-report.html")])
+def test_a_cate_run_adds_its_section_to_either_format(run, cate, tmp_path, fmt, name):
+    out = tmp_path / f"out-{fmt}"
+    out.mkdir()
+
+    assert _report(run, out, "--format", fmt, "--cate-run", str(cate)) == 0
+
+    assert "Heterogeneous Effects (CATE)" in (out / name).read_text()
+
+
+def test_a_non_cate_run_is_refused_as_the_cate_run(run, tmp_path):
+    out = tmp_path / "out"
+    out.mkdir()
+
+    with pytest.raises(ValueError, match="'cate'"):
+        _report(run, out, "--cate-run", str(run))

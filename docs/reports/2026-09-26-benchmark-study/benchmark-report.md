@@ -64,9 +64,20 @@ Each coverage value is how often the interval an estimator reports as its primar
 
 *Analytic and bootstrap interval coverage were also compared across the two cross-sectional sample sizes the grid varies; that comparison is the coverage__scenario_by_size table in the study's own output and is not reproduced here. It was not pre-registered as an expectation, and no direction is claimed.*
 
+## Heterogeneous Effects (CATE)
+
+50 replications per scenario, 150 of 150 cells.
+
+| method | scenario | cate_correlation | cate_correlation_mcse | cate_correlation_n_used | cate_rmse | cate_rmse_mcse | cate_rmse_n_used | cate_calibration_slope | cate_calibration_slope_mcse | cate_calibration_slope_n_used |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| causal_forest | NOISY | 0.7428 | 0.01311 | 50 | 0.09242 | 0.001735 | 50 | 1.836 | 0.07414 | 50 |
+| causal_forest | NULL |  |  | 0 | 0.03391 | 0.001777 | 50 |  |  | 0 |
+| causal_forest | RICH | 0.7962 | 0.01176 | 50 | 0.08469 | 0.001455 | 50 | 1.58 | 0.05486 | 50 |
+
+Each number in this table compares the per-unit effect an estimator reports with the true per-unit effect of the same simulated units, and is a mean over the fits counted in its `_n_used` column, with its Monte Carlo standard error. Correlation measures how closely the estimates track the true effects across units, and RMSE their typical distance from them. The calibration slope is the least-squares slope of the true effects on the estimates: at 1, a difference between two units' estimates matches, on average, the difference between their true effects; above 1, the estimates understate those differences, and below 1 they overstate them. Scenario NULL gives every unit the same true effect, so only its RMSE is reported.
+
 ## Limitations
 
-- CATE metrics: the heterogeneity metrics (CATE correlation, RMSE, calibration slope) have no arm yet
 - scenario P7: it needs n_periods >= 16 and cannot share a panel axis with P1 to P6
 - hierarchical_did is excluded from scenario P6 (binary outcomes); its Gaussian likelihood cannot represent them (docs/specs/2026-09-21-benchmark-study-design.md §13.7/§13.10)
 - The donor-pool arm (scenarios S0 to S4, one treated unit against 17 donors) was fitted for the first time in this study, for synthetic_control, bsts and hierarchical_did. bsts's credible interval covers the true effect in nearly every fit (0.98 to 1.00 across S0 to S4), which comes from an interval that is often 1.5 to 3 times wider than synthetic_control's rather than from unusually accurate point estimates -- the two are not on equal footing here. synthetic_control's own permutation interval stays close to nominal on the clean and moderately adversarial scenarios (0.86 to 0.98) and its bias stays under 0.27 in absolute terms on every scenario it was fitted on. hierarchical_did was not built for a single-treated-unit design; it is fitted here only because its eligibility rule admits any panel shape with at least one treated unit and one pre-period, not because this phase chose it for the arm, and its coverage there is poor (0.36 to 0.84, and 0 on S2, the divergent-pre-trend scenario, where its bias reaches 3.75 against a true effect of 1.0). This is recorded as a mismatch between the model and the data it was asked to fit, not a defect in the model itself; E5 and E7 exclude these rows from their pooled and ranked figures for exactly this reason.

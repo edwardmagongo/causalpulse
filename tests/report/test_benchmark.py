@@ -1,4 +1,5 @@
-"""Tests for `cp_report.benchmark`'s data layer: the four section dataclasses and
+"""Tests for `cp_report.benchmark`'s data layer: the five section dataclasses
+(overview, findings, comparisons, limitations, CATE) and
 `benchmark_evidence_from_run` (design doc `2026-09-23-benchmark-study-report-design.md` §5, §7)."""
 
 from __future__ import annotations
@@ -6,23 +7,29 @@ from __future__ import annotations
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import pytest
 from cp_core.language import causal_language_lint
-from cp_evaluation.store import IncompleteRunError, RunStore
+from cp_evaluation.run import ROW_COLUMNS
+from cp_evaluation.store import IncompleteRunError, RunStatus, RunStore
 from cp_report.benchmark import (
     BIAS_TABLE,
+    CATE_NOTE,
     COVERAGE_COLUMN_NOTE,
     COVERAGE_TABLE,
+    CateSectionData,
     ExpectationRow,
     HeadlineFindingsData,
     OverviewData,
     benchmark_evidence_from_run,
+    cate_section_data,
     headline_findings_data,
     limitations_data,
     method_comparisons_data,
     overview_data,
 )
+from cp_report.language import ReportLanguageError, require_clean_prose
 
 from report.benchmark_builders import result, tables
 
@@ -290,3 +297,210 @@ def test_benchmark_evidence_from_run_refuses_an_incomplete_run(d_run):
 
     with pytest.raises(IncompleteRunError):  # propagated from RunStore.read_frame
         benchmark_evidence_from_run(d_run)
+
+
+def _cate_rows(scenario, correlations, *, rmse=0.05, slope=1.2, method="causal_forest"):
+    records = []
+    for seed, correlation in enumerate(correlations):
+        row = dict.fromkeys(ROW_COLUMNS, np.nan)
+        row.update(
+            shape="cate", scenario=scenario, n_units=2000, seed=seed, method=method,
+            status="fitted", reason="", estimand="ATE", truth=0.1, point=0.1,
+            runtime_seconds=1.0, cate_correlation=correlation, cate_rmse=rmse,
+            cate_calibration_slope=slope,
+        )
+        records.append(row)
+    return pd.DataFrame(records, columns=list(ROW_COLUMNS))
+
+
+_CATE_STATUS = RunStatus(expected=4, done=4, orphans=0, by_scenario={})
+
+
+def test_the_cate_section_reports_each_metric_with_its_mcse_and_count():
+    rows = _cate_rows("RICH", [0.8, 0.9, 0.7, 0.8])
+
+    data = cate_section_data(rows, _CATE_STATUS, replications=4)
+
+    assert data is not None
+    (row,) = data.table.to_dict("records")
+    assert row["method"] == "causal_forest"
+    assert row["scenario"] == "RICH"
+    assert row["cate_correlation"] == pytest.approx(0.8)
+    assert row["cate_correlation_mcse"] == pytest.approx(
+        float(np.std([0.8, 0.9, 0.7, 0.8], ddof=1) / 2.0)
+    )
+    assert row["cate_correlation_n_used"] == 4
+    assert row["cate_calibration_slope"] == pytest.approx(1.2)
+    assert (data.replications, data.cells_done, data.cells_expected) == (4, 4, 4)
+
+
+def test_null_keeps_its_rmse_and_leaves_correlation_and_slope_blank():
+    rows = _cate_rows("NULL", [np.nan, np.nan], slope=np.nan)
+
+    data = cate_section_data(rows, _CATE_STATUS, replications=2)
+
+    assert data is not None
+    (row,) = data.table.to_dict("records")
+    assert row["cate_rmse_n_used"] == 2
+    assert np.isnan(row["cate_correlation"])
+    assert np.isnan(row["cate_calibration_slope"])
+
+
+def test_a_method_with_no_per_unit_cate_is_left_out_of_the_table():
+    rows = pd.concat(
+        [
+            _cate_rows("RICH", [0.8, 0.9]),
+            _cate_rows("RICH", [np.nan, np.nan], rmse=np.nan, slope=np.nan,
+                       method="difference_in_means"),
+        ],
+        ignore_index=True,
+    )
+
+    data = cate_section_data(rows, _CATE_STATUS, replications=2)
+
+    assert data is not None
+    assert list(data.table["method"]) == ["causal_forest"]
+
+
+def test_no_scored_row_means_no_section():
+    unscored = _cate_rows("RICH", [np.nan], rmse=np.nan, slope=np.nan)
+
+    assert cate_section_data(unscored, _CATE_STATUS, replications=1) is None
+    assert cate_section_data(unscored.iloc[0:0], _CATE_STATUS, replications=1) is None
+
+
+def test_the_cate_note_passes_the_language_lint_and_the_lint_still_bites():
+    require_clean_prose([("CATE", CATE_NOTE)])
+    with pytest.raises(ReportLanguageError):
+        require_clean_prose([("CATE", CATE_NOTE), ("CATE", "This proves the forest is right.")])
+
+
+def test_the_cate_section_offers_its_note_to_the_lint():
+    data = cate_section_data(_cate_rows("RICH", [0.8]), _CATE_STATUS, replications=1)
+
+    assert isinstance(data, CateSectionData)
+    assert data.prose_fragments() == (CATE_NOTE,)
+
+
+def test_a_cate_run_adds_a_cate_section_and_clears_not_covered(d_run, cate_run):
+    evidence = benchmark_evidence_from_run(d_run, cate_directory=cate_run)
+
+    assert evidence.cate_section is not None
+    table = evidence.cate_section.table
+    assert set(table["scenario"]) == {"RICH", "NULL"}
+    assert set(table["method"]) == {"causal_forest"}
+    assert evidence.cate_section.replications == 2
+    assert "CATE metrics" not in dict(evidence.not_covered)
+
+
+def test_without_a_cate_run_there_is_no_section_and_the_entry_stays(d_run):
+    evidence = benchmark_evidence_from_run(d_run)
+
+    assert evidence.cate_section is None
+    assert "CATE metrics" in dict(evidence.not_covered)
+
+
+def test_the_cate_run_changes_no_ate_view(d_run, cate_run):
+    without = benchmark_evidence_from_run(d_run)
+    with_cate = benchmark_evidence_from_run(d_run, cate_directory=cate_run)
+
+    # repr, not ==: Measurement.mcse is NaN for the E8 counts, and NaN != NaN.
+    assert [repr(e) for e in with_cate.expectations] == [repr(e) for e in without.expectations]
+    assert with_cate.scenarios_run == without.scenarios_run
+    assert with_cate.estimators_run == without.estimators_run
+    assert with_cate.status == without.status
+    assert with_cate.replications == without.replications
+    assert [n for n in with_cate.not_covered if n[0] != "CATE metrics"] == [
+        n for n in without.not_covered if n[0] != "CATE metrics"
+    ]
+    assert with_cate.tables.keys() == without.tables.keys()
+    for name in without.tables:
+        pd.testing.assert_frame_equal(with_cate.tables[name], without.tables[name])
+    assert [f.caption for f in with_cate.figures] == [f.caption for f in without.figures]
+
+
+def test_cate_rows_in_the_main_store_stay_out_of_every_ate_view(d_run, monkeypatch):
+    # A future store that carries the arm itself: its CATE rows feed the CATE
+    # section and nothing else.
+    real = RunStore.open(d_run)
+    frame = real.read_frame()
+    ate_status = real.status()
+    # The mixed store's own ledger: the ATE cells plus two RICH cells.
+    status = RunStatus(
+        expected=ate_status.expected + 2,
+        done=ate_status.done + 2,
+        orphans=ate_status.orphans,
+        by_scenario={**ate_status.by_scenario, "RICH": (2, 2)},
+    )
+    combined = pd.concat([frame, _cate_rows("RICH", [0.8, 0.9])], ignore_index=True)
+
+    class _Store:
+        replications = real.replications
+
+        def __init__(self, rows):
+            self._rows = rows
+
+        def read_frame(self):
+            return self._rows
+
+        def status(self):
+            return status
+
+    without = benchmark_evidence_from_run(d_run)
+    monkeypatch.setattr(
+        "cp_report.benchmark.RunStore",
+        type("_Open", (), {"open": staticmethod(lambda _d: _Store(combined))}),
+    )
+    with_rows = benchmark_evidence_from_run(d_run)
+
+    assert with_rows.scenarios_run == without.scenarios_run
+    assert with_rows.estimators_run == without.estimators_run
+    # E8 checks the whole store's completeness, so it alone sees the two CATE cells.
+    assert [repr(e) for e in with_rows.expectations if e.id != "E8"] == [
+        repr(e) for e in without.expectations if e.id != "E8"
+    ]
+    for name in without.tables:
+        pd.testing.assert_frame_equal(with_rows.tables[name], without.tables[name])
+    assert [f.caption for f in with_rows.figures] == [f.caption for f in without.figures]
+    # The overview counts ATE cells only; the section counts its own.
+    assert with_rows.status.expected == ate_status.expected
+    assert "RICH" not in with_rows.status.by_scenario
+    assert with_rows.cate_section is not None
+    assert with_rows.cate_section.cells_expected == 2
+    assert with_rows.cate_section.cells_done == 2
+    assert list(with_rows.cate_section.table["scenario"]) == ["RICH"]
+
+
+def test_a_cate_run_of_the_wrong_tier_is_refused(d_run):
+    with pytest.raises(ValueError, match="'cate'"):
+        benchmark_evidence_from_run(d_run, cate_directory=d_run)
+
+
+def test_two_sources_of_cate_rows_are_refused(d_run, cate_run, monkeypatch):
+    from cp_evaluation.store import RunStore as _RealRunStore
+
+    real = _RealRunStore.open(d_run)
+    combined = pd.concat([real.read_frame(), _cate_rows("RICH", [0.8])], ignore_index=True)
+
+    class _Store:
+        def __init__(self, rows, store):
+            self._rows, self._store = rows, store
+            self.replications = store.replications
+            self.identity = store.identity
+
+        def read_frame(self):
+            return self._rows
+
+        def status(self):
+            return self._store.status()
+
+    def _open(directory):
+        store = _RealRunStore.open(directory)
+        rows = combined if Path(directory) == Path(d_run) else store.read_frame()
+        return _Store(rows, store)
+
+    monkeypatch.setattr(
+        "cp_report.benchmark.RunStore", type("_Open", (), {"open": staticmethod(_open)})
+    )
+    with pytest.raises(ValueError, match="two protocols"):
+        benchmark_evidence_from_run(d_run, cate_directory=cate_run)

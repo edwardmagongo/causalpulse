@@ -126,6 +126,12 @@ def _write_figures(frame: pd.DataFrame, out: Path) -> list[str]:
 
 
 def run_study(args: argparse.Namespace) -> int:
+    """Write a finished run's tables, figures and expectations check under `--out`.
+
+    `tables/*.csv` must be read with `pandas.read_csv(..., keep_default_na=False)`:
+    the CATE scenario `NULL` is otherwise read back as a missing value and its rows
+    silently drop out of any grouping.
+    """
     directory = Path(args.directory)
     store = RunStore.open(directory)  # the analysis reads a sharded run only
     frame, _ = load_run(directory, partial=args.partial)
@@ -186,6 +192,11 @@ def add_study_report_arguments(parser: argparse.ArgumentParser) -> None:
         metavar="PATH",
         help="A JSON object mapping an expectation id to the paragraph that explains it.",
     )
+    parser.add_argument(
+        "--cate-run",
+        metavar="DIR",
+        help="A finished `bench run --tier cate` run, reported in its own CATE section.",
+    )
 
 
 def _read_narratives(path: str | None) -> dict[str, str]:
@@ -205,6 +216,7 @@ def run_study_report(args: argparse.Namespace) -> int:
         raise FileNotFoundError(f"--out must be an existing directory, got {out}")
     evidence = benchmark_evidence_from_run(
         Path(args.directory),
+        cate_directory=None if args.cate_run is None else Path(args.cate_run),
         limitations=tuple(args.limitation),
         narratives=_read_narratives(args.narratives),
     )

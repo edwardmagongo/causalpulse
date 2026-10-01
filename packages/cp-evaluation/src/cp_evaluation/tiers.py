@@ -741,3 +741,21 @@ def study_config() -> GridConfig:
     the two are equal in everything but the replication count.
     """
     return replace(full_config(), replications=STUDY_REPLICATIONS)
+
+
+def cate_study_config() -> GridConfig:
+    """The CATE arm alone, at the study's replication count.
+
+    Reads the arm from `full_config()` rather than restating it, so the two
+    cannot drift, and `tests/evaluation/test_study_tier.py` pins that its cells
+    are exactly `study_config()`'s CATE cells. A cell's generator is derived
+    from its identity, so a run of this tier measures byte-identical data to
+    the CATE part of a full study, at a fraction of the cost (design
+    `docs/specs/2026-09-30-cate-report-section-design.md` §4).
+    """
+    return GridConfig(
+        cross_section=None,
+        panel=None,
+        cate=full_config().cate,
+        replications=STUDY_REPLICATIONS,
+    )

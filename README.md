@@ -141,14 +141,15 @@ analysis: no CLI command currently produces a report, because the arrays most fi
 never persisted.
 
 The causal core is complete. Phase 17 recorded four items deliberately left open rather than
-built. Two remain, after Phase 18 (below) closed the first and the donor-pool benchmark arm (below)
-closed the second: the CATE arm of the benchmark grid (CATE correlation, RMSE, and calibration
-slope, which need their own cell shape and array-valued diagnostics); and a residual from Phases 9
-and 10 — `SyntheticControl`'s CI half-width and `donor_contamination_check`'s threshold are still
-calibrated against the simplex placebo spread, while `falsify`'s own placebo distribution is
-convex-hull-aware. Closing that gap was blocked on the donor-pool benchmark arm for measurement;
-that arm now exists, so it is unblocked but not done. Each is recorded as a decision at Phase 16's
-kickoff, not an oversight, and each would be its own phase if wanted.
+built, and all four are now closed: the missing grid axes (Phase 18, below), the donor-pool
+benchmark arm (below), `SyntheticControl`'s CI half-width and `donor_contamination_check`'s
+threshold recalibrated against the convex-hull-aware placebo spread `falsify` uses
+(`docs/specs/2026-09-28-synthetic-control-ci-calibration.md`), and the CATE arm of the benchmark
+grid (`docs/specs/2026-09-27-cate-metrics-arm-design.md`). The CATE arm is a fourth cell shape over
+the RICH, NULL and NOISY scenarios, scoring `causal_forest`'s per-unit CATE by correlation, RMSE and
+calibration slope in the `full` and `study` tiers. `bench run --tier cate` runs that arm alone at
+the study's 50 replications (150 cells, about 35 minutes), and `bench study-report --cate-run DIR`
+adds its results to the research report as their own section.
 
 **Phase 18** closed the first of those four items: the missing benchmark-grid axes.
 `PropensityAssignment` gained an intercept and `LogisticBaseline` an additive noise scale, both

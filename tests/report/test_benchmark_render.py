@@ -11,17 +11,23 @@ from collections.abc import Callable
 from html import escape
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
 import pytest
 from cp_core.language import causal_language_lint
 from cp_report.benchmark import (
+    CATE_NOTE,
     COVERAGE_COLUMN_NOTE,
     BenchmarkEvidence,
+    CateSectionData,
     benchmark_evidence_from_run,
     document_prose_fragments,
     render_html_benchmark_report,
     write_markdown_benchmark_report,
 )
 from cp_report.language import ReportLanguageError
+
+from report.benchmark_builders import make_benchmark_evidence
 
 _UNHEDGED_CLAIM = "This proves unconfoundedness."
 
@@ -171,3 +177,67 @@ def test_both_formats_render_from_a_real_tiny_study(d_run, tmp_path):
     assert "<h1>CausalPulse Benchmark Study Report</h1>" in html
     assert path.read_text().startswith("# CausalPulse Benchmark Study Report")
     assert len(list(out.glob("*.svg"))) == len(evidence.figures) == 2
+
+
+def _with_cate(evidence):
+    table = pd.DataFrame(
+        {
+            "method": ["causal_forest", "causal_forest"],
+            "scenario": ["NULL", "RICH"],
+            "cate_correlation": [np.nan, 0.8123],
+            "cate_correlation_mcse": [np.nan, 0.0101],
+            "cate_correlation_n_used": [0, 50],
+            "cate_rmse": [0.0391, 0.0842],
+            "cate_rmse_mcse": [0.0012, 0.0015],
+            "cate_rmse_n_used": [50, 50],
+            "cate_calibration_slope": [np.nan, 1.7412],
+            "cate_calibration_slope_mcse": [np.nan, 0.0333],
+            "cate_calibration_slope_n_used": [0, 50],
+        }
+    )
+    section = CateSectionData(
+        table=table, replications=50, cells_done=150, cells_expected=150, note=CATE_NOTE
+    )
+    return dataclasses.replace(evidence, cate_section=section)
+
+
+def test_markdown_carries_the_cate_section_between_comparisons_and_limitations(tmp_path):
+    path = write_markdown_benchmark_report(_with_cate(make_benchmark_evidence()), tmp_path)
+    text = path.read_text()
+
+    assert "## Heterogeneous Effects (CATE)" in text
+    assert text.index("## Method Comparisons") < text.index("## Heterogeneous Effects (CATE)")
+    assert text.index("## Heterogeneous Effects (CATE)") < text.index("## Limitations")
+    assert "1.741" in text
+    assert "50 replications" in text
+    assert CATE_NOTE in text
+
+
+def test_html_carries_the_cate_section():
+    html = render_html_benchmark_report(_with_cate(make_benchmark_evidence()))
+
+    assert "<h2>Heterogeneous Effects (CATE)</h2>" in html
+    assert html.index("Method Comparisons") < html.index("Heterogeneous Effects (CATE)")
+    assert html.index("Heterogeneous Effects (CATE)") < html.index("Limitations")
+    assert "1.741" in html
+
+
+def test_no_cate_section_renders_nothing_extra(tmp_path):
+    path = write_markdown_benchmark_report(make_benchmark_evidence(), tmp_path)
+
+    assert "Heterogeneous Effects" not in path.read_text()
+    assert "Heterogeneous Effects" not in render_html_benchmark_report(make_benchmark_evidence())
+
+
+def test_the_cate_note_is_linted_with_the_document():
+    evidence = _with_cate(make_benchmark_evidence())
+    fragments = document_prose_fragments(evidence)
+
+    assert ("Heterogeneous Effects (CATE)", CATE_NOTE) in fragments
+
+    bad = dataclasses.replace(
+        evidence,
+        cate_section=dataclasses.replace(evidence.cate_section, note="This proves it works."),
+    )
+    with pytest.raises(ReportLanguageError):
+        render_html_benchmark_report(bad)

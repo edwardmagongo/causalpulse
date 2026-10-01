@@ -8,10 +8,11 @@ argument each entry point takes -- and is built by `benchmark_evidence_from_run`
 from a finished study's stored results, the only function here that imports
 `cp_evaluation`.
 
-Four sections, each a frozen dataclass with a `prose_fragments()` method, exactly as
+Five sections, each a frozen dataclass with a `prose_fragments()` method, exactly as
 `cp_report.sections` does: `OverviewData`, `HeadlineFindingsData`,
 `MethodComparisonsData`, `LimitationsData` (this module's own, distinct from
-`cp_report.sections.LimitationsData`). No new figure-drawing code: every
+`cp_report.sections.LimitationsData`) and `CateSectionData` (omitted when there is no
+scored CATE row). No new figure-drawing code: every
 `ReportFigure` wraps an existing `cp_figures.benchmark` draw function via `partial`.
 """
 
@@ -25,6 +26,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from cp_evaluation.cate import CATE_METRIC_COLUMNS
 from cp_evaluation.expectations import ExpectationResult, Verdict, evaluate_expectations
 from cp_evaluation.metrics import summarise
 from cp_evaluation.store import RunStatus, RunStore
@@ -36,6 +38,7 @@ from cp_evaluation.study import (
     not_covered_for,
 )
 from cp_figures.benchmark import axis_profile_data, draw_axis_profile, draw_heatmap, heatmap_data
+from cp_simulation.cate_scenarios import CATE_SCENARIOS
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
@@ -275,12 +278,83 @@ def limitations_data(
     return LimitationsData(not_covered=not_covered, statements=statements)
 
 
+# Fixed prose, linted with the rest of the document. It states what each figure
+# measures and how to read a calibration slope; it claims nothing about why an
+# estimator scores as it does (design §6.3).
+CATE_NOTE = (
+    "Each number in this table compares the per-unit effect an estimator reports with the "
+    "true per-unit effect of the same simulated units, and is a mean over the fits counted "
+    "in its `_n_used` column, with its Monte Carlo standard error. Correlation measures how "
+    "closely the estimates track the true effects across units, and RMSE their typical "
+    "distance from them. The calibration slope is the least-squares slope of the true effects "
+    "on the estimates: at 1, a difference between two units' estimates matches, on average, "
+    "the difference between their true effects; above 1, the estimates understate those "
+    "differences, and below 1 they overstate them. Scenario NULL gives every unit the same "
+    "true effect, so only its RMSE is reported."
+)
+
+
+@dataclass(frozen=True, eq=False)
+class CateSectionData:
+    """Per-unit CATE recovery, one row per method and scenario with a scored fit.
+
+    `eq=False`: holds a DataFrame. `replications` and the cell counts describe the
+    store the rows came from, which need not be the main study's.
+    """
+
+    table: pd.DataFrame
+    replications: int
+    cells_done: int
+    cells_expected: int
+    note: str
+
+    def prose_fragments(self) -> tuple[str, ...]:
+        """Included: the note. Excluded: `table`, numeric data."""
+        return (self.note,)
+
+
+def cate_section_data(
+    rows: pd.DataFrame, status: RunStatus, replications: int
+) -> CateSectionData | None:
+    """The CATE section over `rows`, or `None` when no fitted row was scored.
+
+    The numbers are `summarise`'s own, pooled per method and scenario, so they are
+    exactly what `bench report` prints for the same rows. It pools every row of a
+    scenario (`by=["scenario"]`), so `_cate_counts`' "replications per scenario" is
+    accurate only while `CateAxes` has one configuration per scenario, as it does today.
+    """
+    if rows.empty:
+        return None
+    summary = summarise(rows, by=["scenario"])
+    counts = [f"{metric}_n_used" for metric in CATE_METRIC_COLUMNS]
+    scored = summary[summary[counts].sum(axis=1) > 0]
+    if scored.empty:
+        return None
+    columns = [
+        "method",
+        "scenario",
+        *(
+            f"{metric}{suffix}"
+            for metric in CATE_METRIC_COLUMNS
+            for suffix in ("", "_mcse", "_n_used")
+        ),
+    ]
+    return CateSectionData(
+        table=scored[columns].reset_index(drop=True),
+        replications=replications,
+        cells_done=status.done,
+        cells_expected=status.expected,
+        note=CATE_NOTE,
+    )
+
+
 @dataclass(frozen=True, eq=False)
 class BenchmarkEvidence:
     """Everything the two entry points need, gathered once by `benchmark_evidence_from_run`."""
 
     expectations: tuple[ExpectationResult, ...]
     tables: dict[str, pd.DataFrame]
+    # ATE part of the main store's status (`_split_status`); E8 is evaluated on the whole store's.
     status: RunStatus
     replications: int
     scenarios_run: tuple[str, ...]
@@ -290,6 +364,7 @@ class BenchmarkEvidence:
     limitations: tuple[str, ...]
     narratives: dict[str, str]
     exploratory_note: str
+    cate_section: CateSectionData | None = None
 
 
 def _exploratory_note(by_size: pd.DataFrame) -> str:
@@ -368,9 +443,33 @@ def _report_figures(frame: pd.DataFrame) -> tuple[ReportFigure, ...]:
     return tuple(figures)
 
 
+def _split_status(status: RunStatus) -> tuple[RunStatus, RunStatus]:
+    """`status` as an (ATE part, CATE part) pair, split by scenario.
+
+    A study store that carries the CATE arm counts its cells in one ledger; the
+    overview counts ATE cells and the CATE section counts CATE cells (design §6.1).
+    Orphan shards are not attributable to a scenario, so they stay on the ATE part.
+    It classifies by scenario name (`CATE_SCENARIOS` keys), so an ATE scenario that
+    someone later names RICH, NULL or NOISY would be misfiled.
+    """
+    ate = {k: v for k, v in status.by_scenario.items() if k not in CATE_SCENARIOS}
+    cate = {k: v for k, v in status.by_scenario.items() if k in CATE_SCENARIOS}
+
+    def part(by_scenario: dict[str, tuple[int, int]], orphans: int) -> RunStatus:
+        return RunStatus(
+            expected=sum(total for _, total in by_scenario.values()),
+            done=sum(done for done, _ in by_scenario.values()),
+            orphans=orphans,
+            by_scenario=by_scenario,
+        )
+
+    return part(ate, status.orphans), part(cate, 0)
+
+
 def benchmark_evidence_from_run(
     directory: Path,
     *,
+    cate_directory: Path | None = None,
     limitations: tuple[str, ...] = (),
     narratives: Mapping[str, str] | None = None,
 ) -> BenchmarkEvidence:
@@ -381,10 +480,39 @@ def benchmark_evidence_from_run(
     states something the stored data cannot: no text is baked in here, including the
     `hierarchical_did`/P6 exclusion, which the generating command states explicitly.
     A narrative keyed to an expectation id that does not exist is refused, not ignored.
+
+    Every existing view is built from the study's rows whose `shape` is not `"cate"`:
+    the expectations, tables and figures are ATE views registered on the ATE grid,
+    the precedent expectation E7 follows (design
+    `docs/specs/2026-09-30-cate-report-section-design.md` §6.2). CATE rows feed only
+    the CATE section. They come from the study itself or, when `cate_directory` is
+    given, from a complete `cate`-tier run; both at once is refused, since that
+    would average two protocols together.
     """
     store = RunStore.open(directory)
-    frame = store.read_frame()
+    full = store.read_frame()
     status = store.status()
+    is_cate = full["shape"] == "cate"
+    frame = full[~is_cate].reset_index(drop=True)
+    cate_rows = full[is_cate].reset_index(drop=True)
+    ate_status, cate_status = _split_status(status)
+    cate_replications = store.replications
+
+    if cate_directory is not None:
+        cate_store = RunStore.open(cate_directory)
+        if cate_store.identity.tier != "cate":
+            raise ValueError(
+                f"{cate_directory} is a {cate_store.identity.tier!r} run; the CATE section "
+                "reads a 'cate' run"
+            )
+        if not cate_rows.empty:
+            raise ValueError(
+                f"{directory} already carries CATE rows and {cate_directory} is a CATE run; "
+                "reading both would average two protocols together"
+            )
+        cate_rows = cate_store.read_frame()
+        cate_status, cate_replications = cate_store.status(), cate_store.replications
+
     results = evaluate_expectations(frame, status)
 
     narratives = dict(narratives or {})
@@ -396,17 +524,18 @@ def benchmark_evidence_from_run(
     return BenchmarkEvidence(
         expectations=results,
         tables=tables,
-        status=status,
+        status=ate_status,
         replications=store.replications,
         scenarios_run=tuple(sorted(frame["scenario"].unique())),
         estimators_run=tuple(sorted(frame["method"].unique())),
-        not_covered=not_covered_for(frame),
+        not_covered=not_covered_for(pd.concat([frame, cate_rows], ignore_index=True)),
         figures=_report_figures(frame),
         limitations=limitations,
         narratives=narratives,
         exploratory_note=_exploratory_note(
             tables.get("coverage__scenario_by_size", pd.DataFrame())
         ),
+        cate_section=cate_section_data(cate_rows, cate_status, cate_replications),
     )
 
 
@@ -416,8 +545,9 @@ def benchmark_evidence_from_run(
 def _section_data(
     evidence: BenchmarkEvidence,
 ) -> tuple[OverviewData, HeadlineFindingsData, MethodComparisonsData, LimitationsData]:
-    """The four sections, rebuilt from `evidence` in one place so a fifth section is a
-    one-place edit and the prose the lint sees cannot drift from the prose rendered."""
+    """The four always-present sections, rebuilt from `evidence` in one place so the prose
+    the lint sees cannot drift from the prose rendered. The optional CATE section is added
+    separately, in `document_prose_fragments` and both renderers."""
     return (
         overview_data(
             len(evidence.estimators_run),
@@ -441,6 +571,11 @@ def document_prose_fragments(evidence: BenchmarkEvidence) -> list[tuple[str, str
     fragments += [("Headline Findings", text) for text in findings.prose_fragments()]
     fragments += [("Figures", figure.caption) for figure in evidence.figures]
     fragments += [("Method Comparisons", text) for text in comparisons.prose_fragments()]
+    if evidence.cate_section is not None:
+        fragments += [
+            ("Heterogeneous Effects (CATE)", text)
+            for text in evidence.cate_section.prose_fragments()
+        ]
     fragments += [("Limitations", text) for text in limitations.prose_fragments()]
     return fragments
 
@@ -503,6 +638,21 @@ def render_method_comparisons_html(data: MethodComparisonsData) -> str:
     )
 
 
+def _cate_counts(data: CateSectionData) -> str:
+    return (
+        f"{data.replications} replications per scenario, "
+        f"{data.cells_done} of {data.cells_expected} cells."
+    )
+
+
+def render_cate_section_html(data: CateSectionData) -> str:
+    return (
+        "<section><h2>Heterogeneous Effects (CATE)</h2>"
+        f"<p>{escape(_cate_counts(data))}</p>"
+        f"{_dataframe_to_html(data.table)}<p>{escape(data.note)}</p></section>"
+    )
+
+
 def render_limitations_html(data: LimitationsData) -> str:
     not_covered = "".join(
         f"<li>{escape(name)}: {escape(reason)}</li>" for name, reason in data.not_covered
@@ -538,6 +688,7 @@ def render_html_benchmark_report(evidence: BenchmarkEvidence) -> str:
             render_headline_findings_html(findings),
             _render_figures_html(evidence.figures),
             render_method_comparisons_html(comparisons),
+            render_cate_section_html(evidence.cate_section) if evidence.cate_section else "",
             render_limitations_html(limitations),
         ]
     )
@@ -593,6 +744,17 @@ def render_method_comparisons_markdown(data: MethodComparisonsData) -> str:
     return "\n\n".join(parts)
 
 
+def render_cate_section_markdown(data: CateSectionData) -> str:
+    return "\n\n".join(
+        [
+            "## Heterogeneous Effects (CATE)",
+            _cate_counts(data),
+            markdown_table(data.table).rstrip("\n"),
+            data.note,
+        ]
+    )
+
+
 def render_limitations_markdown(data: LimitationsData) -> str:
     lines = [f"- {name}: {reason}" for name, reason in data.not_covered]
     lines.extend(f"- {statement}" for statement in data.statements)
@@ -633,6 +795,7 @@ def write_markdown_benchmark_report(evidence: BenchmarkEvidence, directory: Path
             render_headline_findings_markdown(findings),
             _render_figures_markdown(evidence.figures, figure_paths),
             render_method_comparisons_markdown(comparisons),
+            render_cate_section_markdown(evidence.cate_section) if evidence.cate_section else "",
             render_limitations_markdown(limitations),
         ]
         if part
