@@ -246,6 +246,18 @@ def test_an_undefined_cate_metric_is_skipped_not_logged_as_nan(loaded):
     assert all(math.isfinite(v) for v in payload.metrics.values())
 
 
+def test_cate_rows_with_none_scored_log_no_cate_metric_or_artifact(loaded):
+    frame, manifest, sidecar, run_dir = loaded
+    unscored = _with_cate_rows(frame)
+    unscored[list(CATE_TRACKED_METRICS)] = np.nan
+
+    payload = build_payload(unscored, manifest, sidecar, run_dir)
+
+    assert not any(key.split(".")[-1].removesuffix("_mcse") in CATE_TRACKED_METRICS
+                   for key in payload.metrics)
+    assert "cate__scenario.csv" not in payload.artifacts
+
+
 def test_a_run_without_cate_rows_logs_no_cate_metric_or_artifact(loaded):
     payload = build_payload(*loaded)
 

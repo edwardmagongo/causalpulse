@@ -197,8 +197,8 @@ def test_cells_are_scheduled_by_measured_cost_class_then_size():
 
     ordered = longest_first(cells)
 
-    # Panel (hierarchical_did, 24.8-79.7s a fit) before donor (~20.6s a fitted
-    # row, three rows) before CATE (~15s a cell) before cross-section (8.7-12.3s),
+    # Panel (35-62s a cell) before donor (5.5-32.6s) before CATE (~15s) before
+    # cross-section (8.7-12.3s), as measured in the design doc's section 9.1,
     # whatever their unit counts: a 2,000-unit CATE cell no longer jumps the queue.
     assert [type(c) for c in ordered] == [
         PanelCell, DonorPoolCell, CateCell, CrossSectionCell, CrossSectionCell
