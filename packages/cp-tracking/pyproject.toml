@@ -2,7 +2,7 @@
 name = "cp-tracking"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["cp-evaluation", "pandas>=2.2"]
+dependencies = ["cp-evaluation", "pandas>=2.2", "mlflow>=3.16,<4"]
 
 [build-system]
 requires = ["hatchling"]
