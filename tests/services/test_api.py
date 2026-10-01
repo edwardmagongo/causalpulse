@@ -29,24 +29,12 @@ SCENARIO_D_ELIGIBLE = {
 }
 
 
-def _ensure_legacy(sessions):
-    # Interim, removed in Task 4: the API assigns uploads to `legacy` until then.
-    # Idempotent, because migration 0002 has just created `legacy` when the first
-    # test of a session runs, and only later teardowns TRUNCATE it.
-    from cp_api.accounts import create_user
-    from cp_api.db import LEGACY_USER, User
-    from sqlalchemy import select
-
-    with sessions() as session:
-        if session.scalars(select(User).where(User.name == LEGACY_USER)).one_or_none() is None:
-            create_user(session, LEGACY_USER)
-            session.commit()
-
-
 @pytest.fixture
-def client(sessions, redis_conn, worker_env):
-    _ensure_legacy(sessions)
-    return TestClient(create_app(sessions=sessions, redis=redis_conn))
+def client(sessions, redis_conn, worker_env, api_key_for):
+    return TestClient(
+        create_app(sessions=sessions, redis=redis_conn),
+        headers={"Authorization": f"Bearer {api_key_for('alice')}"},
+    )
 
 
 def _drain(redis_conn):
@@ -247,14 +235,18 @@ def test_a_job_that_vanished_is_reported_as_a_lost_worker(client, redis_conn, se
     assert (body["status"], body["error"]) == ("failed", WORKER_LOST)
 
 
-def test_an_unreachable_queue_is_503_and_the_analysis_is_marked_failed(sessions, redis_conn):
-    _ensure_legacy(sessions)
+def test_an_unreachable_queue_is_503_and_the_analysis_is_marked_failed(
+    sessions, redis_conn, api_key_for
+):
+    key = api_key_for("alice")
     content, schema = scenario_d_upload()
-    dataset = TestClient(create_app(sessions=sessions, redis=redis_conn)).post(
-        "/v1/datasets", files={"file": ("d.csv", content, "text/csv")}
-    ).json()
+    dataset = TestClient(
+        create_app(sessions=sessions, redis=redis_conn),
+        headers={"Authorization": f"Bearer {key}"},
+    ).post("/v1/datasets", files={"file": ("d.csv", content, "text/csv")}).json()
     broken = TestClient(
-        create_app(sessions=sessions, redis=Redis.from_url("redis://localhost:1/0"))
+        create_app(sessions=sessions, redis=Redis.from_url("redis://localhost:1/0")),
+        headers={"Authorization": f"Bearer {key}"},
     )
 
     response = broken.post("/v1/analyses", json={"dataset_id": dataset["id"], "schema": schema})

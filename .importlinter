@@ -62,3 +62,4 @@ forbidden_modules =
     cp_api.migrate
     cp_api.admin
     cp_api.app
+    cp_api.deps

@@ -1,4 +1,4 @@
-"""API keys: their format now, and the request dependency that checks them.
+"""API keys: their format, and the request dependency that checks them.
 
 A key is `cpk_<key_id>_<secret>`. The key id is sent in the clear and is the
 `api_keys` primary key. Only a SHA-256 of the secret is stored, so a leaked
@@ -14,6 +14,12 @@ import hmac
 import re
 import secrets
 import string
+from typing import Annotated
+
+from fastapi import Depends, Header, HTTPException
+
+from cp_api.db import ApiKey, User, utcnow
+from cp_api.deps import SessionDep
 
 KEY_PREFIX = "cpk_"
 KEY_ID_LENGTH = 12
@@ -49,3 +55,38 @@ def parse_key(raw: str) -> tuple[str, str]:
 
 def secret_matches(secret: str, stored_sha256: str) -> bool:
     return hmac.compare_digest(hash_secret(secret), stored_sha256)
+
+
+UNAUTHORIZED = "missing or invalid API key"
+
+
+def _unauthorized() -> HTTPException:
+    # One response for every failure, so it never says which check failed.
+    return HTTPException(401, UNAUTHORIZED, headers={"WWW-Authenticate": "Bearer"})
+
+
+def current_user(
+    session: SessionDep, authorization: Annotated[str | None, Header()] = None
+) -> User:
+    """The user whose key authenticated this request, or 401."""
+    scheme, _, credentials = (authorization or "").partition(" ")
+    if scheme.lower() != "bearer":
+        raise _unauthorized()
+    try:
+        key_id, secret = parse_key(credentials.strip())
+    except ValueError:
+        raise _unauthorized() from None
+    key = session.get(ApiKey, key_id)
+    # Compare even for an unknown key id, so timing does not reveal which ids exist.
+    matches = secret_matches(secret, key.secret_sha256 if key is not None else DUMMY_SHA256)
+    if key is None or not matches or key.revoked_at is not None:
+        raise _unauthorized()
+    key.last_used_at = utcnow()
+    session.commit()
+    user = session.get(User, key.user_id)
+    assert user is not None  # api_keys.user_id is a NOT NULL foreign key
+    return user
+
+
+# Module scope, like SessionDep: a local alias breaks under postponed annotations.
+CurrentUser = Annotated[User, Depends(current_user)]

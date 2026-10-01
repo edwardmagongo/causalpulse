@@ -11,11 +11,10 @@ from __future__ import annotations
 import hashlib
 import os
 import uuid
-from collections.abc import Iterator
 from datetime import datetime
 from typing import Annotated, Any
 
-from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 from redis import Redis
@@ -28,10 +27,10 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from cp_api import validation
+from cp_api.auth import CurrentUser
 from cp_api.db import (
     JOB_FUNCTION,
     JOB_TIMEOUT_SECONDS,
-    LEGACY_USER,
     QUEUE_NAME,
     Analysis,
     AnalysisSummary,
@@ -43,13 +42,8 @@ from cp_api.db import (
     make_sessionmaker,
     utcnow,
 )
+from cp_api.deps import SessionDep
 from cp_api.validation import RequestError, check_analysis_request, check_upload, csv_header
-
-
-# Interim, deleted in Task 4: until routes authenticate, new rows go to `legacy`.
-def _legacy_owner(session: Session) -> uuid.UUID:
-    return session.scalars(select(User.id).where(User.name == LEGACY_USER)).one()
-
 
 WORKER_LOST = "worker lost: the job ended without recording a result"
 # A Redis timeout can arrive after the server accepted the job, which a worker
@@ -85,26 +79,6 @@ def _job_lost(redis: Redis, analysis_id: uuid.UUID) -> bool:
     return job.get_status() in _LOST
 
 
-def get_session(request: Request) -> Iterator[Session]:
-    """A module-level dependency, not a local closure inside `create_app`.
-
-    `from __future__ import annotations` turns every annotation into a
-    string; FastAPI resolves `SessionDep` via `get_type_hints`, which needs a
-    name reachable from the function's `__globals__`. A `SessionDep` defined
-    inside `create_app` is a local, invisible to that lookup, so route
-    parameters typed with it silently stop being recognised as
-    dependencies -- they are treated as ordinary (query) parameters instead.
-    Reading the session factory off `app.state` keeps `SessionDep` a genuine
-    module global.
-    """
-    sessions: sessionmaker[Session] = request.app.state.sessions
-    with sessions() as session:
-        yield session
-
-
-SessionDep = Annotated[Session, Depends(get_session)]
-
-
 def create_app(
     sessions: sessionmaker[Session] | None = None, redis: Redis | None = None
 ) -> FastAPI:
@@ -124,13 +98,20 @@ def create_app(
     app.add_exception_handler(OperationalError, _unavailable)
     app.add_exception_handler(RedisError, _unavailable)
 
-    def _analysis_or_404(session: Session, analysis_id: uuid.UUID) -> Analysis:
-        analysis = session.get(Analysis, analysis_id)
+    def _analysis_or_404(session: Session, analysis_id: uuid.UUID, user: User) -> Analysis:
+        # Scoped to the caller: another user's analysis is exactly as absent as
+        # one that does not exist, and gets the same message.
+        analysis = session.scalars(
+            select(Analysis).where(Analysis.id == analysis_id, Analysis.owner_id == user.id)
+        ).one_or_none()
         if analysis is None:
             raise HTTPException(404, f"no analysis {analysis_id}")
         return analysis
 
-    def _estimate_or_404(session: Session, analysis_id: uuid.UUID, method: str) -> EstimateRow:
+    def _estimate_or_404(
+        session: Session, analysis_id: uuid.UUID, method: str, user: User
+    ) -> EstimateRow:
+        _analysis_or_404(session, analysis_id, user)
         row = session.scalars(
             select(EstimateRow).where(
                 EstimateRow.analysis_id == analysis_id, EstimateRow.method == method
@@ -140,8 +121,10 @@ def create_app(
             raise HTTPException(404, f"analysis {analysis_id} has no estimate for {method!r}")
         return row
 
-    def _summary_or_404(session: Session, analysis_id: uuid.UUID) -> AnalysisSummary:
-        analysis = _analysis_or_404(session, analysis_id)
+    def _summary_or_404(
+        session: Session, analysis_id: uuid.UUID, user: User
+    ) -> AnalysisSummary:
+        analysis = _analysis_or_404(session, analysis_id, user)
         summary = session.get(AnalysisSummary, analysis_id)
         if summary is None:
             raise HTTPException(
@@ -151,15 +134,22 @@ def create_app(
 
     @app.post("/v1/datasets", status_code=201)
     def upload_dataset(
-        response: Response, file: Annotated[UploadFile, File()], session: SessionDep
+        user: CurrentUser,
+        response: Response,
+        file: Annotated[UploadFile, File()],
+        session: SessionDep,
     ) -> dict[str, Any]:
         content = file.file.read(validation.MAX_UPLOAD_BYTES + 1)
         columns = check_upload(content)
         sha256 = hashlib.sha256(content).hexdigest()
-        dataset = session.scalars(select(Dataset).where(Dataset.sha256 == sha256)).one_or_none()
+        # Deduplicated within the caller's own datasets only: the same bytes
+        # from two users are two datasets, each visible to its owner alone.
+        dataset = session.scalars(
+            select(Dataset).where(Dataset.owner_id == user.id, Dataset.sha256 == sha256)
+        ).one_or_none()
         if dataset is None:
             dataset = Dataset(
-                owner_id=_legacy_owner(session),
+                owner_id=user.id,
                 # A bare name only: it becomes the manifest's fixture path.
                 filename=validation.safe_filename(file.filename),
                 sha256=sha256,
@@ -179,13 +169,17 @@ def create_app(
         }
 
     @app.post("/v1/analyses", status_code=202)
-    def create_analysis(body: AnalysisRequest, session: SessionDep) -> dict[str, Any]:
-        dataset = session.get(Dataset, body.dataset_id)
+    def create_analysis(
+        user: CurrentUser, body: AnalysisRequest, session: SessionDep
+    ) -> dict[str, Any]:
+        dataset = session.scalars(
+            select(Dataset).where(Dataset.id == body.dataset_id, Dataset.owner_id == user.id)
+        ).one_or_none()
         if dataset is None:
             raise HTTPException(404, f"no dataset {body.dataset_id}")
         check_analysis_request(body.causal_schema, csv_header(dataset.csv), body.estimators)
         analysis = Analysis(
-            owner_id=_legacy_owner(session),
+            owner_id=user.id,
             dataset_id=dataset.id,
             causal_schema=body.causal_schema,
             requested_estimators=body.estimators,
@@ -212,8 +206,10 @@ def create_app(
         return {"id": str(analysis.id), "status": analysis.status}
 
     @app.get("/v1/analyses/{analysis_id}")
-    def read_analysis(analysis_id: uuid.UUID, session: SessionDep) -> dict[str, Any]:
-        analysis = _analysis_or_404(session, analysis_id)
+    def read_analysis(
+        user: CurrentUser, analysis_id: uuid.UUID, session: SessionDep
+    ) -> dict[str, Any]:
+        analysis = _analysis_or_404(session, analysis_id, user)
         if analysis.status in ("queued", "running") and _job_lost(queue_redis, analysis_id):
             analysis.status = "failed"
             analysis.error = WORKER_LOST
@@ -249,17 +245,19 @@ def create_app(
         }
 
     @app.get("/v1/analyses/{analysis_id}/estimates/{method}/report.html")
-    def report_html(analysis_id: uuid.UUID, method: str, session: SessionDep) -> HTMLResponse:
-        row = _estimate_or_404(session, analysis_id, method)
+    def report_html(
+        user: CurrentUser, analysis_id: uuid.UUID, method: str, session: SessionDep
+    ) -> HTMLResponse:
+        row = _estimate_or_404(session, analysis_id, method, user)
         if row.report_html is None:
             raise HTTPException(404, f"{method} produced no report: {row.error}")
         return HTMLResponse(row.report_html)
 
     @app.get("/v1/analyses/{analysis_id}/estimates/{method}/report.md")
     def report_markdown(
-        analysis_id: uuid.UUID, method: str, session: SessionDep
+        user: CurrentUser, analysis_id: uuid.UUID, method: str, session: SessionDep
     ) -> PlainTextResponse:
-        row = _estimate_or_404(session, analysis_id, method)
+        row = _estimate_or_404(session, analysis_id, method, user)
         if row.report_markdown is None:
             raise HTTPException(404, f"{method} produced no report: {row.error}")
         return PlainTextResponse(row.report_markdown, media_type="text/markdown")
@@ -267,21 +265,29 @@ def create_app(
     # Declared after the two report routes, which FastAPI therefore matches first.
     @app.get("/v1/analyses/{analysis_id}/estimates/{method}/{filename}")
     def report_asset(
-        analysis_id: uuid.UUID, method: str, filename: str, session: SessionDep
+        user: CurrentUser,
+        analysis_id: uuid.UUID,
+        method: str,
+        filename: str,
+        session: SessionDep,
     ) -> Response:
-        row = _estimate_or_404(session, analysis_id, method)
+        row = _estimate_or_404(session, analysis_id, method, user)
         assets = row.report_assets or {}
         if filename not in assets:
             raise HTTPException(404, f"{method}'s report has no figure {filename!r}")
         return Response(assets[filename], media_type="image/svg+xml")
 
     @app.get("/v1/analyses/{analysis_id}/manifest")
-    def read_manifest(analysis_id: uuid.UUID, session: SessionDep) -> JSONResponse:
-        return JSONResponse(_summary_or_404(session, analysis_id).manifest)
+    def read_manifest(
+        user: CurrentUser, analysis_id: uuid.UUID, session: SessionDep
+    ) -> JSONResponse:
+        return JSONResponse(_summary_or_404(session, analysis_id, user).manifest)
 
     @app.get("/v1/analyses/{analysis_id}/summary")
-    def read_summary(analysis_id: uuid.UUID, session: SessionDep) -> dict[str, Any]:
-        return {"comparisons": _summary_or_404(session, analysis_id).comparisons}
+    def read_summary(
+        user: CurrentUser, analysis_id: uuid.UUID, session: SessionDep
+    ) -> dict[str, Any]:
+        return {"comparisons": _summary_or_404(session, analysis_id, user).comparisons}
 
     @app.get("/v1/healthz")
     def healthz(session: SessionDep) -> dict[str, str]:
