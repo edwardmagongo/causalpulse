@@ -1,8 +1,9 @@
 """Writing a `TrackingPayload` to MLflow. The only module that imports MLflow.
 
 Deduplicated by the payload's fingerprint tag: a finished benchmark run is
-logged once unless `force` is given. A log that fails partway deletes its
-half-written run, so the fingerprint it carried cannot block a retry.
+logged once unless `force` is given. Only a FINISHED run counts as logged: a
+log that fails partway deletes its half-written run, and one killed outright
+leaves a RUNNING run that the duplicate check ignores, so neither blocks a retry.
 """
 
 from __future__ import annotations
@@ -44,7 +45,8 @@ def artifact_root_for(tracking_uri: str) -> str | None:
     """
     if not tracking_uri.startswith("sqlite:///"):
         return None
-    database = Path(tracking_uri.removeprefix("sqlite:///"))
+    # SQLAlchemy resolves a relative database path against the working directory.
+    database = Path(tracking_uri.removeprefix("sqlite:///")).absolute()
     return (database.parent / "artifacts").as_uri()
 
 
@@ -63,7 +65,10 @@ def log_payload(payload: TrackingPayload, tracking_uri: str, *, force: bool = Fa
     if not force:
         existing = client.search_runs(
             [experiment_id],
-            filter_string=f"tags.`{FINGERPRINT_TAG}` = '{payload.tags[FINGERPRINT_TAG]}'",
+            filter_string=(
+                f"tags.`{FINGERPRINT_TAG}` = '{payload.tags[FINGERPRINT_TAG]}'"
+                " and attributes.status = 'FINISHED'"
+            ),
             max_results=1,
         )
         if existing:
@@ -81,8 +86,8 @@ def log_payload(payload: TrackingPayload, tracking_uri: str, *, force: bool = Fa
             client.log_batch(run_id, metrics=metrics[start : start + _METRICS_PER_BATCH])
         for name, text in sorted(payload.artifacts.items()):
             client.log_text(run_id, text, name)
+        client.set_terminated(run_id)
     except BaseException:
         client.delete_run(run_id)
         raise
-    client.set_terminated(run_id)
     return run_id

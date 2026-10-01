@@ -61,14 +61,15 @@ def test_a_different_fingerprint_is_a_new_run(store):
     assert log_payload(_payload("a" * 64), store) != log_payload(_payload("b" * 64), store)
 
 
-def test_a_failed_log_leaves_no_run_to_block_a_retry(store, monkeypatch):
+@pytest.mark.parametrize("error", [RuntimeError("disk full"), KeyboardInterrupt()])
+def test_a_failed_log_leaves_no_run_to_block_a_retry(store, monkeypatch, error):
     from cp_tracking import log as log_module
 
     def boom(*args, **kwargs):
-        raise RuntimeError("disk full")
+        raise error
 
     monkeypatch.setattr(log_module.MlflowClient, "log_text", boom)
-    with pytest.raises(RuntimeError, match="disk full"):
+    with pytest.raises(type(error)):
         log_module.log_payload(_payload(), store)
     monkeypatch.undo()
 
@@ -80,6 +81,36 @@ def test_the_default_store_is_mlruns_under_the_base_directory(tmp_path):
 
     uri = default_tracking_uri(tmp_path)
 
+    assert (tmp_path / "mlruns").is_dir()
     assert uri == f"sqlite:///{tmp_path / 'mlruns' / 'mlflow.db'}"
     assert artifact_root_for(uri) == (tmp_path / "mlruns" / "artifacts").as_uri()
     assert artifact_root_for("http://mlflow.example:5000") is None
+
+
+def test_a_relative_sqlite_uri_keeps_artifacts_beside_the_database(tmp_path, monkeypatch):
+    from cp_tracking.log import artifact_root_for, log_payload
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "mlruns").mkdir()
+    uri = "sqlite:///mlruns/mlflow.db"
+
+    assert artifact_root_for(uri) == (tmp_path / "mlruns" / "artifacts").as_uri()
+    run_id = log_payload(_payload(), uri)
+
+    assert {a.path for a in _client(uri).list_artifacts(run_id)} == {
+        "accuracy__scenario.csv",
+        "identity.json",
+    }
+    assert (tmp_path / "mlruns" / "artifacts").is_dir()
+
+
+def test_an_unfinished_run_does_not_block_a_retry(store):
+    from cp_tracking.log import EXPERIMENT, log_payload
+
+    client = _client(store)
+    stuck = client.create_run(client.create_experiment(EXPERIMENT), tags=_payload().tags)
+    assert stuck.info.status == "RUNNING"
+
+    retried = log_payload(_payload(), store)  # no force
+
+    assert retried != stuck.info.run_id
