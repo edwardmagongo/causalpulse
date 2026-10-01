@@ -1376,11 +1376,11 @@ strength=2.0)`, `OutcomeProxy(noise_sd=0.5)` unless noted. Full tables in
   noise at 20 seeds. Suggestive, not resolved — carried to a future phase rather than fixed on a
   measurement this uncertain.
 
-## Backend (sub-project 3, phase 1)
+## Backend (sub-project 3)
 
 A local demo stack: upload a CSV, declare its schema, and get back estimates, validity bands, and
 evidence reports over HTTP. One machine, `docker compose up`; every route except `/v1/healthz` needs a
-per-user API key; no multi-user hosting.
+per-user API key; it runs on one machine, not as a hosted service.
 
 ```bash
 docker compose up --build
@@ -1408,7 +1408,7 @@ All routes are under `/v1`. Every route except `GET /healthz` needs an `Authoriz
 
 | Route | Behaviour |
 |---|---|
-| `POST /datasets` | Multipart CSV, ≤ 50 MB (413 above). Same bytes twice returns the existing row by sha256. |
+| `POST /datasets` | Multipart CSV, ≤ 50 MB (413 above). Your own copy of the same bytes, uploaded twice, returns the existing row by sha256; another user's identical upload is a separate row. |
 | `POST /analyses` | `{dataset_id, schema, estimators?, random_seed}`. Validates the schema via `CausalSchema` and its columns against the CSV header; enqueues; 202 with the id. |
 | `GET /analyses/{id}` | Status, `partial`, error, routing decisions, and per estimate its method, band, error, and `summary` (point, standard error, intervals, p-value, group sizes). |
 | `GET /analyses/{id}/estimates/{method}/report.html` | One estimate's evidence report, figures inlined. |
@@ -1489,7 +1489,7 @@ uv run --project /path/to/causalpulse causalpulse replay manifest.json
 ```
 
 Read the filename from the manifest rather than assuming it: the same bytes uploaded again under
-another name are deduplicated to the first upload, whose filename the manifest keeps. A copy
+another name are deduplicated, per user, to that user's first upload, whose filename the manifest keeps. A copy
 whose bytes differ at all is refused, since the manifest records their sha256.
 
 `replay` prints each estimator's point estimate to ten significant figures. Compare those with
