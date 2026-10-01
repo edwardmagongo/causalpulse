@@ -2,7 +2,15 @@ import dataclasses
 from collections import Counter
 
 import pytest
-from cp_evaluation.grid import CateCell, CrossSectionCell, expand_cells
+from cp_evaluation.grid import (
+    CateCell,
+    CrossSectionCell,
+    DonorPoolCell,
+    LongPanelAxes,
+    LongPanelCell,
+    PanelCell,
+    expand_cells,
+)
 from cp_evaluation.tiers import (
     CI_ESTIMATORS,
     FULL_ESTIMATORS,
@@ -208,3 +216,27 @@ def test_adding_the_cate_arm_does_not_perturb_any_existing_cell():
         without = Counter(c for c in without_cate if isinstance(c, shape))
         assert with_ == without
         assert sum(with_.values()) > 0
+
+
+def test_full_and_study_carry_p7_at_its_protocol():
+    for config in (full_config(), study_config()):
+        assert config.long_panel == LongPanelAxes(scenarios=("P7",))
+
+
+def test_ci_excludes_the_p7_arm():
+    assert ci_config().long_panel is None
+
+
+def test_full_has_10_p7_cells_and_study_50():
+    for config, expected in ((full_config(), 10), (study_config(), 50)):
+        assert sum(isinstance(c, LongPanelCell) for c in expand_cells(config)) == expected
+
+
+def test_adding_the_p7_arm_does_not_perturb_any_existing_cell():
+    with_p7 = expand_cells(full_config())
+    without = expand_cells(dataclasses.replace(full_config(), long_panel=None))
+
+    for shape in (CrossSectionCell, PanelCell, DonorPoolCell, CateCell):
+        assert Counter(c for c in with_p7 if isinstance(c, shape)) == Counter(
+            c for c in without if isinstance(c, shape)
+        )

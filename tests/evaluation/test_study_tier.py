@@ -1,7 +1,13 @@
 import dataclasses
 
-from cp_evaluation.grid import CateCell, cell_key, expand_cells
-from cp_evaluation.tiers import STUDY_REPLICATIONS, cate_study_config, full_config, study_config
+from cp_evaluation.grid import CateCell, LongPanelCell, cell_key, expand_cells
+from cp_evaluation.tiers import (
+    STUDY_REPLICATIONS,
+    cate_study_config,
+    full_config,
+    p7_study_config,
+    study_config,
+)
 
 
 def test_the_study_tier_is_the_full_tier_at_fifty_replications():
@@ -15,17 +21,17 @@ def test_the_study_tier_is_the_full_tier_at_fifty_replications():
 
 
 def test_the_study_grid_is_five_times_the_full_grid():
-    # 890 cells at 10 replications is 89 configurations (80 cross-section/panel
-    # plus the six donor-pool scenarios plus 3 CATE); 50 replications of each is 4,450.
+    # 900 cells at 10 replications is 90 configurations (80 cross-section/panel
+    # plus the six donor-pool scenarios plus 3 CATE plus 1 P7); 50 replications of each is 4,500.
     # Counted from the shipped grids rather than stated.
-    assert len(expand_cells(full_config())) == 890
-    assert len(expand_cells(study_config())) == 4450
+    assert len(expand_cells(full_config())) == 900
+    assert len(expand_cells(study_config())) == 4500
 
 
 def test_every_study_cell_has_its_own_key():
     keys = [cell_key(cell) for cell in expand_cells(study_config())]
 
-    assert len(set(keys)) == len(keys) == 4450
+    assert len(set(keys)) == len(keys) == 4500
 
 
 def test_a_cell_key_does_not_depend_on_how_many_replications_were_asked_for():
@@ -35,7 +41,7 @@ def test_a_cell_key_does_not_depend_on_how_many_replications_were_asked_for():
     large = {cell_key(c) for c in expand_cells(dataclasses.replace(full_config(), replications=50))}
 
     assert small < large
-    assert len(small) == 445
+    assert len(small) == 450
 
 
 def test_the_cate_tier_is_exactly_the_studys_cate_cells():
@@ -55,3 +61,11 @@ def test_the_cate_tier_carries_no_other_arm():
     assert config.panel is None
     assert config.donor_pool is None
     assert config.cate == full_config().cate
+
+
+def test_the_p7_tier_is_exactly_the_studys_p7_cells():
+    p7 = expand_cells(p7_study_config())
+
+    assert p7 == tuple(c for c in expand_cells(study_config()) if isinstance(c, LongPanelCell))
+    assert len(p7) == 50
+    assert (p7_study_config().cross_section, p7_study_config().panel) == (None, None)

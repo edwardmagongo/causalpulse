@@ -41,6 +41,7 @@ from cp_evaluation.tiers import (
     cate_study_config,
     ci_config,
     full_config,
+    p7_study_config,
     study_config,
 )
 
@@ -51,16 +52,17 @@ TIERS = {
     "full": (full_config, FULL_ESTIMATORS, FULL_FIT_CONFIG),
     "study": (study_config, FULL_ESTIMATORS, FULL_FIT_CONFIG),
     "cate": (cate_study_config, FULL_ESTIMATORS, FULL_FIT_CONFIG),
+    "p7": (p7_study_config, FULL_ESTIMATORS, FULL_FIT_CONFIG),
 }
 
 # Tiers too long to run as one in-memory frame: they write a directory of shards
-# and can be resumed and extended. `ci` and `full` keep writing one file. `study` and `cate`
+# and can be resumed and extended. `ci` and `full` keep writing one file. `study`, `cate` and `p7`
 # are sharded.
-SHARDED_TIERS = frozenset({"study", "cate"})
+SHARDED_TIERS = frozenset({"study", "cate", "p7"})
 
 
 def add_run_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--tier", required=True, help="One of: ci, full, study, cate.")
+    parser.add_argument("--tier", required=True, help="One of: ci, full, study, cate, p7.")
     parser.add_argument("--out", required=True, help="Directory to write results to.")
     parser.add_argument("--root-entropy", type=int, default=0, help="Seed root.")
     parser.add_argument(

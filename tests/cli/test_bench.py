@@ -475,3 +475,10 @@ def test_the_cate_tier_is_registered_and_sharded():
 
     assert bench_module.TIERS["cate"] == (cate_study_config, FULL_ESTIMATORS, FULL_FIT_CONFIG)
     assert "cate" in bench_module.SHARDED_TIERS
+
+
+def test_the_p7_tier_is_registered_and_sharded():
+    from cp_evaluation.tiers import FULL_ESTIMATORS, FULL_FIT_CONFIG, p7_study_config
+
+    assert bench_module.TIERS["p7"] == (p7_study_config, FULL_ESTIMATORS, FULL_FIT_CONFIG)
+    assert "p7" in bench_module.SHARDED_TIERS
