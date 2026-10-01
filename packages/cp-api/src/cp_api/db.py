@@ -45,9 +45,6 @@ class Base(DeclarativeBase):
     pass
 
 
-LEGACY_USER = "legacy"
-
-
 class User(Base):
     """An identity that owns datasets and analyses. `name` is a handle, not a login."""
 
