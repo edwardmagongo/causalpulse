@@ -12,6 +12,9 @@ silently disagree with the run it claims to describe.
 from __future__ import annotations
 
 import argparse
+import json
+import os
+import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict
 from pathlib import Path
@@ -400,4 +403,44 @@ def report(args: argparse.Namespace) -> int:
         for line in discrepancies:
             print(line)
     print(summary.to_string(index=False))
+    return 0
+
+
+def add_track_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("run_dir", help="A finished sharded run directory.")
+    parser.add_argument(
+        "--tracking-uri",
+        help="MLflow tracking URI. Default: $MLFLOW_TRACKING_URI, else ./mlruns/mlflow.db.",
+    )
+    parser.add_argument(
+        "--force", action="store_true", help="Log again even if this run is already tracked."
+    )
+
+
+def track(args: argparse.Namespace) -> int:
+    """Log a finished benchmark run to MLflow, once."""
+    # Imported here, so that every other bench command stays MLflow-free.
+    from cp_tracking.log import AlreadyTracked, default_tracking_uri, log_payload
+    from cp_tracking.payload import build_payload
+
+    run_dir = Path(args.run_dir)
+    if not (run_dir / MANIFEST_NAME).exists():
+        print(
+            f"{run_dir} has no {MANIFEST_NAME}; only sharded runs (bench run since the study "
+            "engine) can be tracked",
+            file=sys.stderr,
+        )
+        return 1
+    frame, sidecar = load_run(run_dir)
+    manifest = json.loads((run_dir / MANIFEST_NAME).read_text())
+    uri = args.tracking_uri or os.environ.get("MLFLOW_TRACKING_URI") or default_tracking_uri(
+        Path.cwd()
+    )
+    try:
+        payload = build_payload(frame, manifest, sidecar, run_dir)
+        run_id = log_payload(payload, uri, force=args.force)
+    except AlreadyTracked as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    print(run_id)
     return 0

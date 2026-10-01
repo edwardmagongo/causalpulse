@@ -65,6 +65,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     study.add_study_report_arguments(bench_study_report)
     bench_study_report.set_defaults(handler=study.run_study_report)
+    bench_track = bench_commands.add_parser(
+        "track", help="Log a finished run to MLflow for comparison across runs."
+    )
+    bench.add_track_arguments(bench_track)
+    bench_track.set_defaults(handler=bench.track)
 
     return parser
 

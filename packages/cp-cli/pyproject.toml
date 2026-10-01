@@ -9,6 +9,7 @@ dependencies = [
     "cp-causal",
     "cp-evaluation",
     "cp-report",
+    "cp-tracking",
     "numpy>=2.0",
     "pandas>=2.2",
     "pyarrow>=17.0",
@@ -31,3 +32,4 @@ cp-simulation = { workspace = true }
 cp-causal = { workspace = true }
 cp-evaluation = { workspace = true }
 cp-report = { workspace = true }
+cp-tracking = { workspace = true }
