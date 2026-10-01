@@ -3,7 +3,7 @@ name = "causalpulse"
 version = "0.1.0"
 description = "Causal inference and experimentation platform"
 requires-python = ">=3.12"
-dependencies = ["cp-core", "cp-statistics", "cp-simulation", "cp-causal", "cp-evaluation", "cp-figures", "cp-report", "cp-cli", "cp-api", "cp-worker"]
+dependencies = ["cp-core", "cp-statistics", "cp-simulation", "cp-causal", "cp-evaluation", "cp-figures", "cp-report", "cp-cli", "cp-api", "cp-worker", "cp-tracking"]
 
 [tool.uv.workspace]
 members = ["packages/*"]
@@ -19,6 +19,7 @@ cp-report = { workspace = true }
 cp-cli = { workspace = true }
 cp-api = { workspace = true }
 cp-worker = { workspace = true }
+cp-tracking = { workspace = true }
 
 [dependency-groups]
 dev = [

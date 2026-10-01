@@ -10,13 +10,14 @@ root_packages =
     cp_cli
     cp_api
     cp_worker
+    cp_tracking
 
 [importlinter:contract:layers]
 name = Package layering
 type = layers
 layers =
     cp_cli | cp_worker
-    cp_report
+    cp_report | cp_tracking
     cp_figures
     cp_evaluation
     cp_causal
@@ -63,3 +64,12 @@ forbidden_modules =
     cp_api.admin
     cp_api.app
     cp_api.deps
+
+[importlinter:contract:tracking-stays-offline]
+name = The API and the worker never import the tracking package
+type = forbidden
+source_modules =
+    cp_api
+    cp_worker
+forbidden_modules =
+    cp_tracking

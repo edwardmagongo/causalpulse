@@ -32,6 +32,7 @@ members = [
     "cp-report",
     "cp-simulation",
     "cp-statistics",
+    "cp-tracking",
     "cp-worker",
 ]
 
@@ -158,6 +159,7 @@ dependencies = [
     { name = "cp-report" },
     { name = "cp-simulation" },
     { name = "cp-statistics" },
+    { name = "cp-tracking" },
     { name = "cp-worker" },
 ]
 
@@ -189,6 +191,7 @@ requires-dist = [
     { name = "cp-report", editable = "packages/cp-report" },
     { name = "cp-simulation", editable = "packages/cp-simulation" },
     { name = "cp-statistics", editable = "packages/cp-statistics" },
+    { name = "cp-tracking", editable = "packages/cp-tracking" },
     { name = "cp-worker", editable = "packages/cp-worker" },
 ]
 
@@ -618,6 +621,21 @@ requires-dist = [
     { name = "cp-core", editable = "packages/cp-core" },
     { name = "numpy", specifier = ">=2.0" },
     { name = "scipy", specifier = ">=1.14" },
+]
+
+[[package]]
+name = "cp-tracking"
+version = "0.1.0"
+source = { editable = "packages/cp-tracking" }
+dependencies = [
+    { name = "cp-evaluation" },
+    { name = "pandas" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "cp-evaluation", editable = "packages/cp-evaluation" },
+    { name = "pandas", specifier = ">=2.2" },
 ]
 
 [[package]]
