@@ -2,6 +2,8 @@
 
 import copy
 import json
+import os
+from pathlib import Path
 
 import pytest
 from cli._tiny_study import use_tiny_study_tier
@@ -31,3 +33,16 @@ def loaded(_loaded_once):
     """`(frame, manifest, sidecar, run_dir)` as `bench track` reads them; private copies."""
     frame, manifest, sidecar, run_dir = _loaded_once
     return frame.copy(), copy.deepcopy(manifest), copy.deepcopy(sidecar), run_dir
+
+
+@pytest.fixture(autouse=True)
+def _keep_mlflow_out_of_the_working_directory(tmp_path, monkeypatch):
+    """MLflow defaults to `./mlruns` and `./mlartifacts`. Run every test in its own
+    tmp dir so a test that forgets an explicit location leaks there, and fail if
+    the directory the suite was started from gained either one."""
+    start = Path(os.getcwd())
+    before = {name for name in ("mlruns", "mlartifacts") if (start / name).exists()}
+    monkeypatch.chdir(tmp_path)
+    yield
+    after = {name for name in ("mlruns", "mlartifacts") if (start / name).exists()}
+    assert after == before, f"a tracking test wrote {sorted(after - before)} into {start}"

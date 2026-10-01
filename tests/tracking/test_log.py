@@ -105,10 +105,11 @@ def test_a_relative_sqlite_uri_keeps_artifacts_beside_the_database(tmp_path, mon
 
 
 def test_an_unfinished_run_does_not_block_a_retry(store):
-    from cp_tracking.log import EXPERIMENT, log_payload
+    from cp_tracking.log import EXPERIMENT, artifact_root_for, log_payload
 
     client = _client(store)
-    stuck = client.create_run(client.create_experiment(EXPERIMENT), tags=_payload().tags)
+    experiment_id = client.create_experiment(EXPERIMENT, artifact_location=artifact_root_for(store))
+    stuck = client.create_run(experiment_id, tags=_payload().tags)
     assert stuck.info.status == "RUNNING"
 
     retried = log_payload(_payload(), store)  # no force
