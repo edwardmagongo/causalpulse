@@ -198,3 +198,12 @@ def test_mlflow_is_imported_only_by_the_tracking_log_module():
     assert offenders.returncode in (0, 1), offenders.stderr
     found = {pathlib.Path(p) for p in offenders.stdout.splitlines()} - {allowed}
     assert not found, f"mlflow imported outside {allowed}: {sorted(map(str, found))}"
+
+
+def test_no_test_package_shadows_a_stdlib_module():
+    import pathlib
+    import sys
+
+    tests = pathlib.Path(__file__).resolve().parent
+    names = {p.name for p in tests.iterdir() if p.is_dir() and (p / "__init__.py").exists()}
+    assert not names & sys.stdlib_module_names, sorted(names & sys.stdlib_module_names)
