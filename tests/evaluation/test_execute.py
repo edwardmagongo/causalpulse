@@ -3,6 +3,7 @@ import os
 import pandas as pd
 import pytest
 from cp_evaluation.execute import (
+    SHAPE_COST_RANK,
     CellFailedError,
     execute,
     fit_cell_to_shard,
@@ -185,18 +186,39 @@ def test_a_donor_pool_cell_orders_with_the_panel_cells_and_does_not_raise():
     assert all(d in nuts for d in donors)
 
 
-def test_cate_cells_are_scheduled_among_the_dear_cells_by_their_registry_size():
+def test_cells_are_scheduled_by_measured_cost_class_then_size():
     cells = [
         CrossSectionCell(scenario="A", n_units=2000, confounding_strength=1.0, seed=0),
-        DonorPoolCell("S1", 0),
         CateCell("RICH", 0),
+        DonorPoolCell("S1", 0),
+        PanelCell(scenario="P1", n_units=150, n_periods=7, seed=0),
+        CrossSectionCell(scenario="A", n_units=500, confounding_strength=1.0, seed=0),
     ]
 
     ordered = longest_first(cells)
 
-    # Not cross-sectional, so ahead of every cross-sectional cell; 2000 units
-    # against the donor cell's 18, so ahead of it too.
-    assert [type(c) for c in ordered] == [CateCell, DonorPoolCell, CrossSectionCell]
+    # Panel (hierarchical_did, 24.8-79.7s a fit) before donor (~20.6s a fitted
+    # row, three rows) before CATE (~15s a cell) before cross-section (8.7-12.3s),
+    # whatever their unit counts: a 2,000-unit CATE cell no longer jumps the queue.
+    assert [type(c) for c in ordered] == [
+        PanelCell, DonorPoolCell, CateCell, CrossSectionCell, CrossSectionCell
+    ]
+    # Within a shape, larger samples first.
+    assert [c.n_units for c in ordered if isinstance(c, CrossSectionCell)] == [2000, 500]
+
+
+def test_every_cell_shape_has_a_cost_rank():
+    assert set(SHAPE_COST_RANK) == {PanelCell, DonorPoolCell, CateCell, CrossSectionCell}
+
+
+def test_an_unranked_cell_type_is_refused_not_scheduled_somewhere():
+    class _NewShape:
+        scenario = "X"
+        seed = 0
+        n_units = 10
+
+    with pytest.raises(KeyError):
+        longest_first([_NewShape()])  # type: ignore[list-item]
 
 
 # -- the process pool ---------------------------------------------------------
