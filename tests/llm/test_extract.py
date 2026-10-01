@@ -170,3 +170,26 @@ def test_a_name_that_is_not_an_identifier_is_refused_not_escaped(outcome):
 
     with pytest.raises(ValueError, match="'Diff in Means' cannot be a fact id segment"):
         fact_table(dataclasses.replace(outcome, reports=(renamed,)))
+
+
+def _with_point(outcome, point):
+    report = outcome.reports[0]
+    changed = dataclasses.replace(
+        report, estimate=dataclasses.replace(report.estimate, point=point)
+    )
+    return report.estimate.method, fact_table(
+        dataclasses.replace(outcome, reports=(changed,))
+    )
+
+
+def test_a_non_finite_point_gets_neither_a_point_nor_a_direction_fact(outcome):
+    method, facts = _with_point(outcome, float("nan"))
+
+    assert facts.get(f"est.{method}.point") is None
+    assert facts.get(f"est.{method}.direction") is None
+
+
+def test_a_point_of_exactly_zero_has_the_direction_zero(outcome):
+    method, facts = _with_point(outcome, 0.0)
+
+    assert _value(facts, f"est.{method}.direction") == "zero"

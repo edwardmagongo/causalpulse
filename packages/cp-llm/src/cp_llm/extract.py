@@ -55,8 +55,9 @@ def _estimate_facts(report: EstimateReport) -> list[Fact]:
 
     for field in ("estimand", "scale", "ci_basis"):
         facts.append(Fact(f"{prefix}.{field}", "label", str(summary[field]), subject))
+    point = _finite(summary["point"])
     for field in ("point", "se", "ci_lower", "ci_upper"):
-        number = _finite(summary[field])
+        number = point if field == "point" else _finite(summary[field])
         if number is not None:
             facts.append(Fact(f"{prefix}.{field}", "number", number, subject))
     level = _finite(summary["ci_level"])
@@ -68,9 +69,10 @@ def _estimate_facts(report: EstimateReport) -> list[Fact]:
     for field in ("n_treated", "n_control"):
         facts.append(Fact(f"{prefix}.{field}", "count", int(cast(int, summary[field])), subject))
 
-    point = float(estimate.point)
-    direction = "positive" if point > 0 else "negative" if point < 0 else "zero"
-    facts.append(Fact(f"{prefix}.direction", "label", direction, subject))
+    if point is not None:
+        direction = "positive" if point > 0 else "negative" if point < 0 else "zero"
+        facts.append(Fact(f"{prefix}.direction", "label", direction, subject))
+    # No finiteness guard: Interval refuses non-finite bounds at construction.
     excludes = estimate.ci.lower > 0 or estimate.ci.upper < 0
     facts.append(
         Fact(
