@@ -6,6 +6,8 @@ owner-scoped, fails here by name. A route with a path parameter this file does
 not know how to fill fails too, rather than being skipped.
 """
 
+import uuid
+
 import pytest
 from cp_api.accounts import revoke_key
 from cp_api.app import create_app
@@ -53,11 +55,21 @@ def alices_analysis(sessions, redis_conn, worker_env, api_key_for):
         f"/v1/analyses/{analysis_id}/estimates/lin_regression/report.md"
     ).text
     figure = markdown.split("](", 1)[1].split(")", 1)[0]
-    return {
+    fixture = {
         "key": key,
         "dataset_id": dataset["id"],
         "params": {"analysis_id": analysis_id, "method": "lin_regression", "filename": figure},
     }
+    # Positive control: the other-user test below asserts 404, which a broken
+    # fixture (a failed analysis, a wrong figure name) would also produce for
+    # everyone. So prove here that the owner gets 200 on every route it covers.
+    for method, path in ROUTES:
+        if "{analysis_id}" in path:
+            response = _request(alice, method, path, fixture)
+            assert response.status_code == 200, (
+                f"fixture is broken: alice got {response.status_code} on {method} {path}"
+            )
+    return fixture
 
 
 def _request(client, method, path, fixture):
@@ -97,6 +109,18 @@ def test_another_users_analysis_is_not_found_on_every_route(
     response = _request(bob, method, path, alices_analysis)
 
     assert response.status_code == 404, f"{method} {path} answered {response.status_code}"
+
+
+def test_an_analysis_and_its_dataset_have_the_same_owner(sessions, alices_analysis):
+    from cp_api.db import Analysis, Dataset, User
+    from sqlalchemy import select
+
+    with sessions() as session:
+        alice_id = session.scalars(select(User.id).where(User.name == "alice")).one()
+        analysis = session.get(Analysis, uuid.UUID(alices_analysis["params"]["analysis_id"]))
+        dataset = session.get(Dataset, uuid.UUID(alices_analysis["dataset_id"]))
+        assert analysis is not None and dataset is not None
+        assert analysis.owner_id == dataset.owner_id == alice_id
 
 
 def test_the_route_table_holds_no_surprises():
