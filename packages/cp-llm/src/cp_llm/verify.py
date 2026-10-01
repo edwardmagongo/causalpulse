@@ -110,8 +110,14 @@ def _for_the_lint(fact: Fact) -> str:
     rendered number, so a hedge before `0.066` would not reach a verb after
     it. A numeric fact is therefore one token; a word-valued fact is
     substituted verbatim, because its words are what the lint must read.
+
+    The token is a digit, not a letter: a letter glued to free text can spell
+    a word the rendered text does not contain (`{n}o` would lint as "No" and
+    `{n}ot` as "Not", hedging a claim that renders as "218o" or "218ot"). A
+    digit cannot join letters into a word, and it is what a rendered number
+    looks like to the lint, minus the full stop.
     """
-    return "N" if fact.kind in _NUMERIC_KINDS else format_fact(fact)
+    return "0" if fact.kind in _NUMERIC_KINDS else format_fact(fact)
 
 
 def _language(statement: str, facts: FactTable) -> Iterator[str]:

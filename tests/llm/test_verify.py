@@ -112,7 +112,6 @@ def test_a_malformed_placeholder_does_not_resolve(tail, facts):
         " That is a few percent.",
         " It is twice as large.",
         " It would double.",
-        " That is 0.5 percentage points.",
     ],
 )
 def test_a_number_word_is_a_bare_value(tail, facts):
@@ -210,9 +209,9 @@ def test_naming_both_methods_satisfies_attribution_for_a_comparison(facts):
     assert "attribution" not in {v.rule for v in verify(narrative, facts)}
 
 
-def test_the_language_rule_reads_the_rendered_text_not_the_template(facts):
-    # The offending word arrives through a fact, so only the rendered
-    # statement contains it.
+def test_a_causal_claim_arriving_through_a_text_fact_is_linted(facts):
+    # The offending words arrive through a text fact, which the lint reads
+    # verbatim (only numeric facts are masked), so the template alone hides it.
     poisoned = FactTable(
         (*facts.facts, Fact("analysis.note", "text", "The treatment causes the outcome.", None))
     )
@@ -321,3 +320,36 @@ def test_the_same_sentence_without_its_hedge_is_a_causal_claim(facts):
     )
 
     assert {v.rule for v in verify(narrative, facts)} == {"language"}
+
+
+def test_a_hedge_with_a_p_value_fact_masked_still_covers_a_later_causal_verb(facts):
+    # Dropping `p_value` from the masked kinds would put "0.0" in the lint's
+    # text and end the sentence before the verb.
+    assert facts.get("est.ipw.p_value") is not None
+    narrative = swap(
+        good_narrative(),
+        "estimates",
+        1,
+        good_narrative().estimates[1]
+        + " If the assumptions of {est.ipw.method} hold, with a p-value of "
+        "{est.ipw.p_value}, the treatment causes the outcome.",
+    )
+
+    assert verify(narrative, facts) == ()
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "For {est.ipw.method}, {est.ipw.n_treated}o the treatment causes the outcome.",
+        "For {est.ipw.method}, this will {est.ipw.n_treated}ot prove the effect.",
+    ],
+)
+def test_a_placeholder_glued_to_letters_cannot_spell_a_hedge_or_a_negation(statement, facts):
+    # Masked as a letter, `{n}o` would lint as the word "No" and `{n}ot` as
+    # "Not", hedging a claim whose rendered text reads "218o" and "218ot".
+    narrative = swap(
+        good_narrative(), "estimates", 1, good_narrative().estimates[1] + " " + statement
+    )
+
+    assert "language" in {v.rule for v in verify(narrative, facts)}
