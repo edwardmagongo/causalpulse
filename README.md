@@ -1390,16 +1390,22 @@ Each benchmark run becomes one MLflow run in the `causalpulse-benchmarks` experi
 
 - **Params:** the run's identity (tier, estimators, fit config, grid axes, root seed,
   replications).
-- **Tags:** the git commit and package versions.
+- **Tags:** `cp.git_commit`, one `cp.package.<name>` per package version, `cp.run_dir` and
+  `cp.fingerprint`.
 - **Metrics:** for each scenario x estimator on the headline slice, bias, RMSE, analytic and
   bootstrap coverage, and SE calibration, each with its Monte Carlo standard error as
   `<scenario>.<method>.<metric>_mcse`.
-- **Artifacts:** every headline table, at both levels, as CSV.
+- **Artifacts:** the headline tables as CSV (most at both the scenario and the
+  scenario-by-size level; `false_positive_rate__scenario` has the scenario level only), plus
+  `identity.json` and `sidecar.json`.
 
 Only the headline slice is logged as metrics, because logging every grid cell would make MLflow's
 comparison view unusable.
 
-Tracking the same finished run twice is refused; `--force` logs it again. The store defaults to
+The fingerprint covers the run's identity, its row count and the git commit. Tracking the same
+finished run again at the same commit is refused; `--force` logs it again. The same grid run at a
+new commit is tracked as a new run, which is what makes cross-commit comparison possible. A store
+error prints one line and exits 1. The store defaults to
 `./mlruns`, relative to the current directory (gitignored); set `--tracking-uri` or
 `MLFLOW_TRACKING_URI` to use another. Only sharded runs can be tracked.
 
