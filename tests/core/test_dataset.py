@@ -344,3 +344,75 @@ def test_auxiliary_columns_must_not_contain_duplicates():
     # should catch and reject them at construction time.
     with pytest.raises(ValueError, match="auxiliary_columns.*duplicates"):
         _schema(auxiliary_columns=("outcome_proxy", "outcome_proxy"))
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "overrides"),
+    [
+        ("unit", "treatment", {"unit": "treated"}),
+        ("unit", "outcome", {"unit": "outcome"}),
+        ("treatment", "outcome", {"treatment": "outcome"}),
+        ("unit", "time", {"time": "unit_id"}),
+        ("treatment", "time", {"time": "treated"}),
+        ("outcome", "time", {"time": "outcome"}),
+        ("unit", "cohort", {"cohort": "unit_id"}),
+        ("treatment", "cohort", {"cohort": "treated"}),
+        ("outcome", "cohort", {"cohort": "outcome"}),
+        ("time", "cohort", {"time": "period", "cohort": "period"}),
+    ],
+)
+def test_two_roles_may_not_name_the_same_column(first, second, overrides):
+    # The negative control and the auxiliaries were checked against the
+    # primary roles long before the primary roles were checked against each
+    # other. A schema naming one column twice still fits -- `treatment ==
+    # outcome` regresses a column on itself -- so the estimate it returns is
+    # meaningless rather than absent, and only a refusal here says so.
+    with pytest.raises(ValueError, match=f"{first} and {second} both name column"):
+        _schema(**overrides)
+
+
+@pytest.mark.parametrize(
+    ("role", "column", "overrides"),
+    [
+        ("unit", "unit_id", {}),
+        ("treatment", "treated", {}),
+        ("outcome", "outcome", {}),
+        ("time", "period", {"time": "period"}),
+        ("cohort", "adoption_cohort", {"cohort": "adoption_cohort"}),
+    ],
+)
+def test_a_covariate_may_not_also_be_a_role_column(role, column, overrides):
+    # The same rule `_resolve_nuisance_covariates` enforces for covariates
+    # supplied through `config.options`, applied to the declared adjustment
+    # set every estimator reads by default.
+    with pytest.raises(ValueError, match=f"covariates contains {column!r}.*the {role}"):
+        _schema(covariates=("x1", column), **overrides)
+
+
+def test_one_column_in_every_role_is_refused_before_any_frame_is_read():
+    # The shape the gap was found with: accepted by the schema, accepted by
+    # `CausalDataset`, and so queued by the API.
+    with pytest.raises(ValueError, match="treatment and outcome both name column 't'"):
+        CausalSchema(
+            unit="a",
+            treatment="t",
+            outcome="t",
+            covariates=("t",),
+            outcome_type="binary",
+        )
+
+
+def test_a_role_collision_message_says_what_would_have_gone_wrong():
+    # Every refusal in this module explains itself; "columns must be distinct"
+    # would tell an analyst what to change and not why it mattered.
+    with pytest.raises(ValueError, match="regress the column on itself"):
+        _schema(treatment="outcome")
+    with pytest.raises(ValueError, match="collinear with treatment"):
+        _schema(covariates=("x1", "treated"))
+
+
+def test_a_panel_schema_with_every_role_distinct_still_constructs():
+    schema = _schema(time="period", cohort="adoption_cohort")
+    assert schema.required_columns == (
+        "unit_id", "treated", "outcome", "x1", "x2", "period", "adoption_cohort",
+    )
