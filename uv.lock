@@ -308,12 +308,12 @@ dependencies = [
     { name = "cp-report" },
     { name = "cp-simulation" },
     { name = "cp-statistics" },
-    { name = "cp-tracking" },
     { name = "cp-worker" },
 ]
 
 [package.dev-dependencies]
 dev = [
+    { name = "cp-cli", extra = ["tracking"] },
     { name = "econml" },
     { name = "httpx" },
     { name = "hypothesis" },
@@ -340,12 +340,12 @@ requires-dist = [
     { name = "cp-report", editable = "packages/cp-report" },
     { name = "cp-simulation", editable = "packages/cp-simulation" },
     { name = "cp-statistics", editable = "packages/cp-statistics" },
-    { name = "cp-tracking", editable = "packages/cp-tracking" },
     { name = "cp-worker", editable = "packages/cp-worker" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "cp-cli", extras = ["tracking"], editable = "packages/cp-cli" },
     { name = "econml", specifier = ">=0.17.0" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "hypothesis", specifier = ">=6.100" },
@@ -848,10 +848,14 @@ dependencies = [
     { name = "cp-report" },
     { name = "cp-simulation" },
     { name = "cp-statistics" },
-    { name = "cp-tracking" },
     { name = "numpy" },
     { name = "pandas" },
     { name = "pyarrow" },
+]
+
+[package.optional-dependencies]
+tracking = [
+    { name = "cp-tracking" },
 ]
 
 [package.metadata]
@@ -862,11 +866,12 @@ requires-dist = [
     { name = "cp-report", editable = "packages/cp-report" },
     { name = "cp-simulation", editable = "packages/cp-simulation" },
     { name = "cp-statistics", editable = "packages/cp-statistics" },
-    { name = "cp-tracking", editable = "packages/cp-tracking" },
+    { name = "cp-tracking", marker = "extra == 'tracking'", editable = "packages/cp-tracking" },
     { name = "numpy", specifier = ">=2.0" },
     { name = "pandas", specifier = ">=2.2" },
     { name = "pyarrow", specifier = ">=17.0" },
 ]
+provides-extras = ["tracking"]
 
 [[package]]
 name = "cp-core"

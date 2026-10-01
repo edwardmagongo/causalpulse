@@ -1379,7 +1379,8 @@ strength=2.0)`, `OutcomeProxy(noise_sd=0.5)` unless noted. Full tables in
 ## Tracking benchmark runs
 
 `causalpulse bench track <run-dir>` logs a finished benchmark run to MLflow, so runs can be
-compared across commits and grids:
+compared across commits and grids. MLflow comes from the optional `cp-tracking` package
+(`cp-cli[tracking]`), which the dev group installs; the api/worker image leaves it out:
 
 ```bash
 uv run causalpulse bench track benchmarks/runs/study-60

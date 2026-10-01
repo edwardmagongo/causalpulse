@@ -9,11 +9,14 @@ dependencies = [
     "cp-causal",
     "cp-evaluation",
     "cp-report",
-    "cp-tracking",
     "numpy>=2.0",
     "pandas>=2.2",
     "pyarrow>=17.0",
 ]
+
+[project.optional-dependencies]
+# Only `bench track` needs it, and it brings MLflow's whole tree.
+tracking = ["cp-tracking"]
 
 [project.scripts]
 causalpulse = "cp_cli.__main__:main"
