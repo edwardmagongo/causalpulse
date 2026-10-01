@@ -2,9 +2,10 @@
 
 One MLflow run per benchmark run. The params are the run's identity, so two
 runs of the same grid can be told apart by what was varied. The metrics are
-the headline slice only, per scenario: every grid cell would be tens of
-thousands of keys and would make MLflow's comparison view unusable. The full
-headline tables go in as artifacts, so nothing is lost.
+the headline slice only, per scenario, plus a run's CATE metrics when it has
+scored CATE rows: every grid cell would be tens of thousands of keys and would
+make MLflow's comparison view unusable. The full headline tables go in as
+artifacts, so nothing is lost.
 """
 
 from __future__ import annotations
@@ -18,6 +19,8 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from cp_evaluation.cate import CATE_METRIC_COLUMNS
+from cp_evaluation.metrics import summarise
 from cp_evaluation.study import headline_tables
 
 FINGERPRINT_TAG = "cp.fingerprint"
@@ -28,6 +31,10 @@ _FAMILIES: dict[str, tuple[str, ...]] = {
     "se_calibration": ("se_calibration",),
 }
 TRACKED_METRICS: tuple[str, ...] = tuple(m for ms in _FAMILIES.values() for m in ms)
+# Per-unit CATE recovery, logged per scenario and method under the same rule
+# as the ATE families. Read from `summarise` over a run's CATE rows: exactly
+# the numbers the benchmark report's CATE section shows.
+CATE_TRACKED_METRICS: tuple[str, ...] = CATE_METRIC_COLUMNS
 _MAX_PARAM = 6000  # MLflow's limit on a param value
 _TRUNCATED = "[truncated; see identity.json]"
 
@@ -113,6 +120,37 @@ def _metrics(tables: Mapping[str, pd.DataFrame]) -> dict[str, float]:
     return metrics
 
 
+def _cate_summary(frame: pd.DataFrame) -> pd.DataFrame:
+    """One row per method and scenario with a scored CATE metric; empty if none."""
+    rows = frame[frame["shape"] == "cate"]
+    if rows.empty:
+        return pd.DataFrame()
+    summary = summarise(rows, by=["scenario"])
+    counts = [f"{metric}_n_used" for metric in CATE_TRACKED_METRICS]
+    scored = summary[summary[counts].sum(axis=1) > 0]
+    columns = [
+        "method",
+        "scenario",
+        *(f"{m}{suffix}" for m in CATE_TRACKED_METRICS for suffix in ("", "_mcse", "_n_used")),
+    ]
+    return scored[columns].reset_index(drop=True)
+
+
+def _cate_metrics(summary: pd.DataFrame) -> dict[str, float]:
+    metrics: dict[str, float] = {}
+    for record in summary.to_dict("records"):
+        for name in CATE_TRACKED_METRICS:
+            value, mcse = record[name], record[f"{name}_mcse"]
+            # Same rule as `_metrics`: a value is logged with its MCSE or not at all,
+            # so NULL's undefined correlation and slope never become NaN metrics.
+            if not (math.isfinite(value) and math.isfinite(mcse)):
+                continue
+            key = f"{record['scenario']}.{record['method']}.{name}"
+            metrics[key] = float(value)
+            metrics[f"{key}_mcse"] = float(mcse)
+    return metrics
+
+
 def build_payload(
     frame: pd.DataFrame,
     manifest: Mapping[str, Any],
@@ -123,10 +161,15 @@ def build_payload(
     artifacts = {f"{name}.csv": table.to_csv(index=False) for name, table in tables.items()}
     artifacts["identity.json"] = json.dumps(manifest["identity"], indent=2, sort_keys=True)
     artifacts["sidecar.json"] = json.dumps(dict(sidecar), indent=2, sort_keys=True, default=str)
+    cate = _cate_summary(frame)
+    if not cate.empty:
+        artifacts["cate__scenario.csv"] = cate.to_csv(index=False)
     return TrackingPayload(
         run_name=run_dir.name,
         params=_params(manifest),
         tags=_tags(manifest, run_dir, len(frame)),
-        metrics=_metrics(tables),
+        # Cannot overwrite: ATE keys end in TRACKED_METRICS names and CATE keys in
+        # `cate_*` names, which are disjoint.
+        metrics={**_metrics(tables), **_cate_metrics(cate)},
         artifacts=artifacts,
     )

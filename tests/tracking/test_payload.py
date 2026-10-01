@@ -2,7 +2,17 @@ import json
 import math
 import re
 
-from cp_tracking.payload import FINGERPRINT_TAG, TRACKED_METRICS, build_payload, fingerprint
+import numpy as np
+import pandas as pd
+import pytest
+from cp_evaluation.run import ROW_COLUMNS
+from cp_tracking.payload import (
+    CATE_TRACKED_METRICS,
+    FINGERPRINT_TAG,
+    TRACKED_METRICS,
+    build_payload,
+    fingerprint,
+)
 
 _KEY = re.compile(r"^[^.]+\.[^.]+\.(?P<metric>[a-z_]+)$")
 
@@ -190,3 +200,65 @@ def test_a_pair_with_a_finite_value_but_no_finite_mcse_is_skipped(loaded, monkey
     assert "A.no_mcse.bias" not in payload.metrics
     assert "A.no_mcse.bias_mcse" not in payload.metrics
     assert payload.metrics["A.no_mcse.rmse"] == 0.4
+
+
+def _with_cate_rows(frame, *, scenario="RICH", correlations=(0.8, 0.9, 0.7)):
+    rows = []
+    for seed, correlation in enumerate(correlations):
+        row = dict.fromkeys(ROW_COLUMNS, np.nan)
+        row.update(
+            shape="cate", scenario=scenario, n_units=2000, seed=seed,
+            method="causal_forest", status="fitted", reason="", estimand="ATE",
+            truth=0.1, point=0.1, runtime_seconds=1.0, cate_correlation=correlation,
+            cate_rmse=0.05 + 0.01 * seed, cate_calibration_slope=1.5,
+        )
+        rows.append(row)
+    return pd.concat([frame, pd.DataFrame(rows, columns=list(ROW_COLUMNS))], ignore_index=True)
+
+
+def test_cate_rows_are_logged_as_cate_metrics_with_their_mcse(loaded):
+    frame, manifest, sidecar, run_dir = loaded
+
+    payload = build_payload(_with_cate_rows(frame), manifest, sidecar, run_dir)
+
+    key = "RICH.causal_forest.cate_correlation"
+    assert payload.metrics[key] == pytest.approx(0.8)
+    assert payload.metrics[f"{key}_mcse"] == pytest.approx(
+        float(np.std([0.8, 0.9, 0.7], ddof=1) / np.sqrt(3))
+    )
+    for metric in CATE_TRACKED_METRICS:
+        assert f"RICH.causal_forest.{metric}" in payload.metrics
+        assert f"RICH.causal_forest.{metric}_mcse" in payload.metrics
+    assert "cate__scenario.csv" in payload.artifacts
+    assert "RICH" in payload.artifacts["cate__scenario.csv"]
+
+
+def test_an_undefined_cate_metric_is_skipped_not_logged_as_nan(loaded):
+    frame, manifest, sidecar, run_dir = loaded
+    null = _with_cate_rows(frame, scenario="NULL", correlations=(np.nan, np.nan))
+    null.loc[null["scenario"] == "NULL", "cate_calibration_slope"] = np.nan
+
+    payload = build_payload(null, manifest, sidecar, run_dir)
+
+    assert "NULL.causal_forest.cate_rmse" in payload.metrics
+    assert "NULL.causal_forest.cate_correlation" not in payload.metrics
+    assert "NULL.causal_forest.cate_calibration_slope" not in payload.metrics
+    assert all(math.isfinite(v) for v in payload.metrics.values())
+
+
+def test_a_run_without_cate_rows_logs_no_cate_metric_or_artifact(loaded):
+    payload = build_payload(*loaded)
+
+    assert not any(key.split(".")[-1].removesuffix("_mcse") in CATE_TRACKED_METRICS
+                   for key in payload.metrics)
+    assert "cate__scenario.csv" not in payload.artifacts
+
+
+def test_adding_cate_rows_leaves_every_existing_ate_metric_unchanged(loaded):
+    frame, manifest, sidecar, run_dir = loaded
+    without = build_payload(frame, manifest, sidecar, run_dir)
+
+    with_cate = build_payload(_with_cate_rows(frame), manifest, sidecar, run_dir)
+
+    for key, value in without.metrics.items():
+        assert with_cate.metrics[key] == value, key
