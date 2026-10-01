@@ -193,6 +193,38 @@ def test_the_sidecar_records_the_long_panel_arm_requested_and_realised():
     assert bench_module._axis_discrepancies(sidecar) == []
 
 
+def test_a_requested_long_panel_scenario_that_never_landed_is_a_discrepancy():
+    config = GridConfig(
+        cross_section=None, panel=None, long_panel=LongPanelAxes(scenarios=("P7",)), replications=1
+    )
+    frame = pd.DataFrame({"shape": ["panel"], "scenario": ["P1"]})
+
+    sidecar = _sidecar_for(config, frame)
+
+    assert sidecar["long_panel_realised"] == {"scenarios": []}
+    lines = bench_module._axis_discrepancies(sidecar)
+    assert len(lines) == 1
+    assert "long_panel.scenarios" in lines[0]
+
+
+def test_a_grid_with_no_long_panel_arm_records_none_for_it():
+    config = GridConfig(
+        cross_section=CrossSectionAxes(
+            scenarios=("A",), n_units=(200,), confounding_strength=(1.0,)
+        ),
+        panel=None,
+        replications=1,
+    )
+    frame = pd.DataFrame(
+        {"shape": ["cross_section"], "scenario": ["A"], "n_units": [200]}
+    ).assign(**{name: 1.0 for name in AXIS_NAMES if name not in ("scenarios", "n_units")})
+
+    sidecar = _sidecar_for(config, frame)
+
+    assert sidecar["long_panel"] is None
+    assert sidecar["long_panel_realised"] is None
+
+
 def test_a_grid_with_no_donor_arm_records_none_for_it():
     config = GridConfig(
         cross_section=CrossSectionAxes(
