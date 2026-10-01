@@ -183,3 +183,27 @@ def test_nothing_below_may_import_the_report(module_name):
     assert offenders.stdout == "", (
         f"{module_name} must never reference cp_report:\n" + offenders.stdout
     )
+
+
+def test_mlflow_is_imported_only_by_the_tracking_log_module():
+    import pathlib
+
+    packages = pathlib.Path(__file__).resolve().parents[1] / "packages"
+    allowed = packages / "cp-tracking" / "src" / "cp_tracking" / "log.py"
+    offenders = subprocess.run(
+        ["grep", "-rlE", "--include=*.py", r"^\s*(import mlflow|from mlflow)", str(packages)],
+        capture_output=True,
+        text=True,
+    )
+    assert offenders.returncode in (0, 1), offenders.stderr
+    found = {pathlib.Path(p) for p in offenders.stdout.splitlines()} - {allowed}
+    assert not found, f"mlflow imported outside {allowed}: {sorted(map(str, found))}"
+
+
+def test_no_test_package_shadows_a_stdlib_module():
+    import pathlib
+    import sys
+
+    tests = pathlib.Path(__file__).resolve().parent
+    names = {p.name for p in tests.iterdir() if p.is_dir() and (p / "__init__.py").exists()}
+    assert not names & sys.stdlib_module_names, sorted(names & sys.stdlib_module_names)

@@ -3,7 +3,7 @@ name = "causalpulse"
 version = "0.1.0"
 description = "Causal inference and experimentation platform"
 requires-python = ">=3.12"
-dependencies = ["cp-core", "cp-statistics", "cp-simulation", "cp-causal", "cp-evaluation", "cp-figures", "cp-report", "cp-cli", "cp-api", "cp-worker"]
+dependencies = ["cp-core", "cp-statistics", "cp-simulation", "cp-causal", "cp-evaluation", "cp-figures", "cp-report", "cp-cli", "cp-api", "cp-worker", "cp-tracking"]
 
 [tool.uv.workspace]
 members = ["packages/*"]
@@ -19,6 +19,7 @@ cp-report = { workspace = true }
 cp-cli = { workspace = true }
 cp-api = { workspace = true }
 cp-worker = { workspace = true }
+cp-tracking = { workspace = true }
 
 [dependency-groups]
 dev = [
@@ -69,6 +70,10 @@ filterwarnings = [
     # message and category so no other warning (starlette or otherwise) is
     # silenced.
     "ignore:Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.:starlette.exceptions.StarletteDeprecationWarning",
+    # MLflow 3.16's SQLite tracking store uses SQLAlchemy's `noload`, which
+    # SQLAlchemy 2.1 deprecates. MLflow's code, not ours; probed 2026-10-01 as
+    # the only warning on this path.
+    "ignore:The ``noload`` loader strategy is deprecated:sqlalchemy.exc.SADeprecationWarning",
 ]
 
 [tool.ruff]
@@ -83,9 +88,9 @@ select = ["E", "F", "I", "N", "UP", "B", "SIM", "NPY"]
 # makes the matrix algebra harder to read against textbook formulas. pep8-naming
 # stays enforced everywhere else in the workspace.
 "packages/cp-statistics/src/cp_statistics/covariance.py" = ["N803", "N806"]
-"tests/statistics/test_covariance.py" = ["N803", "N806"]
+"tests/stats/test_covariance.py" = ["N803", "N806"]
 "packages/cp-statistics/src/cp_statistics/linalg_safety.py" = ["N803"]
-"tests/statistics/test_linalg_safety.py" = ["N803", "N806"]
+"tests/stats/test_linalg_safety.py" = ["N803", "N806"]
 # `A`/`M` mirror standard linear-algebra notation for a matrix and its
 # generator, same reasoning as the `X`/`y` exemptions above.
 "tests/causal/test_panel_checks.py" = ["N803", "N806"]

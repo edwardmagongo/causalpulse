@@ -225,7 +225,7 @@ a report without writing Python.
 | `cp-evaluation` | The benchmark grid: `run_grid` fits estimators across the DGP axes that exist and `summarise` reports bias, coverage, and calibration with Monte Carlo standard error. The first package allowed to import both `cp-simulation` and `cp-causal` together, so it sits above `cp-causal` in the layers contract and nothing below it may import it in turn. `store` and `execute` run a benchmark as a resumable set of shards. |
 | `cp-figures` | Eight publication-quality matplotlib figures — counterfactual path, event study, love plot, propensity overlap, specification curve, placebo distribution, cross-method forest plot, benchmark heatmaps — each a pure data function plus a thin drawing function. Imports only `cp-core` and `cp-causal`. |
 | `cp-report` | The evidence report generator: assumption table, validity band, cross-method comparison, and stated limitations, rendered to Markdown or one self-contained HTML file with figures inlined as SVG. Refuses to emit prose that fails `causal_language_lint`. |
-| `cp-cli` | The `causalpulse` command-line entry point (`simulate`, `analyze`, `replay`, `bench run`, `bench report`, `bench status`, `bench compact`, `bench study`) and Parquet-plus-JSON-sidecar result persistence. Sits at the top of the layers contract; nothing imports it. |
+| `cp-cli` | The `causalpulse` command-line entry point (`simulate`, `analyze`, `replay`, `bench run`, `bench report`, `bench status`, `bench compact`, `bench study`, `bench track`) and Parquet-plus-JSON-sidecar result persistence. Sits at the top of the layers contract; nothing imports it. |
 | `cp-api` | The FastAPI service: upload a CSV, request an analysis, read what the worker wrote. Not in the layers contract — its own forbidden-imports contract keeps it from importing `cp_causal` directly, so router refusals happen in the worker, not here. |
 | `cp-worker` | The RQ worker that runs a queued analysis through `cp_report.pipeline`: fit, score validity, render each estimate's report. Sits alongside `cp-cli` at the top of the layers contract; may import `cp_api.db` and nothing else from `cp_api`. |
 
@@ -1376,6 +1376,43 @@ strength=2.0)`, `OutcomeProxy(noise_sd=0.5)` unless noted. Full tables in
   0.2×/5× moved `mi_aux`'s empirical SD and calibration by an amount too small to separate from
   noise at 20 seeds. Suggestive, not resolved — carried to a future phase rather than fixed on a
   measurement this uncertain.
+
+## Tracking benchmark runs
+
+`causalpulse bench track <run-dir>` logs a finished benchmark run to MLflow, so runs can be
+compared across commits and grids:
+
+```bash
+uv run causalpulse bench track benchmarks/runs/study-60
+uv run mlflow ui --backend-store-uri sqlite:///mlruns/mlflow.db
+```
+
+Each benchmark run becomes one MLflow run in the `causalpulse-benchmarks` experiment:
+
+- **Params:** the run's identity (tier, estimators, fit config, grid axes, root seed,
+  replications).
+- **Tags:** `cp.git_commit`, one `cp.package.<name>` per package version, `cp.run_dir` and
+  `cp.fingerprint`.
+- **Metrics:** for each scenario x estimator on the headline slice, bias, RMSE, analytic and
+  bootstrap coverage, and SE calibration, each with its Monte Carlo standard error as
+  `<scenario>.<method>.<metric>_mcse`.
+- **Artifacts:** the headline tables as CSV (most at both the scenario and the
+  scenario-by-size level; `false_positive_rate__scenario` has the scenario level only), plus
+  `identity.json` and `sidecar.json`.
+
+Only the headline slice is logged as metrics, because logging every grid cell would make MLflow's
+comparison view unusable.
+
+The fingerprint covers the run's identity, its row count and the git commit. Tracking the same
+finished run again at the same commit is refused; `--force` logs it again. The same grid run at a
+new commit is tracked as a new run, which is what makes cross-commit comparison possible. A store
+error prints one line and exits 1. The store defaults to
+`./mlruns`, relative to the current directory (gitignored); set `--tracking-uri` or
+`MLFLOW_TRACKING_URI` to use another. Only sharded runs can be tracked.
+
+API analyses are deliberately not tracked. Their manifest and the Postgres rows beside it already
+record everything MLflow would, scoped to their owner, and a second store would have no
+ownership at all.
 
 ## Backend (sub-project 3)
 
