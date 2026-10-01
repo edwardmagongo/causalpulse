@@ -120,3 +120,33 @@ def test_bench_study_documents_how_to_read_its_csvs():
     from cp_cli.commands import study
 
     assert "keep_default_na=False" in (study.run_study.__doc__ or "")
+
+
+def test_study_writes_a_parquet_beside_every_csv_with_the_same_content(tmp_path):
+    _run(tmp_path / "run")
+
+    assert main(["bench", "study", str(tmp_path / "run"), "--out", str(tmp_path / "out")]) == 0
+
+    tables = tmp_path / "out" / "tables"
+    csvs = sorted(p.stem for p in tables.glob("*.csv"))
+    assert csvs, "the study should write at least one table"
+    assert sorted(p.stem for p in tables.glob("*.parquet")) == csvs
+    for name in csvs:
+        from_parquet = pd.read_parquet(tables / f"{name}.parquet")
+        from_csv = pd.read_csv(tables / f"{name}.csv", keep_default_na=False, na_values=[""])
+        assert list(from_parquet.columns) == list(from_csv.columns), name
+        assert len(from_parquet) == len(from_csv), name
+
+
+def test_a_null_scenario_survives_parquet_with_default_reading(tmp_path):
+    table = pd.DataFrame({"method": ["causal_forest"], "scenario": ["NULL"], "cate_rmse": [0.04]})
+    path = tmp_path / "t.parquet"
+    table.to_parquet(path, index=False)
+
+    assert pd.read_parquet(path)["scenario"].tolist() == ["NULL"]
+
+
+def test_bench_study_documents_the_parquet_tables():
+    from cp_cli.commands import study
+
+    assert ".parquet" in (study.run_study.__doc__ or "")
