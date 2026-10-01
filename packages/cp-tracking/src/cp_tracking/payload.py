@@ -41,9 +41,16 @@ class TrackingPayload:
     artifacts: dict[str, str]  # file name -> text content
 
 
-def fingerprint(identity: Mapping[str, Any], n_rows: int) -> str:
-    """The same finished run always fingerprints the same; added rows change it."""
-    canonical = json.dumps({"identity": identity, "n_rows": n_rows}, sort_keys=True)
+def fingerprint(identity: Mapping[str, Any], n_rows: int, git_commit: str | None) -> str:
+    """The same finished run, at the same commit, always fingerprints the same.
+
+    A different commit, identity or row count gives a different one. The row
+    values themselves are not hashed, so re-running the identical grid at the
+    same commit counts as the same run.
+    """
+    canonical = json.dumps(
+        {"identity": identity, "n_rows": n_rows, "git_commit": git_commit}, sort_keys=True
+    )
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
@@ -82,7 +89,7 @@ def _tags(manifest: Mapping[str, Any], run_dir: Path, n_rows: int) -> dict[str, 
     tags = {
         "cp.git_commit": provenance.get("git_commit") or "unknown",
         "cp.run_dir": str(run_dir.resolve()),
-        FINGERPRINT_TAG: fingerprint(manifest["identity"], n_rows),
+        FINGERPRINT_TAG: fingerprint(manifest["identity"], n_rows, provenance.get("git_commit")),
     }
     for name, version in provenance.get("package_versions", {}).items():
         tags[f"cp.package.{name}"] = str(version)

@@ -37,7 +37,9 @@ def test_tags_carry_provenance_and_the_fingerprint(loaded):
     for name, version in provenance["package_versions"].items():
         assert payload.tags[f"cp.package.{name}"] == version
     assert payload.tags["cp.run_dir"] == str(run_dir.resolve())
-    assert payload.tags[FINGERPRINT_TAG] == fingerprint(manifest["identity"], len(frame))
+    assert payload.tags[FINGERPRINT_TAG] == fingerprint(
+        manifest["identity"], len(frame), provenance["git_commit"]
+    )
 
 
 def test_metric_keys_are_scenario_method_metric_and_each_has_its_mcse(loaded):
@@ -78,8 +80,17 @@ def test_the_fingerprint_is_stable_and_changes_with_the_rows(loaded):
     frame, manifest, _, _ = loaded
     identity = manifest["identity"]
 
-    assert fingerprint(identity, len(frame)) == fingerprint(identity, len(frame))
-    assert fingerprint(identity, len(frame)) != fingerprint(identity, len(frame) + 1)
+    assert fingerprint(identity, len(frame), "abc") == fingerprint(identity, len(frame), "abc")
+    assert fingerprint(identity, len(frame), "abc") != fingerprint(identity, len(frame) + 1, "abc")
+
+
+def test_the_fingerprint_changes_with_the_git_commit(loaded):
+    frame, manifest, _, _ = loaded
+    identity = manifest["identity"]
+
+    assert fingerprint(identity, len(frame), "abc") == fingerprint(identity, len(frame), "abc")
+    assert fingerprint(identity, len(frame), "abc") != fingerprint(identity, len(frame), "def")
+    assert fingerprint(identity, len(frame), "abc") != fingerprint(identity, len(frame), None)
 
 
 def test_an_overlong_param_is_truncated_not_dropped(loaded):
@@ -110,8 +121,9 @@ def test_the_fingerprint_ignores_key_order_and_sees_a_changed_value(loaded):
     changed = {**identity, "root_entropy": f"{identity['root_entropy']}0"}
 
     assert list(reordered) != list(identity)
-    assert fingerprint(reordered, len(frame)) == fingerprint(identity, len(frame))
-    assert fingerprint(changed, len(frame)) != fingerprint(identity, len(frame))
+    base = fingerprint(identity, len(frame), "abc")
+    assert fingerprint(reordered, len(frame), "abc") == base
+    assert fingerprint(changed, len(frame), "abc") != base
 
 
 def test_metric_values_match_the_headline_tables(loaded):
