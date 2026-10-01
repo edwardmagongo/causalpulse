@@ -1,4 +1,6 @@
+import builtins
 import shutil
+import sys
 
 import pytest
 from cp_cli.__main__ import main
@@ -75,3 +77,37 @@ def test_a_store_error_is_one_line_not_a_traceback(tiny_run, tmp_path, capsys):
     err = capsys.readouterr().err
     assert err.startswith("could not log to ")
     assert "Traceback" not in err
+
+
+@pytest.mark.parametrize("missing", ["cp_tracking.log", "mlflow"])
+def test_without_the_tracking_extra_track_says_how_to_install_it(
+    missing, tmp_path, monkeypatch, capsys
+):
+    # The api/worker image installs cp-cli without its `tracking` extra. A None
+    # entry makes that module's import fail as if it were not installed.
+    # Dropping cp_tracking.log forces it to re-import mlflow, and dropping
+    # mlflow's cached submodules stops `from mlflow.entities import` finding
+    # one an earlier test in this worker already loaded.
+    for name in [m for m in sys.modules if m == "cp_tracking.log" or m.startswith("mlflow.")]:
+        monkeypatch.delitem(sys.modules, name)
+    monkeypatch.setitem(sys.modules, missing, None)
+
+    assert main(["bench", "track", str(tmp_path)]) == 1
+
+    err = capsys.readouterr().err
+    assert err.count("\n") == 1
+    assert "cp-cli[tracking]" in err
+
+
+def test_a_missing_module_other_than_the_extra_keeps_its_traceback(tmp_path, monkeypatch):
+    real_import = builtins.__import__
+
+    def broken_import(name, *args, **kwargs):
+        if name.startswith("cp_tracking"):
+            raise ModuleNotFoundError("No module named 'cp_tracking_dep'", name="cp_tracking_dep")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", broken_import)
+
+    with pytest.raises(ModuleNotFoundError, match="cp_tracking_dep"):
+        main(["bench", "track", str(tmp_path)])

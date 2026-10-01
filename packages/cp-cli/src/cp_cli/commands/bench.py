@@ -422,9 +422,22 @@ def add_track_arguments(parser: argparse.ArgumentParser) -> None:
 
 def track(args: argparse.Namespace) -> int:
     """Log a finished benchmark run to MLflow, once."""
-    # Imported here, so that every other bench command stays MLflow-free.
-    from cp_tracking.log import AlreadyTracked, default_tracking_uri, log_payload
-    from cp_tracking.payload import build_payload
+    # Imported here, so that every other bench command stays MLflow-free, and
+    # because cp-tracking is an optional extra the api/worker image leaves out.
+    try:
+        from cp_tracking.log import AlreadyTracked, default_tracking_uri, log_payload
+        from cp_tracking.payload import build_payload
+    except ModuleNotFoundError as exc:
+        # Only a missing cp_tracking or mlflow means "not installed"; any other
+        # missing module is a real bug and keeps its traceback.
+        if (exc.name or "").partition(".")[0] not in {"cp_tracking", "mlflow"}:
+            raise
+        print(
+            "bench track needs the optional MLflow tracking package: run `uv sync` "
+            "(the dev group) or install `cp-cli[tracking]`",
+            file=sys.stderr,
+        )
+        return 1
 
     run_dir = Path(args.run_dir)
     if not (run_dir / MANIFEST_NAME).exists():

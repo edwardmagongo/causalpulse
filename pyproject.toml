@@ -3,7 +3,7 @@ name = "causalpulse"
 version = "0.1.0"
 description = "Causal inference and experimentation platform"
 requires-python = ">=3.12"
-dependencies = ["cp-core", "cp-statistics", "cp-simulation", "cp-causal", "cp-evaluation", "cp-figures", "cp-report", "cp-cli", "cp-api", "cp-worker", "cp-tracking"]
+dependencies = ["cp-core", "cp-statistics", "cp-simulation", "cp-causal", "cp-evaluation", "cp-figures", "cp-report", "cp-cli", "cp-api", "cp-worker"]
 
 [tool.uv.workspace]
 members = ["packages/*"]
@@ -22,7 +22,11 @@ cp-worker = { workspace = true }
 cp-tracking = { workspace = true }
 
 [dependency-groups]
+# cp-tracking (and so MLflow) is a cp-cli extra, not a project dependency, so
+# the api/worker image (`uv sync --no-dev`) never installs MLflow's tree; the
+# dev group pulls it in for `causalpulse bench track` and tests/tracking.
 dev = [
+    "cp-cli[tracking]",
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "hypothesis>=6.100",
