@@ -282,14 +282,15 @@ def limitations_data(
 # measures and how to read a calibration slope; it claims nothing about why an
 # estimator scores as it does (design §6.3).
 CATE_NOTE = (
-    "Each figure here compares the per-unit effect an estimator reports with the true "
-    "per-unit effect of the same simulated units, and is a mean over the stated number of "
-    "replications with its Monte Carlo standard error. Correlation measures how closely the "
-    "estimates track the true effects across units, and RMSE their typical distance from "
-    "them. The calibration slope is the least-squares slope of the true effects on the "
-    "estimates: 1 means the estimates vary as widely as the true effects, and a slope above 1 "
-    "means they vary less. Scenario NULL gives every unit the same true effect, so only its "
-    "RMSE is defined."
+    "Each number in this table compares the per-unit effect an estimator reports with the "
+    "true per-unit effect of the same simulated units, and is a mean over the fits counted "
+    "in its `_n_used` column, with its Monte Carlo standard error. Correlation measures how "
+    "closely the estimates track the true effects across units, and RMSE their typical "
+    "distance from them. The calibration slope is the least-squares slope of the true effects "
+    "on the estimates: at 1, a difference between two units' estimates matches, on average, "
+    "the difference between their true effects; above 1, the estimates understate those "
+    "differences, and below 1 they overstate them. Scenario NULL gives every unit the same "
+    "true effect, so only its RMSE is reported."
 )
 
 
@@ -318,7 +319,9 @@ def cate_section_data(
     """The CATE section over `rows`, or `None` when no fitted row was scored.
 
     The numbers are `summarise`'s own, pooled per method and scenario, so they are
-    exactly what `bench report` prints for the same rows.
+    exactly what `bench report` prints for the same rows. It pools every row of a
+    scenario (`by=["scenario"]`), so `_cate_counts`' "replications per scenario" is
+    accurate only while `CateAxes` has one configuration per scenario, as it does today.
     """
     if rows.empty:
         return None
@@ -351,6 +354,7 @@ class BenchmarkEvidence:
 
     expectations: tuple[ExpectationResult, ...]
     tables: dict[str, pd.DataFrame]
+    # ATE part of the main store's status (`_split_status`); E8 is evaluated on the whole store's.
     status: RunStatus
     replications: int
     scenarios_run: tuple[str, ...]
@@ -445,6 +449,8 @@ def _split_status(status: RunStatus) -> tuple[RunStatus, RunStatus]:
     A study store that carries the CATE arm counts its cells in one ledger; the
     overview counts ATE cells and the CATE section counts CATE cells (design §6.1).
     Orphan shards are not attributable to a scenario, so they stay on the ATE part.
+    It classifies by scenario name (`CATE_SCENARIOS` keys), so an ATE scenario that
+    someone later names RICH, NULL or NOISY would be misfiled.
     """
     ate = {k: v for k, v in status.by_scenario.items() if k not in CATE_SCENARIOS}
     cate = {k: v for k, v in status.by_scenario.items() if k in CATE_SCENARIOS}
@@ -539,8 +545,9 @@ def benchmark_evidence_from_run(
 def _section_data(
     evidence: BenchmarkEvidence,
 ) -> tuple[OverviewData, HeadlineFindingsData, MethodComparisonsData, LimitationsData]:
-    """The four sections, rebuilt from `evidence` in one place so a fifth section is a
-    one-place edit and the prose the lint sees cannot drift from the prose rendered."""
+    """The four always-present sections, rebuilt from `evidence` in one place so the prose
+    the lint sees cannot drift from the prose rendered. The optional CATE section is added
+    separately, in `document_prose_fragments` and both renderers."""
     return (
         overview_data(
             len(evidence.estimators_run),

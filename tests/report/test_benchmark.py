@@ -1,4 +1,5 @@
-"""Tests for `cp_report.benchmark`'s data layer: the four section dataclasses and
+"""Tests for `cp_report.benchmark`'s data layer: the five section dataclasses
+(overview, findings, comparisons, limitations, CATE) and
 `benchmark_evidence_from_run` (design doc `2026-09-23-benchmark-study-report-design.md` §5, §7)."""
 
 from __future__ import annotations
@@ -407,6 +408,11 @@ def test_the_cate_run_changes_no_ate_view(d_run, cate_run):
     assert [repr(e) for e in with_cate.expectations] == [repr(e) for e in without.expectations]
     assert with_cate.scenarios_run == without.scenarios_run
     assert with_cate.estimators_run == without.estimators_run
+    assert with_cate.status == without.status
+    assert with_cate.replications == without.replications
+    assert [n for n in with_cate.not_covered if n[0] != "CATE metrics"] == [
+        n for n in without.not_covered if n[0] != "CATE metrics"
+    ]
     assert with_cate.tables.keys() == without.tables.keys()
     for name in without.tables:
         pd.testing.assert_frame_equal(with_cate.tables[name], without.tables[name])
