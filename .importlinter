@@ -11,12 +11,14 @@ root_packages =
     cp_api
     cp_worker
     cp_tracking
+    cp_llm
 
 [importlinter:contract:layers]
 name = Package layering
 type = layers
 layers =
     cp_cli | cp_worker
+    cp_llm
     cp_report | cp_tracking
     cp_figures
     cp_evaluation
@@ -33,6 +35,7 @@ source_modules =
     cp_causal
     cp_api
     cp_worker
+    cp_llm
 forbidden_modules =
     cp_simulation
 
@@ -47,6 +50,7 @@ forbidden_modules =
     cp_evaluation
     cp_figures
     cp_report
+    cp_llm
     cp_cli
     cp_worker
     cp_simulation
