@@ -433,14 +433,21 @@ def track(args: argparse.Namespace) -> int:
         return 1
     frame, sidecar = load_run(run_dir)
     manifest = json.loads((run_dir / MANIFEST_NAME).read_text())
-    uri = args.tracking_uri or os.environ.get("MLFLOW_TRACKING_URI") or default_tracking_uri(
-        Path.cwd()
-    )
+    # A payload bug should show its traceback, so the payload is built outside the try.
+    payload = build_payload(frame, manifest, sidecar, run_dir)
+    uri: str | None = None
     try:
-        payload = build_payload(frame, manifest, sidecar, run_dir)
+        uri = (
+            args.tracking_uri
+            or os.environ.get("MLFLOW_TRACKING_URI")
+            or default_tracking_uri(Path.cwd())
+        )
         run_id = log_payload(payload, uri, force=args.force)
     except AlreadyTracked as exc:
         print(str(exc), file=sys.stderr)
+        return 1
+    except Exception as exc:  # the tracking store, not our payload: one line, exit 1
+        print(f"could not log to {uri or 'the tracking store'}: {exc}", file=sys.stderr)
         return 1
     print(run_id)
     return 0

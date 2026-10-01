@@ -63,3 +63,15 @@ def test_an_incomplete_run_is_refused_by_load_run(tiny_run, tmp_path):
                 f"sqlite:///{tmp_path / 's' / 'mlflow.db'}",
             ]
         )
+
+
+def test_a_store_error_is_one_line_not_a_traceback(tiny_run, tmp_path, capsys):
+    blocker = tmp_path / "a-file"
+    blocker.write_text("not a directory")
+    uri = f"sqlite:///{blocker / 'mlflow.db'}"
+
+    assert main(["bench", "track", str(tiny_run), "--tracking-uri", uri]) == 1
+
+    err = capsys.readouterr().err
+    assert err.startswith("could not log to ")
+    assert "Traceback" not in err
