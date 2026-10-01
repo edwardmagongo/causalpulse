@@ -1,11 +1,18 @@
 import numpy as np
 import pytest
 from cp_core.dataset import CausalDataset
-from cp_evaluation.grid import CateCell, CrossSectionCell, DonorPoolCell, PanelCell, cell_rng
+from cp_evaluation.grid import (
+    CateCell,
+    CrossSectionCell,
+    DonorPoolCell,
+    LongPanelCell,
+    PanelCell,
+    cell_rng,
+)
 from cp_evaluation.resolve import resolve_cell, truth_for
 from cp_simulation.cate_scenarios import CATE_N_UNITS
 from cp_simulation.donor_scenarios import DONOR_SCENARIOS, build_donor_scenario
-from cp_simulation.panel_scenarios import PANEL_SCENARIOS
+from cp_simulation.panel_scenarios import PANEL_PROTOCOLS, PANEL_SCENARIOS
 from cp_simulation.params import ScenarioParams
 from cp_simulation.scenarios import SCENARIOS
 
@@ -234,3 +241,15 @@ def test_only_a_cate_cell_carries_per_unit_truth():
     # F's DGP records true_cate too; the arm deliberately does not score it
     # (design decision 2).
     assert cross.cate_truth is None
+
+
+def test_a_long_panel_cell_resolves_at_its_protocol_with_att_truth():
+    resolved = resolve_cell(LongPanelCell("P7", 0), root_entropy=0)
+    n_units, n_periods = PANEL_PROTOCOLS["P7"]
+
+    frame = resolved.dataset.frame
+    assert frame[resolved.dataset.schema.unit].nunique() == n_units
+    assert frame[resolved.dataset.schema.time].nunique() == n_periods
+    assert set(resolved.truth) == {"ATT"}
+    assert np.isfinite(resolved.truth["ATT"])
+    assert resolved.cate_truth is None

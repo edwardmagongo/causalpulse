@@ -14,6 +14,7 @@ from cp_evaluation.grid import (
     CateCell,
     CrossSectionCell,
     DonorPoolCell,
+    LongPanelCell,
     PanelCell,
     cell_key,
     expand_cells,
@@ -192,23 +193,33 @@ def test_cells_are_scheduled_by_measured_cost_class_then_size():
         CateCell("RICH", 0),
         DonorPoolCell("S1", 0),
         PanelCell(scenario="P1", n_units=150, n_periods=7, seed=0),
+        LongPanelCell("P7", 0),
         CrossSectionCell(scenario="A", n_units=500, confounding_strength=1.0, seed=0),
     ]
 
     ordered = longest_first(cells)
 
-    # Panel (35-62s a cell) before donor (5.5-32.6s, straddling CATE's ~15s)
-    # before CATE before cross-section (8.7-12.3s), as measured in the design doc's section 9.1,
+    # Long panel (529.7s) before panel (35-62s a cell) before donor (5.5-32.6s,
+    # straddling CATE's ~15s) before CATE before cross-section (8.7-12.3s), as
+    # measured in the design doc's section 9.1,
     # whatever their unit counts: a 2,000-unit CATE cell no longer jumps the queue.
     assert [type(c) for c in ordered] == [
-        PanelCell, DonorPoolCell, CateCell, CrossSectionCell, CrossSectionCell
+        LongPanelCell, PanelCell, DonorPoolCell, CateCell, CrossSectionCell, CrossSectionCell
     ]
     # Within a shape, larger samples first.
     assert [c.n_units for c in ordered if isinstance(c, CrossSectionCell)] == [2000, 500]
 
 
+def test_a_long_panel_cell_is_scheduled_before_every_other_shape():
+    cells = [PanelCell(scenario="P1", n_units=150, n_periods=10, seed=0), LongPanelCell("P7", 0)]
+
+    assert [type(c) for c in longest_first(cells)] == [LongPanelCell, PanelCell]
+
+
 def test_every_cell_shape_has_a_cost_rank():
-    assert set(SHAPE_COST_RANK) == {PanelCell, DonorPoolCell, CateCell, CrossSectionCell}
+    assert set(SHAPE_COST_RANK) == {
+        LongPanelCell, PanelCell, DonorPoolCell, CateCell, CrossSectionCell
+    }
 
 
 def test_an_unranked_cell_type_is_refused_not_scheduled_somewhere():
