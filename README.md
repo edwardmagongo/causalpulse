@@ -1401,8 +1401,8 @@ Each benchmark run becomes one MLflow run in the `causalpulse-benchmarks` experi
   scenario-by-size level; `false_positive_rate__scenario` has the scenario level only), plus
   `identity.json`, `sidecar.json` and, for a run with scored CATE rows, `cate__scenario.csv`.
 
-Only the headline slice and the per-scenario CATE metrics are logged as metrics, because logging every grid cell would make MLflow's
-comparison view unusable.
+Only the headline slice and the per-scenario CATE metrics are logged as metrics, because
+logging every grid cell would make MLflow's comparison view unusable.
 
 The fingerprint covers the run's identity, its row count and the git commit. Tracking the same
 finished run again at the same commit is refused; `--force` logs it again. The same grid run at a

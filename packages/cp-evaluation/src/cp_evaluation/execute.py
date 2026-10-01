@@ -89,11 +89,11 @@ TaskFunction = Callable[[CellTask], LedgerEntry]
 
 
 # Dearest shape first, from measured per-cell costs: a panel cell 35-62s (P4
-# and P1 at the grid's n_units=150, n_periods=10, dominated by hierarchical_did),
+# and P1 at n_units=150, n_periods=10, dominated by hierarchical_did),
 # a donor-pool cell 5.5-32.6s (S5 and S1, dominated by bsts), a CATE cell ~15s,
 # a cross-sectional cell 8.7-12.3s. The panel and donor figures were measured
-# on 2026-10-01 and are in the benchmark follow-ups design doc's section 9 "As
-# built" (step 4); the CATE and cross-section figures are in
+# on 2026-10-01 and are in the benchmark follow-ups design doc's section 9.1
+# ("As built"); the CATE and cross-section figures are in
 # `cp_evaluation.tiers`. A shape missing here raises in `longest_first` rather
 # than being scheduled somewhere by accident.
 SHAPE_COST_RANK: Mapping[type, int] = MappingProxyType(
@@ -107,9 +107,11 @@ def longest_first(cells: Sequence[Cell]) -> list[Cell]:
     Ordered by measured cost class (`SHAPE_COST_RANK`: panel, then donor pool,
     then CATE, then cross-section), then by descending `n_units` within a
     shape, then by `cell_key`. Ranking by shape rather than by unit count alone
-    stops a 2,000-unit CATE cell, which costs ~15s, going ahead of panel and
-    donor cells that cost two to four times as much. Submitting the dear cells
-    first stops the run ending with one straggler while the other workers idle.
+    stops a 2,000-unit CATE cell, which costs ~15s, going ahead of panel cells,
+    which cost two to four times as much, and donor-pool cells, which range from
+    cheaper than a CATE cell (S5, 5.5s) to about twice as dear (S1, 32.6s).
+    Submitting the dear cells first stops the run ending with one straggler
+    while the other workers idle.
     The key ends in `cell_key`, so the order is total and does not depend on
     the input's. It changes only when cells finish, never what they compute.
     """
