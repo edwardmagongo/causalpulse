@@ -12,8 +12,9 @@ unclipped.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 
 from cp_simulation.components import UnitGenerator
 from cp_simulation.panel_binary import BinaryPanelDGP
@@ -52,6 +53,14 @@ _NEVER_SHARE = 0.4
 # constant other measurements depend on.
 HIER_N_UNITS = 600
 HIER_N_PERIODS = 20
+
+# Panel scenarios that fix their own size, so the benchmark grid runs them as
+# fixed-protocol cells rather than crossing them with PanelAxes. P7 alone: its
+# cross-cohort variance was shown identifiable at this protocol, and it needs at
+# least 16 periods, which the panel arm's (7, 10) cannot give it.
+PANEL_PROTOCOLS: Mapping[str, tuple[int, int]] = MappingProxyType(
+    {"P7": (HIER_N_UNITS, HIER_N_PERIODS)}
+)
 HIER_SEEDS = 20
 _HIER_COHORT_PERIODS = (4, 6, 8, 10, 12, 14, 16)
 

@@ -1,6 +1,6 @@
 """What a benchmark cell is, and how a configuration expands into cells.
 
-The four scenario registries are not symmetric, so neither are the cells. A
+The five scenario registries are not symmetric, so neither are the cells. A
 cross-sectional scenario is built by a `Callable[[ScenarioParams], CrossSectionDGP]`
 taking the full set of axis values (`build_scenario` also accepts a bare
 `confounding_strength` float for the pre-Phase-18 call shape, which it widens
@@ -11,7 +11,9 @@ BinaryPanelDGP]` taking nothing at all, and generated with `n_units` and
 size, so its cell carries only a scenario and a seed. Forcing one dataclass
 over all four would mean a field that is meaningless for some of its instances.
 A CATE scenario (`CATE_SCENARIOS`, RICH/NULL/NOISY) fixes its size too, so its
-cell is also only a scenario and a seed.
+cell is also only a scenario and a seed. A panel scenario that fixes its own
+size (`PANEL_PROTOCOLS`, P7 alone) is a fixed-protocol panel cell, again only a
+scenario and a seed.
 """
 
 from __future__ import annotations
@@ -25,7 +27,7 @@ from types import MappingProxyType
 import numpy as np
 from cp_simulation.cate_scenarios import CATE_SCENARIOS
 from cp_simulation.donor_scenarios import DONOR_SCENARIOS
-from cp_simulation.panel_scenarios import PANEL_SCENARIOS
+from cp_simulation.panel_scenarios import PANEL_PROTOCOLS, PANEL_SCENARIOS
 from cp_simulation.params import AXIS_NAMES, ScenarioParams
 from cp_simulation.scenarios import SCENARIOS
 
@@ -160,7 +162,20 @@ class CateCell:
     seed: int
 
 
-Cell = CrossSectionCell | PanelCell | DonorPoolCell | CateCell
+@dataclass(frozen=True)
+class LongPanelCell:
+    """One fixed-protocol panel cell.
+
+    Like `DonorPoolCell` and `CateCell`, no size axis: `PANEL_PROTOCOLS`
+    (`cp_simulation.panel_scenarios`) fixes the scenario's units and periods
+    (P7: 600 by 20), so its identity is its scenario and replication index.
+    """
+
+    scenario: str
+    seed: int
+
+
+Cell = CrossSectionCell | PanelCell | DonorPoolCell | CateCell | LongPanelCell
 
 
 @dataclass(frozen=True)
@@ -221,6 +236,13 @@ class CateAxes:
 
 
 @dataclass(frozen=True)
+class LongPanelAxes:
+    """Which of `PANEL_PROTOCOLS` to include. No size axis -- see `LongPanelCell`."""
+
+    scenarios: Sequence[str]
+
+
+@dataclass(frozen=True)
 class GridConfig:
     """The axes of a benchmark run.
 
@@ -234,7 +256,8 @@ class GridConfig:
     `donor_pool` is the optional third arm (`DonorPoolAxes`, S0-S5); it defaults
     to `None`, so a config that does not mention it has no donor cells. `cate`
     is the optional fourth arm (`CateAxes`, `CATE_SCENARIOS`), defaulting to
-    `None` the same way.
+    `None` the same way. `long_panel` is the optional fifth arm (`LongPanelAxes`,
+    `PANEL_PROTOCOLS`), defaulting to `None` the same way.
     """
 
     cross_section: CrossSectionAxes | None
@@ -242,6 +265,7 @@ class GridConfig:
     replications: int
     donor_pool: DonorPoolAxes | None = None
     cate: CateAxes | None = None
+    long_panel: LongPanelAxes | None = None
 
     def __post_init__(self) -> None:
         if self.replications < 1:
@@ -260,9 +284,11 @@ def expand_cells(config: GridConfig) -> tuple[Cell, ...]:
         and config.panel is None
         and config.donor_pool is None
         and config.cate is None
+        and config.long_panel is None
     ):
         raise ValueError(
-            "a GridConfig needs at least one of cross_section, panel, donor_pool or cate"
+            "a GridConfig needs at least one of cross_section, panel, donor_pool, "
+            "cate or long_panel"
         )
 
     cells: list[Cell] = []
@@ -315,6 +341,20 @@ def expand_cells(config: GridConfig) -> tuple[Cell, ...]:
         cells.extend(
             CateCell(scenario=scenario, seed=seed)
             for scenario in axes_c.scenarios
+            for seed in range(config.replications)
+        )
+
+    if config.long_panel is not None:
+        axes_l = config.long_panel
+        unknown = sorted(set(axes_l.scenarios) - set(PANEL_PROTOCOLS))
+        if unknown:
+            raise ValueError(
+                f"panel scenarios {unknown} have no fixed protocol; "
+                f"available: {sorted(PANEL_PROTOCOLS)}"
+            )
+        cells.extend(
+            LongPanelCell(scenario=scenario, seed=seed)
+            for scenario in axes_l.scenarios
             for seed in range(config.replications)
         )
 
@@ -507,7 +547,7 @@ def _expand_cross_section(
 
 
 def cell_sort_key(cell: Cell) -> tuple[object, ...]:
-    """A total order over all four cell shapes.
+    """A total order over all five cell shapes.
 
     The shape tag leads, so the shapes never interleave
     and the blocks stay independently readable. The four new axes sort
@@ -528,7 +568,9 @@ def cell_sort_key(cell: Cell) -> tuple[object, ...]:
         return (1, cell.scenario, cell.n_units, cell.n_periods, cell.seed)
     if isinstance(cell, DonorPoolCell):
         return (2, cell.scenario, cell.seed)
-    return (3, cell.scenario, cell.seed)
+    if isinstance(cell, CateCell):
+        return (3, cell.scenario, cell.seed)
+    return (4, cell.scenario, cell.seed)
 
 
 def _identity_payload(cell: Cell) -> dict[str, object]:
@@ -572,7 +614,9 @@ def _identity_payload(cell: Cell) -> dict[str, object]:
         }
     if isinstance(cell, DonorPoolCell):
         return {"shape": "donor_pool", "scenario": cell.scenario, "seed": cell.seed}
-    return {"shape": "cate", "scenario": cell.scenario, "seed": cell.seed}
+    if isinstance(cell, CateCell):
+        return {"shape": "cate", "scenario": cell.scenario, "seed": cell.seed}
+    return {"shape": "long_panel", "scenario": cell.scenario, "seed": cell.seed}
 
 
 def cell_key(cell: Cell) -> str:
