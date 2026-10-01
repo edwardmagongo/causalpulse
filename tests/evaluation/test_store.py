@@ -12,6 +12,7 @@ from cp_evaluation.grid import (
     DonorPoolAxes,
     DonorPoolCell,
     GridConfig,
+    LongPanelAxes,
     cell_key,
     expand_cells,
 )
@@ -196,6 +197,14 @@ def test_the_cate_arm_round_trips_through_the_identity():
     identity = RunIdentity.of("t", config, ["causal_forest"], EstimatorConfig(), 0)
 
     assert identity.grid["cate"] == {"scenarios": ["RICH", "NULL"]}
+    assert grid_config_of(identity.grid, replications=2) == config
+
+
+def test_the_long_panel_arm_round_trips_through_the_identity():
+    config = dataclasses.replace(_cross_only(), long_panel=LongPanelAxes(scenarios=("P7",)))
+    identity = RunIdentity.of("t", config, ["twfe"], EstimatorConfig(), 0)
+
+    assert identity.grid["long_panel"] == {"scenarios": ["P7"]}
     assert grid_config_of(identity.grid, replications=2) == config
 
 

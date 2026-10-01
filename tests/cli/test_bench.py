@@ -11,6 +11,7 @@ from cp_evaluation.grid import (
     CrossSectionCell,
     DonorPoolAxes,
     GridConfig,
+    LongPanelAxes,
     expand_cells,
 )
 from cp_evaluation.run import run_grid
@@ -177,6 +178,19 @@ def test_the_sidecar_records_the_donor_arm_requested_and_realised():
     lines = bench_module._axis_discrepancies(sidecar)
     assert len(lines) == 1
     assert "donor_pool.scenarios" in lines[0]
+
+
+def test_the_sidecar_records_the_long_panel_arm_requested_and_realised():
+    config = GridConfig(
+        cross_section=None, panel=None, long_panel=LongPanelAxes(scenarios=("P7",)), replications=1
+    )
+    frame = pd.DataFrame({"shape": ["long_panel", "panel"], "scenario": ["P7", "P1"]})
+
+    sidecar = _sidecar_for(config, frame)
+
+    assert sidecar["long_panel"] == {"scenarios": ["P7"]}
+    assert sidecar["long_panel_realised"] == {"scenarios": ["P7"]}
+    assert bench_module._axis_discrepancies(sidecar) == []
 
 
 def test_a_grid_with_no_donor_arm_records_none_for_it():

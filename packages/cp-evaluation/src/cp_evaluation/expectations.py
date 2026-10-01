@@ -177,12 +177,13 @@ def _slowest_is_hierarchical(frame: pd.DataFrame) -> ExpectationResult:
     rule = "rank 1 by mean runtime_seconds over each method's fitted rows"
     # The original ten-estimator ranking was over panel and cross-section rows. Donor-pool rows
     # (bsts, synthetic_control and hierarchical_did fitted on S0-S5) and CATE-arm rows (the
-    # heterogeneity arm postdates this pre-registration) are excluded entirely, so the ranking,
-    # and the hierarchical_did figure in it, is identical whether or not the run carries a
-    # donor arm or a CATE arm.
+    # heterogeneity arm postdates this pre-registration) and P7-arm rows (a 600 by 20 protocol,
+    # also post-registration) are excluded entirely, so the ranking, and the hierarchical_did
+    # figure in it, is identical whether or not the run carries a donor, CATE or P7 arm.
     donor_rows = frame[frame["shape"] == "donor_pool"]
     cate_rows = frame[frame["shape"] == "cate"]
-    ranked_rows = frame[~frame["shape"].isin(("donor_pool", "cate"))]
+    long_rows = frame[frame["shape"] == "long_panel"]
+    ranked_rows = frame[~frame["shape"].isin(("donor_pool", "cate", "long_panel"))]
     fitted_methods = sorted(set(donor_rows.loc[donor_rows["status"] == "fitted", "method"]))
     notes = []
     if len(donor_rows):
@@ -194,6 +195,10 @@ def _slowest_is_hierarchical(frame: pd.DataFrame) -> ExpectationResult:
         # The CATE arm postdates the pre-registration (design section 4): E7 is
         # scored over the grid it was registered on.
         notes.append(f"{len(cate_rows)} CATE-arm rows excluded.")
+    if len(long_rows):
+        # P7 runs at its own 600 by 20 protocol and postdates the pre-registration
+        # (design docs/specs/2026-10-01-p7-benchmark-arm-design.md section 3).
+        notes.append(f"{len(long_rows)} P7-arm rows excluded.")
     note = " ".join(notes)
     if ranked_rows.empty:
         return ExpectationResult("E7", statement, rule, "inconclusive", (), note)
