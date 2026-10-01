@@ -18,16 +18,19 @@ from cp_report.benchmark import (
     CATE_NOTE,
     COVERAGE_COLUMN_NOTE,
     COVERAGE_TABLE,
+    P7_NOTE,
     CateSectionData,
     ExpectationRow,
     HeadlineFindingsData,
     OverviewData,
+    P7SectionData,
     benchmark_evidence_from_run,
     cate_section_data,
     headline_findings_data,
     limitations_data,
     method_comparisons_data,
     overview_data,
+    p7_section_data,
 )
 from cp_report.language import ReportLanguageError, require_clean_prose
 
@@ -504,3 +507,154 @@ def test_two_sources_of_cate_rows_are_refused(d_run, cate_run, monkeypatch):
     )
     with pytest.raises(ValueError, match="two protocols"):
         benchmark_evidence_from_run(d_run, cate_directory=cate_run)
+
+
+def _p7_rows(methods=("twfe", "callaway_santanna"), n=3, ci_basis="analytic"):
+    records = []
+    for method in methods:
+        for seed in range(n):
+            row = dict.fromkeys(ROW_COLUMNS, np.nan)
+            row.update(shape="long_panel", scenario="P7", n_units=600, n_periods=20,
+                       seed=seed, method=method, status="fitted", reason="",
+                       estimand="ATT", truth=6.7, point=6.7 + 0.1 * (seed - 1),
+                       se=0.2, ci_lower=6.0, ci_upper=7.4, ci_basis=ci_basis,
+                       runtime_seconds=1.0)
+            records.append(row)
+    return pd.DataFrame(records, columns=list(ROW_COLUMNS))
+
+
+_P7_STATUS = RunStatus(expected=3, done=3, orphans=0, by_scenario={"P7": (3, 3)})
+
+
+def test_the_p7_section_has_bias_rmse_and_primary_coverage_per_estimator():
+    data = p7_section_data(_p7_rows(), _P7_STATUS, replications=3)
+
+    assert isinstance(data, P7SectionData)
+    table = data.table.set_index("method")
+    assert set(table.index) == {"twfe", "callaway_santanna"}
+    assert table.loc["twfe", "bias"] == pytest.approx(0.0)
+    assert table.loc["twfe", "coverage"] == pytest.approx(1.0)
+    assert table.loc["twfe", "interval"] == "analytic"
+    for column in ("bias_mcse", "bias_n_used", "rmse", "rmse_mcse", "coverage_mcse",
+                   "coverage_n_used"):
+        assert column in table.columns
+    assert (data.replications, data.cells_done, data.cells_expected) == (3, 3, 3)
+
+
+def test_no_fitted_p7_row_means_no_section():
+    unfitted = _p7_rows().assign(status="ineligible")
+
+    assert p7_section_data(unfitted, _P7_STATUS, replications=3) is None
+    assert p7_section_data(unfitted.iloc[0:0], _P7_STATUS, replications=3) is None
+
+
+def test_the_p7_note_passes_the_lint_and_the_lint_still_bites():
+    require_clean_prose([("P7", P7_NOTE)])
+    with pytest.raises(ReportLanguageError):
+        require_clean_prose([("P7", P7_NOTE), ("P7", "This proves twfe is right.")])
+
+
+def test_a_p7_run_adds_its_section_and_clears_not_covered(d_run, p7_run):
+    evidence = benchmark_evidence_from_run(d_run, p7_directory=p7_run)
+
+    assert evidence.p7_section is not None
+    assert set(evidence.p7_section.table["method"]) == {"twfe", "callaway_santanna"}
+    assert "scenario P7" not in dict(evidence.not_covered)
+
+
+def test_the_p7_run_changes_no_ate_view(d_run, p7_run):
+    without = benchmark_evidence_from_run(d_run)
+    with_p7 = benchmark_evidence_from_run(d_run, p7_directory=p7_run)
+
+    assert [repr(e) for e in with_p7.expectations] == [repr(e) for e in without.expectations]
+    assert with_p7.scenarios_run == without.scenarios_run
+    assert with_p7.status == without.status
+    for name in without.tables:
+        pd.testing.assert_frame_equal(with_p7.tables[name], without.tables[name])
+    assert [f.caption for f in with_p7.figures] == [f.caption for f in without.figures]
+    assert [n for n in with_p7.not_covered if n[0] != "scenario P7"] == [
+        n for n in without.not_covered if n[0] != "scenario P7"
+    ]
+
+
+def test_a_p7_run_of_the_wrong_tier_is_refused(d_run):
+    with pytest.raises(ValueError, match="'p7'"):
+        benchmark_evidence_from_run(d_run, p7_directory=d_run)
+
+
+def test_long_panel_rows_in_the_main_store_stay_out_of_every_ate_view(d_run, monkeypatch):
+    real = RunStore.open(d_run)
+    frame = real.read_frame()
+    ate_status = real.status()
+    status = RunStatus(
+        expected=ate_status.expected + 3,
+        done=ate_status.done + 3,
+        orphans=ate_status.orphans,
+        by_scenario={**ate_status.by_scenario, "P7": (3, 3)},
+    )
+    combined = pd.concat([frame, _p7_rows()], ignore_index=True)
+
+    class _Store:
+        replications = real.replications
+
+        def __init__(self, rows):
+            self._rows = rows
+
+        def read_frame(self):
+            return self._rows
+
+        def status(self):
+            return status
+
+    without = benchmark_evidence_from_run(d_run)
+    monkeypatch.setattr(
+        "cp_report.benchmark.RunStore",
+        type("_Open", (), {"open": staticmethod(lambda _d: _Store(combined))}),
+    )
+    with_rows = benchmark_evidence_from_run(d_run)
+
+    assert with_rows.scenarios_run == without.scenarios_run
+    assert with_rows.estimators_run == without.estimators_run
+    # E8 checks the whole store's completeness, so it alone sees the three P7 cells.
+    assert [repr(e) for e in with_rows.expectations if e.id != "E8"] == [
+        repr(e) for e in without.expectations if e.id != "E8"
+    ]
+    for name in without.tables:
+        pd.testing.assert_frame_equal(with_rows.tables[name], without.tables[name])
+    assert [f.caption for f in with_rows.figures] == [f.caption for f in without.figures]
+    assert with_rows.status.expected == ate_status.expected
+    assert "P7" not in with_rows.status.by_scenario
+    assert with_rows.p7_section is not None
+    assert with_rows.p7_section.cells_expected == 3
+    assert with_rows.p7_section.cells_done == 3
+    assert set(with_rows.p7_section.table["method"]) == {"twfe", "callaway_santanna"}
+
+
+def test_two_sources_of_long_panel_rows_are_refused(d_run, p7_run, monkeypatch):
+    from cp_evaluation.store import RunStore as _RealRunStore
+
+    real = _RealRunStore.open(d_run)
+    combined = pd.concat([real.read_frame(), _p7_rows()], ignore_index=True)
+
+    class _Store:
+        def __init__(self, rows, store):
+            self._rows, self._store = rows, store
+            self.replications = store.replications
+            self.identity = store.identity
+
+        def read_frame(self):
+            return self._rows
+
+        def status(self):
+            return self._store.status()
+
+    def _open(directory):
+        store = _RealRunStore.open(directory)
+        rows = combined if Path(directory) == Path(d_run) else store.read_frame()
+        return _Store(rows, store)
+
+    monkeypatch.setattr(
+        "cp_report.benchmark.RunStore", type("_Open", (), {"open": staticmethod(_open)})
+    )
+    with pytest.raises(ValueError, match="two protocols"):
+        benchmark_evidence_from_run(d_run, p7_directory=p7_run)

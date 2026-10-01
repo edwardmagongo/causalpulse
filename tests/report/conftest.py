@@ -91,6 +91,30 @@ def cate_run(tmp_path, monkeypatch):
     return run_dir
 
 
+@pytest.fixture
+def p7_run(tmp_path, monkeypatch):
+    """A real `p7`-tier run: two P7 cells at the 600 by 20 protocol, fitted only by
+    the two cheap panel estimators (hierarchical_did takes minutes a cell there)."""
+    import cp_cli.commands.bench as bench_module
+    from cp_cli.__main__ import main
+    from cp_core.values import EstimatorConfig
+    from cp_evaluation.grid import GridConfig, LongPanelAxes
+
+    monkeypatch.setitem(
+        bench_module.TIERS,
+        "p7",
+        (
+            lambda: GridConfig(cross_section=None, panel=None,
+                               long_panel=LongPanelAxes(scenarios=("P7",)), replications=2),
+            ("callaway_santanna", "twfe"),
+            EstimatorConfig(random_seed=0, bootstrap_reps=20),
+        ),
+    )
+    run_dir = tmp_path / "p7"
+    assert main(["bench", "run", "--tier", "p7", "--out", str(run_dir)]) == 0
+    return run_dir
+
+
 @pytest.fixture(scope="module")
 def cross_section():
     """Scenario D at n=400: small, cross-sectional, and fits in well under a second
