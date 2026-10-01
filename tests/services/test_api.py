@@ -86,6 +86,22 @@ def test_a_schema_column_the_upload_lacks_is_422_before_anything_is_queued(clien
     assert Queue(QUEUE_NAME, connection=redis_conn).count == 0
 
 
+def test_a_schema_whose_roles_collide_is_422_before_anything_is_queued(client, redis_conn):
+    # Unlike the test above, every column this schema names is in the upload:
+    # only the schema's own refusal stands between it and the queue.
+    content, schema = scenario_d_upload()
+    dataset = _upload(client, content).json()
+
+    response = client.post(
+        "/v1/analyses",
+        json={"dataset_id": dataset["id"], "schema": {**schema, "outcome": schema["treatment"]}},
+    )
+
+    assert response.status_code == 422
+    assert "treatment and outcome both name column 'treated'" in response.json()["detail"]
+    assert Queue(QUEUE_NAME, connection=redis_conn).count == 0
+
+
 def test_upload_to_report_end_to_end(client, redis_conn):
     submitted = _submit(client)
     assert submitted.status_code == 202
