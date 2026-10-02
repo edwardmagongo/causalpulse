@@ -58,18 +58,28 @@ def alices_analysis(sessions, redis_conn, worker_env, api_key_for):
     fixture = {
         "key": key,
         "dataset_id": dataset["id"],
-        "params": {"analysis_id": analysis_id, "method": "lin_regression", "filename": figure},
+        "params": {
+            "analysis_id": analysis_id,
+            "dataset_id": dataset["id"],
+            "method": "lin_regression",
+            "filename": figure,
+        },
     }
     # Positive control: the other-user test below asserts 404, which a broken
     # fixture (a failed analysis, a wrong figure name) would also produce for
     # everyone. So prove here that the owner gets 200 on every route it covers.
     for method, path in ROUTES:
-        if "{analysis_id}" in path:
+        if _names_a_resource(path):
             response = _request(alice, method, path, fixture)
             assert response.status_code == 200, (
                 f"fixture is broken: alice got {response.status_code} on {method} {path}"
             )
     return fixture
+
+
+def _names_a_resource(path):
+    """Whether the path addresses one analysis or one dataset, which has an owner."""
+    return "{analysis_id}" in path or "{dataset_id}" in path
 
 
 def _request(client, method, path, fixture):
@@ -99,9 +109,9 @@ def test_every_route_but_healthz_refuses_a_request_without_a_key(
 
 
 @pytest.mark.parametrize(
-    ("method", "path"), [r for r in ROUTES if "{analysis_id}" in r[1]]
+    ("method", "path"), [r for r in ROUTES if _names_a_resource(r[1])]
 )
-def test_another_users_analysis_is_not_found_on_every_route(
+def test_another_users_analysis_or_dataset_is_not_found_on_every_route(
     sessions, redis_conn, alices_analysis, api_key_for, method, path
 ):
     bob = _client(sessions, redis_conn, api_key_for("bob"))
@@ -126,13 +136,18 @@ def test_an_analysis_and_its_dataset_have_the_same_owner(sessions, alices_analys
 def test_the_route_table_holds_no_surprises():
     # Makes a new route a deliberate addition to this file's checks.
     assert sorted([
+        ("GET", "/v1/analyses"),
         ("GET", "/v1/analyses/{analysis_id}"),
         ("GET", "/v1/analyses/{analysis_id}/estimates/{method}/report.html"),
         ("GET", "/v1/analyses/{analysis_id}/estimates/{method}/report.md"),
         ("GET", "/v1/analyses/{analysis_id}/estimates/{method}/{filename}"),
         ("GET", "/v1/analyses/{analysis_id}/manifest"),
         ("GET", "/v1/analyses/{analysis_id}/summary"),
+        ("GET", "/v1/datasets"),
+        ("GET", "/v1/datasets/{dataset_id}"),
+        ("GET", "/v1/estimators"),
         ("GET", "/v1/healthz"),
+        ("GET", "/v1/me"),
         ("POST", "/v1/analyses"),
         ("POST", "/v1/datasets"),
     ]) == ROUTES

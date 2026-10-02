@@ -14,7 +14,8 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Any
 
-from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile
+from cp_core.catalogue import catalogue
+from fastapi import FastAPI, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 from redis import Redis
@@ -22,7 +23,7 @@ from redis.exceptions import RedisError
 from rq import Queue
 from rq.exceptions import NoSuchJobError
 from rq.job import Job, JobStatus
-from sqlalchemy import select, text
+from sqlalchemy import select, text, tuple_
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -43,6 +44,7 @@ from cp_api.db import (
     utcnow,
 )
 from cp_api.deps import SessionDep
+from cp_api.pagination import DEFAULT_LIMIT, MAX_LIMIT, decode_cursor, encode_cursor
 from cp_api.validation import RequestError, check_analysis_request, check_upload, csv_header
 
 WORKER_LOST = "worker lost: the job ended without recording a result"
@@ -69,6 +71,10 @@ class AnalysisRequest(BaseModel):
 
 def _iso(moment: datetime | None) -> str | None:
     return None if moment is None else moment.isoformat()
+
+
+# Module scope, like SessionDep: a local alias breaks under postponed annotations.
+Limit = Annotated[int, Query(ge=1, le=MAX_LIMIT)]
 
 
 def _job_lost(redis: Redis, analysis_id: uuid.UUID) -> bool:
@@ -132,6 +138,79 @@ def create_app(
             )
         return summary
 
+    def _fail_if_lost(session: Session, analysis: Analysis) -> None:
+        """Mark an in-flight analysis `failed` when its job is gone (spec §11.4).
+
+        Shared by the single read and the list, so a dead job never shows as
+        `running` in one and `failed` in the other.
+        """
+        if analysis.status in ("queued", "running") and _job_lost(queue_redis, analysis.id):
+            analysis.status = "failed"
+            analysis.error = WORKER_LOST
+            analysis.finished_at = utcnow()
+            session.commit()
+
+    @app.get("/v1/me", response_model=models.Me)
+    def read_me(user: CurrentUser) -> dict[str, Any]:
+        return {"name": user.name}
+
+    @app.get("/v1/estimators", response_model=models.EstimatorCatalogue)
+    def list_estimators(user: CurrentUser) -> dict[str, Any]:
+        return {
+            "estimators": [{"name": name, "family": family} for name, family in catalogue()]
+        }
+
+    @app.get("/v1/datasets", response_model=models.DatasetPage)
+    def list_datasets(
+        user: CurrentUser,
+        session: SessionDep,
+        limit: Limit = DEFAULT_LIMIT,
+        cursor: str | None = None,
+    ) -> dict[str, Any]:
+        # Named columns, never the entity: `datasets.csv` holds up to 50 MB a row.
+        query = select(
+            Dataset.id, Dataset.filename, Dataset.sha256, Dataset.n_bytes, Dataset.created_at
+        ).where(Dataset.owner_id == user.id)
+        if cursor is not None:
+            query = query.where(tuple_(Dataset.created_at, Dataset.id) < decode_cursor(cursor))
+        rows = session.execute(
+            query.order_by(Dataset.created_at.desc(), Dataset.id.desc()).limit(limit + 1)
+        ).all()
+        page = rows[:limit]
+        return {
+            "items": [
+                {
+                    "id": str(row.id),
+                    "filename": row.filename,
+                    "sha256": row.sha256,
+                    "n_bytes": row.n_bytes,
+                    "created_at": row.created_at.isoformat(),
+                }
+                for row in page
+            ],
+            "next_cursor": (
+                encode_cursor(page[-1].created_at, page[-1].id) if len(rows) > limit else None
+            ),
+        }
+
+    @app.get("/v1/datasets/{dataset_id}", response_model=models.DatasetDetail)
+    def read_dataset(
+        user: CurrentUser, dataset_id: uuid.UUID, session: SessionDep
+    ) -> dict[str, Any]:
+        dataset = session.scalars(
+            select(Dataset).where(Dataset.id == dataset_id, Dataset.owner_id == user.id)
+        ).one_or_none()
+        if dataset is None:
+            raise HTTPException(404, f"no dataset {dataset_id}")
+        return {
+            "id": str(dataset.id),
+            "filename": dataset.filename,
+            "sha256": dataset.sha256,
+            "n_bytes": dataset.n_bytes,
+            "created_at": dataset.created_at.isoformat(),
+            "columns": list(csv_header(dataset.csv)),
+        }
+
     @app.post("/v1/datasets", status_code=201, response_model=models.DatasetUploaded)
     def upload_dataset(
         user: CurrentUser,
@@ -166,6 +245,52 @@ def create_app(
             "sha256": dataset.sha256,
             "n_bytes": dataset.n_bytes,
             "columns": list(columns),
+        }
+
+    @app.get("/v1/analyses", response_model=models.AnalysisPage)
+    def list_analyses(
+        user: CurrentUser,
+        session: SessionDep,
+        limit: Limit = DEFAULT_LIMIT,
+        cursor: str | None = None,
+    ) -> dict[str, Any]:
+        query = (
+            select(Analysis, Dataset.filename)
+            .join(Dataset, Dataset.id == Analysis.dataset_id)
+            .where(Analysis.owner_id == user.id)
+        )
+        if cursor is not None:
+            query = query.where(
+                tuple_(Analysis.created_at, Analysis.id) < decode_cursor(cursor)
+            )
+        rows = session.execute(
+            query.order_by(Analysis.created_at.desc(), Analysis.id.desc()).limit(limit + 1)
+        ).all()
+        page = rows[:limit]
+        # Only the page's in-flight rows, so the Redis reads are bounded by `limit`.
+        for analysis, _ in page:
+            _fail_if_lost(session, analysis)
+        return {
+            "items": [
+                {
+                    "id": str(analysis.id),
+                    "dataset_id": str(analysis.dataset_id),
+                    "dataset_filename": filename,
+                    "status": analysis.status,
+                    "partial": analysis.partial,
+                    "error": analysis.error,
+                    "requested_estimators": analysis.requested_estimators,
+                    "created_at": analysis.created_at.isoformat(),
+                    "started_at": _iso(analysis.started_at),
+                    "finished_at": _iso(analysis.finished_at),
+                }
+                for analysis, filename in page
+            ],
+            "next_cursor": (
+                encode_cursor(page[-1][0].created_at, page[-1][0].id)
+                if len(rows) > limit
+                else None
+            ),
         }
 
     @app.post("/v1/analyses", status_code=202, response_model=models.AnalysisCreated)
@@ -210,11 +335,7 @@ def create_app(
         user: CurrentUser, analysis_id: uuid.UUID, session: SessionDep
     ) -> dict[str, Any]:
         analysis = _analysis_or_404(session, analysis_id, user)
-        if analysis.status in ("queued", "running") and _job_lost(queue_redis, analysis_id):
-            analysis.status = "failed"
-            analysis.error = WORKER_LOST
-            analysis.finished_at = utcnow()
-            session.commit()
+        _fail_if_lost(session, analysis)
         decisions = session.scalars(
             select(RoutingDecisionRow)
             .where(RoutingDecisionRow.analysis_id == analysis_id)
