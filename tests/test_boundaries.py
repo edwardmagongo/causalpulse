@@ -200,6 +200,22 @@ def test_mlflow_is_imported_only_by_the_tracking_log_module():
     assert not found, f"mlflow imported outside {allowed}: {sorted(map(str, found))}"
 
 
+def test_the_model_sdk_is_imported_only_by_the_llm_client_module():
+    import pathlib
+
+    packages = pathlib.Path(__file__).resolve().parents[1] / "packages"
+    allowed = packages / "cp-llm" / "src" / "cp_llm" / "client.py"
+    offenders = subprocess.run(
+        ["grep", "-rlE", "--include=*.py", r"^\s*(import anthropic|from anthropic)", str(packages)],
+        capture_output=True,
+        text=True,
+    )
+    assert offenders.returncode in (0, 1), offenders.stderr
+    found = {pathlib.Path(p) for p in offenders.stdout.splitlines()}
+    assert allowed in found, "the scan no longer reaches the one module that imports the SDK"
+    assert found == {allowed}, f"anthropic imported outside {allowed}: {sorted(map(str, found))}"
+
+
 def test_no_test_package_shadows_a_stdlib_module():
     import pathlib
     import sys

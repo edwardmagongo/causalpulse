@@ -77,3 +77,23 @@ source_modules =
     cp_worker
 forbidden_modules =
     cp_tracking
+
+[importlinter:contract:llm-reads-facts-only]
+name = Only cp_llm.extract reads the result types
+type = forbidden
+source_modules =
+    cp_llm.facts
+    cp_llm.narrative
+    cp_llm.vocabulary
+    cp_llm.render
+    cp_llm.verify
+    cp_llm.prompt
+    cp_llm.model
+    cp_llm.client
+    cp_llm.interpret
+forbidden_modules =
+    cp_report
+    cp_causal
+    cp_figures
+    cp_evaluation
+    cp_statistics
