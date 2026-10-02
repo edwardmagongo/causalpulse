@@ -98,8 +98,42 @@ def test_json_is_strict_and_stable():
     assert table.to_json() == table.to_json()
 
 
-def test_another_schema_version_is_refused_with_what_to_do():
+def test_another_schema_version_is_refused_with_the_mismatch():
     raw = json.dumps({"schema_version": FACTS_SCHEMA_VERSION + 1, "facts": []})
 
-    with pytest.raises(ValueError, match="rerun `causalpulse analyze --report`"):
+    with pytest.raises(ValueError, match="facts schema_version 2 is not 1") as excinfo:
+        FactTable.from_json(raw)
+    assert "rerun" not in str(excinfo.value)
+
+
+_GOOD = {"id": "est.a.method", "kind": "name", "value": "a", "subject": None}
+
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        ([], "not a JSON object"),
+        ("text", "not a JSON object"),
+        (None, "not a JSON object"),
+        ({"schema_version": 1}, "no `facts` list"),
+        ({"schema_version": 1, "facts": {"a": 1}}, "no `facts` list"),
+        ({"schema_version": 1, "facts": ["x"]}, "fact 0 is not an object"),
+        ({"schema_version": 1, "facts": [_GOOD, 3]}, "fact 1 is not an object"),
+        *[
+            (
+                {"schema_version": 1, "facts": [_GOOD, {k: v for k, v in _GOOD.items() if k != f}]},
+                f"fact 1 has no `{f}`",
+            )
+            for f in ("id", "kind", "value", "subject")
+        ],
+    ],
+)
+def test_a_structurally_bad_payload_is_a_value_error_that_says_what_is_wrong(payload, message):
+    with pytest.raises(ValueError, match=message):
+        FactTable.from_json(json.dumps(payload))
+
+
+@pytest.mark.parametrize("raw", ["", '{"schema_version": 1, "facts": ['])
+def test_invalid_json_is_a_value_error(raw):
+    with pytest.raises(ValueError):
         FactTable.from_json(raw)

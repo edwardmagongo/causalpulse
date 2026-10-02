@@ -1,5 +1,6 @@
 import hashlib
 import json
+import shutil
 
 import cp_cli.commands.interpret as interpret_command
 import pytest
@@ -20,6 +21,19 @@ def run_dir(tmp_path_factory):
     )
     assert code == 0
     return out
+
+
+@pytest.fixture
+def fresh_run_dir(run_dir, tmp_path):
+    """A copy of the analysis run with no `interpretation.*` in it."""
+    copy = tmp_path / "run"
+    shutil.copytree(run_dir, copy, ignore=shutil.ignore_patterns("interpretation.*"))
+    return copy
+
+
+def _assert_nothing_written(directory):
+    assert not (directory / "interpretation.md").exists()
+    assert not (directory / "interpretation.json").exists()
 
 
 def _use(monkeypatch, script):
@@ -72,19 +86,16 @@ def test_model_and_effort_reach_the_model_factory(run_dir, monkeypatch):
 
 
 def test_a_refusal_prints_the_violations_writes_nothing_and_exits_one(
-    run_dir, monkeypatch, capsys
+    fresh_run_dir, monkeypatch, capsys
 ):
-    for name in ("interpretation.md", "interpretation.json"):
-        (run_dir / name).unlink(missing_ok=True)
     band = good_narrative().validity[0]
     bare = swap(good_narrative(), "validity", 0, band + " That is 2 steps down.")
     _use(monkeypatch, [bare, bare])
 
-    code = main(["interpret", str(run_dir)])
+    code = main(["interpret", str(fresh_run_dir)])
 
     assert code == 1
-    assert not (run_dir / "interpretation.md").exists()
-    assert not (run_dir / "interpretation.json").exists()
+    _assert_nothing_written(fresh_run_dir)
     err = capsys.readouterr().err
     assert "failed verification on all 2 attempt" in err
     assert "[bare_value]" in err
@@ -92,25 +103,27 @@ def test_a_refusal_prints_the_violations_writes_nothing_and_exits_one(
 
 
 def test_a_model_that_does_not_answer_exits_one_with_its_stop_reason(
-    run_dir, monkeypatch, capsys
+    fresh_run_dir, monkeypatch, capsys
 ):
     _use(monkeypatch, ["refusal"])
 
-    assert main(["interpret", str(run_dir)]) == 1
+    assert main(["interpret", str(fresh_run_dir)]) == 1
     assert "stop reason: refusal" in capsys.readouterr().err
+    _assert_nothing_written(fresh_run_dir)
 
 
-def test_an_unreachable_model_exits_one_with_one_line(run_dir, monkeypatch, capsys):
+def test_an_unreachable_model_exits_one_with_one_line(fresh_run_dir, monkeypatch, capsys):
     class Unreachable:
         def complete(self, system, turns):
             raise ModelCallError("no API credentials were found; set ANTHROPIC_API_KEY")
 
     monkeypatch.setattr(interpret_command, "build_model", lambda name, effort: Unreachable())
 
-    assert main(["interpret", str(run_dir)]) == 1
+    assert main(["interpret", str(fresh_run_dir)]) == 1
     assert capsys.readouterr().err.strip() == (
         "no API credentials were found; set ANTHROPIC_API_KEY"
     )
+    _assert_nothing_written(fresh_run_dir)
 
 
 def test_a_directory_without_facts_says_what_to_run(tmp_path, monkeypatch, capsys):
@@ -118,6 +131,34 @@ def test_a_directory_without_facts_says_what_to_run(tmp_path, monkeypatch, capsy
 
     assert main(["interpret", str(tmp_path)]) == 1
     assert "run `causalpulse analyze --report` first" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        pytest.param('{"schema_version": 1, "facts": [', id="invalid-json"),
+        pytest.param("[]", id="wrong-shape"),
+        pytest.param('{"schema_version": 2, "facts": []}', id="wrong-schema-version"),
+    ],
+)
+def test_an_unusable_fact_table_is_one_line_not_a_traceback(
+    content, tmp_path, monkeypatch, capsys
+):
+    (tmp_path / "facts.json").write_text(content, encoding="utf-8")
+
+    def build(name, effort):
+        raise AssertionError("the model must not be built for an unusable fact table")
+
+    monkeypatch.setattr(interpret_command, "build_model", build)
+
+    assert main(["interpret", str(tmp_path)]) == 1
+
+    err = capsys.readouterr().err
+    assert len(err.splitlines()) == 1
+    assert str(tmp_path / "facts.json") in err
+    assert "is not a usable fact table" in err
+    assert "rerun `causalpulse analyze --report`" in err
+    _assert_nothing_written(tmp_path)
 
 
 def test_an_unknown_effort_is_a_usage_error(run_dir):

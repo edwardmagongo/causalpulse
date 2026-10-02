@@ -127,7 +127,7 @@ def _write_outcome(outcome: AnalysisOutcome, out: Path) -> None:
     (out / "summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True))
     # Everything `causalpulse interpret` reads. Written on every report run:
     # building it calls no model and needs no credentials.
-    (out / FACTS_FILENAME).write_text(fact_table(outcome).to_json())
+    (out / FACTS_FILENAME).write_text(fact_table(outcome).to_json(), encoding="utf-8")
 
 
 def run(args: argparse.Namespace) -> int:

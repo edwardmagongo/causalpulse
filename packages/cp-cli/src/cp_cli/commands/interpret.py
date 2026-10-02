@@ -44,8 +44,16 @@ def run(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
-    raw = facts_path.read_text(encoding="utf-8")
-    facts = FactTable.from_json(raw)
+    try:
+        raw = facts_path.read_text(encoding="utf-8")
+        facts = FactTable.from_json(raw)
+    except (OSError, ValueError) as exc:
+        print(
+            f"{facts_path} is not a usable fact table ({exc}); "
+            "rerun `causalpulse analyze --report` to rewrite it",
+            file=sys.stderr,
+        )
+        return 1
 
     try:
         result = interpret(facts, build_model(args.model, args.effort))

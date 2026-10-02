@@ -97,14 +97,21 @@ class FactTable:
     @classmethod
     def from_json(cls, raw: str) -> FactTable:
         payload = json.loads(raw)
+        if not isinstance(payload, dict):
+            raise ValueError("the payload is not a JSON object")
         version = payload.get("schema_version")
         if version != FACTS_SCHEMA_VERSION:
-            raise ValueError(
-                f"facts schema_version {version!r} is not {FACTS_SCHEMA_VERSION}; "
-                "rerun `causalpulse analyze --report`"
-            )
+            raise ValueError(f"facts schema_version {version!r} is not {FACTS_SCHEMA_VERSION}")
+        records = payload.get("facts")
+        if not isinstance(records, list):
+            raise ValueError("the payload has no `facts` list")
         facts = []
-        for record in payload["facts"]:
+        for position, record in enumerate(records):
+            if not isinstance(record, dict):
+                raise ValueError(f"fact {position} is not an object")
+            for field in ("id", "kind", "value", "subject"):
+                if field not in record:
+                    raise ValueError(f"fact {position} has no `{field}`")
             kind = cast(FactKind, record["kind"])
             value = record["value"]
             # JSON has one number type: 2.0 is written "2.0" and read back as a
