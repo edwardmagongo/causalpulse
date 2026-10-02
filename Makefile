@@ -1,4 +1,4 @@
-.PHONY: install fmt lint types imports test test-fast cov check check-services smoke openapi
+.PHONY: install fmt lint types imports test test-fast cov check check-services check-web smoke openapi
 
 install:
 	uv sync
@@ -50,3 +50,7 @@ smoke:
 # `tests/api/test_openapi.py` fails when this file is out of date.
 openapi:
 	uv run cp-api-openapi > web/openapi.json
+
+# The dashboard's service-free gate: lint, generated types current, types, unit tests.
+check-web:
+	cd web && pnpm install --frozen-lockfile && pnpm run check
