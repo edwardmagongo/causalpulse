@@ -28,6 +28,8 @@ from cp_core.dataset import CausalDataset
 from cp_core.manifest import DatasetReference, FixtureReference, ScenarioReference
 from cp_core.results import EffectEstimate
 from cp_core.values import EstimatorConfig
+from cp_llm.extract import fact_table
+from cp_llm.facts import FACTS_FILENAME
 from cp_report.pipeline import AnalysisOutcome, analyse
 from cp_simulation.panel_scenarios import PANEL_SCENARIOS
 from cp_simulation.params import ScenarioParams
@@ -56,7 +58,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--report",
         action="store_true",
-        help="Also write one evidence report per estimate, and a summary.json.",
+        help="Also write one evidence report per estimate, a summary.json and a facts.json.",
     )
     add_schema_arguments(parser)
 
@@ -123,6 +125,9 @@ def _write_outcome(outcome: AnalysisOutcome, out: Path) -> None:
         "comparisons": [group.to_dict() for group in outcome.comparisons],
     }
     (out / "summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True))
+    # Everything `causalpulse interpret` reads. Written on every report run:
+    # building it calls no model and needs no credentials.
+    (out / FACTS_FILENAME).write_text(fact_table(outcome).to_json())
 
 
 def run(args: argparse.Namespace) -> int:

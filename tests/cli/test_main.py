@@ -21,6 +21,7 @@ def test_an_unknown_command_is_refused():
     [
         ["simulate", "--help"],
         ["analyze", "--help"],
+        ["interpret", "--help"],
         ["replay", "--help"],
         ["bench", "--help"],
         ["bench", "run", "--help"],

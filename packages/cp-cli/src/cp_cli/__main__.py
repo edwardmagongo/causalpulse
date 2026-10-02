@@ -11,7 +11,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 
-from cp_cli.commands import analyze, bench, replay, simulate, study
+from cp_cli.commands import analyze, bench, interpret, replay, simulate, study
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -29,6 +29,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     analyze.add_arguments(analyze_parser)
     analyze_parser.set_defaults(handler=analyze.run)
+
+    interpret_parser = subcommands.add_parser(
+        "interpret", help="Write a verified interpretation of an analyze --report run."
+    )
+    interpret.add_arguments(interpret_parser)
+    interpret_parser.set_defaults(handler=interpret.run)
 
     replay_parser = subcommands.add_parser("replay", help="Refit from a manifest and compare.")
     replay.add_arguments(replay_parser)
