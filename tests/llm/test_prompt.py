@@ -10,10 +10,33 @@ from cp_llm.vocabulary import ALLOWED_PHRASES, CONTROLLED_WORDS, NUMBER_WORDS
 def test_the_prompt_lists_every_word_the_verifier_refuses():
     prompt = system_prompt()
 
-    for word in (*NUMBER_WORDS, *CONTROLLED_WORDS):
-        assert f" {word}" in prompt, word
+    # The whole interpolated list, verbatim. A per-word substring check is
+    # satisfied by the fixed prose for words like "pass" and "two", and by a
+    # sibling for "weak" beside "weakly", so it cannot see a truncated list.
+    assert ", ".join(sorted(NUMBER_WORDS)) in prompt
+    assert ", ".join(sorted(CONTROLLED_WORDS)) in prompt
     for phrase in ALLOWED_PHRASES:
         assert f'"{phrase}"' in prompt
+
+
+def test_a_list_missing_one_word_is_not_what_the_verifier_refuses(monkeypatch):
+    # The exact-list check must notice a stale list, including a word whose
+    # sibling ("weakly") remains in the prompt.
+    weak = "weak"
+    assert weak in CONTROLLED_WORDS
+    monkeypatch.setattr(
+        prompt_module,
+        "CONTROLLED_WORDS",
+        {word: kind for word, kind in CONTROLLED_WORDS.items() if word != weak},
+    )
+    monkeypatch.setattr(prompt_module, "NUMBER_WORDS", NUMBER_WORDS - {"two"})
+    stale = system_prompt()
+
+    assert ", ".join(sorted(CONTROLLED_WORDS)) not in stale
+    assert ", ".join(sorted(NUMBER_WORDS)) not in stale
+    # The per-word check this replaced still passes on the stale prompt.
+    assert f" {weak}" in stale
+    assert " two" in stale
 
 
 def test_the_assembled_prompt_passes_the_language_lint():
@@ -59,3 +82,5 @@ def test_the_prompt_states_the_rules_the_word_lists_cannot_carry():
 
     assert "no percent sign" in prompt
     assert "a zero result" in prompt
+    assert "Put nothing inside the braces but the id" in prompt
+    assert "any form of that verb" in prompt
