@@ -120,11 +120,16 @@ def _comparison_facts(group: ComparisonGroup) -> list[Fact]:
         [
             Fact(f"{prefix}.agreement", "label", comparison.agreement, None),
             Fact(f"{prefix}.verdict", "text", comparison.verdict, None),
-            Fact(f"{prefix}.point_low", "number", float(low), None),
-            Fact(f"{prefix}.point_high", "number", float(high), None),
-            Fact(f"{prefix}.dispersion", "number", float(comparison.dispersion), None),
         ]
     )
+    for name, raw in (
+        ("point_low", low),
+        ("point_high", high),
+        ("dispersion", comparison.dispersion),
+    ):
+        number = _finite(raw)
+        if number is not None:
+            facts.append(Fact(f"{prefix}.{name}", "number", number, None))
     return facts
 
 

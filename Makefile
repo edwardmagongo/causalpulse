@@ -37,7 +37,7 @@ check-services:
 	$(SERVICES_ENV) uv run pytest -v -m "services and not slow"; status=$$?; $(TEST_STACK) down -v; exit $$status
 
 # One real model call. Needs ANTHROPIC_API_KEY (or an `ant auth login` profile)
-# and spends a few cents. -s shows the token usage the test prints.
+# and is billed. -s shows the token usage the test prints.
 check-llm:
 	CP_LLM_LIVE=1 uv run pytest -v -s -m live
 

@@ -35,7 +35,7 @@ class Turn:
 
 @dataclass(frozen=True)
 class ModelReply:
-    """`narrative` is `None` exactly when the model did not finish an answer."""
+    """`narrative` is `None` exactly when the model did not give a usable answer."""
 
     narrative: Narrative | None
     stop_reason: str

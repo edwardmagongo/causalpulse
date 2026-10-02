@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from typing import cast
 
 import anthropic
+import pydantic
 from anthropic.types import MessageParam
 
 from cp_llm.model import (
@@ -66,13 +67,19 @@ class ClaudeModel:
             raise ModelCallError(
                 "no API credentials were found; set ANTHROPIC_API_KEY or run `ant auth login`"
             ) from exc
-        stop_reason = response.stop_reason or "unknown"
+        stop_reason: str = response.stop_reason or "unknown"
         narrative: Narrative | None = None
         # Read the stop reason before the text: a refusal or a reply cut off at
         # the token limit carries text that is not the JSON it was asked for.
         if stop_reason == "end_turn":
             text = "".join(block.text for block in response.content if block.type == "text")
-            narrative = Narrative.model_validate_json(text)
+            try:
+                narrative = Narrative.model_validate_json(text)
+            except pydantic.ValidationError:
+                # A reply that ended normally but is not valid JSON for the
+                # schema is no answer, the same as a refusal: say so in the
+                # stop reason rather than raise.
+                stop_reason = "invalid_reply"
         return ModelReply(
             narrative=narrative,
             stop_reason=stop_reason,

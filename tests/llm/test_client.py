@@ -121,6 +121,18 @@ def test_an_unfinished_reply_has_no_narrative_and_does_not_raise(
     assert reply.stop_reason == stop_reason
 
 
+@pytest.mark.parametrize("text", ['{"summary": "not a list"}', "not json"])
+def test_a_reply_that_ends_normally_but_does_not_fit_the_schema_is_no_answer(
+    model, wire, text
+):
+    wire.reply(text, stop_reason="end_turn")
+
+    reply = model.complete("s", [Turn("user", "u")])
+
+    assert reply.narrative is None
+    assert reply.stop_reason == "invalid_reply"
+
+
 def test_the_model_and_effort_are_the_callers(wire):
     client = anthropic.Anthropic(
         api_key="not-a-key",

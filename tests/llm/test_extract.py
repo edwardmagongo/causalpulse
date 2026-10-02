@@ -193,3 +193,24 @@ def test_a_point_of_exactly_zero_has_the_direction_zero(outcome):
     method, facts = _with_point(outcome, 0.0)
 
     assert _value(facts, f"est.{method}.direction") == "zero"
+
+
+def test_a_non_finite_comparison_number_gets_no_fact_and_the_rest_stays(outcome):
+    (group,) = outcome.comparisons
+    assert group.comparison is not None
+    broken = dataclasses.replace(
+        group,
+        comparison=dataclasses.replace(
+            group.comparison,
+            point_range=(float("nan"), float("nan")),
+            dispersion=float("nan"),
+        ),
+    )
+
+    facts = fact_table(dataclasses.replace(outcome, comparisons=(broken,)))
+
+    prefix = f"cmp.{group.estimand.lower()}.{group.scale}"
+    for name in ("point_low", "point_high", "dispersion"):
+        assert facts.get(f"{prefix}.{name}") is None
+    assert _value(facts, f"{prefix}.agreement") == group.comparison.agreement
+    assert _value(facts, f"{prefix}.verdict") == group.comparison.verdict
