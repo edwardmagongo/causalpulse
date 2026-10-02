@@ -126,6 +126,9 @@ class FactTable:
                 and isinstance(value, int)
                 and not isinstance(value, bool)
             ):
-                value = float(value)
+                try:
+                    value = float(value)
+                except OverflowError:
+                    raise ValueError(f"fact {position}: `value` is not a finite number") from None
             facts.append(Fact(id=record["id"], kind=kind, value=value, subject=record["subject"]))
         return cls(tuple(facts))

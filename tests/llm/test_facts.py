@@ -172,3 +172,11 @@ def test_a_fact_with_a_non_string_id_is_refused(fact_id):
 def test_a_fact_with_a_non_string_subject_is_refused(subject):
     with pytest.raises(ValueError, match="est.a.point: subject"):
         Fact("est.a.point", "number", 1.0, subject)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("kind", ["number", "level", "p_value"])
+def test_an_integer_too_large_for_a_float_is_a_value_error(kind):
+    raw = _table_with(id="est.a.point", kind=kind, value=10**400)
+
+    with pytest.raises(ValueError, match="fact 1.*not a finite number"):
+        FactTable.from_json(raw)
