@@ -64,6 +64,7 @@ forbidden_modules =
     cp_api.admin
     cp_api.app
     cp_api.deps
+    cp_api.pagination
 
 [importlinter:contract:tracking-stays-offline]
 name = The API and the worker never import the tracking package
