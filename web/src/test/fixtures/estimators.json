@@ -1,0 +1,52 @@
+{
+  "estimators": [
+    {
+      "name": "aipw",
+      "family": "cross_sectional"
+    },
+    {
+      "name": "causal_forest",
+      "family": "cross_sectional"
+    },
+    {
+      "name": "difference_in_means",
+      "family": "cross_sectional"
+    },
+    {
+      "name": "ipw",
+      "family": "cross_sectional"
+    },
+    {
+      "name": "lin_regression",
+      "family": "cross_sectional"
+    },
+    {
+      "name": "callaway_santanna",
+      "family": "panel"
+    },
+    {
+      "name": "did_2x2",
+      "family": "panel"
+    },
+    {
+      "name": "event_study",
+      "family": "panel"
+    },
+    {
+      "name": "hierarchical_did",
+      "family": "panel"
+    },
+    {
+      "name": "twfe",
+      "family": "panel"
+    },
+    {
+      "name": "bsts",
+      "family": "donor_pool"
+    },
+    {
+      "name": "synthetic_control",
+      "family": "donor_pool"
+    }
+  ]
+}

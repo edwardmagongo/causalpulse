@@ -1,0 +1,12 @@
+{
+  "comparisons": [
+    {
+      "estimand": "ATT",
+      "scale": "absolute",
+      "methods": [
+        "synthetic_control"
+      ],
+      "not_compared_reason": "only one method estimated the ATT on the absolute scale, so there is no second estimate to compare it with"
+    }
+  ]
+}

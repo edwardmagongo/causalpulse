@@ -1,0 +1,19 @@
+{
+  "comparisons": [
+    {
+      "estimand": "ATE",
+      "scale": "absolute",
+      "methods": [
+        "difference_in_means",
+        "lin_regression"
+      ],
+      "agreement": "consistent",
+      "verdict": "The 2 methods scored WEAK or better report intervals that overlap pairwise, which is consistent with a common effect under each method's own assumptions. Highest validity band: difference_in_means at MODERATE. Point estimates range from -8333 to -3597; descriptive dispersion (standard deviation across methods, not a test of heterogeneity) is 3349. Interval bases in this comparison: analytic.",
+      "point_range": [
+        -8332.866670436902,
+        -3596.5170753250286
+      ],
+      "dispersion": 3349.1049167737647
+    }
+  ]
+}

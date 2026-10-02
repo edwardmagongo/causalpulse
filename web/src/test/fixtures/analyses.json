@@ -1,0 +1,48 @@
+{
+  "items": [
+    {
+      "id": "9d28802b-6670-4ffd-bb26-5524a50c0c1b",
+      "dataset_id": "68b49fb5-20f5-4c5e-ba49-8210ebf9e8bb",
+      "dataset_filename": "lalonde.csv",
+      "status": "failed",
+      "partial": false,
+      "error": "requested estimator(s) are not eligible for this dataset: twfe: requires panel data; dataset is a cross-section",
+      "requested_estimators": [
+        "twfe"
+      ],
+      "created_at": "2026-10-02T13:40:16.825491+00:00",
+      "started_at": "2026-10-02T13:40:16.909138+00:00",
+      "finished_at": "2026-10-02T13:40:16.981479+00:00"
+    },
+    {
+      "id": "42952ad3-a251-49c4-8ad9-c931c7a5c907",
+      "dataset_id": "c02fdf2f-3308-46a9-b5b8-9472590c8837",
+      "dataset_filename": "prop99.csv",
+      "status": "succeeded",
+      "partial": false,
+      "error": null,
+      "requested_estimators": [
+        "synthetic_control"
+      ],
+      "created_at": "2026-10-02T13:39:59.941633+00:00",
+      "started_at": "2026-10-02T13:39:59.992921+00:00",
+      "finished_at": "2026-10-02T13:40:16.373354+00:00"
+    },
+    {
+      "id": "8a9bcbb2-efcb-4f07-80ca-c47165eb9479",
+      "dataset_id": "68b49fb5-20f5-4c5e-ba49-8210ebf9e8bb",
+      "dataset_filename": "lalonde.csv",
+      "status": "succeeded",
+      "partial": false,
+      "error": null,
+      "requested_estimators": [
+        "difference_in_means",
+        "lin_regression"
+      ],
+      "created_at": "2026-10-02T13:37:45.847045+00:00",
+      "started_at": "2026-10-02T13:37:58.456479+00:00",
+      "finished_at": "2026-10-02T13:39:58.908624+00:00"
+    }
+  ],
+  "next_cursor": null
+}

@@ -1,0 +1,134 @@
+{
+  "id": "8a9bcbb2-efcb-4f07-80ca-c47165eb9479",
+  "dataset_id": "68b49fb5-20f5-4c5e-ba49-8210ebf9e8bb",
+  "status": "succeeded",
+  "partial": false,
+  "error": null,
+  "created_at": "2026-10-02T13:37:45.847045+00:00",
+  "started_at": "2026-10-02T13:37:58.456479+00:00",
+  "finished_at": "2026-10-02T13:39:58.908624+00:00",
+  "routing": [
+    {
+      "estimator": "aipw",
+      "eligible": true,
+      "reasons": []
+    },
+    {
+      "estimator": "bsts",
+      "eligible": false,
+      "reasons": [
+        "requires panel data; dataset is a cross-section",
+        "requires at most 1 treated unit(s); dataset has 185"
+      ]
+    },
+    {
+      "estimator": "callaway_santanna",
+      "eligible": false,
+      "reasons": [
+        "requires panel data; dataset is a cross-section"
+      ]
+    },
+    {
+      "estimator": "causal_forest",
+      "eligible": true,
+      "reasons": []
+    },
+    {
+      "estimator": "did_2x2",
+      "eligible": false,
+      "reasons": [
+        "requires panel data; dataset is a cross-section"
+      ]
+    },
+    {
+      "estimator": "difference_in_means",
+      "eligible": true,
+      "reasons": []
+    },
+    {
+      "estimator": "event_study",
+      "eligible": false,
+      "reasons": [
+        "requires panel data; dataset is a cross-section"
+      ]
+    },
+    {
+      "estimator": "hierarchical_did",
+      "eligible": false,
+      "reasons": [
+        "requires panel data; dataset is a cross-section"
+      ]
+    },
+    {
+      "estimator": "ipw",
+      "eligible": true,
+      "reasons": []
+    },
+    {
+      "estimator": "lin_regression",
+      "eligible": true,
+      "reasons": []
+    },
+    {
+      "estimator": "synthetic_control",
+      "eligible": false,
+      "reasons": [
+        "requires panel data; dataset is a cross-section",
+        "requires at most 1 treated unit(s); dataset has 185"
+      ]
+    },
+    {
+      "estimator": "twfe",
+      "eligible": false,
+      "reasons": [
+        "requires panel data; dataset is a cross-section"
+      ]
+    }
+  ],
+  "estimates": [
+    {
+      "method": "difference_in_means",
+      "band": "MODERATE",
+      "summary": {
+        "method": "difference_in_means",
+        "estimand": "ATE",
+        "scale": "absolute",
+        "point": -8332.866670436902,
+        "se": 583.3869674323422,
+        "ci_lower": -9483.598505189402,
+        "ci_upper": -7182.134835684403,
+        "ci_level": 0.95,
+        "ci_basis": "analytic",
+        "bootstrap_ci_lower": -9400.5754426158,
+        "bootstrap_ci_upper": -7160.690490459208,
+        "p_value": 6.188467170262585e-32,
+        "n_treated": 185,
+        "n_control": 16252,
+        "runtime_seconds": 0.28130508400136023
+      },
+      "error": null
+    },
+    {
+      "method": "lin_regression",
+      "band": "MODERATE",
+      "summary": {
+        "method": "lin_regression",
+        "estimand": "ATE",
+        "scale": "absolute",
+        "point": -3596.5170753250286,
+        "se": 2940.5681827117287,
+        "ci_lower": -9359.924807524414,
+        "ci_upper": 2166.890656874357,
+        "ci_level": 0.95,
+        "ci_basis": "analytic",
+        "bootstrap_ci_lower": -9071.790316438803,
+        "bootstrap_ci_upper": 2363.311856245569,
+        "p_value": 0.22130372747550187,
+        "n_treated": 185,
+        "n_control": 16252,
+        "runtime_seconds": 119.78547517900006
+      },
+      "error": null
+    }
+  ]
+}

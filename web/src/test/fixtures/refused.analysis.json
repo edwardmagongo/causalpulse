@@ -1,0 +1,12 @@
+{
+  "id": "9d28802b-6670-4ffd-bb26-5524a50c0c1b",
+  "dataset_id": "68b49fb5-20f5-4c5e-ba49-8210ebf9e8bb",
+  "status": "failed",
+  "partial": false,
+  "error": "requested estimator(s) are not eligible for this dataset: twfe: requires panel data; dataset is a cross-section",
+  "created_at": "2026-10-02T13:40:16.825491+00:00",
+  "started_at": "2026-10-02T13:40:16.909138+00:00",
+  "finished_at": "2026-10-02T13:40:16.981479+00:00",
+  "routing": [],
+  "estimates": []
+}
