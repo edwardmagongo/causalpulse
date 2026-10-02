@@ -108,6 +108,24 @@ describe("IntervalPlot", () => {
     );
   });
 
+  it("labels each interval with its basis in visible text, not only in the hover title", () => {
+    const drawn = panels(
+      [...lalonde.estimates, ...prop99.estimates] as Estimate[],
+      [...lalondeSummary.comparisons, ...prop99Summary.comparisons],
+    );
+    const { container } = render(<IntervalPlot panels={drawn} />);
+    // Select the <text> element: container.textContent also holds the <title> text.
+    const synthetic = container.querySelector('[data-method="synthetic_control"] text[data-basis]');
+    expect(synthetic?.textContent).toBe("95% permutation interval");
+    expect(synthetic?.getAttribute("data-basis")).toBe("permutation");
+    for (const estimate of lalonde.estimates) {
+      const label = container.querySelector(`[data-method="${estimate.method}"] text[data-basis]`);
+      expect(label?.textContent).toBe("95% analytic interval");
+      expect(label?.getAttribute("data-basis")).toBe("analytic");
+    }
+    expect(container.textContent?.toLowerCase()).not.toContain("confidence interval");
+  });
+
   it("draws the zero line only on an axis that crosses zero", () => {
     const drawn = panels(prop99.estimates as Estimate[], prop99Summary.comparisons);
     const { container } = render(<IntervalPlot panels={drawn} />);

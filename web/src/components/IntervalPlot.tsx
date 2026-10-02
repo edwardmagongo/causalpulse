@@ -4,7 +4,7 @@ import { position, showsZero, type PlotPanel } from "@/lib/plot";
 const WIDTH = 640;
 const LABEL = 190;
 const RIGHT = 16;
-const ROW = 28;
+const ROW = 36;
 const TOP = 8;
 const AXIS = 26;
 
@@ -48,8 +48,19 @@ export function IntervalPlot({ panels }: { panels: PlotPanel[] }) {
                         row.basis
                       } interval ${formatInterval(row.lower, row.upper)}`}
                     </title>
-                    <text x={LABEL - 10} y={y} textAnchor="end" dominantBaseline="middle" fontSize={12} fill="currentColor">
+                    <text x={LABEL - 10} y={y - 7} textAnchor="end" dominantBaseline="middle" fontSize={12} fill="currentColor">
                       {row.method}
+                    </text>
+                    <text
+                      data-basis={row.basis}
+                      x={LABEL - 10}
+                      y={y + 8}
+                      textAnchor="end"
+                      dominantBaseline="middle"
+                      fontSize={10}
+                      fill="currentColor"
+                    >
+                      {`${formatLevel(row.level)} ${row.basis} interval`}
                     </text>
                     <line x1={x(row.lower)} x2={x(row.upper)} y1={y} y2={y} stroke="currentColor" strokeWidth={2} />
                     <circle cx={x(row.point)} cy={y} r={4} fill="currentColor" />
