@@ -377,6 +377,12 @@ _GLUED = [
     "In {est.ipw.method}, the treated group holds {est.ipw.n_treated}k units.",
     "The comparison is in{cmp.ate.percentage_point.agreement} for {est.ipw.method}.",
     "The route for {est.ipw.method} is in{route.ipw.eligible}.",
+    # An apostrophe is a closing quote as well as a possessive; neither lets a
+    # word follow it.
+    "The estimate of {est.ipw.method}'stuff is shown here.",
+    "The estimate of {est.ipw.method}\u2019stuff is shown here.",
+    "The method is '{est.ipw.method}'x here.",
+    "The method is ({est.ipw.method})x here.",
 ]
 
 
@@ -408,6 +414,11 @@ def _delimiter_reasons(statement, facts):
         "The estimate of {est.ipw.method}'s is shown here.",
         "The estimate of {est.ipw.method}\u2019s is shown here.",
         "The estimate of {est.ipw.method}'s",
+        "The estimate of {est.ipw.method}'s.",
+        "The method is '{est.ipw.method}'.",
+        "The point for {est.ipw.method} is ({est.ipw.point}).",
+        # Read in one pass: a long run of punctuation is not a recursion limit.
+        "The point for {est.ipw.method} is {est.ipw.point}" + "." * 5000,
         "For {est.ipw.method}, {est.ipw.point}, with a wide interval.",
         "The point for {est.ipw.method} is {est.ipw.point}.",
         "The point for {est.ipw.method} is {est.ipw.point};",

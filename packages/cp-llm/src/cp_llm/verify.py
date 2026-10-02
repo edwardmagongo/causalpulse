@@ -137,15 +137,20 @@ _OPERATORS = frozenset("-\u2212\u2013+\u00b1\u00d7*/^~\u2248<>=")
 
 
 def _may_follow_placeholder(after: str) -> bool:
-    """Whether the text right after a placeholder keeps it a token of its own."""
-    if not after or after[0].isspace() or after[0] in _CLOSERS:
-        return True
-    if after[0] in _APOSTROPHES and after[1:2] == "s":
-        return len(after) == 2 or after[2].isspace()
-    if after[0] in _SENTENCE_PUNCTUATION:
-        rest = after[1:]
-        return not rest or rest[0].isspace() or rest[0] in _CLOSERS
-    return False
+    """Whether the text right after a placeholder keeps it a token of its own.
+
+    A possessive, a closer or sentence punctuation may come between, but only
+    if what follows it would itself be allowed here: `'s.` and `).` pass,
+    `'stuff` and `)x` do not.
+    """
+    while after and not after[0].isspace():
+        if after[0] in _APOSTROPHES and after[1:2] == "s":
+            after = after[2:]
+        elif after[0] in _CLOSERS or after[0] in _SENTENCE_PUNCTUATION:
+            after = after[1:]
+        else:
+            return False
+    return True
 
 
 def _delimiters(statement: str, facts: FactTable) -> Iterator[str]:
