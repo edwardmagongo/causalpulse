@@ -137,3 +137,38 @@ def test_a_structurally_bad_payload_is_a_value_error_that_says_what_is_wrong(pay
 def test_invalid_json_is_a_value_error(raw):
     with pytest.raises(ValueError):
         FactTable.from_json(raw)
+
+
+def _table_with(**overrides):
+    record = {**_GOOD, **overrides}
+    return json.dumps({"schema_version": 1, "facts": [_GOOD | {"id": "est.b.method"}, record]})
+
+
+@pytest.mark.parametrize("fact_id", [5, None, [1]], ids=["int", "null", "list"])
+def test_a_non_string_id_in_a_file_is_a_value_error(fact_id):
+    with pytest.raises(ValueError, match="not a fact id"):
+        FactTable.from_json(_table_with(id=fact_id))
+
+
+@pytest.mark.parametrize("kind", [["name"], {}], ids=["list", "object"])
+def test_an_unhashable_kind_in_a_file_is_a_value_error(kind):
+    with pytest.raises(ValueError, match="unknown kind"):
+        FactTable.from_json(_table_with(kind=kind))
+
+
+@pytest.mark.parametrize("subject", [["x"], {}, 3], ids=["list", "object", "int"])
+def test_a_non_string_subject_in_a_file_is_a_value_error(subject):
+    with pytest.raises(ValueError, match="subject"):
+        FactTable.from_json(_table_with(subject=subject))
+
+
+@pytest.mark.parametrize("fact_id", [5, None, ["est.a.point"]], ids=["int", "null", "list"])
+def test_a_fact_with_a_non_string_id_is_refused(fact_id):
+    with pytest.raises(ValueError, match="not a fact id"):
+        Fact(fact_id, "number", 1.0, None)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("subject", [3, ["x"], {}], ids=["int", "list", "object"])
+def test_a_fact_with_a_non_string_subject_is_refused(subject):
+    with pytest.raises(ValueError, match="est.a.point: subject"):
+        Fact("est.a.point", "number", 1.0, subject)  # type: ignore[arg-type]

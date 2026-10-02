@@ -161,6 +161,24 @@ def test_an_unusable_fact_table_is_one_line_not_a_traceback(
     _assert_nothing_written(tmp_path)
 
 
+def test_a_facts_path_that_cannot_be_read_is_one_line_not_a_traceback(
+    tmp_path, monkeypatch, capsys
+):
+    (tmp_path / "facts.json").mkdir()
+
+    def build(name, effort):
+        raise AssertionError("the model must not be built for an unreadable fact table")
+
+    monkeypatch.setattr(interpret_command, "build_model", build)
+
+    assert main(["interpret", str(tmp_path)]) == 1
+
+    err = capsys.readouterr().err
+    assert len(err.splitlines()) == 1
+    assert "is not a usable fact table" in err
+    _assert_nothing_written(tmp_path)
+
+
 def test_an_unknown_effort_is_a_usage_error(run_dir):
     with pytest.raises(SystemExit) as excinfo:
         main(["interpret", str(run_dir), "--effort", "extreme"])

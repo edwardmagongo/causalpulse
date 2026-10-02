@@ -42,10 +42,12 @@ class Fact:
     subject: str | None
 
     def __post_init__(self) -> None:
-        if _ID.fullmatch(self.id) is None:
+        if not isinstance(self.id, str) or _ID.fullmatch(self.id) is None:
             raise ValueError(f"not a fact id: {self.id!r}")
-        if self.kind not in _KINDS:
+        if not isinstance(self.kind, str) or self.kind not in _KINDS:
             raise ValueError(f"{self.id}: unknown kind {self.kind!r}")
+        if self.subject is not None and not isinstance(self.subject, str):
+            raise ValueError(f"{self.id}: subject {self.subject!r} is not a fact id")
         value = self.value
         if self.kind == "count":
             if isinstance(value, bool) or not isinstance(value, int):
@@ -117,7 +119,13 @@ class FactTable:
             # JSON has one number type: 2.0 is written "2.0" and read back as a
             # float, but a float fact whose value is integral must not come
             # back as an int.
-            if kind in _FLOAT_KINDS and isinstance(value, int) and not isinstance(value, bool):
+            # (`kind` is untrusted here: a non-string one is refused by `Fact`.)
+            if (
+                isinstance(kind, str)
+                and kind in _FLOAT_KINDS
+                and isinstance(value, int)
+                and not isinstance(value, bool)
+            ):
                 value = float(value)
             facts.append(Fact(id=record["id"], kind=kind, value=value, subject=record["subject"]))
         return cls(tuple(facts))
