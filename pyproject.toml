@@ -61,6 +61,10 @@ markers = [
     # service-free; `make check-services` starts both with docker compose and
     # runs these.
     "services: needs PostgreSQL and Redis; run by make check-services",
+    # Calls the real model API and spends money. Each test also skips unless
+    # CP_LLM_LIVE=1, so a key in the environment never makes `make check` call
+    # out; `make check-llm` sets it.
+    "live: calls the model API; run by make check-llm",
 ]
 # Warnings are failures. A numpy overflow in a hand-rolled sigmoid reached the
 # suite silently once and was only caught by running with -W error; the standard

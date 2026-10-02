@@ -1,4 +1,4 @@
-.PHONY: install fmt lint types imports test test-fast cov check check-services smoke
+.PHONY: install fmt lint types imports test test-fast cov check check-services check-llm smoke
 
 install:
 	uv sync
@@ -35,6 +35,11 @@ TEST_STACK = CP_POSTGRES_PORT=5434 CP_REDIS_PORT=6381 docker compose -p causalpu
 check-services:
 	$(TEST_STACK) up -d --wait postgres redis || { $(TEST_STACK) down -v; exit 1; }
 	$(SERVICES_ENV) uv run pytest -v -m "services and not slow"; status=$$?; $(TEST_STACK) down -v; exit $$status
+
+# One real model call. Needs ANTHROPIC_API_KEY (or an `ant auth login` profile)
+# and spends a few cents. -s shows the token usage the test prints.
+check-llm:
+	CP_LLM_LIVE=1 uv run pytest -v -s -m live
 
 # End-to-end: builds the image, brings up the whole stack (postgres, redis,
 # migrate, api, worker), and uploads the LaLonde fixture over real HTTP. Runs
