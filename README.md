@@ -225,7 +225,8 @@ a report without writing Python.
 | `cp-evaluation` | The benchmark grid: `run_grid` fits estimators across the DGP axes that exist and `summarise` reports bias, coverage, and calibration with Monte Carlo standard error. The first package allowed to import both `cp-simulation` and `cp-causal` together, so it sits above `cp-causal` in the layers contract and nothing below it may import it in turn. `store` and `execute` run a benchmark as a resumable set of shards. |
 | `cp-figures` | Eight publication-quality matplotlib figures — counterfactual path, event study, love plot, propensity overlap, specification curve, placebo distribution, cross-method forest plot, benchmark heatmaps — each a pure data function plus a thin drawing function. Imports only `cp-core` and `cp-causal`. |
 | `cp-report` | The evidence report generator: assumption table, validity band, cross-method comparison, and stated limitations, rendered to Markdown or one self-contained HTML file with figures inlined as SVG. Refuses to emit prose that fails `causal_language_lint`. |
-| `cp-cli` | The `causalpulse` command-line entry point (`simulate`, `analyze`, `replay`, `bench run`, `bench report`, `bench status`, `bench compact`, `bench study`, `bench track`) and Parquet-plus-JSON-sidecar result persistence. Sits at the top of the layers contract; nothing imports it. |
+| `cp-llm` | Plain-language interpretation of a whole analysis. `extract` turns an `AnalysisOutcome` into a table of citable facts; a model writes a narrative in which every value is a placeholder naming a fact; `verify` refuses any narrative it cannot trace back to the table. Sits between `cp-report` and the command line in the layers contract. Only `cp_llm.extract` imports the result types, and only `cp_llm.client` imports the model SDK. |
+| `cp-cli` | The `causalpulse` command-line entry point (`simulate`, `analyze`, `interpret`, `replay`, `bench run`, `bench report`, `bench status`, `bench compact`, `bench study`, `bench track`) and Parquet-plus-JSON-sidecar result persistence. Sits at the top of the layers contract; nothing imports it. |
 | `cp-api` | The FastAPI service: upload a CSV, request an analysis, read what the worker wrote. Not in the layers contract — its own forbidden-imports contract keeps it from importing `cp_causal` directly, so router refusals happen in the worker, not here. |
 | `cp-worker` | The RQ worker that runs a queued analysis through `cp_report.pipeline`: fit, score validity, render each estimate's report. Sits alongside `cp-cli` at the top of the layers contract; may import `cp_api.db` and nothing else from `cp_api`. |
 
@@ -1560,6 +1561,108 @@ exclusively — never the app's own `DATABASE_URL`/`REDIS_URL` — precisely so 
 waits for the analysis to finish, and fetches its report — end to end, through the same routes a
 user would call, not through an in-process test client.
 
+## Interpreting an analysis (sub-project 4, phase 1)
+
+`causalpulse interpret <run-dir>` writes a plain-language reading of a whole analysis: what each
+method estimated, each validity band and the checks behind it, what the cross-method comparison
+reports, and what failed or was excluded. It reads the `facts.json` that `analyze --report`
+writes, so it refits nothing and can be repeated.
+
+```bash
+uv run causalpulse analyze --data tests/fixtures/real_data/lalonde.csv \
+  --unit unit_id --treatment treat --outcome re78 \
+  --covariates age,educ,black,hisp,marr,nodegree,re74,re75 --outcome-type continuous \
+  --report --estimators difference_in_means,lin_regression --out out/lalonde
+uv run causalpulse interpret out/lalonde
+```
+
+It needs `ANTHROPIC_API_KEY` (or an `ant auth login` profile) and makes one model call, or two
+when the first reply is rejected. It writes `interpretation.md`, the narrative, and
+`interpretation.json`, the record: the narrative as the model wrote it, the rendered text, the
+model id, `prompt_version` (a short hash of the system prompt and the reply schema), every
+attempt with its violations and token usage, and the SHA-256 of the `facts.json` it read.
+`--model` and `--effort` override the defaults (`claude-opus-5-5`, `medium`).
+
+### The model never writes a value
+
+`analyze --report` flattens the analysis into a table of facts, each with an id:
+`est.aipw.point`, `score.aipw.band`, `check.aipw.positivity.status`,
+`cmp.ate.percentage_point.agreement`. The model is given that table and no other data from the
+analysis, and writes statements in which every value is a placeholder:
+
+```
+{est.aipw.method} estimates the {est.aipw.estimand} at {est.aipw.point}, with a
+{est.aipw.ci_level} interval from {est.aipw.ci_lower} to {est.aipw.ci_upper}.
+```
+
+The system substitutes the values, with one rounding rule. A number the analysis did not produce
+cannot appear, because the model has no way to write one. A value that was never computed, such
+as the statistic of a check that cannot be tested, has no fact, so citing it fails instead of
+rendering as a zero.
+
+Before anything is substituted, a deterministic verifier applies seven rules, and the narrative
+is written only if none is broken:
+
+1. **Resolves.** Every placeholder names a fact in the table.
+2. **No bare values.** No digit, no percent sign, and no number word from a short list, outside a
+   placeholder.
+3. **Controlled vocabulary.** A word that states a band, a status, an agreement verdict, a
+   direction, a zero result, significance or eligibility appears only through a placeholder.
+   "Strong evidence" is refused unless the word comes from a band fact; "significant" is refused
+   outright, and the model has an `interval_excludes_zero` fact to cite.
+4. **Attribution.** A statement citing a fact about a method must also name that method.
+5. **No bare point.** A statement citing a point estimate must cite both interval bounds.
+6. **Language.** The prose passes `causal_language_lint`, the lint the evidence report already
+   passes. The lint reads each statement with its numbers masked, so that the full stop inside a
+   decimal does not end a sentence.
+7. **Completeness.** The narrative must cite every estimate's point and band, every comparison's
+   agreement (or its reason for not comparing), every fit failure, and every check whose status is
+   `FAIL` or `WARN`.
+
+A rejected reply is sent back to the model once, with its violations. If the second reply is
+rejected too, the command prints the violations, writes nothing, and exits 1. The validity
+score's limits statement is appended by the system and is not the model's to write.
+
+A `facts.json` that is missing, damaged or from another schema version is reported in one line,
+naming the file and what to rerun, and nothing is sent to the model.
+
+### What a verified interpretation means, and what it does not
+
+It means every value shown is the system's own, every controlled word is backed by a fact,
+nothing the completeness rule requires was left out, and the prose passes the language lint.
+
+It does not mean the narrative is a correct reading of the analysis. The verifier does not catch:
+
+- qualitative wording outside the controlled lists ("a sizeable effect");
+- a wrong relationship between two correctly cited facts ("A is larger than B");
+- words around a quoted check interpretation that frame it misleadingly;
+- a quantity expressed without a number ("most checks");
+- a value attributed to the wrong method inside a statement that names both;
+- emphasis: a failed check must be cited, not given weight;
+- the negation of a cited fact ("the band is not {score.aipw.band}");
+- a hedge or negation word that arrives inside a cited fact ("not eligible", or any check's
+  interpretation), which the lint counts as hedging the whole sentence;
+- the phrase "consistent with", which is allowed as free text because the lint itself asks for
+  it, so "consistent with each other" passes whatever the comparison found.
+
+How often these happen is not measured yet. That is the next phase of this sub-project.
+
+### What leaves the machine
+
+Of the analysis, the fact table and nothing else: aggregate statistics, method and check names,
+and prose the system wrote. Beside it go the fixed instructions and, on a retry, the model's own
+rejected reply with the violations. No dataset rows are sent. A fit failure's error message is
+the exception's text, which can name a dataset column, so column names can leave.
+
+Text inside a fact is treated as untrusted. A column name written to read as an instruction
+reaches the model, but whatever the model then writes still has to pass the verifier, and a
+fact's text can reach the reader only verbatim, through its own placeholder.
+
+### Testing it
+
+`make check` never calls the model: every test but one runs against a scripted model or a mock of
+the SDK's transport. `make check-llm` runs that one test against the real API.
+
 ## On scikit-learn
 
 scikit-learn fits nuisance models only — the propensity model and the outcome regressions, which
@@ -1572,4 +1675,5 @@ influence function, the cross-fitting structure, the standard errors, and the di
 make install    # sync the uv workspace
 make check      # lint, type-check, import contracts, tests
 make test-fast  # skip reference-parity tests
+make check-llm  # one real model call; needs ANTHROPIC_API_KEY
 ```
