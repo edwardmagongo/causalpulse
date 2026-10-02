@@ -70,6 +70,23 @@ def test_a_malformed_schema_is_422_with_the_parsers_message():
     assert caught.value.status_code == 422
 
 
+@pytest.mark.parametrize(
+    ("overrides", "fragment"),
+    [
+        ({"outcome": "treated"}, "treatment and outcome both name column 'treated'"),
+        ({"covariates": ["x1", "outcome"]}, "covariates contains 'outcome'"),
+    ],
+)
+def test_a_schema_whose_roles_collide_is_422_with_the_schemas_reason(overrides, fragment):
+    # Every column named is in the upload, so the missing-column check cannot
+    # be what refuses this: without the schema's own refusal it is queued.
+    with pytest.raises(RequestError, match=fragment) as caught:
+        check_analysis_request({**SCHEMA, **overrides}, HEADER, None)
+
+    assert caught.value.status_code == 422
+    assert caught.value.message.startswith("invalid schema: ")
+
+
 def test_an_empty_estimator_list_is_refused():
     with pytest.raises(RequestError, match="at least one"):
         check_analysis_request(SCHEMA, HEADER, [])

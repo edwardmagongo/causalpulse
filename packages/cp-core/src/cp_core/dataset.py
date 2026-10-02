@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import itertools
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -19,6 +20,60 @@ _VALID_PROVENANCE: tuple[str, ...] = (
     "natural_experiment",
     "observational",
 )
+
+# Why two primary roles may not share a column, keyed by the pair, so the
+# refusal can say what would have gone wrong rather than only that the names
+# must differ. `cohort` is absent: all four of its collisions fail the same
+# way and share one reason, built where it is raised.
+_ROLE_COLLISION_REASONS: dict[frozenset[str], str] = {
+    frozenset({"unit", "treatment"}): (
+        "treatment is binary, so the frame could hold at most two units, one "
+        "per arm, and nothing would vary within an arm to estimate from"
+    ),
+    frozenset({"unit", "outcome"}): (
+        "an identifier is a label rather than a measurement, and an effect on "
+        "a label is not a quantity"
+    ),
+    frozenset({"treatment", "outcome"}): (
+        "an estimator would regress the column on itself and report an "
+        "identity as though it were an effect"
+    ),
+    frozenset({"unit", "time"}): (
+        "every unit would sit in a period of its own, so no unit is observed "
+        "twice and there is nothing to difference over time"
+    ),
+    frozenset({"treatment", "time"}): (
+        "treatment would switch on for every unit at once with the period, "
+        "leaving no untreated unit in a treated period to compare against"
+    ),
+    frozenset({"outcome", "time"}): (
+        "the outcome would be the period itself, which no treatment moves"
+    ),
+}
+
+# Why a primary role's column may not also be adjusted for.
+_COVARIATE_COLLISION_REASONS: dict[str, str] = {
+    "unit": (
+        "an identifier is a label, and adjusting for its numeric value would "
+        "treat an arbitrary numbering as a confounder"
+    ),
+    "treatment": (
+        "the adjustment would be perfectly collinear with treatment, and the "
+        "effect is not identified"
+    ),
+    "outcome": (
+        "adjusting for the outcome explains it completely and leaves "
+        "treatment nothing to account for"
+    ),
+    "time": (
+        "the period is the index a panel estimator differences over, not a "
+        "characteristic of a unit to adjust for"
+    ),
+    "cohort": (
+        "cohort is fixed by when treatment started, so adjusting for it "
+        "conditions on the treatment itself"
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -70,6 +125,42 @@ class CausalSchema:
                 f"assignment_provenance must be one of {list(_VALID_PROVENANCE)}, "
                 f"got {self.assignment_provenance!r}"
             )
+        # Each primary role must name a column of its own. The negative
+        # control and the auxiliaries below were checked against these roles
+        # from the day each was added; the roles were never checked against
+        # each other, so a schema naming one column as both treatment and
+        # outcome constructed, fitted, and returned a number. Checked first
+        # because the refusals below describe a column by the role it plays,
+        # which presumes it plays only one.
+        roles = {"unit": self.unit, "treatment": self.treatment, "outcome": self.outcome}
+        if self.time is not None:
+            roles["time"] = self.time
+        if self.cohort is not None:
+            roles["cohort"] = self.cohort
+        for (first, column), (second, other) in itertools.combinations(roles.items(), 2):
+            if column != other:
+                continue
+            if second == "cohort":
+                # `_panel_placebo_units` writes placebo cohorts into this
+                # column after it has written the placebo treatment, so a
+                # shared column is not merely mislabelled: it is clobbered.
+                reason = (
+                    "cohort holds each unit's first treated period, and a "
+                    "placebo refit that rewrites the cohort column would "
+                    f"overwrite the {first} with it"
+                )
+            else:
+                reason = _ROLE_COLLISION_REASONS[frozenset({first, second})]
+            raise ValueError(f"{first} and {second} both name column {column!r}; {reason}")
+        # The same rule `_resolve_nuisance_covariates` applies to covariates
+        # supplied through `config.options`, for the declared adjustment set
+        # every estimator reads by default.
+        for role, column in roles.items():
+            if column in self.covariates:
+                raise ValueError(
+                    f"covariates contains {column!r}, which is already the {role}; "
+                    f"{_COVARIATE_COLLISION_REASONS[role]}"
+                )
         if self.negative_control_outcome is not None:
             if self.negative_control_outcome == self.outcome:
                 raise ValueError(

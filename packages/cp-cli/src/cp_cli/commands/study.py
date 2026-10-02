@@ -128,9 +128,11 @@ def _write_figures(frame: pd.DataFrame, out: Path) -> list[str]:
 def run_study(args: argparse.Namespace) -> int:
     """Write a finished run's tables, figures and expectations check under `--out`.
 
-    `tables/*.csv` must be read with `pandas.read_csv(..., keep_default_na=False)`:
-    the CATE scenario `NULL` is otherwise read back as a missing value and its rows
-    silently drop out of any grouping.
+    Each table is written three ways: `tables/{name}.csv`, `.md` and `.parquet`.
+    The Parquet copy keeps every column's type, so a value such as the CATE
+    scenario name `NULL` reads back intact with default settings. The CSV must
+    be read with `pandas.read_csv(..., keep_default_na=False)`, or `NULL` comes
+    back as a missing value and its rows silently drop out of any grouping.
     """
     directory = Path(args.directory)
     store = RunStore.open(directory)  # the analysis reads a sharded run only
@@ -143,6 +145,7 @@ def run_study(args: argparse.Namespace) -> int:
     tables["per_cell_summary"] = summarise(frame)
     for name, table in tables.items():
         table.to_csv(out / "tables" / f"{name}.csv", index=False)
+        table.to_parquet(out / "tables" / f"{name}.parquet", index=False)
         (out / "tables" / f"{name}.md").write_text(markdown_table(table), encoding="utf-8")
 
     results = evaluate_expectations(frame, run)

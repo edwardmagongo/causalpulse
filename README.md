@@ -1397,12 +1397,13 @@ Each benchmark run becomes one MLflow run in the `causalpulse-benchmarks` experi
 - **Metrics:** for each scenario x estimator on the headline slice, bias, RMSE, analytic and
   bootstrap coverage, and SE calibration, each with its Monte Carlo standard error as
   `<scenario>.<method>.<metric>_mcse`.
+- **CATE metrics:** for a run with scored CATE rows, `cate_correlation`, `cate_rmse` and `cate_calibration_slope` per scenario and method, each with its `_mcse`, pooled exactly as the benchmark report's CATE section pools them. A value with no finite MCSE (NULL's correlation and slope) is not logged.
 - **Artifacts:** the headline tables as CSV (most at both the scenario and the
   scenario-by-size level; `false_positive_rate__scenario` has the scenario level only), plus
-  `identity.json` and `sidecar.json`.
+  `identity.json`, `sidecar.json` and, for a run with scored CATE rows, `cate__scenario.csv`.
 
-Only the headline slice is logged as metrics, because logging every grid cell would make MLflow's
-comparison view unusable.
+Only the headline slice and the per-scenario CATE metrics are logged as metrics, because
+logging every grid cell would make MLflow's comparison view unusable.
 
 The fingerprint covers the run's identity, its row count and the git commit. Tracking the same
 finished run again at the same commit is refused; `--force` logs it again. The same grid run at a

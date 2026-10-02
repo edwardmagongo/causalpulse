@@ -17,17 +17,18 @@ from __future__ import annotations
 import multiprocessing
 import os
 import pickle
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 
 from cp_core.values import EstimatorConfig
 from cp_simulation.cate_scenarios import CATE_N_UNITS
 from cp_simulation.donor_scenarios import DONOR_SCENARIOS
 
-from cp_evaluation.grid import CateCell, Cell, CrossSectionCell, DonorPoolCell, cell_key
+from cp_evaluation.grid import CateCell, Cell, CrossSectionCell, DonorPoolCell, PanelCell, cell_key
 from cp_evaluation.run import fit_cell, resolve_candidates
 from cp_evaluation.store import LedgerEntry, RunStore, write_shard
 
@@ -87,21 +88,32 @@ def fit_cell_to_shard(task: CellTask) -> LedgerEntry:
 TaskFunction = Callable[[CellTask], LedgerEntry]
 
 
+# Dearest shape first, from measured per-cell costs: a panel cell 35-62s (P4
+# and P1 at n_units=150, n_periods=10, dominated by hierarchical_did),
+# a donor-pool cell 5.5-32.6s (S5 and S1, dominated by bsts), a CATE cell ~15s,
+# a cross-sectional cell 8.7-12.3s. The panel and donor figures were measured
+# on 2026-10-01 and are in the benchmark follow-ups design doc's section 9.1
+# ("As built"); the CATE and cross-section figures are in
+# `cp_evaluation.tiers`. A shape missing here raises in `longest_first` rather
+# than being scheduled somewhere by accident.
+SHAPE_COST_RANK: Mapping[type, int] = MappingProxyType(
+    {PanelCell: 0, DonorPoolCell: 1, CateCell: 2, CrossSectionCell: 3}
+)
+
+
 def longest_first(cells: Sequence[Cell]) -> list[Cell]:
     """Cells ordered so the dearest are submitted first.
 
-    Panel and donor-pool cells carry the slow estimators (`hierarchical_did` and
-    `bsts` sample with NUTS) so they go before cross-sectional cells; panel and
-    donor-pool cells are then sorted together by descending `n_units` (a donor
-    cell's comes from its scenario's spec), larger samples being assumed to cost
-    more. Donor cells land after panel cells only because their sample is
-    smaller (18 units against 150), not because of their shape. CATE cells
-    (`causal_forest` at `CATE_N_UNITS`) are not cross-sectional cells by type,
-    so they are scheduled with the dear cells, ranked by their registry size.
+    Ordered by measured cost class (`SHAPE_COST_RANK`: panel, then donor pool,
+    then CATE, then cross-section), then by descending `n_units` within a
+    shape, then by `cell_key`. Ranking by shape rather than by unit count alone
+    stops a 2,000-unit CATE cell, which costs ~15s, going ahead of panel cells,
+    which cost two to four times as much, and donor-pool cells, which range from
+    cheaper than a CATE cell (S5, 5.5s) to about twice as dear (S1, 32.6s).
     Submitting the dear cells first stops the run ending with one straggler
-    while the other workers idle. The key ends in `cell_key`, so the order is
-    total and does not depend on the input's. It changes only when cells
-    finish, never what they compute.
+    while the other workers idle.
+    The key ends in `cell_key`, so the order is total and does not depend on
+    the input's. It changes only when cells finish, never what they compute.
     """
 
     def n_units(cell: Cell) -> int:
@@ -113,11 +125,7 @@ def longest_first(cells: Sequence[Cell]) -> list[Cell]:
 
     return sorted(
         cells,
-        key=lambda cell: (
-            isinstance(cell, CrossSectionCell),
-            -n_units(cell),
-            cell_key(cell),
-        ),
+        key=lambda cell: (SHAPE_COST_RANK[type(cell)], -n_units(cell), cell_key(cell)),
     )
 
 
