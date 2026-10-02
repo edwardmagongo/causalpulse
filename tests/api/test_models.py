@@ -1,0 +1,65 @@
+"""The response models describe the payloads; they must not reshape them.
+
+A response model drops any key it does not declare, without an error. So a
+key the core adds to a stored payload would vanish from the API's answer the
+day it was added. These tests pin each model to what the core writes.
+"""
+
+import pytest
+from cp_api.app import create_app
+from cp_api.models import ComparisonGroup, EstimateSummary
+from cp_core.results import estimate_summary
+from cp_worker.execute import execute
+from worker.data import scenario_d_upload
+
+PAIR = ["difference_in_means", "lin_regression"]
+
+
+@pytest.fixture(scope="module")
+def compared():
+    content, schema = scenario_d_upload()
+    return execute(content, "d.csv", schema, PAIR, 0)
+
+
+@pytest.fixture(scope="module")
+def alone():
+    content, schema = scenario_d_upload()
+    return execute(content, "d.csv", schema, PAIR[:1], 0)
+
+
+def test_the_summary_model_declares_exactly_the_keys_the_core_writes(compared):
+    summary = estimate_summary(compared.reports[0].estimate)
+
+    assert set(EstimateSummary.model_fields) == set(summary)
+
+
+def test_a_summary_passes_through_the_model_unchanged(compared):
+    for report in compared.reports:
+        summary = estimate_summary(report.estimate)
+
+        # Exact equality: replay parity compares these floats bit for bit.
+        assert EstimateSummary.model_validate(summary).model_dump() == summary
+
+
+def test_a_group_answers_with_exactly_the_keys_it_was_stored_with(compared, alone):
+    stored = [group.to_dict() for group in (*compared.comparisons, *alone.comparisons)]
+    # Both shapes, or the loop below would prove only one of them.
+    assert ["verdict" in group for group in stored] == [True, False]
+
+    for group in stored:
+        assert set(group) <= set(ComparisonGroup.model_fields)
+        assert ComparisonGroup.model_validate(group).model_dump(exclude_unset=True) == group
+
+
+def test_the_json_routes_that_predate_the_models_declare_their_responses():
+    paths = create_app(sessions=object(), redis=object()).openapi()["paths"]
+    declared = {
+        ("post", "/v1/datasets"): "201",
+        ("post", "/v1/analyses"): "202",
+        ("get", "/v1/analyses/{analysis_id}"): "200",
+        ("get", "/v1/analyses/{analysis_id}/summary"): "200",
+    }
+
+    for (method, path), status in declared.items():
+        schema = paths[path][method]["responses"][status]["content"]["application/json"]["schema"]
+        assert "$ref" in schema, (method, path)

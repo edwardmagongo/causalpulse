@@ -26,7 +26,7 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
-from cp_api import validation
+from cp_api import models, validation
 from cp_api.auth import CurrentUser
 from cp_api.db import (
     JOB_FUNCTION,
@@ -132,7 +132,7 @@ def create_app(
             )
         return summary
 
-    @app.post("/v1/datasets", status_code=201)
+    @app.post("/v1/datasets", status_code=201, response_model=models.DatasetUploaded)
     def upload_dataset(
         user: CurrentUser,
         response: Response,
@@ -168,7 +168,7 @@ def create_app(
             "columns": list(columns),
         }
 
-    @app.post("/v1/analyses", status_code=202)
+    @app.post("/v1/analyses", status_code=202, response_model=models.AnalysisCreated)
     def create_analysis(
         user: CurrentUser, body: AnalysisRequest, session: SessionDep
     ) -> dict[str, Any]:
@@ -205,7 +205,7 @@ def create_app(
             raise
         return {"id": str(analysis.id), "status": analysis.status}
 
-    @app.get("/v1/analyses/{analysis_id}")
+    @app.get("/v1/analyses/{analysis_id}", response_model=models.AnalysisDetail)
     def read_analysis(
         user: CurrentUser, analysis_id: uuid.UUID, session: SessionDep
     ) -> dict[str, Any]:
@@ -283,7 +283,12 @@ def create_app(
     ) -> JSONResponse:
         return JSONResponse(_summary_or_404(session, analysis_id, user).manifest)
 
-    @app.get("/v1/analyses/{analysis_id}/summary")
+    @app.get(
+        "/v1/analyses/{analysis_id}/summary",
+        response_model=models.Summary,
+        # A group answers with the keys it was stored with (see `models.ComparisonGroup`).
+        response_model_exclude_unset=True,
+    )
     def read_summary(
         user: CurrentUser, analysis_id: uuid.UUID, session: SessionDep
     ) -> dict[str, Any]:
