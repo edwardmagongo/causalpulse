@@ -51,3 +51,14 @@ services:
     depends_on:
       migrate: {condition: service_completed_successfully}
       redis: {condition: service_healthy}
+  web:
+    build: ./web
+    image: ${COMPOSE_PROJECT_NAME:-causalpulse}-web
+    environment:
+      CP_API_URL: http://api:8000
+      # Local-only, like the database credentials above. A deployment sets its own.
+      CP_SESSION_SECRET: local-demo-only-session-secret-not-for-deployment
+    ports: ["${CP_WEB_PORT:-3000}:3000"]
+    restart: unless-stopped
+    depends_on:
+      api: {condition: service_started}
