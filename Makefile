@@ -1,4 +1,4 @@
-.PHONY: install fmt lint types imports test test-fast cov check check-services smoke
+.PHONY: install fmt lint types imports test test-fast cov check check-services smoke openapi
 
 install:
 	uv sync
@@ -45,3 +45,8 @@ SMOKE_STACK = CP_POSTGRES_PORT=5435 CP_REDIS_PORT=6382 CP_API_PORT=8001 docker c
 smoke:
 	$(SMOKE_STACK) up -d --build || { $(SMOKE_STACK) down -v; exit 1; }
 	$(SMOKE_STACK) exec -T api cp-api-admin create-user smoke && KEY=$$($(SMOKE_STACK) exec -T api cp-api-admin issue-key smoke) && CP_STACK_KEY=$$KEY CP_STACK_URL=http://localhost:8001 uv run pytest -v tests/services/test_stack.py -m "services and slow"; status=$$?; $(SMOKE_STACK) down -v; exit $$status
+
+# The API's OpenAPI document, which the dashboard's types are generated from.
+# `tests/api/test_openapi.py` fails when this file is out of date.
+openapi:
+	uv run cp-api-openapi > web/openapi.json
