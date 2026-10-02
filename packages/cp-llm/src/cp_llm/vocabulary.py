@@ -31,6 +31,8 @@ NUMBER_WORDS: frozenset[str] = frozenset(
         "half",
         "twice",
         "double",
+        "minus",
+        "times",
         "percent",
         "percentage",
     }

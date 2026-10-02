@@ -84,3 +84,6 @@ def test_the_prompt_states_the_rules_the_word_lists_cannot_carry():
     assert "a zero result" in prompt
     assert "Put nothing inside the braces but the id" in prompt
     assert "any form of that verb" in prompt
+    assert "any form of prove" in prompt
+    assert "on both sides of every placeholder" in prompt
+    assert "on one line" in prompt

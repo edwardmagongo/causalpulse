@@ -1,6 +1,6 @@
 """The refusal to accept a narrative that cannot be traced to its facts.
 
-Seven rules. Six read one statement at a time; the seventh reads the whole
+Nine rules. Eight read one statement at a time; the ninth reads the whole
 narrative, because an omission is not in any one statement. Each is
 registered by name so that a test can remove one and show its own planted
 defect then passes -- no rule is covered only by another.
@@ -13,6 +13,7 @@ relationship between two correctly cited facts, and emphasis.
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 
@@ -20,7 +21,7 @@ from cp_core.language import causal_language_lint
 
 from cp_llm.facts import Fact, FactTable
 from cp_llm.narrative import Narrative
-from cp_llm.render import format_fact, free_text, placeholder_ids, substitute
+from cp_llm.render import PLACEHOLDER, format_fact, free_text, placeholder_ids, substitute
 from cp_llm.vocabulary import ALLOWED_PHRASES, CONTROLLED_WORDS, NUMBER_WORDS
 
 
@@ -128,6 +129,77 @@ def _language(statement: str, facts: FactTable) -> Iterator[str]:
         yield f"{violation.term!r}: {violation.reason}"
 
 
+_OPENERS = frozenset("([\"'\u201c\u2018")
+_CLOSERS = frozenset(")]\"'\u201d\u2019")
+_SENTENCE_PUNCTUATION = frozenset(".,;:!?")
+_APOSTROPHES = frozenset("'\u2019")
+_OPERATORS = frozenset("-\u2212\u2013+\u00b1\u00d7*/^~\u2248<>=")
+
+
+def _may_follow_placeholder(after: str) -> bool:
+    """Whether the text right after a placeholder keeps it a token of its own."""
+    if not after or after[0].isspace() or after[0] in _CLOSERS:
+        return True
+    if after[0] in _APOSTROPHES and after[1:2] == "s":
+        return len(after) == 2 or after[2].isspace()
+    if after[0] in _SENTENCE_PUNCTUATION:
+        rest = after[1:]
+        return not rest or rest[0].isspace() or rest[0] in _CLOSERS
+    return False
+
+
+def _delimiters(statement: str, facts: FactTable) -> Iterator[str]:
+    """A placeholder must stand alone, so what it renders next to cannot be misread.
+
+    The other rules read the free text with each placeholder as a space, so
+    what a placeholder is glued to is invisible to them: `-{point}` renders a
+    minus the fact does not carry, `{n}{m}` one number from two, and
+    `in{agreement}` a word the controlled list refuses.
+    """
+    reasons: list[str] = []
+    for match in PLACEHOLDER.finditer(statement):
+        fact_id = match.group(1)
+        before, after = statement[: match.start()], statement[match.end() :]
+        if before and not before[-1].isspace() and before[-1] not in _OPENERS:
+            reasons.append(
+                f"{{{fact_id}}} is glued to the text before it; put a space or an "
+                "opening bracket before a placeholder"
+            )
+        if not _may_follow_placeholder(after):
+            reasons.append(
+                f"{{{fact_id}}} is glued to the text after it; put a space or sentence "
+                "punctuation after a placeholder"
+            )
+        fact = facts.get(fact_id)
+        if fact is None or fact.kind not in _NUMERIC_KINDS:
+            continue
+        stripped = before.rstrip()
+        if stripped and stripped[-1] in _OPERATORS:
+            reasons.append(
+                f"a sign or operator before {{{fact_id}}}; the fact carries its own sign, "
+                "and a range is written from one bound to the other"
+            )
+    yield from dict.fromkeys(reasons)
+
+
+_INVISIBLE_CATEGORIES = frozenset({"Cc", "Cf", "Zl", "Zp"})
+
+
+def _one_line(statement: str, facts: FactTable) -> Iterator[str]:
+    """Refuse a character that is not ordinary text, read as written.
+
+    A newline lets a statement write document structure (a heading of its own
+    in the markdown); a zero-width character can split a controlled word so
+    that no word list sees it.
+    """
+    for character in dict.fromkeys(statement):
+        if unicodedata.category(character) in _INVISIBLE_CATEGORIES:
+            yield (
+                f"a control or invisible character (U+{ord(character):04X}); "
+                "a statement is one line of ordinary text"
+            )
+
+
 def _completeness(narrative: Narrative, facts: FactTable) -> Iterator[str]:
     cited = {
         fact_id for _, statement in narrative.statements() for fact_id in placeholder_ids(statement)
@@ -151,6 +223,8 @@ STATEMENT_RULES: dict[str, StatementRule] = {
     "attribution": _attribution,
     "bare_point": _bare_point,
     "language": _language,
+    "delimiters": _delimiters,
+    "one_line": _one_line,
 }
 NARRATIVE_RULES: dict[str, NarrativeRule] = {"completeness": _completeness}
 

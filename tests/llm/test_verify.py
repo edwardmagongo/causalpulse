@@ -6,6 +6,7 @@ from cp_llm.verify import Violation, verify
 from llm.builders import drop, good_narrative, swap
 
 _BAND = good_narrative().validity[0]
+_IPW_BAND = good_narrative().validity[1]
 
 # One planted defect per rule. Each is the verified narrative with a single
 # change, so the rule named is the only thing standing between it and a pass.
@@ -31,6 +32,15 @@ PLANTED = {
         good_narrative(), "validity", 0, _BAND + " The treatment causes the outcome."
     ),
     "completeness": drop(good_narrative(), "caveats", 0),
+    "delimiters": swap(
+        good_narrative(), "validity", 1, _IPW_BAND + " It has {est.ipw.n_treated}k units."
+    ),
+    "one_line": swap(
+        good_narrative(),
+        "validity",
+        1,
+        _IPW_BAND + "\n\n## Limits\n\nThis band is a probability that the effect is real",
+    ),
 }
 
 
@@ -352,4 +362,146 @@ def test_a_placeholder_glued_to_letters_cannot_spell_a_hedge_or_a_negation(state
         good_narrative(), "estimates", 1, good_narrative().estimates[1] + " " + statement
     )
 
+    # Both statements now also break `delimiters` (a letter glued after a
+    # placeholder). The `language` assertion stays: the mask being a digit is
+    # defence in depth for any glue the delimiter rule might one day allow.
     assert "language" in {v.rule for v in verify(narrative, facts)}
+
+
+_GLUED = [
+    "In {est.ipw.method}, the point is -{est.ipw.point} overall.",
+    "In {est.ipw.method}, the point is \u2212{est.ipw.point} overall.",
+    "In {est.ipw.method}, the groups hold {est.ipw.n_treated}{est.ipw.n_control} units.",
+    "In {est.ipw.method}, the groups hold {est.ipw.n_treated}.{est.ipw.n_control} units.",
+    "In {est.ipw.method}, the p-value is {est.ipw.p_value}e-{analysis.n_estimates}.",
+    "In {est.ipw.method}, the treated group holds {est.ipw.n_treated}k units.",
+    "The comparison is in{cmp.ate.percentage_point.agreement} for {est.ipw.method}.",
+    "The route for {est.ipw.method} is in{route.ipw.eligible}.",
+]
+
+
+@pytest.mark.parametrize("statement", _GLUED)
+def test_a_placeholder_glued_to_its_neighbours_is_refused(statement, facts):
+    narrative = swap(
+        good_narrative(), "validity", 1, good_narrative().validity[1] + " " + statement
+    )
+
+    assert "delimiters" in {v.rule for v in verify(narrative, facts)}
+
+
+def _delimiter_reasons(statement, facts):
+    narrative = swap(
+        good_narrative(), "validity", 1, good_narrative().validity[1] + " " + statement
+    )
+    return [v.reason for v in verify(narrative, facts) if v.rule == "delimiters"]
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "The point for {est.ipw.method} is ({est.ipw.point}) here.",
+        'The method is "{est.ipw.method}" here.',
+        "The method is [{est.ipw.method}] here.",
+        "The method is \u201c{est.ipw.method}\u201d here.",
+        "The method is \u2018{est.ipw.method}\u2019 here.",
+        "The method is '{est.ipw.method}' here.",
+        "The estimate of {est.ipw.method}'s is shown here.",
+        "The estimate of {est.ipw.method}\u2019s is shown here.",
+        "The estimate of {est.ipw.method}'s",
+        "For {est.ipw.method}, {est.ipw.point}, with a wide interval.",
+        "The point for {est.ipw.method} is {est.ipw.point}.",
+        "The point for {est.ipw.method} is {est.ipw.point};",
+        "Is the point for {est.ipw.method} {est.ipw.point}?",
+        "The point for {est.ipw.method} is ({est.ipw.point}.) here.",
+        "The point for {est.ipw.method} lies from {est.ipw.ci_lower} to {est.ipw.ci_upper}",
+        "The point for {est.ipw.method} lies between {est.ipw.ci_lower} and {est.ipw.ci_upper}.",
+    ],
+)
+def test_ordinary_punctuation_around_a_placeholder_is_allowed(statement, facts):
+    assert _delimiter_reasons(statement, facts) == []
+
+
+def test_the_whole_good_narrative_has_no_delimiter_violation(good, facts):
+    assert [v for v in verify(good, facts) if v.rule == "delimiters"] == []
+
+
+@pytest.mark.parametrize("sign", ["-", "\u2212", "\u2013", "+", "\u00b1", "\u00d7", "*", "/", "^",
+                                  "~", "\u2248", "<", ">", "="])
+def test_a_sign_or_operator_before_a_number_is_refused_even_after_a_space(sign, facts):
+    statement = f"The point for {{est.ipw.method}} is {sign} {{est.ipw.point}} here."
+
+    reasons = _delimiter_reasons(statement, facts)
+
+    assert (
+        "a sign or operator before {est.ipw.point}; the fact carries its own sign, "
+        "and a range is written from one bound to the other"
+    ) in reasons
+
+
+def test_an_operator_before_a_word_valued_fact_is_not_this_rules_concern(facts):
+    statement = "The method is = {est.ipw.method} here."
+
+    assert [r for r in _delimiter_reasons(statement, facts) if r.startswith("a sign")] == []
+
+
+def test_a_placeholder_naming_no_fact_gets_no_sign_complaint(facts):
+    statement = "The method is - {est.ipw.nothing} here."
+
+    assert [r for r in _delimiter_reasons(statement, facts) if r.startswith("a sign")] == []
+
+
+def test_a_glued_placeholder_is_reported_with_its_reason(facts):
+    reasons = _delimiter_reasons("The count is {est.ipw.n_treated}k for {est.ipw.method}.", facts)
+
+    assert reasons == [
+        "{est.ipw.n_treated} is glued to the text after it; put a space or sentence "
+        "punctuation after a placeholder"
+    ]
+    reasons = _delimiter_reasons("The count is x{est.ipw.n_treated} for {est.ipw.method}.", facts)
+    assert reasons == [
+        "{est.ipw.n_treated} is glued to the text before it; put a space or an opening "
+        "bracket before a placeholder"
+    ]
+
+
+@pytest.mark.parametrize(
+    "number_word",
+    [" It is minus {est.ipw.n_treated} units.", " It is {est.ipw.n_treated} times larger."],
+)
+def test_minus_and_times_are_number_words(number_word, facts):
+    narrative = swap(
+        good_narrative(), "validity", 1, good_narrative().validity[1] + number_word
+    )
+
+    assert "bare_value" in {v.rule for v in verify(narrative, facts)}
+
+
+@pytest.mark.parametrize(
+    ("character", "code"),
+    [
+        ("\n", "U+000A"),
+        ("\r", "U+000D"),
+        ("\t", "U+0009"),
+        ("\u200b", "U+200B"),
+        ("\u2028", "U+2028"),
+        ("\u2029", "U+2029"),
+        ("\u200d", "U+200D"),
+    ],
+)
+def test_a_control_or_invisible_character_is_refused(character, code, facts):
+    narrative = swap(
+        good_narrative(),
+        "validity",
+        1,
+        good_narrative().validity[1] + f" It is sig{character}nificant.",
+    )
+
+    violations = [v for v in verify(narrative, facts) if v.rule == "one_line"]
+
+    assert [v.reason for v in violations] == [
+        f"a control or invisible character ({code}); a statement is one line of ordinary text"
+    ]
+
+
+def test_an_injected_heading_is_caught_by_the_one_line_rule_alone(facts):
+    assert {v.rule for v in verify(PLANTED["one_line"], facts)} == {"one_line"}

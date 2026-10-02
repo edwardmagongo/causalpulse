@@ -4,6 +4,7 @@ from cp_llm.interpret import (
     InterpretationRefusedError,
     ModelDidNotAnswerError,
     NarrativeNotVerifiedError,
+    RenderedNarrative,
     interpret,
     render_verified,
 )
@@ -117,3 +118,18 @@ def test_the_record_keeps_every_attempt_and_its_usage(good, facts):
     assert first["violations"][0]["rule"] == "bare_value"
     assert second["violations"] == []
     assert first["usage"] == {"input_tokens": 100, "output_tokens": 40}
+
+
+def test_a_statement_with_line_breaks_is_one_bullet_and_cannot_add_a_heading():
+    rendered = RenderedNarrative(
+        sections=(("caveats", ("nothing further.\n\n## Limits\nline two",)),),
+        limits=VALIDITY_SCORE_LIMITS,
+    )
+
+    markdown = rendered.to_markdown()
+
+    assert [line for line in markdown.splitlines() if line.startswith("## Limits")] == [
+        "## Limits"
+    ]
+    assert "- nothing further. ## Limits line two" in markdown.splitlines()
+    assert rendered.to_dict()["caveats"] == ["nothing further.\n\n## Limits\nline two"]

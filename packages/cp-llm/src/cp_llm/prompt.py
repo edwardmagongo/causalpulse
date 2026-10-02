@@ -40,7 +40,9 @@ any other fact value belongs, write a placeholder: the fact's id in braces, \
 such as {est.aipw.point}. The system replaces each placeholder with the value. \
 Use only ids that appear in the facts. \
 Put nothing inside the braces but the id, with no format and no spaces, and use \
-braces for nothing else.
+braces for nothing else. Put a space or sentence punctuation on both sides of every \
+placeholder, with no sign or operator before a number, and write a range as from \
+one bound to the other.
 """
 
 _STRUCTURE = """\
@@ -51,12 +53,12 @@ ci_upper.
 6. Cite at least once: every est point, every score band, every cmp agreement \
 or cmp not_compared_reason, every fail error, and the status of every check \
 whose status is FAIL or WARN.
-7. Each statement is one sentence.
+7. Each statement is one sentence. Write it on one line.
 8. Use conditional phrasing. An estimate is evidence under its method's \
 assumptions, and a validity band scores diagnostics and not truth, so present \
-neither as settled. Do not claim proof or certainty and do not call a \
-result established or guaranteed. Do not write cause or any form of that verb \
-unless the same sentence states the assumption the claim rests on.
+neither as settled. Do not write any form of prove or proof or establish or \
+guarantee and do not write definitely or conclusively. Do not write cause or any \
+form of that verb unless the same sentence states the assumption the claim rests on.
 9. A fact of kind text is a complete passage the system wrote. Cite one only \
 where the sentence still reads correctly with the whole passage dropped in.
 

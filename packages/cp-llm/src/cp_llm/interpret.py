@@ -75,7 +75,9 @@ class RenderedNarrative:
             if not statements:
                 continue
             lines.extend([f"## {_HEADINGS[section]}", ""])
-            lines.extend(f"- {statement}" for statement in statements)
+            # A `text` fact may hold newlines; one in a bullet would end it, and a
+            # line starting `## ` would read as a heading the system did not write.
+            lines.extend(f"- {' '.join(statement.split())}" for statement in statements)
             lines.append("")
         lines.extend(["## Limits", "", self.limits, ""])
         return "\n".join(lines)
