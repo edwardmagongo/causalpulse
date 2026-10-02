@@ -133,3 +133,25 @@ def test_a_statement_with_line_breaks_is_one_bullet_and_cannot_add_a_heading():
     ]
     assert "- nothing further. ## Limits line two" in markdown.splitlines()
     assert rendered.to_dict()["caveats"] == ["nothing further.\n\n## Limits\nline two"]
+
+
+def test_every_statement_of_a_section_is_its_own_bullet_under_that_sections_heading():
+    rendered = RenderedNarrative(
+        sections=(
+            ("summary", ("first summary.", "second summary.")),
+            ("caveats", ("only caveat.",)),
+        ),
+        limits=VALIDITY_SCORE_LIMITS,
+    )
+
+    lines = rendered.to_markdown().splitlines()
+
+    summary = lines.index("## Summary")
+    caveats = lines.index("## Caveats")
+    assert lines[summary + 2 : summary + 4] == ["- first summary.", "- second summary."]
+    assert lines[caveats + 2] == "- only caveat."
+    bullets_under_summary = [
+        line for line in lines[summary + 1 : caveats] if line.startswith("- ")
+    ]
+    assert bullets_under_summary == ["- first summary.", "- second summary."]
+    assert "- only caveat." not in lines[summary:caveats]

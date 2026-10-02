@@ -1,4 +1,6 @@
+import configparser
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -7,6 +9,27 @@ def test_import_linter_contracts_hold():
     result = subprocess.run(["uv", "run", "lint-imports"], capture_output=True, text=True)
 
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_the_llm_contract_covers_every_module_of_the_package_but_the_extractor():
+    # The contract lists modules by name, so a new module would sit outside it
+    # until someone remembered to add it. This fails first.
+    root = Path(__file__).resolve().parent.parent
+    parser = configparser.ConfigParser()
+    parser.read(root / ".importlinter")
+    listed = set(
+        parser["importlinter:contract:llm-reads-facts-only"]["source_modules"].split()
+    )
+
+    package = root / "packages" / "cp-llm" / "src" / "cp_llm"
+    modules = {
+        f"cp_llm.{path.stem}"
+        for path in package.glob("*.py")
+        if path.name not in ("__init__.py", "extract.py")
+    }
+
+    assert modules, f"no module found under {package}"
+    assert listed == modules
 
 
 def test_cp_causal_cannot_import_cp_simulation():

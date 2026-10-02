@@ -1,10 +1,11 @@
 import dataclasses
 
+import cp_causal  # noqa: F401  (importing it registers every estimator)
 import numpy as np
 import pytest
-from cp_causal.registry import get_estimator
+from cp_causal.registry import all_estimators, get_estimator
 from cp_core.results import estimate_summary
-from cp_llm.extract import fact_table
+from cp_llm.extract import _finite, _segment, fact_table
 from cp_report.pipeline import analyse
 
 from llm.conftest import REFERENCE
@@ -17,9 +18,12 @@ def _value(facts, fact_id):
 
 
 def test_estimate_facts_are_the_stored_summary(outcome, facts):
+    compared = {"p_value": 0, "se": 0}
     for report in outcome.reports:
         summary = estimate_summary(report.estimate)
         method = report.estimate.method
+        for field in compared:
+            compared[field] += summary[field] is not None
         assert _value(facts, f"est.{method}.method") == method
         for field in ("point", "se", "ci_lower", "ci_upper", "ci_level", "p_value"):
             if summary[field] is not None:
@@ -30,6 +34,10 @@ def test_estimate_facts_are_the_stored_summary(outcome, facts):
         assert _value(facts, f"score.{method}.ceiling") == report.score.ceiling
         for index, line in enumerate(report.score.rationale):
             assert _value(facts, f"score.{method}.rationale.{index}") == line
+    # Guard: the loop above skips a field whose value is None, so it must have
+    # compared at least one real value of each.
+    assert compared["p_value"] > 0, "no report in the fixture has a p_value"
+    assert compared["se"] > 0, "no report in the fixture has a se"
 
 
 def test_every_fact_about_a_method_names_that_methods_name_fact(outcome, facts):
@@ -51,6 +59,25 @@ def test_checks_are_the_ones_the_band_was_scored_from(outcome, facts):
             assert _value(facts, f"{base}.kind") == check.kind
             assert _value(facts, f"{base}.status") == check.status
             assert _value(facts, f"{base}.interpretation") == check.interpretation
+
+
+def test_a_check_threshold_and_remedy_are_its_own_not_the_statistic_or_the_interpretation(
+    outcome, facts
+):
+    thresholds = remedies = 0
+    for report in outcome.reports:
+        method = report.estimate.method
+        for check in report.score.checks:
+            base = f"check.{method}.{check.name}"
+            if check.threshold is not None and check.threshold != check.statistic:
+                thresholds += 1
+                assert _value(facts, f"{base}.threshold") == check.threshold
+            if check.remedy is not None:
+                remedies += 1
+                assert _value(facts, f"{base}.remedy") == check.remedy
+                assert check.remedy != check.interpretation
+    assert thresholds, "the fixture no longer has a check with a threshold unlike its statistic"
+    assert remedies, "the fixture no longer has a check with a remedy"
 
 
 def test_a_value_that_was_never_computed_gets_no_fact(outcome, facts):
@@ -189,6 +216,12 @@ def test_a_non_finite_point_gets_neither_a_point_nor_a_direction_fact(outcome):
     assert facts.get(f"est.{method}.direction") is None
 
 
+def test_a_negative_point_has_the_direction_negative(outcome):
+    method, facts = _with_point(outcome, -0.1)
+
+    assert _value(facts, f"est.{method}.direction") == "negative"
+
+
 def test_a_point_of_exactly_zero_has_the_direction_zero(outcome):
     method, facts = _with_point(outcome, 0.0)
 
@@ -214,3 +247,31 @@ def test_a_non_finite_comparison_number_gets_no_fact_and_the_rest_stays(outcome)
         assert facts.get(f"{prefix}.{name}") is None
     assert _value(facts, f"{prefix}.agreement") == group.comparison.agreement
     assert _value(facts, f"{prefix}.verdict") == group.comparison.verdict
+
+
+def test_every_registered_estimator_name_is_a_valid_fact_id_segment():
+    names = all_estimators()
+    assert names, "no estimator is registered"
+    for name in names:
+        assert _segment(name, "method") == name
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param(np.float32(0.5), 0.5, id="numpy-float32"),
+        pytest.param(np.float64(0.5), 0.5, id="numpy-float64"),
+        pytest.param(np.int64(3), 3.0, id="numpy-int64"),
+        pytest.param(3, 3.0, id="int"),
+        pytest.param(True, None, id="bool"),
+        pytest.param(np.bool_(True), None, id="numpy-bool"),
+        pytest.param(None, None, id="none"),
+        pytest.param(float("nan"), None, id="nan"),
+        pytest.param(float("inf"), None, id="inf"),
+        pytest.param("0.5", None, id="string"),
+    ],
+)
+def test_a_real_number_of_any_kind_is_finite_data_and_nothing_else_is(value, expected):
+    assert _finite(value) == expected
+    if expected is not None:
+        assert type(_finite(value)) is float

@@ -17,6 +17,8 @@ from cp_llm.narrative import Narrative
 DEFAULT_MODEL = "claude-opus-5-5"
 Effort = Literal["low", "medium", "high", "xhigh", "max"]
 DEFAULT_EFFORT: Effort = "medium"
+# The most a reply may hold. Recorded beside the effort in `interpretation.json`.
+MAX_TOKENS = 16000
 
 
 @dataclass(frozen=True)

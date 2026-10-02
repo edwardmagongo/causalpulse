@@ -7,7 +7,7 @@ import pytest
 from cp_cli.__main__ import main
 from cp_core.results import VALIDITY_SCORE_LIMITS
 from cp_llm.facts import FactTable
-from cp_llm.model import ModelCallError
+from cp_llm.model import MAX_TOKENS, ModelCallError
 from llm.builders import ScriptedModel, good_narrative, swap
 
 
@@ -75,6 +75,44 @@ def test_interpret_writes_the_narrative_and_its_record(run_dir, monkeypatch, cap
         (run_dir / "facts.json").read_bytes()
     ).hexdigest()
     assert "interpretation.md" in capsys.readouterr().out
+
+
+def test_the_record_says_what_effort_and_token_limit_produced_it(run_dir, monkeypatch):
+    _use(monkeypatch, [good_narrative()])
+
+    assert main(["interpret", str(run_dir), "--effort", "high"]) == 0
+
+    record = json.loads((run_dir / "interpretation.json").read_text())
+    assert record["effort"] == "high"
+    assert record["max_tokens"] == MAX_TOKENS == 16000
+
+
+def test_the_hash_is_of_the_files_bytes_not_of_its_decoded_text(
+    fresh_run_dir, monkeypatch
+):
+    # A CRLF survives in the bytes but not in `read_text`, which translates the
+    # line ending, so hashing the decoded text would give another digest.
+    facts_path = fresh_run_dir / "facts.json"
+    facts_path.write_bytes(facts_path.read_bytes().replace(b"\n", b"\r\n", 1))
+    _use(monkeypatch, [good_narrative()])
+
+    assert main(["interpret", str(fresh_run_dir)]) == 0
+
+    record = json.loads((fresh_run_dir / "interpretation.json").read_text())
+    assert record["facts_sha256"] == hashlib.sha256(facts_path.read_bytes()).hexdigest()
+
+
+def test_a_fact_table_that_is_not_utf8_is_one_line_not_a_traceback(
+    tmp_path, monkeypatch, capsys
+):
+    (tmp_path / "facts.json").write_bytes(b'{"schema_version": 1, "facts": ["\xff\xfe"]}')
+    _use(monkeypatch, [good_narrative()])
+
+    assert main(["interpret", str(tmp_path)]) == 1
+
+    err = capsys.readouterr().err
+    assert len(err.splitlines()) == 1
+    assert "is not a usable fact table" in err
 
 
 def test_model_and_effort_reach_the_model_factory(run_dir, monkeypatch):

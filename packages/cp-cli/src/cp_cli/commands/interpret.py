@@ -15,9 +15,16 @@ import sys
 from pathlib import Path
 from typing import cast, get_args
 
-from cp_llm.facts import FACTS_FILENAME, FactTable
+from cp_llm.facts import FACTS_FILENAME, INTERPRETATION_MARKDOWN, INTERPRETATION_RECORD, FactTable
 from cp_llm.interpret import InterpretationRefusedError, ModelDidNotAnswerError, interpret
-from cp_llm.model import DEFAULT_EFFORT, DEFAULT_MODEL, Effort, ModelCallError, NarrativeModel
+from cp_llm.model import (
+    DEFAULT_EFFORT,
+    DEFAULT_MODEL,
+    MAX_TOKENS,
+    Effort,
+    ModelCallError,
+    NarrativeModel,
+)
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
@@ -45,8 +52,11 @@ def run(args: argparse.Namespace) -> int:
         )
         return 1
     try:
-        raw = facts_path.read_text(encoding="utf-8")
-        facts = FactTable.from_json(raw)
+        # The bytes are hashed, as written; the decode is only for parsing. A
+        # `UnicodeDecodeError` is a `ValueError`, so it is reported like any
+        # other unusable table.
+        raw = facts_path.read_bytes()
+        facts = FactTable.from_json(raw.decode("utf-8"))
     except (OSError, ValueError) as exc:
         print(
             f"{facts_path} is not a usable fact table ({exc}); "
@@ -70,11 +80,13 @@ def run(args: argparse.Namespace) -> int:
 
     record = {
         **result.to_dict(),
-        "facts_sha256": hashlib.sha256(raw.encode("utf-8")).hexdigest(),
+        "effort": args.effort,
+        "max_tokens": MAX_TOKENS,
+        "facts_sha256": hashlib.sha256(raw).hexdigest(),
     }
-    markdown = run_dir / "interpretation.md"
+    markdown = run_dir / INTERPRETATION_MARKDOWN
     markdown.write_text(result.rendered.to_markdown(), encoding="utf-8")
-    (run_dir / "interpretation.json").write_text(
+    (run_dir / INTERPRETATION_RECORD).write_text(
         json.dumps(record, indent=2, sort_keys=True), encoding="utf-8"
     )
     print(f"wrote {markdown}")

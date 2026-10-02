@@ -95,7 +95,14 @@ def test_json_is_strict_and_stable():
     assert payload["facts"][1] == {
         "id": "est.a.point", "kind": "number", "value": 1.5, "subject": "est.a.method",
     }
-    assert table.to_json() == table.to_json()
+    # `sort_keys` puts a record's keys in alphabetical order; insertion order
+    # (id, kind, value, subject) would put `value` before `subject`.
+    text = table.to_json()
+    record = text[text.index('"id": "est.a.point"') :]
+    assert (
+        record.index('"id"') < record.index('"kind"') < record.index('"subject"')
+        < record.index('"value"')
+    )
 
 
 def test_another_schema_version_is_refused_with_the_mismatch():

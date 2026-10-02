@@ -83,7 +83,11 @@ def system_prompt() -> str:
 
 
 def prompt_version() -> str:
-    """A short hash of everything that shapes a reply besides the facts."""
+    """A short hash of the system prompt and the reply schema.
+
+    Not everything that shapes a reply: the effort, the token limit and the
+    retry message are not in it (the first two are recorded beside it).
+    """
     schema = json.dumps(Narrative.model_json_schema(), sort_keys=True)
     return hashlib.sha256((system_prompt() + schema).encode("utf-8")).hexdigest()[:12]
 

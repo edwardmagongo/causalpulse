@@ -12,6 +12,7 @@ from anthropic.types import MessageParam
 from cp_llm.model import (
     DEFAULT_EFFORT,
     DEFAULT_MODEL,
+    MAX_TOKENS,
     Effort,
     ModelCallError,
     ModelReply,
@@ -20,7 +21,6 @@ from cp_llm.model import (
 )
 from cp_llm.narrative import Narrative
 
-MAX_TOKENS = 16000
 _SCHEMA = anthropic.transform_schema(Narrative)
 
 
@@ -40,13 +40,18 @@ class ClaudeModel:
     ) -> None:
         self._model = model
         self._effort = effort
-        self._client = client if client is not None else anthropic.Anthropic()
+        # Built on first use, inside `complete`'s error mapping: the SDK can
+        # fail while building a client (a broken login profile), and that
+        # failure is the same one-line error as a failed call.
+        self._client = client
 
     def complete(self, system: str, turns: Sequence[Turn]) -> ModelReply:
         messages = [
             cast(MessageParam, {"role": turn.role, "content": turn.content}) for turn in turns
         ]
         try:
+            if self._client is None:
+                self._client = anthropic.Anthropic()
             response = self._client.messages.create(
                 model=self._model,
                 max_tokens=MAX_TOKENS,
@@ -57,7 +62,7 @@ class ClaudeModel:
                     "format": {"type": "json_schema", "schema": _SCHEMA},
                 },
             )
-        except anthropic.APIError as exc:
+        except anthropic.AnthropicError as exc:
             raise ModelCallError(f"the model API call failed: {type(exc).__name__}: {exc}") from exc
         except TypeError as exc:
             # With no credentials at all the SDK raises a bare TypeError while

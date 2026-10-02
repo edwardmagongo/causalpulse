@@ -1567,7 +1567,10 @@ user would call, not through an in-process test client.
 method estimated, each validity band and the checks behind it, what the cross-method comparison
 reports, and which fits failed. It may also say which estimators the router excluded; that is not
 required of it. It reads the `facts.json` that `analyze --report`
-writes, so it refits nothing and can be repeated.
+writes, so it refits nothing and can be repeated. Every `analyze` run removes a `facts.json` and
+any interpretation left in its output directory by an earlier run, because they describe that
+earlier analysis. With `--report` the fact table is written last: if it cannot be built, the
+command prints one line, exits 1, and the estimates and the manifest are already written.
 
 ```bash
 uv run causalpulse analyze --data tests/fixtures/real_data/lalonde.csv \
@@ -1580,8 +1583,9 @@ uv run causalpulse interpret out/lalonde
 It needs `ANTHROPIC_API_KEY` (or an `ant auth login` profile) and makes one model call, or two
 when the first reply is rejected. It writes `interpretation.md`, the narrative, and
 `interpretation.json`, the record: the narrative as the model wrote it, the rendered text, the
-model id, `prompt_version` (a short hash of the system prompt and the reply schema), every
-attempt with its violations and token usage, and the SHA-256 of the `facts.json` it read.
+model id, the effort and the token limit it ran with, `prompt_version` (a short hash of the
+system prompt and the reply schema), every attempt with its violations and token usage, and the
+SHA-256 of the bytes of the `facts.json` it read.
 `--model` and `--effort` override the defaults (`claude-opus-5-5`, `medium`).
 
 ### The model never writes a value
@@ -1597,13 +1601,14 @@ analysis, and writes statements in which every value is a placeholder:
 ```
 
 The system substitutes the values: numbers to four significant figures, p-values to three, counts
-exactly. The model cannot write a digit, a percent sign or one of a short list of number words, so
-a figure the analysis did not produce cannot appear as a figure. A quantity spelled in words
-outside that list ("twenty units", "a third of the effect") is not caught. A value that was never
+exactly, levels as a percentage (`95%`). The model cannot write a digit, a percent sign or one of
+a short list of number words, and a placeholder must stand apart from the text around it, with no
+sign or operator before a number, so a figure is shown exactly as the analysis produced it. A
+quantity spelled in words outside that list ("twenty units", "a third of the effect") is not caught. A value that was never
 computed, such as the statistic of a check that cannot be tested, has no fact, so citing it fails instead of
 rendering as a zero.
 
-Before anything is substituted, a deterministic verifier applies seven rules, and the narrative
+Before anything is substituted, a deterministic verifier applies nine rules, and the narrative
 is written only if none is broken:
 
 1. **Resolves.** Every placeholder names a fact in the table.
@@ -1619,7 +1624,12 @@ is written only if none is broken:
 6. **Language.** The prose passes `causal_language_lint`, the lint the evidence report already
    passes. The lint reads each statement with its numbers masked, so that the full stop inside a
    decimal does not end a sentence.
-7. **Completeness.** The narrative must cite every estimate's point and band, every comparison's
+7. **Delimiters.** Every placeholder stands apart from the text around it, and no sign or
+   operator comes before a number. `-{point}` and `{n_treated}{n_control}` are refused: glued
+   together they would render a figure the table does not hold.
+8. **One line.** A statement holds no line break, control or invisible character, so it cannot
+   write a heading of its own.
+9. **Completeness.** The narrative must cite every estimate's point and band, every comparison's
    agreement (or its reason for not comparing), every fit failure, and every check whose status is
    `FAIL` or `WARN`.
 
@@ -1631,8 +1641,9 @@ A `facts.json` that is missing, damaged or from another schema version is report
 naming the file and what to rerun, and nothing is sent to the model.
 
 The command also prints one line and exits 1, writing nothing, when no credentials are found (it
-says how to supply them), when the API call fails, and when the model refuses, or its reply is cut
-off at the token limit or does not fit the reply schema. The command does not retry any of these;
+says how to supply them), when the login profile is broken or expired, when the API call fails,
+and when the model refuses, or its reply is cut off at the token limit or does not fit the reply
+schema. The command does not retry any of these;
 the SDK itself retries rate limits and server errors. A failed run leaves an `interpretation.md`
 or `interpretation.json` from an earlier run in place.
 
@@ -1643,6 +1654,8 @@ nothing the completeness rule requires was left out, and the prose passes the la
 
 It does not mean the narrative is a correct reading of the analysis. The verifier does not catch:
 
+- the words that name a quantity: "a p-value of `{est.ipw.se}`", or a lower and an upper bound
+  swapped, verify. The value shown is the system's; what the sentence calls it is the model's;
 - qualitative wording outside the controlled lists ("a sizeable effect");
 - a wrong relationship between two correctly cited facts ("A is larger than B");
 - words around a quoted check interpretation that frame it misleadingly;
@@ -1656,7 +1669,8 @@ It does not mean the narrative is a correct reading of the analysis. The verifie
 - a hedge or negation word that arrives inside a cited fact ("not eligible", or any check's
   interpretation), which the lint counts as hedging the whole sentence;
 - the phrase "consistent with", which is allowed as free text because the lint itself asks for
-  it, so "consistent with each other" passes whatever the comparison found.
+  it, so "consistent with each other" passes whatever the comparison found, and "consistent with
+  no effect" passes whatever the interval says.
 
 How often these happen is not measured yet. That is the next phase of this sub-project.
 
@@ -1664,8 +1678,10 @@ How often these happen is not measured yet. That is the next phase of this sub-p
 
 Of the analysis, the fact table and nothing else: aggregate statistics, method and check names,
 and prose the system wrote. Beside it go the fixed instructions and, on a retry, the model's own
-rejected reply with the violations. No dataset rows are sent. A fit failure's error message is
-the exception's text, which can name a dataset column, so column names can leave.
+rejected reply with the violations. No dataset rows are sent. A fit failure's error text is the
+exception's own message, which can name a column or quote a cell value (this codebase's fits
+raise `could not convert string to float: '<the cell>'` for a non-numeric covariate). It is sent to
+the model and, because the narrative must cite every fit failure, shown to the reader verbatim.
 
 Text inside a fact is treated as untrusted, and the defence is partial. A fit error written to
 read as an instruction reaches the model. Whatever the model then writes must still pass the

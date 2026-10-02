@@ -49,7 +49,11 @@ class InterpretationRefusedError(Exception):
 
 
 class ModelDidNotAnswerError(Exception):
-    """The model stopped without a complete reply: a refusal, or a token limit."""
+    """The model gave no narrative to verify.
+
+    `stop_reason` says why: a refusal, a reply cut off at the token limit, or
+    `invalid_reply`, a reply that ended normally but did not fit the schema.
+    """
 
     def __init__(self, stop_reason: str) -> None:
         self.stop_reason = stop_reason
@@ -57,6 +61,8 @@ class ModelDidNotAnswerError(Exception):
 
 
 class NarrativeNotVerifiedError(ValueError):
+    """`render_verified` was given a narrative that breaks a rule; `violations` lists them."""
+
     def __init__(self, violations: tuple[Violation, ...]) -> None:
         self.violations = violations
         super().__init__(f"refusing to render a narrative with {len(violations)} violation(s)")

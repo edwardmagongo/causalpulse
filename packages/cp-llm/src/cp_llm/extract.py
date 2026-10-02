@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import math
 import re
+from numbers import Real
 from typing import cast
 
 from cp_causal.router import RoutingDecision
@@ -39,7 +40,7 @@ def _segment(name: str, what: str) -> str:
 
 
 def _finite(value: object) -> float | None:
-    if value is None or isinstance(value, bool) or not isinstance(value, int | float):
+    if value is None or isinstance(value, bool) or not isinstance(value, Real):
         return None
     number = float(value)
     return number if math.isfinite(number) else None

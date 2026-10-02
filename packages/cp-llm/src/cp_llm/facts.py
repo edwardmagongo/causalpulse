@@ -21,6 +21,9 @@ FactKind = Literal["number", "count", "level", "p_value", "label", "name", "text
 FACTS_SCHEMA_VERSION = 1
 # The file `analyze --report` writes and `interpret` reads.
 FACTS_FILENAME = "facts.json"
+# The two files `interpret` writes beside it.
+INTERPRETATION_MARKDOWN = "interpretation.md"
+INTERPRETATION_RECORD = "interpretation.json"
 
 _KINDS: frozenset[str] = frozenset(get_args(FactKind))
 _FLOAT_KINDS = frozenset({"number", "level", "p_value"})
