@@ -271,6 +271,111 @@
     border-color: var(--color-ink-soft);
   }
 
+  /* A field that cannot be used yet (a column list before a dataset is chosen). */
+  .field:disabled {
+    background: var(--color-wash);
+    color: var(--color-ink-soft);
+    cursor: not-allowed;
+  }
+
+  /*
+   * A group of choices: a legend in the small-print voice, then the checkboxes
+   * in a grid that fills the line and wraps. No box; the legend carries it.
+   */
+  .choices {
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .choices > legend {
+    padding: 0;
+    margin-bottom: calc(var(--spacing) * 1.5);
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    color: var(--color-ink-soft);
+  }
+
+  .choice-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 12rem), 1fr));
+    column-gap: calc(var(--spacing) * 4);
+  }
+
+  /* One checkbox or radio and its words; add `value` when the words are the API's. */
+  .check {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--spacing) * 2.5);
+    min-height: calc(var(--spacing) * 9);
+    overflow-wrap: anywhere;
+    cursor: pointer;
+  }
+
+  .check > input {
+    flex: none;
+    width: 1rem;
+    height: 1rem;
+    margin: 0;
+    accent-color: var(--color-accent);
+    cursor: inherit;
+  }
+
+  /*
+   * A section a reader may leave shut: a rule above and below, a title with a
+   * turning chevron. The body follows the title with the page's usual stack gap.
+   */
+  .disclosure {
+    border-block: 1px solid var(--color-rule);
+    padding-block: calc(var(--spacing) * 1.5);
+  }
+
+  .disclosure + .disclosure {
+    border-top: 0;
+  }
+
+  .disclosure > summary {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--spacing) * 2.5);
+    min-height: calc(var(--spacing) * 9);
+    font-size: var(--text-note);
+    line-height: var(--text-note--line-height);
+    font-weight: 500;
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .disclosure > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .disclosure > summary::before {
+    content: "";
+    flex: none;
+    width: 0.4rem;
+    height: 0.4rem;
+    margin-inline: 0.15rem;
+    border-right: 2px solid var(--color-ink-soft);
+    border-bottom: 2px solid var(--color-ink-soft);
+    transform: rotate(-45deg);
+  }
+
+  .disclosure[open] {
+    padding-bottom: calc(var(--spacing) * 5);
+  }
+
+  .disclosure[open] > summary {
+    margin-bottom: var(--spacing-stack);
+  }
+
+  .disclosure[open] > summary::before {
+    transform: rotate(45deg);
+  }
+
   /*
    * Tables: rules, no boxes. One ink rule under the column heads, a hairline
    * under each row. The first column is the row's name; it stays in view

@@ -1,13 +1,20 @@
 import { execSync } from "node:child_process";
-import { resolve } from "node:path";
+import { mkdtempSync, openSync, closeSync, writeSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 
 import { expect, test, type Page } from "@playwright/test";
 
-// Set by `make smoke-web`: two keys of one user, and the command that revokes
-// a key inside the api container.
+// Set by `make smoke-web`: two keys of one user, the fixtures' directory, and
+// the command that revokes a key inside the api container.
 const KEY = process.env.CP_E2E_KEY ?? "";
 const REVOCABLE_KEY = process.env.CP_E2E_REVOCABLE_KEY ?? "";
 const REVOKE = process.env.CP_E2E_REVOKE ?? "";
+const DATA = resolve(process.env.CP_E2E_DATA ?? "../tests/fixtures/real_data");
+
+const MB = 1024 * 1024;
+// The API's limit (`cp_api.validation.MAX_UPLOAD_BYTES`).
+const LIMIT = 50 * MB;
 
 test.describe.configure({ mode: "serial" });
 
@@ -24,6 +31,46 @@ async function signIn(page: Page, key: string) {
   await expect(page.getByRole("heading", { name: "Analyses" })).toBeVisible();
 }
 
+/** A CSV of exactly `bytes` bytes: a header, then identical rows, then padding in the last row. */
+function csvOf(bytes: number, name: string): string {
+  const path = join(mkdtempSync(join(tmpdir(), "cp-e2e-")), name);
+  const header = "unit_id,treat,y\n";
+  const row = "1,0,0.5\n";
+  const rows = Math.floor((bytes - header.length) / row.length) - 1;
+  const tail = bytes - header.length - rows * row.length;
+  const file = openSync(path, "w");
+  writeSync(file, header);
+  const block = row.repeat(4096);
+  let written = 0;
+  while (written + 4096 <= rows) {
+    writeSync(file, block);
+    written += 4096;
+  }
+  writeSync(file, row.repeat(rows - written));
+  // The last row is padded with digits to land on the exact size.
+  writeSync(file, `1,0,0.${"5".repeat(tail - "1,0,0.\n".length)}\n`);
+  closeSync(file);
+  return path;
+}
+
+async function chooseColumn(page: Page, label: string, column: string) {
+  await page.getByLabel(label, { exact: true }).selectOption(column);
+}
+
+async function pickEstimators(page: Page, names: string[]) {
+  await page.getByRole("radio", { name: "Choose estimators" }).check();
+  for (const name of names) {
+    await page.getByRole("checkbox", { name, exact: true }).check();
+  }
+}
+
+async function runToTheEnd(page: Page) {
+  await page.getByRole("button", { name: "Run the analysis" }).click();
+  await expect(page).toHaveURL(/\/analyses\/[0-9a-f-]{36}$/);
+  // LaLonde took 20 s with the worker on the host and 90 s in the composed stack.
+  await expect(page.locator("header [data-status]")).toHaveText("succeeded", { timeout: 300_000 });
+}
+
 test("a wrong key shows the API's message, and the issued key reaches the list", async ({ page }) => {
   await page.goto("/");
   await expect(page).toHaveURL(/\/sign-in$/);
@@ -33,6 +80,56 @@ test("a wrong key shows the API's message, and the issued key reaches the list",
   await expect(page.getByRole("alert").filter({ hasText: "missing or invalid API key" })).toBeVisible();
 
   await signIn(page, KEY);
+});
+
+test("Proposition 99: panel fields, no covariates, synthetic control", async ({ page }) => {
+  await signIn(page, KEY);
+  await page.goto("/analyses/new");
+  await page.getByLabel("Upload a CSV").setInputFiles(join(DATA, "prop99.csv"));
+  await expect(page.getByText(/prop99\.csv: \d+ columns/)).toBeVisible();
+
+  await chooseColumn(page, "Unit", "state");
+  await chooseColumn(page, "Treatment", "treatment");
+  await chooseColumn(page, "Outcome", "cigsale");
+  await chooseColumn(page, "Outcome type", "continuous");
+  await expect(page.getByText("None chosen: the analysis will be told there are no covariates")).toBeVisible();
+  await page.getByText("Panel", { exact: true }).click();
+  await chooseColumn(page, "Time", "year");
+  await pickEstimators(page, ["synthetic_control"]);
+  await runToTheEnd(page);
+
+  await expect(page.getByRole("region", { name: "Estimates" })).toContainText("permutation interval");
+  const routing = page.getByRole("region", { name: "Routing" });
+  await expect(routing.getByText("not eligible", { exact: true })).toHaveCount(9);
+  await expect(routing).toContainText("requires");
+  await expect(page.getByRole("region", { name: "Comparison across methods" })).toContainText(
+    "only one method estimated",
+  );
+});
+
+test("a 12 MB upload arrives whole", async ({ page }) => {
+  // Above the 1 MB a server action accepts and the 10 MB the proxy buffers.
+  await signIn(page, KEY);
+  await page.goto("/analyses/new");
+  await page.getByLabel("Upload a CSV").setInputFiles(csvOf(12 * MB, "twelve.csv"));
+  await expect(page.getByText("twelve.csv: 3 columns")).toBeVisible({ timeout: 60_000 });
+});
+
+test("an upload one byte over the limit shows the API's 413 message", async ({ page }) => {
+  await signIn(page, KEY);
+  await page.goto("/analyses/new");
+  await page.getByLabel("Upload a CSV").setInputFiles(csvOf(LIMIT + 1, "over.csv"));
+  await expect(
+    page.getByRole("alert").filter({ hasText: `the upload exceeds the ${LIMIT}-byte limit` }),
+  ).toBeVisible({ timeout: 60_000 });
+});
+
+test("an upload of exactly the limit is accepted", async ({ page }) => {
+  // The control for the test above: the same generator, one byte smaller.
+  await signIn(page, KEY);
+  await page.goto("/analyses/new");
+  await page.getByLabel("Upload a CSV").setInputFiles(csvOf(LIMIT, "exact.csv"));
+  await expect(page.getByText("exact.csv: 3 columns")).toBeVisible({ timeout: 60_000 });
 });
 
 test("a revoked key lands on sign-in at the next navigation", async ({ page }) => {
