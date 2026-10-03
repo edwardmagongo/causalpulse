@@ -22,7 +22,14 @@ from pathlib import Path
 import pandas as pd
 from cp_core.results import git_commit, package_versions
 from cp_evaluation.execute import DEFAULT_WORKERS, execute
-from cp_evaluation.grid import CateAxes, CrossSectionAxes, DonorPoolAxes, GridConfig, PanelAxes
+from cp_evaluation.grid import (
+    CateAxes,
+    CrossSectionAxes,
+    DonorPoolAxes,
+    GridConfig,
+    LongPanelAxes,
+    PanelAxes,
+)
 from cp_evaluation.metrics import summarise
 from cp_evaluation.run import run_grid
 from cp_evaluation.store import MANIFEST_NAME, RunIdentity, RunStore
@@ -34,6 +41,7 @@ from cp_evaluation.tiers import (
     cate_study_config,
     ci_config,
     full_config,
+    p7_study_config,
     study_config,
 )
 
@@ -44,16 +52,17 @@ TIERS = {
     "full": (full_config, FULL_ESTIMATORS, FULL_FIT_CONFIG),
     "study": (study_config, FULL_ESTIMATORS, FULL_FIT_CONFIG),
     "cate": (cate_study_config, FULL_ESTIMATORS, FULL_FIT_CONFIG),
+    "p7": (p7_study_config, FULL_ESTIMATORS, FULL_FIT_CONFIG),
 }
 
 # Tiers too long to run as one in-memory frame: they write a directory of shards
-# and can be resumed and extended. `ci` and `full` keep writing one file. `study` and `cate`
+# and can be resumed and extended. `ci` and `full` keep writing one file. `study`, `cate` and `p7`
 # are sharded.
-SHARDED_TIERS = frozenset({"study", "cate"})
+SHARDED_TIERS = frozenset({"study", "cate", "p7"})
 
 
 def add_run_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--tier", required=True, help="One of: ci, full, study, cate.")
+    parser.add_argument("--tier", required=True, help="One of: ci, full, study, cate, p7.")
     parser.add_argument("--out", required=True, help="Directory to write results to.")
     parser.add_argument("--root-entropy", type=int, default=0, help="Seed root.")
     parser.add_argument(
@@ -110,6 +119,9 @@ def build_sidecar(
             None if config.donor_pool is None else _axis_block(config.donor_pool)
         ),
         "cate": None if config.cate is None else _axis_block(config.cate),
+        "long_panel": (
+            None if config.long_panel is None else _axis_block(config.long_panel)
+        ),
         # What the grid was *asked* for is not what it necessarily produced.
         # A scenario is crossed only against the axes it declares
         # (`SCENARIOS[id].axes`), so an axis it does not declare is pinned to
@@ -136,6 +148,9 @@ def build_sidecar(
         ),
         "cate_realised": (
             None if config.cate is None else _realised_block(frame, config.cate)
+        ),
+        "long_panel_realised": (
+            None if config.long_panel is None else _realised_block(frame, config.long_panel)
         ),
         **provenance,
     }
@@ -267,14 +282,15 @@ def load_run(
 
 
 def _axis_block(
-    axes: CrossSectionAxes | PanelAxes | DonorPoolAxes | CateAxes,
+    axes: CrossSectionAxes | PanelAxes | DonorPoolAxes | CateAxes | LongPanelAxes,
 ) -> dict[str, list[object]]:
     """One axis dataclass, as JSON-ready lists, every field included."""
     return {name: list(values) for name, values in asdict(axes).items()}
 
 
 def _realised_block(
-    frame: pd.DataFrame, axes: CrossSectionAxes | PanelAxes | DonorPoolAxes | CateAxes
+    frame: pd.DataFrame,
+    axes: CrossSectionAxes | PanelAxes | DonorPoolAxes | CateAxes | LongPanelAxes,
 ) -> dict[str, list[object]]:
     """The values of each of `axes`' fields that actually appear in `frame`.
 
@@ -312,6 +328,8 @@ def _realised_block(
         shape = "donor_pool"
     elif isinstance(axes, CateAxes):
         shape = "cate"
+    elif isinstance(axes, LongPanelAxes):
+        shape = "long_panel"
     else:
         shape = "panel"
     rows = frame[frame["shape"] == shape]
@@ -362,7 +380,7 @@ def _axis_discrepancies(sidecar: Mapping[str, object]) -> list[str]:
     simply has no realised block to compare against.
     """
     lines: list[str] = []
-    for shape in ("cross_section", "panel", "donor_pool", "cate"):
+    for shape in ("cross_section", "panel", "donor_pool", "cate", "long_panel"):
         requested = sidecar.get(shape)
         realised = sidecar.get(f"{shape}_realised")
         if not isinstance(requested, dict) or not isinstance(realised, dict):

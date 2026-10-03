@@ -112,7 +112,14 @@ from dataclasses import dataclass, replace
 
 from cp_core.values import EstimatorConfig
 
-from cp_evaluation.grid import CateAxes, CrossSectionAxes, DonorPoolAxes, GridConfig, PanelAxes
+from cp_evaluation.grid import (
+    CateAxes,
+    CrossSectionAxes,
+    DonorPoolAxes,
+    GridConfig,
+    LongPanelAxes,
+    PanelAxes,
+)
 
 # All six donor-pool scenarios, in full/study -- clean recovery
 # (S0, S1) and adversarial ones (S2-S5) alike, the same mix A-H and P1-P7
@@ -474,17 +481,21 @@ def full_config() -> GridConfig:
        exist`. This tier therefore uses `n_periods=(7, 10)`, the smallest
        pair that is valid for every scenario it keeps.
 
-    2. **Scenario P7 cannot share an axis with P1-P6 and is excluded.** Its
-       own registry docstring documents that it is generated "at this
-       scenario's own longer protocol: HIER_N_UNITS=600, HIER_N_PERIODS=20"
-       (`cp_simulation/panel_scenarios.py`), and needs `n_periods >= 16`.
-       `PanelAxes` carries one `n_periods` list applied to every scenario in
-       it -- there is no per-scenario override -- so including P7 would force
-       P1-P6 onto a 16+-period protocol they were not designed for, at a
-       large multiple of their measured cost, purely to accommodate one
-       scenario. P7 is dropped from `full_config()` instead; a reader
-       wondering where it went should read this paragraph. `ci_config()`
-       never surfaced this because it only ever used P1 and P2.
+    2. **Scenario P7 cannot share an axis with P1-P6, so it runs as its own
+       fixed-protocol arm.** Its own registry docstring documents that it is
+       generated "at this scenario's own longer protocol: HIER_N_UNITS=600,
+       HIER_N_PERIODS=20" (`cp_simulation/panel_scenarios.py`), and needs
+       `n_periods >= 16`. `PanelAxes` carries one `n_periods` list applied to
+       every scenario in it -- there is no per-scenario override -- so
+       including P7 there would force P1-P6 onto a 16+-period protocol they
+       were not designed for, at a large multiple of their measured cost,
+       purely to accommodate one scenario. It is therefore left out of
+       `PanelAxes` and run through `long_panel`, a `LongPanelCell` arm at its
+       fixed 600 by 20 protocol, measured at 529.7s a cell. That adds 10
+       cells here and 50 at `study_config()`. `ci_config()` never surfaced
+       this because it only ever used P1 and P2, and carries no P7 arm.
+       That is ~5,300s serial at this tier's 10 replications (~26,500s at
+       `study_config()`'s 50), on top of the ~3.10-hour total documented below.
 
     3. **The spec's 50 replications, n_units=(150, 500), and n_periods=(6, 10)
        do not fit inside a reasonable on-demand budget.** Measured per-fit
@@ -499,7 +510,7 @@ def full_config() -> GridConfig:
        - **Panel `n_units=500` is dropped**, keeping only `n_units=(150,)`.
          `hierarchical_did` alone costs 79.7s/fit at n_units=500 against
          24.8s/fit at n_units=150 -- more than tripling the panel arm's cost
-         for one axis value, on top of already dropping P7 and moving to
+         for one axis value, on top of already keeping P7 out of `PanelAxes` and moving to
          `n_periods=(7, 10)`.
        - **Replications is 10, not the spec's 50.** This was chosen as the
          largest round number that kept the tier's runtime to a self-chosen
@@ -719,6 +730,7 @@ def full_config() -> GridConfig:
         ),
         donor_pool=DonorPoolAxes(scenarios=_ALL_DONOR_POOL_SCENARIOS),
         cate=CateAxes(scenarios=_ALL_CATE_SCENARIOS),
+        long_panel=LongPanelAxes(scenarios=("P7",)),
         replications=10,
     )
 
@@ -757,5 +769,22 @@ def cate_study_config() -> GridConfig:
         cross_section=None,
         panel=None,
         cate=full_config().cate,
+        replications=STUDY_REPLICATIONS,
+    )
+
+
+def p7_study_config() -> GridConfig:
+    """Scenario P7 alone, at its own protocol and the study's replication count.
+
+    Reads the arm from `full_config()` rather than restating it;
+    `tests/evaluation/test_study_tier.py` pins that its cells are exactly
+    `study_config()`'s P7 cells, so a run of this tier measures the same data the
+    P7 part of a full study would (design
+    `docs/specs/2026-10-01-p7-benchmark-arm-design.md` section 5).
+    """
+    return GridConfig(
+        cross_section=None,
+        panel=None,
+        long_panel=full_config().long_panel,
         replications=STUDY_REPLICATIONS,
     )

@@ -38,6 +38,7 @@ from cp_evaluation.grid import (
     CrossSectionAxes,
     DonorPoolAxes,
     GridConfig,
+    LongPanelAxes,
     PanelAxes,
     cell_key,
     expand_cells,
@@ -112,6 +113,10 @@ class RunIdentity:
             # Only when present, for the same reason as the donor arm: a grid
             # without it keeps the identity (and so the manifest) it always had.
             grid["cate"] = asdict(config.cate)
+        if config.long_panel is not None:
+            # Only when present, as for the donor and CATE arms: a grid without
+            # it keeps the identity (and so the manifest) it always had.
+            grid["long_panel"] = asdict(config.long_panel)
         return cls(
             tier=tier,
             grid=_jsonable(grid),
@@ -162,6 +167,7 @@ def grid_config_of(grid: dict[str, Any], replications: int) -> GridConfig:
     panel = grid["panel"]
     donor_pool = grid.get("donor_pool")
     cate = grid.get("cate")
+    long_panel = grid.get("long_panel")
     return GridConfig(
         cross_section=(
             None if cross_section is None else CrossSectionAxes(**_axes(cross_section))
@@ -169,6 +175,7 @@ def grid_config_of(grid: dict[str, Any], replications: int) -> GridConfig:
         panel=None if panel is None else PanelAxes(**_axes(panel)),
         donor_pool=None if donor_pool is None else DonorPoolAxes(**_axes(donor_pool)),
         cate=None if cate is None else CateAxes(**_axes(cate)),
+        long_panel=None if long_panel is None else LongPanelAxes(**_axes(long_panel)),
         replications=replications,
     )
 

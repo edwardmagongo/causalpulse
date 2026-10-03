@@ -20,6 +20,17 @@ def _with_cate_rows(frame: pd.DataFrame, n: int = 3) -> pd.DataFrame:
     return pd.concat([frame, pd.DataFrame(cate_rows, columns=list(ROW_COLUMNS))], ignore_index=True)
 
 
+def _with_p7_rows(frame: pd.DataFrame, n: int = 3) -> pd.DataFrame:
+    p7_rows = []
+    for seed in range(n):
+        row = dict.fromkeys(ROW_COLUMNS, np.nan)
+        row.update(shape="long_panel", scenario="P7", n_units=600, n_periods=20, seed=seed,
+                   method="hierarchical_did", status="fitted", reason="", estimand="ATT",
+                   truth=6.7, point=6.8, runtime_seconds=1e6)
+        p7_rows.append(row)
+    return pd.concat([frame, pd.DataFrame(p7_rows, columns=list(ROW_COLUMNS))], ignore_index=True)
+
+
 def _verdicts(data: pd.DataFrame, status: RunStatus = COMPLETE) -> dict[str, str]:
     return {r.id: r.verdict for r in evaluate_expectations(data, status)}
 
@@ -304,3 +315,18 @@ def test_e7_is_unchanged_by_cate_arm_rows_with_a_huge_runtime():
     assert with_cate["E7"].verdict == without["E7"].verdict
     assert with_cate["E7"].measurements == without["E7"].measurements
     assert with_cate["E7"].note.endswith("3 CATE-arm rows excluded.")
+
+
+def test_e7_is_unchanged_by_p7_arm_rows_with_a_huge_runtime():
+    base = frame(
+        rows("twfe", "P1", 50, panel=True, runtime=25.0),
+        rows("hierarchical_did", "P1", 50, panel=True, runtime=2.0, ci_basis="posterior"),
+    )
+
+    with_p7 = {r.id: r for r in evaluate_expectations(_with_p7_rows(base), COMPLETE)}
+    without = {r.id: r for r in evaluate_expectations(base, COMPLETE)}
+
+    # By repr: E8's MCSE is NaN, and NaN != NaN.
+    assert with_p7["E7"].verdict == without["E7"].verdict
+    assert repr(with_p7["E7"].measurements) == repr(without["E7"].measurements)
+    assert with_p7["E7"].note.endswith("3 P7-arm rows excluded.")

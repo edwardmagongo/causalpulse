@@ -150,6 +150,9 @@ the RICH, NULL and NOISY scenarios, scoring `causal_forest`'s per-unit CATE by c
 calibration slope in the `full` and `study` tiers. `bench run --tier cate` runs that arm alone at
 the study's 50 replications (150 cells, about 35 minutes), and `bench study-report --cate-run DIR`
 adds its results to the research report as their own section.
+Scenario P7 (many treatment cohorts) runs in the `full` and `study` tiers as a fixed-protocol arm at its
+own 600-unit, 20-period protocol. `bench run --tier p7` runs it alone at 50 replications (about 2 hours with
+4 workers), and `bench study-report --p7-run DIR` adds a "Scenario P7" section to the report.
 
 **Phase 18** closed the first of those four items: the missing benchmark-grid axes.
 `PropensityAssignment` gained an intercept and `LogisticBaseline` an additive noise scale, both

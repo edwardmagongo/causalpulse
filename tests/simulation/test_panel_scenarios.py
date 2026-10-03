@@ -1,8 +1,11 @@
 import numpy as np
 import pytest
 from cp_simulation.panel_scenarios import (
+    HIER_N_PERIODS,
+    HIER_N_UNITS,
     PANEL_N_PERIODS,
     PANEL_N_UNITS,
+    PANEL_PROTOCOLS,
     PANEL_SCENARIOS,
     build_panel_scenario,
 )
@@ -122,3 +125,14 @@ def test_p7_has_many_cohorts_each_with_pre_and_post_periods():
     assert len(cohorts) >= 6, f"P7 needs many cohorts to identify sigma_tau, got {cohorts}"
     for g in cohorts:
         assert 2 <= g <= HIER_N_PERIODS
+
+
+def test_p7_is_the_only_fixed_protocol_and_reads_the_hier_constants():
+    assert dict(PANEL_PROTOCOLS) == {"P7": (HIER_N_UNITS, HIER_N_PERIODS)}
+    assert (HIER_N_UNITS, HIER_N_PERIODS) == (600, 20)
+    assert set(PANEL_PROTOCOLS) <= set(PANEL_SCENARIOS)
+
+
+def test_the_protocol_registry_is_read_only():
+    with pytest.raises(TypeError):
+        PANEL_PROTOCOLS["P1"] = (150, 7)  # type: ignore[index]

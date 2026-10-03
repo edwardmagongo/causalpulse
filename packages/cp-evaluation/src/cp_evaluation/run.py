@@ -21,6 +21,7 @@ from cp_causal.router import route
 from cp_core.values import EstimatorConfig
 from cp_simulation.cate_scenarios import CATE_N_UNITS
 from cp_simulation.donor_scenarios import DONOR_SCENARIOS
+from cp_simulation.panel_scenarios import PANEL_PROTOCOLS
 
 from cp_evaluation.cate import CATE_METRIC_COLUMNS, cate_row_metrics
 from cp_evaluation.grid import (
@@ -29,6 +30,7 @@ from cp_evaluation.grid import (
     CrossSectionCell,
     DonorPoolCell,
     GridConfig,
+    LongPanelCell,
     PanelCell,
     expand_cells,
 )
@@ -203,6 +205,25 @@ def _cell_columns(cell: Cell, resolved: ResolvedCell) -> dict[str, object]:
             "heterogeneity_scale": np.nan,
             "realised_treated_share": _realised_treated_share(resolved),
             "n_periods": np.nan,
+            "seed": cell.seed,
+        }
+
+    if isinstance(cell, LongPanelCell):
+        # Size fixed by PANEL_PROTOCOLS (grid.py's LongPanelCell docstring); a
+        # panel dataset, so the cross-sectional axes and treated share are NaN,
+        # as for a PanelCell.
+        n_units, n_periods = PANEL_PROTOCOLS[cell.scenario]
+        return {
+            "shape": "long_panel",
+            "scenario": cell.scenario,
+            "n_units": n_units,
+            "confounding_strength": np.nan,
+            "treatment_intercept": np.nan,
+            "noise_scale": np.nan,
+            "effect_scale": np.nan,
+            "heterogeneity_scale": np.nan,
+            "realised_treated_share": np.nan,
+            "n_periods": n_periods,
             "seed": cell.seed,
         }
 

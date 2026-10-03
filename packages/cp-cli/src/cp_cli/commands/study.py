@@ -200,6 +200,11 @@ def add_study_report_arguments(parser: argparse.ArgumentParser) -> None:
         metavar="DIR",
         help="A finished `bench run --tier cate` run, reported in its own CATE section.",
     )
+    parser.add_argument(
+        "--p7-run",
+        metavar="DIR",
+        help="A finished `bench run --tier p7` run, reported in its own Scenario P7 section.",
+    )
 
 
 def _read_narratives(path: str | None) -> dict[str, str]:
@@ -220,6 +225,7 @@ def run_study_report(args: argparse.Namespace) -> int:
     evidence = benchmark_evidence_from_run(
         Path(args.directory),
         cate_directory=None if args.cate_run is None else Path(args.cate_run),
+        p7_directory=None if args.p7_run is None else Path(args.p7_run),
         limitations=tuple(args.limitation),
         narratives=_read_narratives(args.narratives),
     )

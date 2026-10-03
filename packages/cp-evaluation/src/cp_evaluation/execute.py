@@ -27,8 +27,17 @@ from types import MappingProxyType
 from cp_core.values import EstimatorConfig
 from cp_simulation.cate_scenarios import CATE_N_UNITS
 from cp_simulation.donor_scenarios import DONOR_SCENARIOS
+from cp_simulation.panel_scenarios import PANEL_PROTOCOLS
 
-from cp_evaluation.grid import CateCell, Cell, CrossSectionCell, DonorPoolCell, PanelCell, cell_key
+from cp_evaluation.grid import (
+    CateCell,
+    Cell,
+    CrossSectionCell,
+    DonorPoolCell,
+    LongPanelCell,
+    PanelCell,
+    cell_key,
+)
 from cp_evaluation.run import fit_cell, resolve_candidates
 from cp_evaluation.store import LedgerEntry, RunStore, write_shard
 
@@ -88,7 +97,9 @@ def fit_cell_to_shard(task: CellTask) -> LedgerEntry:
 TaskFunction = Callable[[CellTask], LedgerEntry]
 
 
-# Dearest shape first, from measured per-cell costs: a panel cell 35-62s (P4
+# Dearest shape first, from measured per-cell costs: a long-panel cell (P7 at
+# its 600 by 20 protocol) 529.7s, measured 2026-10-01 (design
+# `docs/specs/2026-10-01-p7-benchmark-arm-design.md` §1), a panel cell 35-62s (P4
 # and P1 at n_units=150, n_periods=10, dominated by hierarchical_did),
 # a donor-pool cell 5.5-32.6s (S5 and S1, dominated by bsts), a CATE cell ~15s,
 # a cross-sectional cell 8.7-12.3s. The panel and donor figures were measured
@@ -97,14 +108,14 @@ TaskFunction = Callable[[CellTask], LedgerEntry]
 # `cp_evaluation.tiers`. A shape missing here raises in `longest_first` rather
 # than being scheduled somewhere by accident.
 SHAPE_COST_RANK: Mapping[type, int] = MappingProxyType(
-    {PanelCell: 0, DonorPoolCell: 1, CateCell: 2, CrossSectionCell: 3}
+    {LongPanelCell: 0, PanelCell: 1, DonorPoolCell: 2, CateCell: 3, CrossSectionCell: 4}
 )
 
 
 def longest_first(cells: Sequence[Cell]) -> list[Cell]:
     """Cells ordered so the dearest are submitted first.
 
-    Ordered by measured cost class (`SHAPE_COST_RANK`: panel, then donor pool,
+    Ordered by measured cost class (`SHAPE_COST_RANK`: long panel, then panel, then donor pool,
     then CATE, then cross-section), then by descending `n_units` within a
     shape, then by `cell_key`. Ranking by shape rather than by unit count alone
     stops a 2,000-unit CATE cell, which costs ~15s, going ahead of panel cells,
@@ -117,6 +128,8 @@ def longest_first(cells: Sequence[Cell]) -> list[Cell]:
     """
 
     def n_units(cell: Cell) -> int:
+        if isinstance(cell, LongPanelCell):
+            return PANEL_PROTOCOLS[cell.scenario][0]
         if isinstance(cell, DonorPoolCell):
             return DONOR_SCENARIOS[cell.scenario].n_units
         if isinstance(cell, CateCell):

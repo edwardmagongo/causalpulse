@@ -14,6 +14,8 @@ from cp_evaluation.grid import (
     DonorPoolAxes,
     DonorPoolCell,
     GridConfig,
+    LongPanelAxes,
+    LongPanelCell,
     PanelAxes,
     PanelCell,
     cell_key,
@@ -25,6 +27,8 @@ from cp_simulation.scenarios import SCENARIOS
 
 # `cell_key(DonorPoolCell("S1", 0))` on `cate-metrics-arm` before Task 3's edit.
 _DONOR_S1_0_KEY = "f2f8e3cc570c30a4c802daea"
+# `cell_key(CateCell("RICH", 0))` on `p7-arm` before Task 1's edit.
+_CATE_RICH_0_KEY = "bb8c7637c6c88a09d0df3d2f"
 
 
 def test_cross_section_axes_expand_to_a_cross_product():
@@ -962,6 +966,78 @@ def test_cate_cell_rng_reproduces_across_processes_with_a_non_default_hash_seed(
 
     result = subprocess.run(
         [sys.executable, "-c", script], env=env, capture_output=True, text=True, check=True
+    )
+
+    assert np.array_equal(expected, json.loads(result.stdout))
+
+
+def _p7_only(replications=3) -> GridConfig:
+    return GridConfig(
+        cross_section=None,
+        panel=None,
+        long_panel=LongPanelAxes(scenarios=("P7",)),
+        replications=replications,
+    )
+
+
+def test_long_panel_axes_expand_one_cell_per_replication():
+    assert expand_cells(_p7_only()) == tuple(LongPanelCell("P7", s) for s in range(3))
+
+
+def test_a_scenario_without_a_fixed_protocol_is_refused_by_name():
+    with pytest.raises(ValueError, match="no fixed protocol"):
+        expand_cells(
+            GridConfig(
+                cross_section=None,
+                panel=None,
+                long_panel=LongPanelAxes(scenarios=("P7", "P1")),
+                replications=1,
+            )
+        )
+
+
+def test_long_panel_cells_sort_after_every_other_shape():
+    config = GridConfig(
+        cross_section=CrossSectionAxes(
+            scenarios=("A",), n_units=(200,), confounding_strength=(1.0,)
+        ),
+        panel=PanelAxes(scenarios=("P1",), n_units=(50,), n_periods=(7,)),
+        donor_pool=DonorPoolAxes(scenarios=("S1",)),
+        cate=CateAxes(scenarios=("RICH",)),
+        long_panel=LongPanelAxes(scenarios=("P7",)),
+        replications=1,
+    )
+
+    shapes = [type(c) for c in expand_cells(config)]
+
+    assert shapes == [CrossSectionCell, PanelCell, DonorPoolCell, CateCell, LongPanelCell]
+
+
+def test_adding_the_long_panel_shape_moves_no_existing_stream():
+    assert cell_key(DonorPoolCell("S1", 0)) == _DONOR_S1_0_KEY
+    assert cell_key(CateCell("RICH", 0)) == _CATE_RICH_0_KEY
+
+
+def test_a_long_panel_cell_never_shares_a_stream_with_a_donor_or_cate_cell():
+    long = LongPanelCell("S1", 0)
+
+    assert cell_key(long) not in {cell_key(DonorPoolCell("S1", 0)), cell_key(CateCell("S1", 0))}
+
+
+def test_long_panel_cell_rng_reproduces_across_processes_with_a_non_default_hash_seed():
+    expected = cell_rng(LongPanelCell("P7", 0), root_entropy=12345).normal(size=5).tolist()
+    script = (
+        "import json\n"
+        "from cp_evaluation.grid import LongPanelCell, cell_rng\n"
+        "print(json.dumps(cell_rng(LongPanelCell('P7', 0), root_entropy=12345)"
+        ".normal(size=5).tolist()))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        env=dict(os.environ, PYTHONHASHSEED="12345"),
+        capture_output=True,
+        text=True,
+        check=True,
     )
 
     assert np.array_equal(expected, json.loads(result.stdout))

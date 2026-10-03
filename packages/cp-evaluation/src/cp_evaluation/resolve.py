@@ -17,12 +17,20 @@ from cp_core.dataset import CausalDataset
 from cp_simulation.cate_scenarios import CATE_N_UNITS, CATE_SCENARIOS, build_cate_scenario
 from cp_simulation.donor_scenarios import DONOR_SCENARIOS, build_donor_scenario
 from cp_simulation.oracle import oracle_ate, oracle_att
-from cp_simulation.panel_scenarios import build_panel_scenario
+from cp_simulation.panel_scenarios import PANEL_PROTOCOLS, build_panel_scenario
 from cp_simulation.params import ScenarioParams
 from cp_simulation.scenarios import build_scenario
 
 from cp_evaluation.cate import CateTruth
-from cp_evaluation.grid import CateCell, Cell, CrossSectionCell, DonorPoolCell, PanelCell, cell_rng
+from cp_evaluation.grid import (
+    CateCell,
+    Cell,
+    CrossSectionCell,
+    DonorPoolCell,
+    LongPanelCell,
+    PanelCell,
+    cell_rng,
+)
 
 
 @dataclass(frozen=True, eq=False)
@@ -91,6 +99,18 @@ def resolve_cell(cell: Cell, root_entropy: int) -> ResolvedCell:
                 values=simulated.truth.true_cate,
                 heterogeneous=CATE_SCENARIOS[cell.scenario].heterogeneous,
             ),
+        )
+
+    if isinstance(cell, LongPanelCell):
+        # Same construction as the PanelCell branch, at the scenario's own fixed
+        # protocol (PANEL_PROTOCOLS) rather than a size the cell carries.
+        n_units, n_periods = PANEL_PROTOCOLS[cell.scenario]
+        long_panel = build_panel_scenario(cell.scenario).generate(
+            n_units=n_units, n_periods=n_periods, rng=rng
+        )
+        return ResolvedCell(
+            dataset=long_panel.dataset,
+            truth={"ATT": float(long_panel.truth.true_att_overall)},
         )
 
     if not isinstance(cell, DonorPoolCell):
