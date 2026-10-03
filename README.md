@@ -1430,11 +1430,12 @@ per-user API key; it runs on one machine, not as a hosted service.
 docker compose up --build
 ```
 
-This starts five services: `postgres`, `redis`, a one-shot `migrate` that runs the Alembic
-migrations and exits, `api`, which waits on `migrate` and serves on `http://localhost:8000`, and
-a `worker`, which reads jobs off the same Redis queue the API enqueues to. Ports (host side)
-default to `8000` for the API, `5433` for Postgres, and `6380` for Redis; override with
-`CP_API_PORT`, `CP_POSTGRES_PORT`, `CP_REDIS_PORT` if those clash with something else already
+This starts six services: `postgres`, `redis`, a one-shot `migrate` that runs the Alembic
+migrations and exits, `api`, which waits on `migrate` and serves on `http://localhost:8000`, a
+`worker`, which reads jobs off the same Redis queue the API enqueues to, and `web`, the dashboard,
+on `http://localhost:3000` (see "Web dashboard" below). Ports (host side) default to `8000` for the
+API, `5433` for Postgres, `6380` for Redis, and `3000` for `web`; override with `CP_API_PORT`,
+`CP_POSTGRES_PORT`, `CP_REDIS_PORT`, `CP_WEB_PORT` if those clash with something else already
 running.
 
 Each analysis has a 30-minute limit; one that runs past it is stopped and marked `failed`, with
@@ -1454,6 +1455,11 @@ All routes are under `/v1`. Every route except `GET /healthz` needs an `Authoriz
 |---|---|
 | `POST /datasets` | Multipart CSV, ≤ 50 MB (413 above). Your own copy of the same bytes, uploaded twice, returns the existing row by sha256; another user's identical upload is a separate row. |
 | `POST /analyses` | `{dataset_id, schema, estimators?, random_seed}`. Validates the schema via `CausalSchema` and its columns against the CSV header; enqueues; 202 with the id. |
+| `GET /me` | `{name}`: whose key this is. |
+| `GET /estimators` | The estimator catalogue: each name with its family (`cross_sectional`, `panel`, `donor_pool`). A family is a grouping, not a statement about eligibility. |
+| `GET /datasets` | Your datasets, newest first, without their columns. `limit` (1 to 200, default 50) and `cursor`, the previous page's `next_cursor`. |
+| `GET /datasets/{id}` | One dataset with its columns. |
+| `GET /analyses` | Your analyses, newest first, paged like the datasets. An in-flight analysis whose job is gone is marked `failed` here, as on the single read. |
 | `GET /analyses/{id}` | Status, `partial`, error, routing decisions, and per estimate its method, band, error, and `summary` (point, standard error, intervals, p-value, group sizes). |
 | `GET /analyses/{id}/estimates/{method}/report.html` | One estimate's evidence report, figures inlined. |
 | `GET /analyses/{id}/estimates/{method}/report.md` | The Markdown report. Its relative figure links resolve against the next route. |
@@ -1549,13 +1555,16 @@ layer over the core rather than a second implementation of it.
 
 ```bash
 make check-services  # postgres + redis only, project causalpulse-test, ports 5434/6381
-make smoke           # the whole stack built and run, project causalpulse-smoke, ports 5435/6382/8001
+make smoke           # api and worker built and run, project causalpulse-smoke, ports 5435/6382/8001
+make smoke-web       # whole stack + browser, project causalpulse-web-smoke, 5436/6383/8002/3001
 ```
 
-Three separate compose projects exist so none can step on another: the demo stack above
-(`causalpulse`, ports 8000/5433/6380), `check-services` (`causalpulse-test`, 5434/6381, no image
-build — only `postgres` and `redis`), and `smoke` (`causalpulse-smoke`, 5435/6382/8001, the full
-`docker compose up --build`). The services tests read `TEST_DATABASE_URL` and `TEST_REDIS_URL`
+Four separate compose projects exist so none can step on another: the demo stack above
+(`causalpulse`, ports 8000/5433/6380/3000), `check-services` (`causalpulse-test`, 5434/6381, no
+image build — only `postgres` and `redis`), `smoke` (`causalpulse-smoke`, 5435/6382/8001, `api` and
+`worker` with what they depend on), and `smoke-web` (`causalpulse-web-smoke`, 5436/6383/8002/3001,
+the full stack with the dashboard). `make smoke` names `api` and `worker`, so it neither builds nor
+starts `web`. The services tests read `TEST_DATABASE_URL` and `TEST_REDIS_URL`
 exclusively — never the app's own `DATABASE_URL`/`REDIS_URL` — precisely so a developer's local
 `DATABASE_URL` export can never point a test run at the demo stack's database by accident.
 
@@ -1695,6 +1704,65 @@ lists can still reach the narrative as the model's own free text.
 
 `make check` never calls the model: every test but one runs against a scripted model or a mock of
 the SDK's transport. `make check-llm` runs that one test against the real API.
+
+## Web dashboard (sub-project 5)
+
+A browser UI over the backend: sign in with an API key, upload a CSV or pick an earlier upload,
+declare its schema, choose estimators or let the router choose, and read the estimates, validity
+bands, cross-method comparison and each evidence report. It is a Next.js server in `web/`, and it
+is the only thing the browser talks to.
+
+```bash
+docker compose up --build
+docker compose exec api cp-api-admin create-user alice
+docker compose exec -T api cp-api-admin issue-key alice   # shown once; paste it at localhost:3000
+```
+
+### What it does with the key
+
+The pasted key is checked with `GET /v1/me` and, if the API accepts it, sealed into an HTTP-only
+cookie, `cp_session`, valid for seven days, `SameSite=Lax`, and marked `Secure` only when
+`CP_COOKIE_SECURE=true`. The server adds the key to each API call. Page JavaScript never holds it,
+and the API needs no CORS policy, because the browser never calls it. The dashboard does not
+decide whether a key is still good: the API does, on every call. After a key is revoked, the next
+page that calls the API gets a 401, clears the cookie, and lands on sign-in. The server exits at
+start-up without `CP_SESSION_SECRET` (at least 32 characters) and `CP_API_URL`; the compose file
+sets both, the secret to a local-only value.
+
+### What it shows, and what it does not write
+
+The analysis page renders what the API returns as data: status, the routing decisions with their
+reasons, each estimate with its interval and validity band, one plot panel per comparison group,
+and the comparison verdicts. While an analysis is queued or running the page polls for it. Each
+evidence report is the API's own HTML, shown in a frame that is granted nothing, with the Markdown
+version offered as a download. Bands, verdicts, refusal reasons and errors are the backend's
+strings, shown as they arrive; the dashboard writes no causal prose of its own. An interval is
+labelled with its own basis, and methods share a plot axis only inside one of the API's comparison
+groups, which are made of estimates with the same estimand and scale. A value the API reports as
+`null` is shown as a dash.
+
+The schema form checks that the required fields are filled. Every other rule is the API's, and its
+refusal is shown verbatim.
+
+### Its API types cannot drift
+
+`web/openapi.json` is the API's OpenAPI document, committed. `make openapi` rewrites it. A Python
+test fails when a route or response model changes and the file does not, and `make check-web`
+fails when the file changes and the generated TypeScript types do not.
+
+### Testing it
+
+```bash
+make check-web   # lint, generated types current, type-check, unit tests; no services
+make smoke-web   # whole stack + browser; project causalpulse-web-smoke, ports 5436/6383/8002/3001
+```
+
+`make check-web` runs `pnpm`, so it needs Node.js and `pnpm` on the host. `make smoke-web` builds
+both images, issues two keys of one user inside the container, installs Playwright's Chromium, and
+runs seven browser tests: a wrong key and then the issued one; LaLonde from upload through two
+estimators to an opened evidence report; Proposition 99 with `synthetic_control` through to the
+end of its analysis; a 12 MB upload; an upload one byte over the API's 50 MB limit and one of
+exactly that size; and a revoked key. It tears the stack down afterwards.
 
 ## On scikit-learn
 
