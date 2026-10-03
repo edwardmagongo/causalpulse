@@ -82,6 +82,44 @@ test("a wrong key shows the API's message, and the issued key reaches the list",
   await signIn(page, KEY);
 });
 
+test("LaLonde: upload, schema, two estimators, results and the evidence report", async ({ page }) => {
+  await signIn(page, KEY);
+  await page.goto("/analyses/new");
+  await page.getByLabel("Upload a CSV").setInputFiles(join(DATA, "lalonde.csv"));
+  await expect(page.getByText(/lalonde\.csv: \d+ columns/)).toBeVisible();
+
+  await chooseColumn(page, "Unit", "unit_id");
+  await chooseColumn(page, "Treatment", "treat");
+  await chooseColumn(page, "Outcome", "re78");
+  await chooseColumn(page, "Outcome type", "continuous");
+  const covariates = page.getByRole("group", { name: "Covariates" });
+  for (const column of ["age", "educ", "black", "hisp", "marr", "nodegree", "re74", "re75"]) {
+    await covariates.getByRole("checkbox", { name: column, exact: true }).check();
+  }
+  // A column holding a single role is not offered as a covariate.
+  await expect(covariates.getByRole("checkbox", { name: "re78", exact: true })).toHaveCount(0);
+  await pickEstimators(page, ["difference_in_means", "lin_regression"]);
+  await runToTheEnd(page);
+
+  const estimates = page.getByRole("region", { name: "Estimates" });
+  await expect(estimates.locator("tbody tr")).toHaveCount(2);
+  await expect(estimates.locator("td[data-band]")).toHaveText([/^[A-Z]+$/, /^[A-Z]+$/]);
+  // One panel: both methods estimate the ATE on the absolute scale.
+  await expect(page.getByRole("region", { name: "Points and intervals" }).getByRole("img")).toHaveCount(1);
+  await expect(page.getByRole("region", { name: "Comparison across methods" })).toContainText(
+    "report intervals that",
+  );
+
+  const download = page.waitForEvent("download");
+  await page.getByRole("link", { name: "Download the manifest" }).click();
+  expect((await download).suggestedFilename()).toBe("manifest.json");
+
+  await estimates.getByRole("row", { name: /lin_regression/ }).getByRole("link", { name: "Evidence report" }).click();
+  const frame = page.locator("iframe");
+  await expect(frame).toHaveAttribute("sandbox", "");
+  await expect(page.frameLocator("iframe").getByRole("heading", { level: 1 })).toHaveText("Causal Pulse Report");
+});
+
 test("Proposition 99: panel fields, no covariates, synthetic control", async ({ page }) => {
   await signIn(page, KEY);
   await page.goto("/analyses/new");
