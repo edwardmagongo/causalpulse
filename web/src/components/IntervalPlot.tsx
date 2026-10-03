@@ -18,18 +18,23 @@ export function IntervalPlot({ panels }: { panels: PlotPanel[] }) {
   if (panels.length === 0) return null;
   return (
     <section aria-labelledby="plot-heading">
-      <h2 id="plot-heading">Points and intervals</h2>
+      <h2 id="plot-heading" className="title-section">
+        Points and intervals
+      </h2>
       {panels.map((panel) => {
         const height = TOP + panel.rows.length * ROW + AXIS;
         const x = (value: number) =>
           LABEL + position(value, panel.domain) * (WIDTH - LABEL - RIGHT);
         const axisY = TOP + panel.rows.length * ROW;
         return (
-          <figure key={`${panel.estimand}/${panel.scale}`}>
-            <figcaption>
+          // Below its minimum width the plot scrolls inside the figure, as a table does,
+          // rather than shrink its text; the caption stays where it is.
+          <figure key={`${panel.estimand}/${panel.scale}`} className="table-scroll mb-8 last:mb-0">
+            <figcaption className="title-group sticky left-0 mb-2 w-fit">
               {panel.estimand}, {panel.scale} scale
             </figcaption>
             <svg
+              className="w-full max-w-plot min-w-plot-min font-mono text-ink"
               viewBox={`0 0 ${WIDTH} ${height}`}
               role="img"
               aria-label={`Point and interval for ${panel.rows
@@ -52,6 +57,7 @@ export function IntervalPlot({ panels }: { panels: PlotPanel[] }) {
                       {row.method}
                     </text>
                     <text
+                      className="font-sans text-ink-soft"
                       data-basis={row.basis}
                       x={LABEL - 10}
                       y={y + 8}

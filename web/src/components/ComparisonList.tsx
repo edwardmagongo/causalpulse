@@ -6,30 +6,34 @@ export function ComparisonList({ comparisons }: { comparisons: ComparisonGroup[]
   if (comparisons.length === 0) return null;
   return (
     <section aria-labelledby="comparison-heading">
-      <h2 id="comparison-heading">Comparison across methods</h2>
+      <h2 id="comparison-heading" className="title-section">
+        Comparison across methods
+      </h2>
       {comparisons.map((group) => (
-        <article key={`${group.estimand}/${group.scale}`}>
-          <h3>
+        <article key={`${group.estimand}/${group.scale}`} className="mb-8 last:mb-0">
+          <h3 className="title-group">
             {group.estimand}, {group.scale} scale
           </h3>
-          <p>{group.methods.join(", ")}</p>
+          <p className="value text-ink-soft">{group.methods.join(", ")}</p>
           {group.verdict ? (
             <>
-              <p data-agreement={group.agreement ?? ""}>{group.agreement}</p>
-              <p>{group.verdict}</p>
-              <dl>
-                <dt>Point range</dt>
-                <dd>
+              <p data-agreement={group.agreement ?? ""} className="value mt-4 mb-2 font-semibold">
+                {group.agreement}
+              </p>
+              <p className="engine">{group.verdict}</p>
+              <dl className="mt-5 grid grid-flow-col grid-rows-[auto_auto] justify-start gap-x-8">
+                <dt className="label">Point range</dt>
+                <dd className="value">
                   {group.point_range
                     ? `${formatNumber(group.point_range[0])} to ${formatNumber(group.point_range[1])}`
                     : formatNumber(null)}
                 </dd>
-                <dt>Dispersion</dt>
-                <dd>{formatNumber(group.dispersion)}</dd>
+                <dt className="label">Dispersion</dt>
+                <dd className="value">{formatNumber(group.dispersion)}</dd>
               </dl>
             </>
           ) : (
-            <p>{group.not_compared_reason}</p>
+            <p className="engine mt-4">{group.not_compared_reason}</p>
           )}
         </article>
       ))}

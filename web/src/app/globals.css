@@ -1,13 +1,479 @@
 @import "tailwindcss";
 
-/* The look and feel is settled in its own task; this is the unstyled base. */
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/*
+ * The design system.
+ *
+ * Three typefaces, and each says where a string came from:
+ *
+ *   sans   the dashboard's own words: navigation, headings, column labels.
+ *   mono   a value the API returned: an estimator, a number, a band, a time.
+ *   serif  a sentence the API wrote: a verdict, a routing reason, an error.
+ *
+ * A reader can therefore tell at a glance which words are the engine's and
+ * which are only this page's furniture. Every face is a system face; nothing
+ * is fetched.
+ *
+ * Tokens are named in `@theme` and nowhere else. The default palette, type
+ * scale and radii are cleared, so a utility such as `text-red-500` does not
+ * exist and a page cannot drift from the tokens by accident.
+ */
+@theme {
+  /* Colour. Each text colour clears 4.5:1 on paper, surface, wash and alert-wash. */
+  --color-*: initial;
+  --color-paper: #f4f6f7; /* the page */
+  --color-surface: #ffffff; /* fields and anything typed into */
+  --color-wash: #e9eef1; /* hover, inline code */
+  --color-ink: #15202b; /* text and plotted marks, 15.2:1 on paper */
+  --color-ink-soft: #4f5d6b; /* labels and secondary text, 6.2:1 */
+  --color-rule: #d3dae0; /* hairlines between rows */
+  --color-rule-strong: #7a8794; /* field borders, 3.4:1 against paper */
+  --color-accent: #0b5563; /* links, the primary action, focus, 7.8:1 */
+  --color-accent-strong: #083f4a; /* the same, hovered */
+  --color-on-accent: #ffffff; /* text on the accent, 8.4:1 */
+  --color-caution: #855400; /* thin evidence, 5.9:1 */
+  --color-alert: #9a2a1b; /* failure and refusal, 7.1:1 */
+  --color-alert-wash: #f9ece9;
+
+  /* A band's colour only reinforces its word; the count of filled pips carries the order. */
+  --color-band-strong: var(--color-accent);
+  --color-band-moderate: var(--color-accent);
+  --color-band-weak: var(--color-caution);
+  --color-band-insufficient: var(--color-alert);
+
+  /* Type families: system stacks only. */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-serif: Charter, "Bitstream Charter", "Sitka Text", Cambria, Georgia, serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, "Cascadia Mono", Consolas, "Liberation Mono", monospace;
+
+  /* Type sizes, each with its line height. */
+  --text-*: initial;
+  --text-label: 0.75rem; /* column heads, field labels, captions */
+  --text-label--line-height: 1rem;
+  --text-data: 0.8125rem; /* monospace values */
+  --text-data--line-height: 1.25rem;
+  --text-note: 0.875rem; /* the engine's sentences inside a table; help text */
+  --text-note--line-height: 1.375rem;
+  --text-body: 0.9375rem; /* the dashboard's own running text */
+  --text-body--line-height: 1.5rem;
+  --text-prose: 1rem; /* the engine's sentences standing alone */
+  --text-prose--line-height: 1.625rem;
+  --text-section: 1.0625rem; /* h2 */
+  --text-section--line-height: 1.5rem;
+  --text-title: 1.625rem; /* h1 */
+  --text-title--line-height: 2rem;
+
+  /* Spacing: the 4px step behind every numeric utility, and the named distances. */
+  --spacing: 0.25rem;
+  --spacing-gutter: 1rem; /* page edge; 2rem from the `md` breakpoint, set below */
+  --spacing-section: 3rem; /* between sections of a page */
+  --spacing-stack: 0.875rem; /* between a heading and what it heads */
+  --spacing-cell-x: 0.625rem; /* table cell padding */
+  --spacing-cell-y: 0.5rem;
+  --spacing-header: 3.5rem; /* the shell's bar */
+
+  /* Widths. */
+  --container-page: 80rem;
+  --container-plot: 45rem; /* at this width the plot's own 12-unit text is 13.5px */
+  --container-plot-min: 38rem; /* narrower than this the plot scrolls instead of shrinking */
+  --container-measure: 38rem; /* a readable line of prose */
+  --container-form: 23rem;
+
+  --radius-*: initial;
+  --radius-control: 0.25rem;
+  --radius-mark: 9999px;
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+@layer base {
+  @media (width >= 48rem) {
+    :root {
+      --spacing-gutter: 2rem;
+    }
+  }
+
+  html {
+    color-scheme: light;
+    background: var(--color-paper);
+  }
+
+  body {
+    background: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: var(--radius-control);
+  }
+
+  ::selection {
+    background: var(--color-accent);
+    color: var(--color-on-accent);
+  }
+
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.92em;
+    background: var(--color-wash);
+    border-radius: var(--radius-control);
+    padding: 0.1em 0.3em;
+  }
+}
+
+/*
+ * Patterns. They sit in the components layer, so any utility on the same
+ * element still wins. Tasks that add pages reuse these by name.
+ */
+@layer components {
+  /* Headings. */
+  .title-page {
+    font-size: var(--text-title);
+    line-height: var(--text-title--line-height);
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+    overflow-wrap: anywhere;
+  }
+
+  .title-section {
+    font-size: var(--text-section);
+    line-height: var(--text-section--line-height);
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    margin-bottom: var(--spacing-stack);
+  }
+
+  .title-group {
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+    font-weight: 600;
+  }
+
+  /* The dashboard's small print: a column head, a field label, a caption. */
+  .label {
+    font-family: var(--font-sans);
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    color: var(--color-ink-soft);
+  }
+
+  /* A value the API returned. */
+  .value {
+    font-family: var(--font-mono);
+    font-size: var(--text-data);
+    line-height: var(--text-data--line-height);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /*
+   * A sentence the API wrote, shown as it arrived: serif, behind a margin
+   * rule, the way a quotation is set. `engine-alert` is the same for an error.
+   */
+  .engine {
+    font-family: var(--font-serif);
+    font-size: var(--text-prose);
+    line-height: var(--text-prose--line-height);
+    max-width: var(--container-measure);
+    border-left: 2px solid var(--color-rule-strong);
+    padding-left: calc(var(--spacing) * 4);
+    text-wrap: pretty;
+    overflow-wrap: anywhere;
+  }
+
+  .engine-alert {
+    border-left-color: var(--color-alert);
+    background: var(--color-alert-wash);
+    padding-block: calc(var(--spacing) * 3);
+    padding-right: calc(var(--spacing) * 4);
+  }
+
+  /* The same voice inside a table cell, where there is no room for the rule. */
+  .engine-inline {
+    font-family: var(--font-serif);
+    font-size: var(--text-note);
+    line-height: var(--text-note--line-height);
+  }
+
+  .link {
+    color: var(--color-accent);
+    text-decoration-line: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.2em;
+  }
+
+  .link:hover {
+    color: var(--color-accent-strong);
+    text-decoration-thickness: 2px;
+  }
+
+  /* Controls. */
+  .button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: calc(var(--spacing) * 2);
+    min-height: calc(var(--spacing) * 9);
+    padding-inline: calc(var(--spacing) * 3.5);
+    border: 1px solid var(--color-rule-strong);
+    border-radius: var(--radius-control);
+    background: transparent;
+    color: var(--color-ink);
+    font-size: var(--text-note);
+    line-height: var(--text-note--line-height);
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .button:hover {
+    background: var(--color-wash);
+    border-color: var(--color-ink-soft);
+  }
+
+  .button-primary {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    color: var(--color-on-accent);
+  }
+
+  .button-primary:hover {
+    background: var(--color-accent-strong);
+    border-color: var(--color-accent-strong);
+  }
+
+  .button:disabled {
+    cursor: progress;
+    opacity: 0.6;
+  }
+
+  .field {
+    display: block;
+    width: 100%;
+    min-height: calc(var(--spacing) * 10);
+    padding-inline: calc(var(--spacing) * 3);
+    border: 1px solid var(--color-rule-strong);
+    border-radius: var(--radius-control);
+    background: var(--color-surface);
+    color: var(--color-ink);
+    font-family: var(--font-mono);
+    font-size: var(--text-data);
+  }
+
+  .field:hover {
+    border-color: var(--color-ink-soft);
+  }
+
+  /*
+   * Tables: rules, no boxes. One ink rule under the column heads, a hairline
+   * under each row. The first column is the row's name; it stays in view
+   * while the rest scrolls sideways inside `table-scroll`.
+   */
+  .table-scroll {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    /* Run to the screen's edge, so a cut-off column shows there is more. */
+    margin-right: calc(var(--spacing-gutter) * -1);
+    padding-right: var(--spacing-gutter);
+  }
+
+  .data-table {
+    width: 100%;
+    border-collapse: separate; /* `collapse` drops the rules of a sticky cell */
+    border-spacing: 0;
+    text-align: left;
+  }
+
+  /*
+   * The cell rules are wrapped in `:where()`, which gives them no
+   * specificity: a pattern set on a cell (`band`, `engine-inline`, `num`)
+   * then wins wherever in this file it is written.
+   */
+  :where(.data-table th, .data-table td) {
+    padding: var(--spacing-cell-y) var(--spacing-cell-x);
+    vertical-align: baseline;
+  }
+
+  :where(.data-table th:first-child, .data-table td:first-child) {
+    padding-left: 0;
+  }
+
+  :where(.data-table th:last-child, .data-table td:last-child) {
+    padding-right: 0;
+  }
+
+  :where(.data-table thead th) {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    color: var(--color-ink-soft);
+    vertical-align: bottom;
+    white-space: nowrap; /* a head that may break says so with `whitespace-normal` */
+    border-bottom: 1px solid var(--color-ink);
+  }
+
+  :where(.data-table tbody th, .data-table tbody td) {
+    font-family: var(--font-mono);
+    font-size: var(--text-data);
+    line-height: var(--text-data--line-height);
+    font-variant-numeric: tabular-nums;
+    border-bottom: 1px solid var(--color-rule);
+  }
+
+  :where(.data-table tbody th) {
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  :where(.data-table th:first-child) {
+    position: sticky;
+    left: 0;
+    background: var(--color-paper);
+    padding-right: var(--spacing-cell-x);
+  }
+
+  /* The row under the pointer, so the eye can follow it across a wide table. */
+  :where(.data-table tbody tr:hover) > * {
+    background: var(--color-wash);
+  }
+
+  /* A numeric column: set on the head and on each cell. A head may wrap; a number may not. */
+  .num {
+    text-align: right;
+  }
+
+  td.num {
+    white-space: nowrap;
+  }
+
+  /*
+   * A validity band. The word is the content; this adds three pips before
+   * it, filled to the band's rank, so the order reads without colour:
+   * STRONG ■■■, MODERATE ■■□, WEAK ■□□, INSUFFICIENT □□□. A value this
+   * sheet does not know keeps its word and gets no pips.
+   */
+  .band {
+    font-family: var(--font-mono);
+    font-size: var(--text-data);
+    line-height: var(--text-data--line-height);
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+  }
+
+  .band[data-band="STRONG"]::before,
+  .band[data-band="MODERATE"]::before,
+  .band[data-band="WEAK"]::before,
+  .band[data-band="INSUFFICIENT"]::before {
+    content: "";
+    display: inline-block;
+    width: 25px;
+    height: 7px;
+    margin-right: calc(var(--spacing) * 2);
+    mask-repeat: no-repeat;
+    mask-size: 25px 7px;
+  }
+
+  .band[data-band="STRONG"]::before {
+    background: var(--color-band-strong);
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 25 7'%3E%3Cpath d='M0 0h7v7H0zM9 0h7v7H9zM18 0h7v7h-7z'/%3E%3C/svg%3E");
+  }
+
+  .band[data-band="MODERATE"]::before {
+    background: var(--color-band-moderate);
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 25 7'%3E%3Cpath d='M0 0h7v7H0zM9 0h7v7H9z'/%3E%3Cpath fill='none' stroke='%23000' d='M18.5.5h6v6h-6z'/%3E%3C/svg%3E");
+  }
+
+  .band[data-band="WEAK"]::before {
+    background: var(--color-band-weak);
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 25 7'%3E%3Cpath d='M0 0h7v7H0z'/%3E%3Cpath fill='none' stroke='%23000' d='M9.5.5h6v6h-6zM18.5.5h6v6h-6z'/%3E%3C/svg%3E");
+  }
+
+  .band[data-band="INSUFFICIENT"]::before {
+    background: var(--color-band-insufficient);
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 25 7'%3E%3Cpath fill='none' stroke='%23000' d='M.5.5h6v6h-6zM9.5.5h6v6h-6zM18.5.5h6v6h-6z'/%3E%3C/svg%3E");
+  }
+
+  /*
+   * A job's status. Again the word is the content. The mark before it differs
+   * in shape as well as colour: a ring while waiting or running, a disc when
+   * done, a square when failed. `succeeded` is deliberately plain ink: it
+   * says the job ran, not that its result can be trusted.
+   */
+  .status {
+    font-family: var(--font-mono);
+    font-size: var(--text-data);
+    line-height: var(--text-data--line-height);
+    white-space: nowrap;
+  }
+
+  .status[data-status]::before {
+    content: "";
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-right: calc(var(--spacing) * 2);
+    border-radius: var(--radius-mark);
+    border: 2px solid var(--color-ink-soft);
+  }
+
+  .status[data-status="running"]::before {
+    border-color: var(--color-accent);
+  }
+
+  .status[data-status="succeeded"]::before {
+    background: var(--color-ink-soft);
+  }
+
+  .status[data-status="failed"]::before {
+    border-radius: 0;
+    border-color: var(--color-alert);
+    background: var(--color-alert);
+  }
+
+  .status[data-status="failed"] {
+    color: var(--color-alert);
+    font-weight: 600;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .status[data-status="running"]::before {
+      animation: status-running 1.6s ease-in-out infinite;
+    }
+  }
+
+  /*
+   * The product's mark: a point on its interval, the thing every page here
+   * is about. Drawn before the element it is set on, in the text colour.
+   */
+  .brand-mark::before {
+    content: "";
+    flex: none;
+    display: inline-block;
+    width: 30px;
+    height: 12px;
+    background: currentColor;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 12'%3E%3Cpath d='M0 1.5h1.5v9H0zM28.5 1.5H30v9h-1.5zM0 5.25h30v1.5H0z'/%3E%3Ccircle cx='10' cy='6' r='4'/%3E%3C/svg%3E")
+      center / contain no-repeat;
+  }
+
+  /* On the narrowest phones the shell's bar has no room for it; the page must not scroll sideways. */
+  @media (width < 22.5rem) {
+    nav.brand-mark::before {
+      display: none;
+    }
+  }
+}
+
+@keyframes status-running {
+  50% {
+    opacity: 0.35;
+  }
 }

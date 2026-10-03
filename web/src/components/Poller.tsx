@@ -56,7 +56,7 @@ export function Poller({ analysisId }: { analysisId: string }) {
   }, [analysisId, router]);
 
   return (
-    <p role="status" aria-live="polite">
+    <p role="status" aria-live="polite" className="-mt-6 text-note text-ink-soft">
       {unreachable
         ? "The service is unavailable. Still checking."
         : "Running. This page updates when the analysis finishes."}

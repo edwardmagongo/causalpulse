@@ -28,12 +28,17 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
       <StatusHeader analysis={analysis} filename={dataset.filename} />
       {inFlight(analysis.status) ? <Poller analysisId={analysis.id} /> : null}
       <EstimatesTable analysisId={analysis.id} estimates={analysis.estimates} />
-      <IntervalPlot panels={panels(analysis.estimates, comparisons)} />
-      <ComparisonList comparisons={comparisons} />
+      {/* The picture and the verdict on it, side by side where there is room. */}
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-x-12 gap-y-section empty:hidden xl:grid-cols-[minmax(0,var(--container-plot))_minmax(0,1fr)]">
+        <IntervalPlot panels={panels(analysis.estimates, comparisons)} />
+        <ComparisonList comparisons={comparisons} />
+      </div>
       <RoutingTable routing={analysis.routing} />
       {analysis.status === "succeeded" ? (
-        <p>
-          <a href={`/api/analyses/${analysis.id}/manifest`}>Download the manifest</a>
+        <p className="text-note">
+          <a href={`/api/analyses/${analysis.id}/manifest`} className="link">
+            Download the manifest
+          </a>
         </p>
       ) : null}
     </>
