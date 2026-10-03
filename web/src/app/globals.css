@@ -281,6 +281,9 @@
     /* Run to the screen's edge, so a cut-off column shows there is more. */
     margin-right: calc(var(--spacing-gutter) * -1);
     padding-right: var(--spacing-gutter);
+    /* Room for the focus ring of a link in the first column, which sits flush left. */
+    margin-left: -0.375rem;
+    padding-left: 0.375rem;
   }
 
   .data-table {
@@ -341,7 +344,8 @@
    * a long value (a dataset filename) would fill the scroll area, and a
    * sticky cell that does stays painted over every later column. Below `sm`
    * it scrolls with the rest; from `sm` up it is held to half the screen and
-   * a longer value is cut with an ellipsis, so the other columns stay in reach.
+   * a longer value wraps, so the other columns stay in reach and the whole
+   * value stays readable.
    */
   @media (width >= 40rem) {
     :where(.data-table th:first-child) {
@@ -349,8 +353,8 @@
       left: 0;
       background: var(--color-paper);
       max-width: 50vw;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      white-space: normal;
+      overflow-wrap: break-word;
     }
   }
 
