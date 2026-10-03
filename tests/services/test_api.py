@@ -128,6 +128,24 @@ def test_upload_to_report_end_to_end(client, redis_conn):
     assert summary["comparisons"][0]["methods"] == PAIR
 
 
+def test_the_summary_answers_each_group_with_exactly_the_keys_it_was_stored_with(
+    client, redis_conn
+):
+    # The route-level guard that `response_model_exclude_unset=True` stays on the
+    # summary route: without it every group would carry all eight keys, nulls included.
+    pair = _submit(client).json()["id"]
+    single = _submit(client, estimators=["difference_in_means"]).json()["id"]
+    _drain(redis_conn)
+
+    (compared,) = client.get(f"/v1/analyses/{pair}/summary").json()["comparisons"]
+    (alone,) = client.get(f"/v1/analyses/{single}/summary").json()["comparisons"]
+
+    assert set(compared) == {
+        "estimand", "scale", "methods", "agreement", "verdict", "point_range", "dispersion",
+    }
+    assert set(alone) == {"estimand", "scale", "methods", "not_compared_reason"}
+
+
 def test_replaying_the_apis_manifest_reproduces_its_numbers_exactly(
     client, redis_conn, tmp_path, monkeypatch
 ):
