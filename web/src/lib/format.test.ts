@@ -86,7 +86,7 @@ describe("formatSeconds", () => {
 });
 
 describe("formatBytes", () => {
-  it("uses the largest unit that keeps the value above one", () => {
+  it("picks bytes, KB or MB by size", () => {
     expect(formatBytes(512)).toBe("512 B");
     expect(formatBytes(844624)).toBe("825 KB");
     expect(formatBytes(52428793)).toBe("50 MB");

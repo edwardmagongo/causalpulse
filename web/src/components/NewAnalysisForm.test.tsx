@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { datasetColumns } from "@/app/(app)/analyses/new/actions";
 import type { DatasetItem, EstimatorEntry } from "@/lib/api/types";
+import { leaveForSignOut } from "@/lib/sign-out";
 
 import { NewAnalysisForm } from "./NewAnalysisForm";
 
@@ -10,6 +11,8 @@ vi.mock("@/app/(app)/analyses/new/actions", () => ({
   datasetColumns: vi.fn(),
   submitAnalysis: vi.fn(),
 }));
+
+vi.mock("@/lib/sign-out", () => ({ leaveForSignOut: vi.fn() }));
 
 const columnsOf = vi.mocked(datasetColumns);
 
@@ -48,8 +51,28 @@ function stubUpload(body: { id: string; filename: string; columns: string[] }) {
   );
 }
 
+/** jsdom does not keep a chosen file in `value` as a browser does; do it by hand. */
+function emulateChosenFile(input: HTMLInputElement, name: string) {
+  let chosen = `C:\\fakepath\\${name}`;
+  Object.defineProperty(input, "value", {
+    configurable: true,
+    get: () => chosen,
+    set: (next: string) => {
+      chosen = next;
+    },
+  });
+}
+
+function jsonResponse(body: unknown, status: number) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
 beforeEach(() => {
   columnsOf.mockReset();
+  vi.mocked(leaveForSignOut).mockReset();
 });
 
 afterEach(() => {
@@ -122,7 +145,7 @@ describe("the earlier-upload select", () => {
     expect(existing.value).toBe(B.id);
   });
 
-  it("shows an alert when the call itself is rejected, and clears it when the next pick starts", async () => {
+  it("shows an alert when the call itself is rejected", async () => {
     columnsOf.mockRejectedValueOnce(new Error("network down"));
     const { existing } = renderForm();
     pick(existing, A.id);
@@ -130,11 +153,75 @@ describe("the earlier-upload select", () => {
       "The dataset could not be loaded. Check the connection and try again.",
     );
     expect(alert.getAttribute("role")).toBe("alert");
+    expect(existing.value).toBe("");
+  });
 
-    columnsOf.mockResolvedValueOnce({ columns: ["x", "y"] });
+  it("clears an earlier alert as soon as the next pick starts, not when it finishes", async () => {
+    columnsOf.mockRejectedValueOnce(new Error("network down"));
+    const { existing } = renderForm();
+    pick(existing, A.id);
+    await screen.findByText("The dataset could not be loaded. Check the connection and try again.");
+
+    let resolveB: (value: { columns: string[] }) => void = () => {};
+    columnsOf.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveB = resolve;
+        }),
+    );
+    pick(existing, B.id);
+    // The second call is still pending, so only the start of the pick can have cleared it.
+    await waitFor(() => expect(columnsOf).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText(/could not be loaded/)).toBeNull();
+
+    resolveB({ columns: ["x", "y"] });
+    expect(await screen.findByText("b.csv: 2 columns")).toBeTruthy();
+  });
+
+  it("ignores a rejection that arrives after a newer pick has succeeded", async () => {
+    let rejectA: (reason: Error) => void = () => {};
+    columnsOf.mockImplementation((id) =>
+      id === A.id
+        ? new Promise((_resolve, reject) => {
+            rejectA = reject;
+          })
+        : Promise.resolve({ columns: ["u", "v"] }),
+    );
+    const { existing } = renderForm();
+    pick(existing, A.id);
     pick(existing, B.id);
     expect(await screen.findByText("b.csv: 2 columns")).toBeTruthy();
+
+    rejectA(new Error("network down"));
+    await new Promise((resolve) => setTimeout(resolve, 20));
     expect(screen.queryByText(/could not be loaded/)).toBeNull();
+    expect(screen.getByText("b.csv: 2 columns")).toBeTruthy();
+    expect(existing.value).toBe(B.id);
+  });
+
+  it("ignores an upload whose request fails after a later pick was made", async () => {
+    let failUpload: (reason: Error) => void = () => {};
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((_resolve, reject) => {
+            failUpload = reject;
+          }),
+      ),
+    );
+    columnsOf.mockResolvedValue({ columns: ["u", "v"] });
+    const { existing, file } = renderForm();
+    fireEvent.change(file, { target: { files: [new File(["p,q\n1,2\n"], "new.csv")] } });
+    await screen.findByText("Uploading.");
+    pick(existing, B.id);
+    expect(await screen.findByText("b.csv: 2 columns")).toBeTruthy();
+
+    failUpload(new Error("connection reset"));
+    await waitFor(() => expect(screen.queryByText("Uploading.")).toBeNull());
+    expect(screen.queryByText(/could not be sent/)).toBeNull();
+    expect(screen.getByText("b.csv: 2 columns")).toBeTruthy();
+    expect(existing.value).toBe(B.id);
   });
 
   it("keeps a later pick when an earlier upload finishes after it", async () => {
@@ -172,28 +259,30 @@ describe("the earlier-upload select", () => {
 
 describe("the file input", () => {
   it("is emptied after a failed upload, so the same file can be chosen again", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(
-        async () =>
-          new Response(JSON.stringify({ detail: "the upload exceeds the limit" }), {
-            status: 413,
-            headers: { "content-type": "application/json" },
-          }),
-      ),
-    );
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ detail: "the upload exceeds the limit" }, 413)));
     const { file } = renderForm();
-    // jsdom does not keep a chosen file in `value` as a browser does; do it by hand.
-    let chosen = "C:\\fakepath\\big.csv";
-    Object.defineProperty(file, "value", {
-      configurable: true,
-      get: () => chosen,
-      set: (next: string) => {
-        chosen = next;
-      },
-    });
+    emulateChosenFile(file, "big.csv");
     fireEvent.change(file, { target: { files: [new File(["p,q\n1,2\n"], "big.csv")] } });
     await screen.findByText("the upload exceeds the limit");
+    expect(file.value).toBe("");
+  });
+
+  it("is emptied after a successful upload too", async () => {
+    stubUpload({ id: "id-new", filename: "new.csv", columns: ["p", "q"] });
+    const { file } = renderForm();
+    emulateChosenFile(file, "new.csv");
+    fireEvent.change(file, { target: { files: [new File(["p,q\n1,2\n"], "new.csv")] } });
+    await screen.findByText("new.csv: 2 columns");
+    expect(file.value).toBe("");
+  });
+
+  it("is emptied when the upload is answered 401, which leaves for sign-out", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ detail: "signed out" }, 401)));
+    const { file } = renderForm();
+    emulateChosenFile(file, "new.csv");
+    fireEvent.change(file, { target: { files: [new File(["p,q\n1,2\n"], "new.csv")] } });
+    await waitFor(() => expect(leaveForSignOut).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByText("Uploading.")).toBeNull());
     expect(file.value).toBe("");
   });
 });
