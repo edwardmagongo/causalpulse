@@ -1722,12 +1722,12 @@ docker compose exec -T api cp-api-admin issue-key alice   # shown once; paste it
 
 The pasted key is checked with `GET /v1/me` and, if the API accepts it, sealed into an HTTP-only
 cookie, `cp_session`, valid for seven days, `SameSite=Lax`, and marked `Secure` only when
-`CP_COOKIE_SECURE=true`. The server adds the key to each API call. Page JavaScript never holds it,
-and the API needs no CORS policy, because the browser never calls it. The dashboard does not
-decide whether a key is still good: the API does, on every call. After a key is revoked, the next
-page that calls the API gets a 401, clears the cookie, and lands on sign-in. The server exits at
-start-up without `CP_SESSION_SECRET` (at least 32 characters) and `CP_API_URL`; the compose file
-sets both, the secret to a local-only value.
+`CP_COOKIE_SECURE=true`. The server adds the key to each API call. After sign-in, page JavaScript
+never holds it (the sign-in field does, until it is submitted), and the API needs no CORS policy,
+because the browser never calls it. The dashboard does not decide whether a key is still good: the
+API does, on every call. After a key is revoked, the next page that calls the API gets a 401, clears
+the cookie, and lands on sign-in. The server exits at start-up without `CP_SESSION_SECRET` (at least
+32 characters) and `CP_API_URL`; the compose file sets both, the secret to a local-only value.
 
 ### What it shows, and what it does not write
 
@@ -1757,12 +1757,14 @@ make check-web   # lint, generated types current, type-check, unit tests; no ser
 make smoke-web   # whole stack + browser; project causalpulse-web-smoke, ports 5436/6383/8002/3001
 ```
 
-`make check-web` runs `pnpm`, so it needs Node.js and `pnpm` on the host. `make smoke-web` builds
-both images, issues two keys of one user inside the container, installs Playwright's Chromium, and
-runs seven browser tests: a wrong key and then the issued one; LaLonde from upload through two
-estimators to an opened evidence report; Proposition 99 with `synthetic_control` through to the
-end of its analysis; a 12 MB upload; an upload one byte over the API's 50 MB limit and one of
-exactly that size; and a revoked key. It tears the stack down afterwards.
+`make check-web` and `make smoke-web` both run `pnpm` on the host, so both need Node.js 24 and
+`pnpm`. `make smoke-web` builds both images, issues two keys of one user inside the container,
+installs Playwright's Chromium, and runs nine browser tests: a wrong key and then the issued one;
+LaLonde from upload through two estimators to an opened evidence report; Proposition 99 with
+`synthetic_control` through to the end of its analysis; a 12 MB upload; an upload one byte over the
+API's 50 MB limit and one of exactly that size; an upload posted from another origin, which is
+refused with a 403; the header's "Sign out" button; and a revoked key. It tears the stack down
+afterwards.
 
 ## On scikit-learn
 

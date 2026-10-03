@@ -18,7 +18,7 @@ export default function SignInPage() {
         <input id="key" name="key" type="password" autoComplete="off" required className="field" />
         <p className="mt-3 text-note text-ink-soft">
           Keys are issued by <code>cp-api-admin issue-key</code>. The key is kept in a sealed,
-          HTTP-only cookie and is never readable by the page.
+          HTTP-only cookie and is not readable by the page once you are signed in.
         </p>
         <button type="submit" disabled={pending} className="button button-primary mt-6">
           Sign in
