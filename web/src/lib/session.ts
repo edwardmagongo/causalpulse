@@ -4,8 +4,10 @@ import { getIronSession, type IronSession, type SessionOptions } from "iron-sess
 import { cookies } from "next/headers";
 
 import { sessionSecret } from "@/lib/env";
+import { SESSION_COOKIE } from "@/lib/session-cookie";
 
-export const SESSION_COOKIE = "cp_session";
+export { SESSION_COOKIE };
+
 const SEVEN_DAYS = 7 * 24 * 60 * 60;
 
 export type SessionData = { key?: string; name?: string };
