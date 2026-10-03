@@ -273,7 +273,7 @@
   /*
    * Tables: rules, no boxes. One ink rule under the column heads, a hairline
    * under each row. The first column is the row's name; it stays in view
-   * while the rest scrolls sideways inside `table-scroll`.
+   * while the rest scrolls sideways inside `table-scroll` (from `sm` up).
    */
   .table-scroll {
     overflow-x: auto;
@@ -333,10 +333,25 @@
   }
 
   :where(.data-table th:first-child) {
-    position: sticky;
-    left: 0;
-    background: var(--color-paper);
     padding-right: var(--spacing-cell-x);
+  }
+
+  /*
+   * Sticky only from `sm` up. A row header has no width bound, so on a phone
+   * a long value (a dataset filename) would fill the scroll area, and a
+   * sticky cell that does stays painted over every later column. Below `sm`
+   * it scrolls with the rest; from `sm` up it is held to half the screen and
+   * a longer value is cut with an ellipsis, so the other columns stay in reach.
+   */
+  @media (width >= 40rem) {
+    :where(.data-table th:first-child) {
+      position: sticky;
+      left: 0;
+      background: var(--color-paper);
+      max-width: 50vw;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
   }
 
   /* The row under the pointer, so the eye can follow it across a wide table. */
