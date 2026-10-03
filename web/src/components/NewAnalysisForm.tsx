@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, type ChangeEvent, type FormEvent } from "react";
+import { useRef, useState, useTransition, type ChangeEvent, type FormEvent } from "react";
 
 import { datasetColumns, submitAnalysis } from "@/app/(app)/analyses/new/actions";
 import { detailOf } from "@/lib/api/errors";
@@ -51,6 +51,8 @@ export function NewAnalysisForm({
   const [seedText, setSeedText] = useState("0");
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, startSubmit] = useTransition();
+  // Counts every pick and upload, so a response that arrives after a newer one is dropped.
+  const latestChoice = useRef(0);
 
   function choose(next: Chosen) {
     setDataset(next);
@@ -61,6 +63,7 @@ export function NewAnalysisForm({
   async function upload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
+    latestChoice.current += 1;
     setUploading(true);
     setDatasetError(null);
     try {
@@ -88,12 +91,14 @@ export function NewAnalysisForm({
   }
 
   async function pickExisting(event: ChangeEvent<HTMLSelectElement>) {
+    const call = (latestChoice.current += 1);
     const item = datasets.find((candidate) => candidate.id === event.target.value);
     if (!item) {
       setDataset(null);
       return;
     }
     const result = await datasetColumns(item.id);
+    if (call !== latestChoice.current) return;
     if ("error" in result) {
       setDataset(null);
       setDatasetError(result.error);
@@ -107,6 +112,8 @@ export function NewAnalysisForm({
   }
 
   const columns = dataset?.columns ?? [];
+  // The select shows the chosen dataset only while it is one of the earlier uploads.
+  const existingValue = dataset && datasets.some((item) => item.id === dataset.id) ? dataset.id : "";
   const missing = missingRequired(form);
   const seed = parseSeed(seedText);
   const nonePicked = !routerChooses && picked.length === 0;
@@ -210,7 +217,7 @@ export function NewAnalysisForm({
               <label htmlFor="existing" className="label">
                 or use an earlier upload
               </label>
-              <select id="existing" defaultValue="" onChange={pickExisting} className="field">
+              <select id="existing" value={existingValue} onChange={pickExisting} className="field">
                 <option value="">Choose a dataset</option>
                 {datasets.map((item) => (
                   <option key={item.id} value={item.id}>
