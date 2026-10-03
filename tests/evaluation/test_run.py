@@ -15,6 +15,7 @@ from cp_evaluation.grid import (
     DonorPoolAxes,
     DonorPoolCell,
     GridConfig,
+    LongPanelAxes,
     PanelAxes,
     cell_rng,
     expand_cells,
@@ -783,3 +784,42 @@ def test_the_real_forest_is_scored_on_a_rich_cell():
     for column in CATE_METRIC_COLUMNS:
         assert np.isfinite(row[column]), column
     assert row["cate_correlation"] > 0.0
+
+
+def test_a_long_panel_row_carries_its_protocol_and_nan_axes():
+    config = GridConfig(
+        cross_section=None, panel=None, long_panel=LongPanelAxes(scenarios=("P7",)), replications=1
+    )
+
+    frame = run_grid(
+        config,
+        estimators=["callaway_santanna"],
+        fit_config=EstimatorConfig(random_seed=0, bootstrap_reps=20),
+    )
+
+    (row,) = frame.to_dict("records")
+    assert row["shape"] == "long_panel"
+    assert (row["n_units"], row["n_periods"]) == (600, 20)
+    assert row["status"] == "fitted"
+    assert row["estimand"] == "ATT"
+    for column in (*_NEW_AXIS_COLUMNS, "confounding_strength", "realised_treated_share"):
+        assert np.isnan(row[column]), column
+
+
+@pytest.mark.slow
+def test_hierarchical_did_fits_a_long_panel_p7_cell_end_to_end():
+    # Plumbing, not a quality bar: this only shows one P7 cell reaches a fitted row with a finite
+    # estimate and truth. The study reports how well hierarchical_did does over 50 replications.
+    config = GridConfig(
+        cross_section=None, panel=None, long_panel=LongPanelAxes(scenarios=("P7",)), replications=1
+    )
+
+    frame = run_grid(
+        config, estimators=["hierarchical_did"], fit_config=EstimatorConfig(random_seed=0)
+    )
+
+    (row,) = frame.to_dict("records")
+    assert row["status"] == "fitted"
+    assert row["estimand"] == "ATT"
+    assert np.isfinite(row["point"])
+    assert np.isfinite(row["truth"])

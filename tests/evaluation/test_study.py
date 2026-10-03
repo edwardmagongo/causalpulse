@@ -352,3 +352,32 @@ def test_a_mixed_ineligible_and_refused_donor_estimator_gets_the_hedged_reason()
     )
 
     assert "(ineligible or refused)" in _listed(data)
+
+
+def _with_p7_rows(frame, status="fitted"):
+    rows_ = []
+    for seed in range(2):
+        row = dict.fromkeys(ROW_COLUMNS, np.nan)
+        row.update(shape="long_panel", scenario="P7", n_units=600, n_periods=20, seed=seed,
+                   method="twfe", status=status, reason="", estimand="ATT",
+                   truth=6.7, point=6.8, runtime_seconds=1.0)
+        rows_.append(row)
+    return pd.concat([frame, pd.DataFrame(rows_, columns=list(ROW_COLUMNS))], ignore_index=True)
+
+
+def test_a_fitted_p7_row_drops_the_p7_entry():
+    assert "scenario P7" not in dict(not_covered_for(_with_p7_rows(rows("ipw", "A", 5))))
+
+
+def test_a_p7_arm_with_no_fit_says_what_happened():
+    frame_ = _with_p7_rows(rows("ipw", "A", 5), status="ineligible")
+
+    assert dict(not_covered_for(frame_))["scenario P7"] == (
+        "the P7 arm ran, but no estimator fitted on it"
+    )
+
+
+def test_without_p7_rows_the_entry_keeps_its_reason():
+    listed = dict(not_covered_for(rows("ipw", "A", 5)))
+
+    assert listed["scenario P7"] == dict(NOT_COVERED)["scenario P7"]

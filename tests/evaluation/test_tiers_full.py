@@ -2,7 +2,15 @@ import dataclasses
 from collections import Counter
 
 import pytest
-from cp_evaluation.grid import CateCell, CrossSectionCell, expand_cells
+from cp_evaluation.grid import (
+    CateCell,
+    CrossSectionCell,
+    DonorPoolCell,
+    LongPanelAxes,
+    LongPanelCell,
+    PanelCell,
+    expand_cells,
+)
 from cp_evaluation.tiers import (
     CI_ESTIMATORS,
     FULL_ESTIMATORS,
@@ -22,7 +30,7 @@ from cp_simulation.scenarios import SCENARIOS
 _NEW_AXIS_NAMES = tuple(name for name in AXIS_NAMES if name != "confounding_strength")
 
 
-def test_full_covers_every_cross_sectional_scenario_and_all_but_p7():
+def test_full_covers_every_cross_sectional_scenario_and_keeps_p7_out_of_panel_axes():
     from cp_simulation.panel_scenarios import PANEL_SCENARIOS
     from cp_simulation.scenarios import SCENARIOS
 
@@ -34,9 +42,10 @@ def test_full_covers_every_cross_sectional_scenario_and_all_but_p7():
     # cp_simulation.panel_scenarios) and needs n_periods >= 16, but
     # PanelAxes applies one n_periods list to every scenario it carries.
     # Including P7 would force P1-P6 onto that far slower protocol just to
-    # accommodate one scenario, so it is left out and every other panel
-    # scenario is kept. See full_config's docstring for the measurement
-    # that found this.
+    # accommodate one scenario, so it is kept out of `PanelAxes` and runs
+    # instead as `full`'s fixed-protocol `long_panel` arm (see
+    # `test_full_has_10_p7_cells_and_study_50`). Every other panel scenario is
+    # kept in `PanelAxes`.
     assert set(config.panel.scenarios) == set(PANEL_SCENARIOS) - {"P7"}
 
 
@@ -208,3 +217,27 @@ def test_adding_the_cate_arm_does_not_perturb_any_existing_cell():
         without = Counter(c for c in without_cate if isinstance(c, shape))
         assert with_ == without
         assert sum(with_.values()) > 0
+
+
+def test_full_and_study_carry_p7_at_its_protocol():
+    for config in (full_config(), study_config()):
+        assert config.long_panel == LongPanelAxes(scenarios=("P7",))
+
+
+def test_ci_excludes_the_p7_arm():
+    assert ci_config().long_panel is None
+
+
+def test_full_has_10_p7_cells_and_study_50():
+    for config, expected in ((full_config(), 10), (study_config(), 50)):
+        assert sum(isinstance(c, LongPanelCell) for c in expand_cells(config)) == expected
+
+
+def test_adding_the_p7_arm_does_not_perturb_any_existing_cell():
+    with_p7 = expand_cells(full_config())
+    without = expand_cells(dataclasses.replace(full_config(), long_panel=None))
+
+    for shape in (CrossSectionCell, PanelCell, DonorPoolCell, CateCell):
+        assert Counter(c for c in with_p7 if isinstance(c, shape)) == Counter(
+            c for c in without if isinstance(c, shape)
+        )

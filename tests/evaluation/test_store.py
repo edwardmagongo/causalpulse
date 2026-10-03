@@ -12,6 +12,7 @@ from cp_evaluation.grid import (
     DonorPoolAxes,
     DonorPoolCell,
     GridConfig,
+    LongPanelAxes,
     cell_key,
     expand_cells,
 )
@@ -128,7 +129,7 @@ def test_the_store_expects_every_cell_the_config_expands_to_donor_and_cate_arms_
     expected = store.expected_cells()
 
     assert set(expected) == {cell_key(c) for c in expand_cells(config)}
-    assert len(expected) == len(expand_cells(config)) == 4450
+    assert len(expected) == len(expand_cells(config)) == 4500
     assert any(isinstance(c, DonorPoolCell) for c in expected.values())
     assert any(isinstance(c, CateCell) for c in expected.values())
 
@@ -196,6 +197,14 @@ def test_the_cate_arm_round_trips_through_the_identity():
     identity = RunIdentity.of("t", config, ["causal_forest"], EstimatorConfig(), 0)
 
     assert identity.grid["cate"] == {"scenarios": ["RICH", "NULL"]}
+    assert grid_config_of(identity.grid, replications=2) == config
+
+
+def test_the_long_panel_arm_round_trips_through_the_identity():
+    config = dataclasses.replace(_cross_only(), long_panel=LongPanelAxes(scenarios=("P7",)))
+    identity = RunIdentity.of("t", config, ["twfe"], EstimatorConfig(), 0)
+
+    assert identity.grid["long_panel"] == {"scenarios": ["P7"]}
     assert grid_config_of(identity.grid, replications=2) == config
 
 

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from dataclasses import asdict
 from pathlib import Path
 
@@ -28,6 +29,8 @@ from cp_core.dataset import CausalDataset
 from cp_core.manifest import DatasetReference, FixtureReference, ScenarioReference
 from cp_core.results import EffectEstimate
 from cp_core.values import EstimatorConfig
+from cp_llm.extract import fact_table
+from cp_llm.facts import FACTS_FILENAME, INTERPRETATION_MARKDOWN, INTERPRETATION_RECORD
 from cp_report.pipeline import AnalysisOutcome, analyse
 from cp_simulation.panel_scenarios import PANEL_SCENARIOS
 from cp_simulation.params import ScenarioParams
@@ -56,7 +59,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--report",
         action="store_true",
-        help="Also write one evidence report per estimate, and a summary.json.",
+        help="Also write one evidence report per estimate, a summary.json and a facts.json.",
     )
     add_schema_arguments(parser)
 
@@ -125,6 +128,16 @@ def _write_outcome(outcome: AnalysisOutcome, out: Path) -> None:
     (out / "summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True))
 
 
+def _remove_earlier_analysis(out: Path) -> None:
+    """Remove the fact table and the interpretation an earlier run left in `out`.
+
+    They describe that analysis. `interpret` would otherwise narrate it beside
+    this run's manifest.
+    """
+    for name in (FACTS_FILENAME, INTERPRETATION_MARKDOWN, INTERPRETATION_RECORD):
+        (out / name).unlink(missing_ok=True)
+
+
 def run(args: argparse.Namespace) -> int:
     dataset, reference = _load(args)
     names = (
@@ -134,7 +147,9 @@ def run(args: argparse.Namespace) -> int:
     )
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
+    _remove_earlier_analysis(out)
     estimates: tuple[EffectEstimate, ...]
+    outcome: AnalysisOutcome | None = None
     if args.report:
         outcome = analyse(dataset, reference, names, random_seed=args.random_seed)
         _write_outcome(outcome, out)
@@ -157,4 +172,18 @@ def run(args: argparse.Namespace) -> int:
             f"{estimate.method}: {estimate.point:.4f} "
             f"[{estimate.ci.lower:.4f}, {estimate.ci.upper:.4f}]"
         )
+    if outcome is not None:
+        # Everything `causalpulse interpret` reads. Written last, so that a
+        # name the table cannot hold costs this file and nothing else. Building
+        # it calls no model and needs no credentials.
+        try:
+            table = fact_table(outcome)
+        except ValueError as exc:
+            print(
+                f"{FACTS_FILENAME} was not written ({exc}); "
+                "`causalpulse interpret` cannot read this run",
+                file=sys.stderr,
+            )
+            return 1
+        (out / FACTS_FILENAME).write_text(table.to_json(), encoding="utf-8")
     return 0

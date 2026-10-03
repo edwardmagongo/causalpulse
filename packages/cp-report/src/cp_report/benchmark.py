@@ -8,21 +8,23 @@ argument each entry point takes -- and is built by `benchmark_evidence_from_run`
 from a finished study's stored results, the only function here that imports
 `cp_evaluation`.
 
-Five sections, each a frozen dataclass with a `prose_fragments()` method, exactly as
+Six sections, each a frozen dataclass with a `prose_fragments()` method, exactly as
 `cp_report.sections` does: `OverviewData`, `HeadlineFindingsData`,
 `MethodComparisonsData`, `LimitationsData` (this module's own, distinct from
-`cp_report.sections.LimitationsData`) and `CateSectionData` (omitted when there is no
-scored CATE row). No new figure-drawing code: every
-`ReportFigure` wraps an existing `cp_figures.benchmark` draw function via `partial`.
+`cp_report.sections.LimitationsData`), `CateSectionData` (omitted when there is no
+scored CATE row) and `P7SectionData` (omitted when no estimator fitted on scenario P7). No new
+figure-drawing code: every `ReportFigure` wraps an existing `cp_figures.benchmark` draw
+function via `partial`.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Hashable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import partial
 from html import escape
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -39,6 +41,7 @@ from cp_evaluation.study import (
 )
 from cp_figures.benchmark import axis_profile_data, draw_axis_profile, draw_heatmap, heatmap_data
 from cp_simulation.cate_scenarios import CATE_SCENARIOS
+from cp_simulation.panel_scenarios import PANEL_PROTOCOLS
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
@@ -348,6 +351,90 @@ def cate_section_data(
     )
 
 
+_P7_UNITS, _P7_PERIODS = PANEL_PROTOCOLS["P7"]
+
+P7_NOTE = (
+    f"Scenario P7 has seven adoption cohorts whose effects differ across cohorts, and runs at "
+    f"its own protocol of {_P7_UNITS} units over {_P7_PERIODS} periods, a size chosen so that a "
+    "hierarchical model's cross-cohort variance is identifiable. It is reported apart from "
+    "scenarios P1 to P6, which ran at 150 units over 7 and 10 periods, so its figures are not "
+    "comparable with theirs cell for cell. Bias, RMSE and coverage are each computed over the "
+    "fits counted in the matching `_n_used` column, with its Monte Carlo standard error, and "
+    "coverage is that of each estimator's primary interval, whose kind the interval column names."
+)
+
+
+@dataclass(frozen=True, eq=False)
+class P7SectionData:
+    """Scenario P7's ATT accuracy and primary-interval coverage, one row per estimator.
+
+    `eq=False`: holds a DataFrame. `replications` and the cell counts describe the
+    store the rows came from.
+    """
+
+    table: pd.DataFrame
+    replications: int
+    cells_done: int
+    cells_expected: int
+    note: str
+
+    def prose_fragments(self) -> tuple[str, ...]:
+        """Included: the note. Excluded: `table`, numeric data."""
+        return (self.note,)
+
+
+def _primary_coverage(record: Mapping[Hashable, Any]) -> tuple[str, float, float, int]:
+    """(kind, value, MCSE, n_used) of a summary row's primary interval, the first
+    `_PRIMARY_COVERAGE` basis it populates, exactly as the coverage table reads it."""
+    for kind, column in _PRIMARY_COVERAGE:
+        value = record.get(column)
+        if isinstance(value, float) and np.isfinite(value):
+            return (
+                kind,
+                value,
+                float(record[f"{column}_mcse"]),
+                int(record[f"{column}_n_used"]),
+            )
+    return ("", float("nan"), float("nan"), 0)
+
+
+def p7_section_data(
+    rows: pd.DataFrame, status: RunStatus, replications: int
+) -> P7SectionData | None:
+    """The P7 section over `rows`, or `None` when no estimator fitted on P7.
+
+    Pooled per method with `summarise`, so the numbers are exactly what `bench
+    report` prints for the same rows.
+    """
+    if rows.empty:
+        return None
+    summary = summarise(rows, by=["scenario"])
+    summary = summary[summary["n_fitted"] > 0]
+    if summary.empty:
+        return None
+    records = []
+    for record in summary.to_dict("records"):
+        kind, coverage, coverage_mcse, coverage_n = _primary_coverage(record)
+        records.append(
+            {
+                "method": record["method"],
+                "bias": record["bias"], "bias_mcse": record["bias_mcse"],
+                "bias_n_used": record["bias_n_used"],
+                "rmse": record["rmse"], "rmse_mcse": record["rmse_mcse"],
+                "rmse_n_used": record["rmse_n_used"],
+                "interval": kind, "coverage": coverage, "coverage_mcse": coverage_mcse,
+                "coverage_n_used": coverage_n,
+            }
+        )
+    return P7SectionData(
+        table=pd.DataFrame(records),
+        replications=replications,
+        cells_done=status.done,
+        cells_expected=status.expected,
+        note=P7_NOTE,
+    )
+
+
 @dataclass(frozen=True, eq=False)
 class BenchmarkEvidence:
     """Everything the two entry points need, gathered once by `benchmark_evidence_from_run`."""
@@ -365,6 +452,7 @@ class BenchmarkEvidence:
     narratives: dict[str, str]
     exploratory_note: str
     cate_section: CateSectionData | None = None
+    p7_section: P7SectionData | None = None
 
 
 def _exploratory_note(by_size: pd.DataFrame) -> str:
@@ -443,17 +531,22 @@ def _report_figures(frame: pd.DataFrame) -> tuple[ReportFigure, ...]:
     return tuple(figures)
 
 
-def _split_status(status: RunStatus) -> tuple[RunStatus, RunStatus]:
-    """`status` as an (ATE part, CATE part) pair, split by scenario.
+def _split_status(status: RunStatus) -> tuple[RunStatus, RunStatus, RunStatus]:
+    """`status` as an (ATE part, CATE part, long-panel part) triple, split by scenario.
 
-    A study store that carries the CATE arm counts its cells in one ledger; the
-    overview counts ATE cells and the CATE section counts CATE cells (design §6.1).
+    A study store that carries the CATE or P7 arm counts its cells in one ledger; the
+    overview counts ATE cells and each section counts its own (design §6.1).
     Orphan shards are not attributable to a scenario, so they stay on the ATE part.
-    It classifies by scenario name (`CATE_SCENARIOS` keys), so an ATE scenario that
-    someone later names RICH, NULL or NOISY would be misfiled.
+    It classifies by scenario name (`CATE_SCENARIOS` and `PANEL_PROTOCOLS` keys), so an
+    ATE scenario that someone later names RICH, NULL, NOISY or P7 would be misfiled.
     """
-    ate = {k: v for k, v in status.by_scenario.items() if k not in CATE_SCENARIOS}
+    ate = {
+        k: v
+        for k, v in status.by_scenario.items()
+        if k not in CATE_SCENARIOS and k not in PANEL_PROTOCOLS
+    }
     cate = {k: v for k, v in status.by_scenario.items() if k in CATE_SCENARIOS}
+    long_panel = {k: v for k, v in status.by_scenario.items() if k in PANEL_PROTOCOLS}
 
     def part(by_scenario: dict[str, tuple[int, int]], orphans: int) -> RunStatus:
         return RunStatus(
@@ -463,13 +556,14 @@ def _split_status(status: RunStatus) -> tuple[RunStatus, RunStatus]:
             by_scenario=by_scenario,
         )
 
-    return part(ate, status.orphans), part(cate, 0)
+    return part(ate, status.orphans), part(cate, 0), part(long_panel, 0)
 
 
 def benchmark_evidence_from_run(
     directory: Path,
     *,
     cate_directory: Path | None = None,
+    p7_directory: Path | None = None,
     limitations: tuple[str, ...] = (),
     narratives: Mapping[str, str] | None = None,
 ) -> BenchmarkEvidence:
@@ -487,16 +581,21 @@ def benchmark_evidence_from_run(
     `docs/specs/2026-09-30-cate-report-section-design.md` §6.2). CATE rows feed only
     the CATE section. They come from the study itself or, when `cate_directory` is
     given, from a complete `cate`-tier run; both at once is refused, since that
-    would average two protocols together.
+    would average two protocols together. The same holds for the fixed-protocol
+    long-panel rows (`shape == "long_panel"`, scenario P7), which feed only the P7
+    section and come from the study itself or from a complete `p7`-tier run in
+    `p7_directory`.
     """
     store = RunStore.open(directory)
     full = store.read_frame()
     status = store.status()
     is_cate = full["shape"] == "cate"
-    frame = full[~is_cate].reset_index(drop=True)
+    is_long = full["shape"] == "long_panel"
+    frame = full[~(is_cate | is_long)].reset_index(drop=True)
     cate_rows = full[is_cate].reset_index(drop=True)
-    ate_status, cate_status = _split_status(status)
-    cate_replications = store.replications
+    long_rows = full[is_long].reset_index(drop=True)
+    ate_status, cate_status, p7_status = _split_status(status)
+    cate_replications = p7_replications = store.replications
 
     if cate_directory is not None:
         cate_store = RunStore.open(cate_directory)
@@ -513,6 +612,21 @@ def benchmark_evidence_from_run(
         cate_rows = cate_store.read_frame()
         cate_status, cate_replications = cate_store.status(), cate_store.replications
 
+    if p7_directory is not None:
+        p7_store = RunStore.open(p7_directory)
+        if p7_store.identity.tier != "p7":
+            raise ValueError(
+                f"{p7_directory} is a {p7_store.identity.tier!r} run; the P7 section "
+                "reads a 'p7' run"
+            )
+        if not long_rows.empty:
+            raise ValueError(
+                f"{directory} already carries P7 rows and {p7_directory} is a P7 run; "
+                "reading both would average two protocols together"
+            )
+        long_rows = p7_store.read_frame()
+        p7_status, p7_replications = p7_store.status(), p7_store.replications
+
     results = evaluate_expectations(frame, status)
 
     narratives = dict(narratives or {})
@@ -528,7 +642,9 @@ def benchmark_evidence_from_run(
         replications=store.replications,
         scenarios_run=tuple(sorted(frame["scenario"].unique())),
         estimators_run=tuple(sorted(frame["method"].unique())),
-        not_covered=not_covered_for(pd.concat([frame, cate_rows], ignore_index=True)),
+        not_covered=not_covered_for(
+            pd.concat([frame, cate_rows, long_rows], ignore_index=True)
+        ),
         figures=_report_figures(frame),
         limitations=limitations,
         narratives=narratives,
@@ -536,6 +652,7 @@ def benchmark_evidence_from_run(
             tables.get("coverage__scenario_by_size", pd.DataFrame())
         ),
         cate_section=cate_section_data(cate_rows, cate_status, cate_replications),
+        p7_section=p7_section_data(long_rows, p7_status, p7_replications),
     )
 
 
@@ -546,7 +663,7 @@ def _section_data(
     evidence: BenchmarkEvidence,
 ) -> tuple[OverviewData, HeadlineFindingsData, MethodComparisonsData, LimitationsData]:
     """The four always-present sections, rebuilt from `evidence` in one place so the prose
-    the lint sees cannot drift from the prose rendered. The optional CATE section is added
+    the lint sees cannot drift from the prose rendered. The optional CATE and P7 sections are added
     separately, in `document_prose_fragments` and both renderers."""
     return (
         overview_data(
@@ -576,6 +693,8 @@ def document_prose_fragments(evidence: BenchmarkEvidence) -> list[tuple[str, str
             ("Heterogeneous Effects (CATE)", text)
             for text in evidence.cate_section.prose_fragments()
         ]
+    if evidence.p7_section is not None:
+        fragments += [("Scenario P7", text) for text in evidence.p7_section.prose_fragments()]
     fragments += [("Limitations", text) for text in limitations.prose_fragments()]
     return fragments
 
@@ -653,6 +772,20 @@ def render_cate_section_html(data: CateSectionData) -> str:
     )
 
 
+def _p7_counts(data: P7SectionData) -> str:
+    return (
+        f"{data.replications} replications, {data.cells_done} of {data.cells_expected} cells."
+    )
+
+
+def render_p7_section_html(data: P7SectionData) -> str:
+    return (
+        "<section><h2>Scenario P7</h2>"
+        f"<p>{escape(_p7_counts(data))}</p>"
+        f"{_dataframe_to_html(data.table)}<p>{escape(data.note)}</p></section>"
+    )
+
+
 def render_limitations_html(data: LimitationsData) -> str:
     not_covered = "".join(
         f"<li>{escape(name)}: {escape(reason)}</li>" for name, reason in data.not_covered
@@ -689,6 +822,7 @@ def render_html_benchmark_report(evidence: BenchmarkEvidence) -> str:
             _render_figures_html(evidence.figures),
             render_method_comparisons_html(comparisons),
             render_cate_section_html(evidence.cate_section) if evidence.cate_section else "",
+            render_p7_section_html(evidence.p7_section) if evidence.p7_section else "",
             render_limitations_html(limitations),
         ]
     )
@@ -755,6 +889,17 @@ def render_cate_section_markdown(data: CateSectionData) -> str:
     )
 
 
+def render_p7_section_markdown(data: P7SectionData) -> str:
+    return "\n\n".join(
+        [
+            "## Scenario P7",
+            _p7_counts(data),
+            markdown_table(data.table).rstrip("\n"),
+            data.note,
+        ]
+    )
+
+
 def render_limitations_markdown(data: LimitationsData) -> str:
     lines = [f"- {name}: {reason}" for name, reason in data.not_covered]
     lines.extend(f"- {statement}" for statement in data.statements)
@@ -796,6 +941,7 @@ def write_markdown_benchmark_report(evidence: BenchmarkEvidence, directory: Path
             _render_figures_markdown(evidence.figures, figure_paths),
             render_method_comparisons_markdown(comparisons),
             render_cate_section_markdown(evidence.cate_section) if evidence.cate_section else "",
+            render_p7_section_markdown(evidence.p7_section) if evidence.p7_section else "",
             render_limitations_markdown(limitations),
         ]
         if part

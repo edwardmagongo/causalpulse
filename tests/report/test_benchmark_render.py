@@ -18,8 +18,10 @@ from cp_core.language import causal_language_lint
 from cp_report.benchmark import (
     CATE_NOTE,
     COVERAGE_COLUMN_NOTE,
+    P7_NOTE,
     BenchmarkEvidence,
     CateSectionData,
+    P7SectionData,
     benchmark_evidence_from_run,
     document_prose_fragments,
     render_html_benchmark_report,
@@ -238,6 +240,71 @@ def test_the_cate_note_is_linted_with_the_document():
     bad = dataclasses.replace(
         evidence,
         cate_section=dataclasses.replace(evidence.cate_section, note="This proves it works."),
+    )
+    with pytest.raises(ReportLanguageError):
+        render_html_benchmark_report(bad)
+
+
+def _with_p7(evidence):
+    table = pd.DataFrame(
+        {
+            "method": ["callaway_santanna", "twfe"],
+            "bias": [0.0123, -0.4567],
+            "bias_mcse": [0.0101, 0.0102],
+            "bias_n_used": [50, 50],
+            "rmse": [0.3141, 0.5926],
+            "rmse_mcse": [0.0111, 0.0121],
+            "rmse_n_used": [50, 50],
+            "interval": ["bootstrap_se", "analytic"],
+            "coverage": [0.9400, 0.7200],
+            "coverage_mcse": [0.0336, 0.0635],
+            "coverage_n_used": [50, 50],
+        }
+    )
+    section = P7SectionData(
+        table=table, replications=50, cells_done=50, cells_expected=50, note=P7_NOTE
+    )
+    return dataclasses.replace(evidence, p7_section=section)
+
+
+def test_markdown_carries_the_p7_section_after_cate_and_before_limitations(tmp_path):
+    path = write_markdown_benchmark_report(
+        _with_p7(_with_cate(make_benchmark_evidence())), tmp_path
+    )
+    text = path.read_text()
+
+    assert "## Scenario P7" in text
+    assert text.index("## Heterogeneous Effects (CATE)") < text.index("## Scenario P7")
+    assert text.index("## Scenario P7") < text.index("## Limitations")
+    assert "0.456" in text
+    assert "50 replications" in text
+    assert P7_NOTE in text
+
+
+def test_html_carries_the_p7_section_after_cate_and_before_limitations():
+    html = render_html_benchmark_report(_with_p7(_with_cate(make_benchmark_evidence())))
+
+    assert "<h2>Scenario P7</h2>" in html
+    assert html.index("Heterogeneous Effects (CATE)") < html.index("<h2>Scenario P7</h2>")
+    assert html.index("<h2>Scenario P7</h2>") < html.index("Limitations")
+    assert "0.456" in html
+
+
+def test_no_p7_section_renders_nothing_extra(tmp_path):
+    path = write_markdown_benchmark_report(make_benchmark_evidence(), tmp_path)
+
+    assert "Scenario P7" not in path.read_text()
+    assert "Scenario P7" not in render_html_benchmark_report(make_benchmark_evidence())
+
+
+def test_the_p7_note_is_linted_with_the_document():
+    evidence = _with_p7(make_benchmark_evidence())
+
+    assert ("Scenario P7", P7_NOTE) in document_prose_fragments(evidence)
+
+    bad = dataclasses.replace(
+        evidence,
+        p7_section=dataclasses.replace(evidence.p7_section, note="This proves it works."),
     )
     with pytest.raises(ReportLanguageError):
         render_html_benchmark_report(bad)

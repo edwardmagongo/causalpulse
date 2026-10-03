@@ -11,6 +11,7 @@ from cp_evaluation.grid import (
     CrossSectionCell,
     DonorPoolAxes,
     GridConfig,
+    LongPanelAxes,
     expand_cells,
 )
 from cp_evaluation.run import run_grid
@@ -177,6 +178,51 @@ def test_the_sidecar_records_the_donor_arm_requested_and_realised():
     lines = bench_module._axis_discrepancies(sidecar)
     assert len(lines) == 1
     assert "donor_pool.scenarios" in lines[0]
+
+
+def test_the_sidecar_records_the_long_panel_arm_requested_and_realised():
+    config = GridConfig(
+        cross_section=None, panel=None, long_panel=LongPanelAxes(scenarios=("P7",)), replications=1
+    )
+    frame = pd.DataFrame({"shape": ["long_panel", "panel"], "scenario": ["P7", "P1"]})
+
+    sidecar = _sidecar_for(config, frame)
+
+    assert sidecar["long_panel"] == {"scenarios": ["P7"]}
+    assert sidecar["long_panel_realised"] == {"scenarios": ["P7"]}
+    assert bench_module._axis_discrepancies(sidecar) == []
+
+
+def test_a_requested_long_panel_scenario_that_never_landed_is_a_discrepancy():
+    config = GridConfig(
+        cross_section=None, panel=None, long_panel=LongPanelAxes(scenarios=("P7",)), replications=1
+    )
+    frame = pd.DataFrame({"shape": ["panel"], "scenario": ["P1"]})
+
+    sidecar = _sidecar_for(config, frame)
+
+    assert sidecar["long_panel_realised"] == {"scenarios": []}
+    lines = bench_module._axis_discrepancies(sidecar)
+    assert len(lines) == 1
+    assert "long_panel.scenarios" in lines[0]
+
+
+def test_a_grid_with_no_long_panel_arm_records_none_for_it():
+    config = GridConfig(
+        cross_section=CrossSectionAxes(
+            scenarios=("A",), n_units=(200,), confounding_strength=(1.0,)
+        ),
+        panel=None,
+        replications=1,
+    )
+    frame = pd.DataFrame(
+        {"shape": ["cross_section"], "scenario": ["A"], "n_units": [200]}
+    ).assign(**{name: 1.0 for name in AXIS_NAMES if name not in ("scenarios", "n_units")})
+
+    sidecar = _sidecar_for(config, frame)
+
+    assert sidecar["long_panel"] is None
+    assert sidecar["long_panel_realised"] is None
 
 
 def test_a_grid_with_no_donor_arm_records_none_for_it():
@@ -429,3 +475,10 @@ def test_the_cate_tier_is_registered_and_sharded():
 
     assert bench_module.TIERS["cate"] == (cate_study_config, FULL_ESTIMATORS, FULL_FIT_CONFIG)
     assert "cate" in bench_module.SHARDED_TIERS
+
+
+def test_the_p7_tier_is_registered_and_sharded():
+    from cp_evaluation.tiers import FULL_ESTIMATORS, FULL_FIT_CONFIG, p7_study_config
+
+    assert bench_module.TIERS["p7"] == (p7_study_config, FULL_ESTIMATORS, FULL_FIT_CONFIG)
+    assert "p7" in bench_module.SHARDED_TIERS
