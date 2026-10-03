@@ -29,8 +29,18 @@ describe("detailOf", () => {
 });
 
 describe("errorFor", () => {
-  it("maps 401 and 503 to their own classes whatever the body says", () => {
-    expect(errorFor(401, { detail: "missing or invalid API key" })).toBeInstanceOf(Unauthorized);
+  it("maps 401 to Unauthorized, carrying the API's own detail", () => {
+    const error = errorFor(401, { detail: "x" });
+    expect(error).toBeInstanceOf(Unauthorized);
+    expect((error as Unauthorized).detail).toBe("x");
+  });
+
+  it("gives an Unauthorized with no body a default detail", () => {
+    expect(new Unauthorized().detail).toBe("unauthorized");
+    expect((errorFor(401, null) as Unauthorized).detail).toBe("the API answered 401");
+  });
+
+  it("maps 503 to ApiUnavailable whatever the body says", () => {
     expect(errorFor(503, { detail: "service unavailable: OperationalError" })).toBeInstanceOf(
       ApiUnavailable,
     );

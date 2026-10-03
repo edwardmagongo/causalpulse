@@ -8,17 +8,15 @@ import { getSession } from "@/lib/session";
 
 export type SignInState = { error: string | null };
 
-// The API's own words for a key it does not accept (`cp_api.auth.UNAUTHORIZED`).
-const REFUSED = "missing or invalid API key";
-
 export async function signIn(_previous: SignInState, form: FormData): Promise<SignInState> {
   const key = String(form.get("key") ?? "").trim();
-  if (!key) return { error: REFUSED };
+  // The dashboard's own words: nothing was sent, so there is no API message to show.
+  if (!key) return { error: "Enter an API key." };
   let name: string;
   try {
     name = (await me(key)).name;
   } catch (error) {
-    if (error instanceof Unauthorized) return { error: REFUSED };
+    if (error instanceof Unauthorized) return { error: error.detail };
     if (error instanceof ApiUnavailable) {
       return { error: "The service is unavailable. Try again in a moment." };
     }
