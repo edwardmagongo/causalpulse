@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process";
-import { mkdtempSync, openSync, closeSync, writeSync } from "node:fs";
+import { closeSync, mkdtempSync, openSync, rmSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -18,10 +18,18 @@ const LIMIT = 50 * MB;
 
 test.describe.configure({ mode: "serial" });
 
+// The generated CSVs (about 112 MB in all) live in one directory, removed at the end.
+let scratch = "";
+
 test.beforeAll(() => {
   for (const [name, value] of Object.entries({ CP_E2E_KEY: KEY, CP_E2E_REVOCABLE_KEY: REVOCABLE_KEY, CP_E2E_REVOKE: REVOKE })) {
     if (!value) throw new Error(`${name} is not set; run this through \`make smoke-web\``);
   }
+  scratch = mkdtempSync(join(tmpdir(), "cp-e2e-"));
+});
+
+test.afterAll(() => {
+  if (scratch) rmSync(scratch, { recursive: true, force: true });
 });
 
 async function signIn(page: Page, key: string) {
@@ -33,7 +41,7 @@ async function signIn(page: Page, key: string) {
 
 /** A CSV of exactly `bytes` bytes: a header, then identical rows, then padding in the last row. */
 function csvOf(bytes: number, name: string): string {
-  const path = join(mkdtempSync(join(tmpdir(), "cp-e2e-")), name);
+  const path = join(scratch, name);
   const header = "unit_id,treat,y\n";
   const row = "1,0,0.5\n";
   const rows = Math.floor((bytes - header.length) / row.length) - 1;
@@ -168,6 +176,28 @@ test("an upload of exactly the limit is accepted", async ({ page }) => {
   await page.goto("/analyses/new");
   await page.getByLabel("Upload a CSV").setInputFiles(csvOf(LIMIT, "exact.csv"));
   await expect(page.getByText("exact.csv: 3 columns")).toBeVisible({ timeout: 60_000 });
+});
+
+test("an upload posted from another origin, or from a null one, is refused", async ({ page }) => {
+  // The signed-in page's request context sends the session cookie, so only the
+  // Origin check stands between these posts and the API.
+  await signIn(page, KEY);
+  const multipart = { file: { name: "a.csv", mimeType: "text/csv", buffer: Buffer.from("a,b\n1,2\n") } };
+  for (const origin of ["https://evil.example", "null"]) {
+    const response = await page.request.post("/api/datasets", { headers: { origin }, multipart });
+    expect(response.status(), `Origin: ${origin}`).toBe(403);
+  }
+});
+
+test("the header's Sign out button ends the session", async ({ page }) => {
+  await signIn(page, KEY);
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page).toHaveURL(/\/sign-in$/);
+  expect((await page.context().cookies()).filter((cookie) => cookie.name === "cp_session")).toEqual([]);
+
+  // Nothing is left to carry a visit past the gate.
+  await page.goto("/");
+  await expect(page).toHaveURL(/\/sign-in$/);
 });
 
 test("a revoked key lands on sign-in at the next navigation", async ({ page }) => {

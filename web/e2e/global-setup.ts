@@ -10,7 +10,7 @@ const DEADLINE_MS = 120_000;
 
 async function answers(url: string): Promise<boolean> {
   try {
-    return (await fetch(url, { redirect: "manual" })).ok;
+    return (await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(5000) })).ok;
   } catch {
     return false;
   }
