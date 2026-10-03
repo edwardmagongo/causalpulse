@@ -51,10 +51,10 @@ export function formatSeconds(seconds: number | null | undefined): string {
 }
 
 /**
- * A byte count in bytes, KB or MB. The unit is chosen after rounding: three
- * significant figures cannot hold a four-digit value, so a value just under a
- * boundary is shown in the larger unit (1,048,575 bytes is "1 MB", not
- * "1020 KB"; 1000 KB is "0.977 MB").
+ * A byte count in B, KB or MB. Below 1024 bytes it is shown exactly in B. From
+ * there it is shown in KB, unless it would round to 1000 KB or more at three
+ * significant figures, in which case it is shown in MB: 1,048,575 bytes is
+ * "1 MB", not "1020 KB", and 1000 to 1023 KB read as 0.977 to 0.999 MB.
  */
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
