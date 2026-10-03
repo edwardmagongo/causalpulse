@@ -51,18 +51,57 @@ describe("formatInterval", () => {
   });
 });
 
-describe("the rest", () => {
-  it("formats a level, a time, a duration and a size", () => {
+describe("formatLevel", () => {
+  it("renders a level as a percentage", () => {
     expect(formatLevel(0.95)).toBe("95%");
     expect(formatLevel(0.9)).toBe("90%");
+  });
+});
+
+describe("formatTime", () => {
+  it("renders UTC to the second, and a dash for an absent or unreadable time", () => {
     expect(formatTime("2026-10-01T12:30:15.123456+03:00")).toBe("2026-10-01 09:30:15 UTC");
     expect(formatTime(null)).toBe("—");
     expect(formatTime("not a time")).toBe("—");
+  });
+});
+
+describe("formatSeconds", () => {
+  it("keeps two significant figures under a minute and a dash for null", () => {
     expect(formatSeconds(0.4123)).toBe("0.41 s");
     expect(formatSeconds(125)).toBe("2 min 5 s");
     expect(formatSeconds(null)).toBe("—");
+  });
+
+  it("carries a rounded-up second into the minute instead of printing 60 s", () => {
+    expect(formatSeconds(119.7)).toBe("2 min 0 s");
+    expect(formatSeconds(59.96)).toBe("1 min 0 s");
+    expect(formatSeconds(59.4)).toBe("59 s");
+  });
+
+  it("prints exactly a minute as a minute", () => {
+    expect(formatSeconds(60)).toBe("1 min 0 s");
+    expect(formatSeconds(59.99)).toBe("1 min 0 s");
+  });
+});
+
+describe("formatBytes", () => {
+  it("uses the largest unit that keeps the value above one", () => {
     expect(formatBytes(512)).toBe("512 B");
     expect(formatBytes(844624)).toBe("825 KB");
     expect(formatBytes(52428793)).toBe("50 MB");
+  });
+
+  it("switches unit at exactly 1 KB and 1 MB", () => {
+    expect(formatBytes(1023)).toBe("1023 B");
+    expect(formatBytes(1024)).toBe("1 KB");
+    expect(formatBytes(1024 * 1024)).toBe("1 MB");
+  });
+
+  it("never prints four digits of the smaller unit just under a boundary", () => {
+    expect(formatBytes(1024 * 1024 - 1)).toBe("1 MB");
+    expect(formatBytes(1024 * 1024 - 1024)).toBe("0.999 MB");
+    expect(formatBytes(1000 * 1024 - 1)).toBe("0.977 MB");
+    expect(formatBytes(999 * 1024)).toBe("999 KB");
   });
 });

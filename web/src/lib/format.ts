@@ -26,7 +26,7 @@ export function formatInterval(
   return `[${formatNumber(lower)}, ${formatNumber(upper)}]`;
 }
 
-/** A confidence level as a percentage: 0.95 is "95%". */
+/** An interval's level as a percentage: 0.95 is "95%". */
 export function formatLevel(level: number): string {
   return `${Number((level * 100).toPrecision(4))}%`;
 }
@@ -39,16 +39,25 @@ export function formatTime(iso: string | null | undefined): string {
   return `${moment.toISOString().slice(0, 19).replace("T", " ")} UTC`;
 }
 
-/** Seconds as "0.4 s" or "2 min 5 s". */
+/** Seconds as "0.4 s" or "2 min 5 s". The total is rounded before it is split into minutes. */
 export function formatSeconds(seconds: number | null | undefined): string {
   if (seconds === null || seconds === undefined) return DASH;
-  if (seconds < 60) return `${Number(seconds.toPrecision(2))} s`;
-  return `${Math.floor(seconds / 60)} min ${Math.round(seconds % 60)} s`;
+  if (seconds < 60) {
+    const rounded = Number(seconds.toPrecision(2));
+    if (rounded < 60) return `${rounded} s`;
+  }
+  const total = Math.round(seconds);
+  return `${Math.floor(total / 60)} min ${total % 60} s`;
 }
 
-/** A byte count in the largest unit that keeps it above one. */
+/**
+ * A byte count in the largest unit that keeps it above one. The unit is chosen
+ * after rounding: three significant figures cannot hold a four-digit value, so
+ * 1,048,575 bytes is "1 MB", not "1020 KB".
+ */
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Number((bytes / 1024).toPrecision(3))} KB`;
+  const kilobytes = bytes / 1024;
+  if (Number(kilobytes.toPrecision(3)) < 1000) return `${Number(kilobytes.toPrecision(3))} KB`;
   return `${Number((bytes / (1024 * 1024)).toPrecision(3))} MB`;
 }
