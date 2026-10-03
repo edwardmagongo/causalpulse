@@ -11,7 +11,8 @@ import { relay } from "@/lib/api/relay";
 export async function POST(request: Request) {
   const origin = request.headers.get("origin");
   const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
-  if (!origin || !host || new URL(origin).host !== host) {
+  // A sandboxed cross-site form sends the literal `null`, which is not a URL.
+  if (!origin || !host || !URL.canParse(origin) || new URL(origin).host !== host) {
     return Response.json({ detail: "the upload must come from this site" }, { status: 403 });
   }
   return relay("/v1/datasets", {

@@ -121,4 +121,79 @@ describe("the earlier-upload select", () => {
     expect(screen.queryByText("a.csv: 3 columns")).toBeNull();
     expect(existing.value).toBe(B.id);
   });
+
+  it("shows an alert when the call itself is rejected, and clears it when the next pick starts", async () => {
+    columnsOf.mockRejectedValueOnce(new Error("network down"));
+    const { existing } = renderForm();
+    pick(existing, A.id);
+    const alert = await screen.findByText(
+      "The dataset could not be loaded. Check the connection and try again.",
+    );
+    expect(alert.getAttribute("role")).toBe("alert");
+
+    columnsOf.mockResolvedValueOnce({ columns: ["x", "y"] });
+    pick(existing, B.id);
+    expect(await screen.findByText("b.csv: 2 columns")).toBeTruthy();
+    expect(screen.queryByText(/could not be loaded/)).toBeNull();
+  });
+
+  it("keeps a later pick when an earlier upload finishes after it", async () => {
+    let finishUpload: (response: Response) => void = () => {};
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            finishUpload = resolve;
+          }),
+      ),
+    );
+    columnsOf.mockResolvedValue({ columns: ["u", "v"] });
+    const { existing, file } = renderForm();
+    fireEvent.change(file, { target: { files: [new File(["p,q\n1,2\n"], "new.csv")] } });
+    expect(await screen.findByText("Uploading.")).toBeTruthy();
+
+    pick(existing, B.id);
+    expect(await screen.findByText("b.csv: 2 columns")).toBeTruthy();
+
+    finishUpload(
+      new Response(
+        JSON.stringify({ id: "id-new", filename: "new.csv", columns: ["p", "q", "r"], n_bytes: 10, sha256: "c".repeat(64) }),
+        { status: 201, headers: { "content-type": "application/json" } },
+      ),
+    );
+    // The upload's end is visible as the status line going away.
+    await waitFor(() => expect(screen.queryByText("Uploading.")).toBeNull());
+    expect(screen.getByText("b.csv: 2 columns")).toBeTruthy();
+    expect(screen.queryByText("new.csv: 3 columns")).toBeNull();
+    expect(existing.value).toBe(B.id);
+  });
+});
+
+describe("the file input", () => {
+  it("is emptied after a failed upload, so the same file can be chosen again", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ detail: "the upload exceeds the limit" }), {
+            status: 413,
+            headers: { "content-type": "application/json" },
+          }),
+      ),
+    );
+    const { file } = renderForm();
+    // jsdom does not keep a chosen file in `value` as a browser does; do it by hand.
+    let chosen = "C:\\fakepath\\big.csv";
+    Object.defineProperty(file, "value", {
+      configurable: true,
+      get: () => chosen,
+      set: (next: string) => {
+        chosen = next;
+      },
+    });
+    fireEvent.change(file, { target: { files: [new File(["p,q\n1,2\n"], "big.csv")] } });
+    await screen.findByText("the upload exceeds the limit");
+    expect(file.value).toBe("");
+  });
 });

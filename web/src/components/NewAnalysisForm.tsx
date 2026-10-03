@@ -61,9 +61,12 @@ export function NewAnalysisForm({
   }
 
   async function upload(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
+    // Captured before the first await, and emptied at the end whatever happened,
+    // so choosing the same file again after a failure fires another change.
+    const input = event.target;
+    const file = input.files?.[0];
     if (!file) return;
-    latestChoice.current += 1;
+    const call = (latestChoice.current += 1);
     setUploading(true);
     setDatasetError(null);
     try {
@@ -75,6 +78,8 @@ export function NewAnalysisForm({
         return;
       }
       const payload: unknown = await response.json().catch(() => null);
+      // A pick made while this upload was in flight is the later choice.
+      if (call !== latestChoice.current) return;
       if (!response.ok) {
         setDataset(null);
         setDatasetError(detailOf(payload, response.status));
@@ -83,28 +88,37 @@ export function NewAnalysisForm({
       const uploaded = payload as DatasetUploaded;
       choose({ id: uploaded.id, filename: uploaded.filename, columns: uploaded.columns });
     } catch {
+      if (call !== latestChoice.current) return;
       setDataset(null);
       setDatasetError("The upload could not be sent. Check the connection and try again.");
     } finally {
       setUploading(false);
+      input.value = "";
     }
   }
 
   async function pickExisting(event: ChangeEvent<HTMLSelectElement>) {
     const call = (latestChoice.current += 1);
+    setDatasetError(null);
     const item = datasets.find((candidate) => candidate.id === event.target.value);
     if (!item) {
       setDataset(null);
       return;
     }
-    const result = await datasetColumns(item.id);
-    if (call !== latestChoice.current) return;
-    if ("error" in result) {
+    try {
+      const result = await datasetColumns(item.id);
+      if (call !== latestChoice.current) return;
+      if ("error" in result) {
+        setDataset(null);
+        setDatasetError(result.error);
+        return;
+      }
+      choose({ id: item.id, filename: item.filename, columns: result.columns });
+    } catch {
+      if (call !== latestChoice.current) return;
       setDataset(null);
-      setDatasetError(result.error);
-      return;
+      setDatasetError("The dataset could not be loaded. Check the connection and try again.");
     }
-    choose({ id: item.id, filename: item.filename, columns: result.columns });
   }
 
   function toggle(list: string[], value: string, on: boolean): string[] {

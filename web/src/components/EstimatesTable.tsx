@@ -13,8 +13,9 @@ import {
 /**
  * One row per requested estimator: its numbers and band, or its error.
  *
- * The interval is labelled with its own basis and level. It is never called
- * a confidence interval here, because for some estimators it is not one.
+ * The interval is labelled with its own basis and level, and is never given
+ * a generic name: for some estimators it is a posterior or a permutation
+ * interval.
  */
 export function EstimatesTable({
   analysisId,

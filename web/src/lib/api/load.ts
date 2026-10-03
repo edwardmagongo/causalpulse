@@ -11,6 +11,8 @@ export type Loaded<T> = { ok: true; data: T } | { ok: false; reason: "unavailabl
  *
  * - 401 goes to `/sign-out`: a render cannot clear a cookie, a route handler can.
  * - 404 is the not-found page, the same for missing and for not-yours.
+ * - 422 is the not-found page too: a read sends no body, so the API can only
+ *   be refusing a malformed id or cursor in the URL.
  * - Unavailable comes back as a value, so the page can say so in place.
  */
 export async function load<T>(read: () => Promise<T>): Promise<Loaded<T>> {
@@ -18,7 +20,7 @@ export async function load<T>(read: () => Promise<T>): Promise<Loaded<T>> {
     return { ok: true, data: await read() };
   } catch (error) {
     if (error instanceof Unauthorized) redirect("/sign-out");
-    if (error instanceof ApiError && error.status === 404) notFound();
+    if (error instanceof ApiError && (error.status === 404 || error.status === 422)) notFound();
     if (error instanceof ApiUnavailable) return { ok: false, reason: "unavailable" };
     throw error;
   }
