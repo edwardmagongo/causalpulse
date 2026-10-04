@@ -14,6 +14,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <Link href="/" className="hover:text-accent">
               Analyses
             </Link>
+            <Link href="/study" aria-label="Benchmark study" className="hover:text-accent">
+              {/* At 390 px the full label pushes the bar past one line. */}
+              <span className="sm:hidden">Study</span>
+              <span className="hidden sm:inline">Benchmark study</span>
+            </Link>
             <Link href="/analyses/new" className="button button-primary">
               New analysis
             </Link>

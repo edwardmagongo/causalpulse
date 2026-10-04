@@ -7,7 +7,7 @@ const gated = new RegExp(`^${config.matcher[0]}$`);
 
 describe("the session gate's matcher", () => {
   it("gates every page, including paths that only start like an exclusion", () => {
-    for (const path of ["/", "/analyses/new", "/analyses/abc", "/api-keys", "/apixyz", "/sign-insider", "/sign-outside"]) {
+    for (const path of ["/", "/analyses/new", "/analyses/abc", "/study", "/api-keys", "/apixyz", "/sign-insider", "/sign-outside"]) {
       expect(gated.test(path), path).toBe(true);
     }
   });
