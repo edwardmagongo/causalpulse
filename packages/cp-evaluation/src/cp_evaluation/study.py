@@ -44,6 +44,41 @@ TABLE_METRICS: dict[str, tuple[str, ...]] = {
 }
 
 # The two levels every table is reported at.
+# One sentence per headline metric, for a reader of the tables. Each restates
+# the definition in `docs/specs/2026-09-05-causal-core-phase14-design.md`
+# section 6 and the docstrings of `cp_evaluation.metrics`; none adds to them.
+METRIC_DEFINITIONS: dict[str, str] = {
+    "bias": "Mean of the estimate minus the truth.",
+    "relative_bias": "Bias divided by the truth. Undefined where the truth is zero.",
+    "rmse": "Root mean squared error of the estimate against the truth.",
+    "mae": "Mean absolute error of the estimate against the truth.",
+    "coverage_analytic": "Share of analytic primary intervals that contain the truth.",
+    "coverage_bootstrap": (
+        "Share of the separately reported percentile-bootstrap intervals that contain "
+        "the truth, whatever the basis of the primary interval."
+    ),
+    "coverage_posterior": "Share of posterior primary intervals that contain the truth.",
+    "coverage_permutation": "Share of permutation primary intervals that contain the truth.",
+    "coverage_bootstrap_se": (
+        "Share of primary intervals built from a bootstrap standard error that contain the truth."
+    ),
+    "mean_ci_width": "Mean of upper minus lower over primary intervals of every basis.",
+    "se_calibration": (
+        "Mean reported standard error divided by the empirical standard deviation of the "
+        "estimates. Near 1, the reported standard errors describe the spread of the estimates."
+    ),
+    "type_s": (
+        "Share of significant estimates with the wrong sign. Undefined where the truth is zero."
+    ),
+    "type_m": (
+        "Mean absolute estimate divided by the absolute truth, among significant estimates. "
+        "Undefined where the truth is zero or no estimate is significant."
+    ),
+    "power": "Share of intervals that exclude zero, in cells whose truth is not zero.",
+    "false_positive_rate": "Share of intervals that exclude zero, in cells whose truth is zero.",
+    "runtime_seconds": "Mean seconds per fit.",
+}
+
 LEVELS: dict[str, tuple[str, ...]] = {
     "scenario": ("scenario",),
     "scenario_by_size": ("scenario", "n_units", "n_periods"),
