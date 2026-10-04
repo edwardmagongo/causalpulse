@@ -82,7 +82,9 @@ describe("OverviewSection", () => {
     for (const [label, value] of facts) {
       expect(screen.getByText(label).nextElementSibling?.textContent).toBe(value);
     }
-    // This is what catches two values being swapped: equal values would pass the label check above either way.
+    // The per-label assertions above are what catch a swap; this one is what lets them see it, since two equal
+    // values would pass either way. It rests on the committed study's five figures differing: if a regenerated
+    // bundle makes two coincide, choose facts that differ rather than dropping the check.
     expect(new Set(facts.map(([, value]) => value)).size).toBe(facts.length);
     const lines = screen.getAllByRole("listitem");
     expect(lines).toHaveLength(3);

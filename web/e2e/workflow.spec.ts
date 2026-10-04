@@ -227,8 +227,15 @@ test("the benchmark study opens from the header, and its view lives in the URL",
     page.getByRole("group", { name: group, exact: true }).getByRole("link", { name, exact: true });
   await choose("Metric family", "coverage").click();
   await choose("Metric", "coverage_permutation").click();
+  const table = page.getByRole("table", { name: "coverage_permutation by estimator and scenario" });
+  const colgroups = table.locator('th[scope="colgroup"]');
   // The figure in the published report's coverage table: S2 ran at one size, so it is the same at both levels.
-  await expect(await matrixCell(page, "coverage_permutation", "synthetic_control", "S2")).toContainText("0.86");
+  // The value sits in the cell's first line; the lines under it hold the error and the fits.
+  const value = async () =>
+    (await matrixCell(page, "coverage_permutation", "synthetic_control", "S2")).locator("span.block:not(.label)");
+  await expect(await value()).toHaveText("0.86");
+  // At the first level there is no row of scenario headers over a row of sizes.
+  await expect(colgroups).toHaveCount(0);
 
   await choose("Level", "By scenario and size").click();
   await expect(choose("Level", "By scenario and size")).toHaveAttribute("aria-current", "true");
@@ -237,12 +244,22 @@ test("the benchmark study opens from the header, and its view lives in the URL",
   expect(query.get("family")).toBe("coverage");
   expect(query.get("metric")).toBe("coverage_permutation");
   expect(query.get("level")).toBe("scenario_by_size");
-  await expect(await matrixCell(page, "coverage_permutation", "synthetic_control", "S2")).toContainText("0.86");
+  await expect(await value()).toHaveText("0.86");
+  // The matrix itself changed: S2 heads one group, and the size under it is the one S2 ran at.
+  await expect(colgroups.filter({ hasText: /^S2$/ })).toHaveCount(1);
+  const column = await (await matrixCell(page, "coverage_permutation", "synthetic_control", "S2")).evaluate(
+    (cell) => (cell as HTMLTableCellElement).cellIndex,
+  );
+  await expect(table.locator("thead tr").nth(1).locator("th").nth(column)).toHaveText("18 \u00d7 24");
 
   // Every switch is a link, so the browser's back steps to the view before it.
   await page.goBack();
   await expect(choose("Level", "By scenario")).toHaveAttribute("aria-current", "true");
-  expect(new URL(page.url()).searchParams.get("level")).toBeNull();
+  await expect(colgroups).toHaveCount(0);
+  const back = new URL(page.url()).searchParams;
+  expect(back.get("family")).toBe("coverage");
+  expect(back.get("metric")).toBe("coverage_permutation");
+  expect(back.has("level")).toBe(false);
 });
 
 test("the header's Sign out button ends the session", async ({ page }) => {
