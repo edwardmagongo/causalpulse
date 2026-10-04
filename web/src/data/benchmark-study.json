@@ -60113,7 +60113,7 @@
     "runtime_seconds": "Mean seconds per fit.",
     "se_calibration": "Mean reported standard error divided by the empirical standard deviation of the estimates. Near 1, the reported standard errors describe the spread of the estimates.",
     "type_m": "Mean absolute estimate divided by the absolute truth, among significant estimates. Undefined where the truth is zero or no estimate is significant.",
-    "type_s": "Share of significant estimates with the wrong sign. Undefined where the truth is zero."
+    "type_s": "Share of significant estimates with the wrong sign. Undefined where the truth is zero or no estimate is significant."
   },
   "overview": {
     "coverage_mcse": 0.030822070014844882,

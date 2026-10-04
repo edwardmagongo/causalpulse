@@ -67,7 +67,8 @@ METRIC_DEFINITIONS: dict[str, str] = {
         "estimates. Near 1, the reported standard errors describe the spread of the estimates."
     ),
     "type_s": (
-        "Share of significant estimates with the wrong sign. Undefined where the truth is zero."
+        "Share of significant estimates with the wrong sign. "
+        "Undefined where the truth is zero or no estimate is significant."
     ),
     "type_m": (
         "Mean absolute estimate divided by the absolute truth, among significant estimates. "
