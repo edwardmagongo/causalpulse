@@ -118,4 +118,40 @@ describe("Poller", () => {
     expect(router.refresh).not.toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  it("schedules nothing when a poll that is still in flight resolves in progress after unmount", async () => {
+    let finish: (body: unknown) => void = () => {};
+    const body = new Promise((resolve) => {
+      finish = resolve;
+    });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: () => body });
+    vi.stubGlobal("fetch", fetchMock);
+    const { unmount } = render(<Poller analysisId="a1" />);
+
+    await elapse(2000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    unmount();
+    // Still running: without the guard, the poll would schedule the next one.
+    await act(async () => {
+      finish({ status: "running" });
+    });
+
+    expect(router.refresh).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+    await elapse(60_000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels the pending timer on unmount", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(respond(200, { status: "running" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { unmount } = render(<Poller analysisId="a1" />);
+    expect(vi.getTimerCount()).toBe(1);
+
+    unmount();
+    expect(vi.getTimerCount()).toBe(0);
+    await elapse(60_000);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });

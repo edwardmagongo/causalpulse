@@ -338,7 +338,9 @@ def create_app(
         _fail_if_lost(session, analysis)
         # One column, never the entity: `datasets.csv` holds up to 50 MB a row.
         filename = session.scalars(
-            select(Dataset.filename).where(Dataset.id == analysis.dataset_id)
+            select(Dataset.filename).where(
+                Dataset.id == analysis.dataset_id, Dataset.owner_id == user.id
+            )
         ).one()
         decisions = session.scalars(
             select(RoutingDecisionRow)

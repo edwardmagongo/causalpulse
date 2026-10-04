@@ -66,6 +66,23 @@ describe("EstimatesTable", () => {
     expect(screen.queryByText(/bootstrap interval/)).toBeNull();
   });
 
+  it("shows a dash and no label when the level is stored but the interval is absent", () => {
+    // The API does not write this combination (a level comes only with an
+    // interval), so this guards the component's own condition: a label belongs
+    // to an interval that is shown, not to a level that happens to be present.
+    const [first, ...rest] = lalonde.estimates;
+    const summary = {
+      ...first.summary,
+      bootstrap_ci_level: 0.95,
+      bootstrap_ci_lower: null,
+      bootstrap_ci_upper: null,
+    };
+    render(<EstimatesTable analysisId="a1" estimates={[{ ...first, summary }, ...rest] as Estimate[]} />);
+    const cell = within(screen.getByRole("row", { name: /difference_in_means/ })).getAllByRole("cell")[5];
+    expect(cell.textContent).toBe("—");
+    expect(within(cell).queryByText(/bootstrap interval/)).toBeNull();
+  });
+
   it("shows a dash and no label when there is no bootstrap interval", () => {
     render(<EstimatesTable analysisId="a1" estimates={prop99.estimates as Estimate[]} />);
     expect(prop99.estimates[0].summary.bootstrap_ci_lower).toBeNull();
