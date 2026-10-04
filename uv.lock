@@ -30,6 +30,7 @@ members = [
     "cp-evaluation",
     "cp-figures",
     "cp-llm",
+    "cp-llm-eval",
     "cp-report",
     "cp-simulation",
     "cp-statistics",
@@ -325,6 +326,7 @@ dependencies = [
     { name = "cp-evaluation" },
     { name = "cp-figures" },
     { name = "cp-llm" },
+    { name = "cp-llm-eval" },
     { name = "cp-report" },
     { name = "cp-simulation" },
     { name = "cp-statistics" },
@@ -359,6 +361,7 @@ requires-dist = [
     { name = "cp-evaluation", editable = "packages/cp-evaluation" },
     { name = "cp-figures", editable = "packages/cp-figures" },
     { name = "cp-llm", editable = "packages/cp-llm" },
+    { name = "cp-llm-eval", editable = "packages/cp-llm-eval" },
     { name = "cp-report", editable = "packages/cp-report" },
     { name = "cp-simulation", editable = "packages/cp-simulation" },
     { name = "cp-statistics", editable = "packages/cp-statistics" },
@@ -869,6 +872,7 @@ dependencies = [
     { name = "cp-core" },
     { name = "cp-evaluation" },
     { name = "cp-llm" },
+    { name = "cp-llm-eval" },
     { name = "cp-report" },
     { name = "cp-simulation" },
     { name = "cp-statistics" },
@@ -888,6 +892,7 @@ requires-dist = [
     { name = "cp-core", editable = "packages/cp-core" },
     { name = "cp-evaluation", editable = "packages/cp-evaluation" },
     { name = "cp-llm", editable = "packages/cp-llm" },
+    { name = "cp-llm-eval", editable = "packages/cp-llm-eval" },
     { name = "cp-report", editable = "packages/cp-report" },
     { name = "cp-simulation", editable = "packages/cp-simulation" },
     { name = "cp-statistics", editable = "packages/cp-statistics" },
@@ -981,6 +986,33 @@ requires-dist = [
     { name = "cp-causal", editable = "packages/cp-causal" },
     { name = "cp-core", editable = "packages/cp-core" },
     { name = "cp-report", editable = "packages/cp-report" },
+    { name = "pydantic", specifier = ">=2.7" },
+]
+
+[[package]]
+name = "cp-llm-eval"
+version = "0.1.0"
+source = { editable = "packages/cp-llm-eval" }
+dependencies = [
+    { name = "anthropic" },
+    { name = "cp-core" },
+    { name = "cp-llm" },
+    { name = "cp-report" },
+    { name = "cp-simulation" },
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "anthropic", specifier = ">=1.11,<2" },
+    { name = "cp-core", editable = "packages/cp-core" },
+    { name = "cp-llm", editable = "packages/cp-llm" },
+    { name = "cp-report", editable = "packages/cp-report" },
+    { name = "cp-simulation", editable = "packages/cp-simulation" },
+    { name = "numpy", specifier = ">=2.0" },
+    { name = "pandas", specifier = ">=2.2" },
     { name = "pydantic", specifier = ">=2.7" },
 ]
 
