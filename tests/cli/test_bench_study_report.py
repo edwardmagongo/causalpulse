@@ -239,6 +239,16 @@ def test_bundle_is_refused_with_the_html_format_and_nothing_is_written(run, tmp_
     assert list(out.iterdir()) == []
 
 
+def test_a_bundle_in_a_missing_directory_is_refused_before_the_report_is_written(run, tmp_path):
+    out = tmp_path / "out"
+    out.mkdir()
+
+    with pytest.raises(FileNotFoundError, match="missing"):
+        _report(run, out, "--bundle", str(tmp_path / "missing" / "bundle.json"))
+
+    assert list(out.iterdir()) == []
+
+
 def test_two_bundles_from_one_store_are_byte_identical(run, tmp_path):
     texts = []
     for name in ("one", "two"):

@@ -235,6 +235,10 @@ def run_study_report(args: argparse.Namespace) -> int:
         raise ValueError(
             "--bundle needs --format markdown: the bundle records the Markdown report's hash"
         )
+    if args.bundle is not None and not Path(args.bundle).parent.is_dir():
+        raise FileNotFoundError(
+            f"--bundle must be in an existing directory, got {Path(args.bundle).parent}"
+        )
     evidence = benchmark_evidence_from_run(
         Path(args.directory),
         cate_directory=None if args.cate_run is None else Path(args.cate_run),
