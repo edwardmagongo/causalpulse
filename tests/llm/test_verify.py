@@ -150,6 +150,9 @@ def test_a_number_word_is_a_bare_value(tail, facts):
         " The effect is moderately supported.",
         " The method is eligible.",
         " The method is ineligible.",
+        # Calibration, 2026-10-04: a retry wrote every check's status this way,
+        # after "FAIL or WARN" in free text had been refused.
+        " Every check reflects untested assumptions rather than a flagged problem.",
     ],
 )
 def test_a_finding_written_as_free_text_is_refused(tail, facts):
