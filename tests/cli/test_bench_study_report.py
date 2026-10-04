@@ -1,3 +1,4 @@
+import hashlib
 import json
 
 import pytest
@@ -187,3 +188,63 @@ def test_a_non_p7_run_is_refused_as_the_p7_run(run, tmp_path):
 
     with pytest.raises(ValueError, match="'p7'"):
         _report(run, out, "--p7-run", str(run))
+
+
+def test_bundle_writes_the_study_bundle_beside_the_report_it_names(run, tmp_path, capsys):
+    out = tmp_path / "out"
+    out.mkdir()
+    bundle = tmp_path / "bundle.json"
+
+    assert _report(run, out, "--bundle", str(bundle)) == 0
+
+    recorded = json.loads(bundle.read_text())
+    report = (out / "benchmark-report.md").read_bytes()
+    assert recorded["report_sha256"] == hashlib.sha256(report).hexdigest()
+    # Built from a real store: the run's own provenance and each scenario's shape are there.
+    assert [run["role"] for run in recorded["provenance"]] == ["study"]
+    assert recorded["provenance"][0]["tier"] == "study"
+    assert {s["name"]: s["shape"] for s in recorded["scenarios"]} == {
+        "A": "cross_section",
+        "P1": "panel",
+    }
+    assert "wrote the study bundle to" in capsys.readouterr().out
+
+
+def test_a_cate_and_a_p7_run_are_named_in_the_bundles_provenance(run, cate, p7, tmp_path):
+    out = tmp_path / "out"
+    out.mkdir()
+    bundle = tmp_path / "bundle.json"
+
+    extra = ("--cate-run", str(cate), "--p7-run", str(p7), "--bundle", str(bundle))
+    assert _report(run, out, *extra) == 0
+
+    recorded = json.loads(bundle.read_text())
+    assert [(r["role"], r["tier"]) for r in recorded["provenance"]] == [
+        ("study", "study"),
+        ("cate", "cate"),
+        ("p7", "p7"),
+    ]
+    assert recorded["cate"] is not None and recorded["p7"] is not None
+
+
+def test_bundle_is_refused_with_the_html_format_and_nothing_is_written(run, tmp_path):
+    out = tmp_path / "out"
+    out.mkdir()
+    bundle = tmp_path / "bundle.json"
+
+    with pytest.raises(ValueError, match="--format markdown"):
+        _report(run, out, "--format", "html", "--bundle", str(bundle))
+
+    assert not bundle.exists()
+    assert list(out.iterdir()) == []
+
+
+def test_two_bundles_from_one_store_are_byte_identical(run, tmp_path):
+    texts = []
+    for name in ("one", "two"):
+        out = tmp_path / name
+        out.mkdir()
+        assert _report(run, out, "--bundle", str(out / "bundle.json")) == 0
+        texts.append((out / "bundle.json").read_bytes())
+
+    assert texts[0] == texts[1]
