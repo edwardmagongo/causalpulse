@@ -8,7 +8,7 @@ import type {
   StudyBundle,
   StudyLoad,
 } from "@/lib/study/types";
-import { formatNumber } from "@/lib/format";
+import { DASH, formatNumber } from "@/lib/format";
 import { matrixOf, offeredFamilies } from "@/lib/study/matrix";
 import { defaultView, viewHref } from "@/lib/study/query";
 import type { View } from "@/lib/study/query";
@@ -16,6 +16,7 @@ import { scaleFor } from "@/lib/study/scale";
 
 import { MatrixHeatmap } from "./MatrixHeatmap";
 import { MatrixTable } from "./MatrixTable";
+import { PublishedTables } from "./PublishedTables";
 import { ScaleLegend } from "./ScaleLegend";
 import { StudyTable } from "./StudyTable";
 import { ViewSwitches } from "./ViewSwitches";
@@ -129,8 +130,8 @@ export function OverviewSection({
             <span className="label">cells</span>
             {" · "}
             <span className="label">commit</span>{" "}
-            <span className="value" title={entry.git_commit}>
-              {entry.git_commit.slice(0, 7)}
+            <span className="value" title={entry.git_commit ?? undefined}>
+              {entry.git_commit === null ? DASH : entry.git_commit.slice(0, 7)}
             </span>
           </li>
         ))}
@@ -182,9 +183,10 @@ export function FindingsSection({ expectations }: { expectations: Expectations }
 
 /**
  * The estimator-by-scenario matrix for one view: the switches, the metric's
- * definition and the study's notes (each verbatim), then the matrix as a
- * heatmap or a sortable table. Built here, on the server, from the view the
- * URL named.
+ * definition (verbatim), then the matrix as a heatmap or a sortable table, and
+ * after it the report's own two tables with their notes. The notes describe
+ * those tables, not the matrix, so they are not shown beside it. Built here, on
+ * the server, from the view the URL named.
  */
 export function MethodsSection({ study, view }: { study: StudyBundle; view: View }) {
   const href = (next: View) => viewHref(study, next);
@@ -198,10 +200,6 @@ export function MethodsSection({ study, view }: { study: StudyBundle; view: View
     <Section id="methods" title="Methods">
       <ViewSwitches view={view} offered={offeredFamilies(study)} href={href} />
       {definition ? <p className="engine mt-6">{definition}</p> : null}
-      {view.family === "coverage" ? <p className="engine mt-4">{study.report_tables.coverage_note}</p> : null}
-      {view.level === "scenario_by_size" ? (
-        <p className="engine mt-4">{study.report_tables.exploratory_note}</p>
-      ) : null}
       <div className="mt-6">
         {view.display === "heatmap" ? (
           <>
@@ -212,6 +210,10 @@ export function MethodsSection({ study, view }: { study: StudyBundle; view: View
           <MatrixTable matrix={matrix} view={view} href={href} />
         )}
       </div>
+      <PublishedTables
+        reportTables={study.report_tables}
+        scenarios={study.scenarios.map((scenario) => scenario.name)}
+      />
     </Section>
   );
 }
@@ -275,8 +277,9 @@ export function LimitationsSection({ limitations }: { limitations: Limitations }
           <h3 className="title-group mb-3">Not covered</h3>
           <ul className="flex flex-col gap-4">
             {limitations.not_covered.map((entry) => (
-              <li key={entry} className="engine">
-                {entry}
+              <li key={entry.name}>
+                <p className="value font-semibold">{entry.name}</p>
+                <p className="engine mt-1">{entry.reason}</p>
               </li>
             ))}
           </ul>

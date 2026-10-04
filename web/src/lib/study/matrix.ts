@@ -4,7 +4,14 @@ import type { EstimatorFamily, FamilyRow, Shape, StudyBundle } from "./types";
 export type Level = "scenario" | "scenario_by_size";
 
 export type Cell =
-  | { kind: "value"; value: number; mcse: number | null; nUsed: number; nFitted: number }
+  | {
+      kind: "value";
+      value: number;
+      mcse: number | null;
+      nUsed: number;
+      nFitted: number;
+      nRefused: number; // fits refused in this row; a row with fits and refusals reads as both
+    }
   | { kind: "not_eligible" }
   | { kind: "refused"; nRefused: number }
   | { kind: "not_applicable"; nFitted: number } // fitted, but no fit feeds this metric
@@ -58,6 +65,7 @@ export function cellOf(row: FamilyRow | undefined, metric: string): Cell {
     mcse: finiteOrNull(row[`${metric}_mcse`]),
     nUsed,
     nFitted: row.n_fitted,
+    nRefused: row.n_refused,
   };
 }
 
@@ -105,13 +113,17 @@ export function matrixOf(
   // a column or a row missing.
   const scenarios = study.scenarios.map((scenario) => {
     if (!isShape(scenario.shape)) {
-      throw new Error(`scenario ${scenario.name} has a shape this build does not know: "${scenario.shape}"`);
+      throw new Error(
+        `scenario ${scenario.name} has a shape this build does not know: ${JSON.stringify(scenario.shape)}`,
+      );
     }
     return { name: scenario.name, shape: scenario.shape };
   });
   const classified = study.estimators.map((estimator) => {
     if (!isEstimatorFamily(estimator.family)) {
-      throw new Error(`estimator ${estimator.name} has a family this build does not know: "${estimator.family}"`);
+      throw new Error(
+        `estimator ${estimator.name} has a family this build does not know: ${JSON.stringify(estimator.family)}`,
+      );
     }
     return { name: estimator.name, family: estimator.family };
   });

@@ -7,7 +7,8 @@ type Cell = string | number | null | undefined;
  * column per metric. A record's own key order is alphabetical, so the caller
  * declares the order. Each metric cell holds the number, its Monte Carlo
  * standard error beside it, and, only where fewer fits fed it than
- * `replications`, the count of fits that did. A `null` is a dash, never a zero.
+ * `replications`, the count of fits that did. A `null`, or an empty text, is a
+ * dash, never a zero.
  */
 export function StudyTable({
   caption,
@@ -64,7 +65,7 @@ export function StudyTable({
 }
 
 function text(cell: Cell): string {
-  return cell === null || cell === undefined ? DASH : String(cell);
+  return cell === null || cell === undefined || cell === "" ? DASH : String(cell);
 }
 
 function number(cell: Cell): number | null {

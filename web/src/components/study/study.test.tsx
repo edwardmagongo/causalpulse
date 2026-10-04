@@ -10,7 +10,7 @@ import { matrixOf, offeredFamilies } from "@/lib/study/matrix";
 import type { Cell, Matrix } from "@/lib/study/matrix";
 import { defaultView, viewHref } from "@/lib/study/query";
 import type { View } from "@/lib/study/query";
-import { scaleFor } from "@/lib/study/scale";
+import { position, scaleFor } from "@/lib/study/scale";
 import type { StudyBundle } from "@/lib/study/types";
 
 import {
@@ -93,9 +93,20 @@ describe("OverviewSection", () => {
       expect(lines[index].textContent).toContain(`${entry.cells_done} of ${entry.cells_expected}`);
     });
     for (const entry of study.provenance) {
-      const hash = screen.getByText(entry.git_commit.slice(0, 7));
+      expect(entry.git_commit).not.toBeNull();
+      const hash = screen.getByText(entry.git_commit!.slice(0, 7));
       expect(hash.getAttribute("title")).toBe(entry.git_commit);
     }
+  });
+
+  it("shows a dash, with no title, for a run whose manifest records no commit", () => {
+    const provenance = study.provenance.map((entry, index) => (index === 0 ? { ...entry, git_commit: null } : entry));
+    render(<OverviewSection overview={study.overview} provenance={provenance} />);
+    const lines = screen.getAllByRole("listitem");
+    const commit = (line: HTMLElement) => within(line).getByText("commit").nextElementSibling as HTMLElement;
+    expect(commit(lines[0]).textContent).toBe(DASH);
+    expect(commit(lines[0]).hasAttribute("title")).toBe(false);
+    expect(commit(lines[1]).textContent).toBe(study.provenance[1].git_commit!.slice(0, 7));
   });
 });
 
@@ -194,6 +205,46 @@ describe("P7Section", () => {
   });
 });
 
+describe("the arm sections on rows the writer can emit", () => {
+  it("draws a P7 row with no interval and no value as dashes, and never as zero", () => {
+    const row = {
+      method: "bsts",
+      interval: "",
+      bias: null,
+      bias_mcse: null,
+      bias_n_used: 0,
+      rmse: null,
+      rmse_mcse: null,
+      rmse_n_used: 0,
+      coverage: null,
+      coverage_mcse: null,
+      coverage_n_used: 0,
+    };
+    render(<P7Section p7={{ ...p7, table: [row] }} />);
+    const cells = within(screen.getByRole("row", { name: /bsts/ })).getAllByRole("cell");
+    expect(cells.map((cell) => cell.textContent)).toEqual([DASH, `${DASH}0 of ${p7.replications} fits`, `${DASH}0 of ${p7.replications} fits`, `${DASH}0 of ${p7.replications} fits`]);
+  });
+
+  it("draws a CATE row whose RMSE is null as a dash", () => {
+    const row = {
+      method: "causal_forest",
+      scenario: "NULL",
+      cate_calibration_slope: null,
+      cate_calibration_slope_mcse: null,
+      cate_calibration_slope_n_used: 0,
+      cate_correlation: null,
+      cate_correlation_mcse: null,
+      cate_correlation_n_used: 0,
+      cate_rmse: null,
+      cate_rmse_mcse: null,
+      cate_rmse_n_used: 0,
+    };
+    const { container } = render(<CateSection cate={{ ...cate, table: [row] }} />);
+    expect(container.textContent).not.toMatch(/NaN|null|Infinity/);
+    expect(within(screen.getByRole("row", { name: /causal_forest/ })).getAllByRole("cell").slice(1).map((cell) => cell.textContent?.startsWith(DASH))).toEqual([true, true, true]);
+  });
+});
+
 describe("StudyTable", () => {
   const rows = [
     { method: "m1", scenario: "S1", a: null, a_mcse: null, a_n_used: 0 },
@@ -219,6 +270,21 @@ describe("StudyTable", () => {
     expect(screen.getByText("0 of 50 fits")).toBeTruthy();
   });
 
+  it("renders an empty text as the dash, as it does a null", () => {
+    render(
+      <StudyTable
+        caption="Test"
+        rows={[{ method: "m", interval: "", a: 0.5, a_mcse: 0.1, a_n_used: 50 }]}
+        keys={["method", "interval"]}
+        metrics={["a"]}
+        replications={50}
+      />,
+    );
+    const cells = within(screen.getAllByRole("row")[1]).getAllByRole("cell");
+    expect(cells[0].textContent).toBe(DASH);
+    expect(cells[1].textContent).toBe("0.5± 0.1");
+  });
+
   it("puts the key columns first, in the order declared", () => {
     render(<StudyTable {...props} keys={["scenario", "method"]} />);
     expect(screen.getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual([
@@ -240,10 +306,22 @@ describe("LimitationsSection", () => {
     expect(screen.queryByText("Not covered")).toBeNull();
   });
 
-  it("lists what is not covered when the bundle has it", () => {
-    render(<LimitationsSection limitations={{ not_covered: ["a gap"], statements: [] }} />);
+  it("lists what is not covered, each entry's name and its reason, as the writer emits them", () => {
+    // The writer's shape (tests/report/test_bundle.py pins it): one object per entry, `{name, reason}`.
+    const not_covered = [
+      { name: "donor_pool", reason: "Not yet implemented." },
+      { name: "cate", reason: "No conditional-effect run was supplied." },
+    ];
+    render(<LimitationsSection limitations={{ not_covered, statements: [] }} />);
     expect(screen.getByText("Not covered")).toBeTruthy();
-    expect(screen.getByText("a gap")).toBeTruthy();
+    const items = screen.getAllByRole("listitem");
+    expect(items).toHaveLength(2);
+    not_covered.forEach((entry, index) => {
+      const name = within(items[index]).getByText(entry.name);
+      expect(name.classList.contains("value")).toBe(true);
+      expect(within(items[index]).getByText(entry.reason)).toBeTruthy();
+    });
+    expect(screen.queryByText(/\[object Object\]/)).toBeNull();
   });
 });
 
@@ -270,7 +348,15 @@ describe("StudyUnavailable", () => {
 describe("MethodsSection", () => {
   const base = defaultView(study);
   const href = (view: View) => viewHref(study, view);
-  const methods = (view: Partial<View> = {}) => render(<MethodsSection study={study} view={{ ...base, ...view }} />);
+  /** The whole section for a view. */
+  const section = (view: Partial<View> = {}, of: StudyBundle = study) =>
+    render(<MethodsSection study={of} view={{ ...base, ...view }} />);
+  /** The section without its "As published" block, so a query over tables reads the matrix alone. */
+  const methods = (view: Partial<View> = {}, of: StudyBundle = study) => {
+    const rendered = section(view, of);
+    screen.getByRole("region", { name: "As published" }).remove();
+    return rendered;
+  };
 
   /** The `td` of an estimator's row under a column head (a scenario, or at the second level a size). */
   function cellAt(estimator: string, head: string): HTMLElement {
@@ -388,7 +474,7 @@ describe("MethodsSection", () => {
         metric: "bias",
         columns,
         rows: [
-          { estimator: "aipw", family: "cross_sectional", cells: [{ kind: "value", value: 0.5, mcse: null, nUsed: 40, nFitted: 50 }] },
+          { estimator: "aipw", family: "cross_sectional", cells: [{ kind: "value", value: 0.5, mcse: null, nUsed: 40, nFitted: 50, nRefused: 0 }] },
         ],
       };
       const { container } = render(<MatrixHeatmap matrix={matrix} scale={{ kind: "flat" }} level="scenario" />);
@@ -550,20 +636,23 @@ describe("MethodsSection", () => {
   });
 
   describe("the notes and the definition", () => {
-    it("show the coverage note for coverage and not for accuracy", () => {
-      const { unmount } = methods({ family: "coverage", metric: "coverage_analytic" });
-      expect(screen.getByText(study.report_tables.coverage_note)).toBeTruthy();
-      unmount();
-      methods();
-      expect(screen.queryByText(study.report_tables.coverage_note)).toBeNull();
-    });
-
-    it("show the exploratory note at the second level only", () => {
-      const { unmount } = methods({ level: "scenario_by_size" });
-      expect(screen.getByText(study.report_tables.exploratory_note)).toBeTruthy();
-      unmount();
-      methods();
-      expect(screen.queryByText(study.report_tables.exploratory_note)).toBeNull();
+    it("show neither report note beside the matrix, in any family at either level and either display", () => {
+      // Each note describes the report's own tables, not the matrix: the coverage note says the
+      // interval column names the interval's kind, and the exploratory note says a table is not
+      // reproduced here. `methods` drops the "As published" block, which is where both belong.
+      let runs = 0;
+      for (const entry of offeredFamilies(study)) {
+        for (const level of entry.levels) {
+          for (const display of ["heatmap", "table"] as const) {
+            const { container, unmount } = methods({ family: entry.family, metric: entry.metrics[0], level, display });
+            expect(container.textContent).not.toContain(study.report_tables.coverage_note);
+            expect(container.textContent).not.toContain(study.report_tables.exploratory_note);
+            unmount();
+            runs += 1;
+          }
+        }
+      }
+      expect(runs).toBe(24);
     });
 
     it("show the metric's definition, verbatim, and nothing for a metric without one", () => {
@@ -571,9 +660,113 @@ describe("MethodsSection", () => {
       expect(screen.getByText(study.metric_definitions.bias)).toBeTruthy();
       unmount();
       const bare = { ...study, metric_definitions: {} };
-      render(<MethodsSection study={bare} view={base} />);
+      methods({}, bare);
       expect(screen.queryByText(study.metric_definitions.bias)).toBeNull();
       expect(document.querySelector(".engine")).toBeNull();
+    });
+  });
+
+  describe("the report's own tables, as published", () => {
+    const published = () => screen.getByRole("region", { name: "As published" });
+    const BIAS = "Bias by method and scenario";
+    const COVERAGE = "Coverage of each estimator's primary interval, by scenario";
+    const names = study.scenarios.map((scenario) => scenario.name);
+
+    /** The cell of a published table under a column head, in the row of a method. */
+    function publishedCell(title: string, method: string, head: string): HTMLElement {
+      const table = within(published()).getByRole("table", { name: title });
+      const heads = within(table).getAllByRole("columnheader").map((cell) => cell.textContent);
+      const index = heads.indexOf(head);
+      expect(index).toBeGreaterThan(0);
+      const row = within(table)
+        .getAllByRole("row")
+        .find((candidate) => candidate.querySelector('th[scope="row"]')?.textContent === method);
+      expect(row).toBeDefined();
+      return within(row!).getAllByRole("cell")[index - 1];
+    }
+
+    it("sits after the matrix, under a plain heading, with each table under the title the report prints", () => {
+      const { container } = section();
+      const block = published();
+      expect(container.firstElementChild?.lastElementChild).toBe(block);
+      expect(within(block).getByRole("heading", { name: "As published", level: 3 })).toBeTruthy();
+      expect(within(block).getAllByRole("heading", { level: 4 }).map((heading) => heading.textContent)).toEqual(
+        Object.keys(study.report_tables.tables),
+      );
+      expect(Object.keys(study.report_tables.tables)).toEqual([BIAS, COVERAGE]);
+      expect(block.compareDocumentPosition(screen.getAllByRole("table")[0]) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    });
+
+    it("orders the columns method, interval where the rows have one, then the scenarios as the study lists them", () => {
+      section();
+      const heads = (title: string) =>
+        within(within(published()).getByRole("table", { name: title })).getAllByRole("columnheader").map((cell) => cell.textContent);
+      expect(heads(BIAS)).toEqual(["method", ...names]);
+      expect(heads(COVERAGE)).toEqual(["method", "interval", ...names]);
+      // The order is the study's own list, not the records' key order.
+      cleanup();
+      const reversed = { ...study, scenarios: [...study.scenarios].reverse() };
+      section({}, reversed);
+      expect(heads(BIAS)).toEqual(["method", ...[...names].reverse()]);
+      expect(heads(COVERAGE)).toEqual(["method", "interval", ...[...names].reverse()]);
+    });
+
+    it("shows the numbers as the published report prints them, and a dash where it prints none", () => {
+      section();
+      expect(publishedCell(BIAS, "aipw", "A").textContent).toBe("0.001247");
+      expect(publishedCell(BIAS, "aipw", "P1").textContent).toBe(DASH);
+      expect(publishedCell(COVERAGE, "synthetic_control", "interval").textContent).toBe("permutation");
+      expect(publishedCell(COVERAGE, "synthetic_control", "S2").textContent).toBe("0.86");
+      expect(publishedCell(COVERAGE, "twfe", "P5").textContent).toBe("0");
+      const table = within(published()).getByRole("table", { name: COVERAGE });
+      expect(within(table).getAllByRole("row")).toHaveLength(1 + study.report_tables.tables[COVERAGE].length);
+    });
+
+    it("is plain: no colour, no Monte Carlo error", () => {
+      section();
+      expect(published().querySelectorAll(".heat, [data-scale], [style]")).toHaveLength(0);
+      expect(published().textContent).not.toContain("±");
+    });
+
+    it("puts the coverage note directly after the coverage table and the exploratory note after both", () => {
+      section();
+      const coverage = screen.getByText(study.report_tables.coverage_note);
+      expect(published().contains(coverage)).toBe(true);
+      expect(coverage.previousElementSibling?.querySelector("table")?.getAttribute("class")).toContain("data-table");
+      expect(within(coverage.parentElement as HTMLElement).getByRole("table").querySelector("caption")?.textContent).toBe(COVERAGE);
+      const exploratory = screen.getByText(study.report_tables.exploratory_note);
+      expect(published().contains(exploratory)).toBe(true);
+      expect(exploratory.previousElementSibling?.tagName).toBe("DIV");
+      expect(exploratory.parentElement).toBe(published());
+      expect(within(published()).getAllByRole("table")).toHaveLength(2);
+    });
+
+    it("draws no empty paragraph for a note the study leaves empty", () => {
+      const quiet = { ...study, report_tables: { ...study.report_tables, coverage_note: "" } };
+      section({}, quiet);
+      const paragraphs = Array.from(published().querySelectorAll("p"));
+      expect(paragraphs.map((paragraph) => paragraph.textContent)).toEqual([study.report_tables.exploratory_note]);
+      cleanup();
+      const silent = { ...study, report_tables: { ...study.report_tables, coverage_note: "", exploratory_note: "" } };
+      section({}, silent);
+      expect(published().querySelectorAll("p")).toHaveLength(0);
+    });
+
+    it("does not lose a coverage note when no table has an interval column", () => {
+      const tables = { [BIAS]: study.report_tables.tables[BIAS] };
+      const odd = { ...study, report_tables: { ...study.report_tables, tables } };
+      section({}, odd);
+      expect(screen.getAllByText(study.report_tables.coverage_note)).toHaveLength(1);
+    });
+
+    it("reads the same under every view of the matrix", () => {
+      const reads: string[] = [];
+      for (const view of [{}, { family: "coverage", metric: "coverage_analytic" }, { level: "scenario_by_size" as const }, { display: "table" as const }]) {
+        const { unmount } = section(view);
+        reads.push(published().textContent ?? "");
+        unmount();
+      }
+      expect(new Set(reads).size).toBe(1);
     });
   });
 
@@ -583,7 +776,7 @@ describe("MethodsSection", () => {
       for (const level of entry.levels) {
         for (const display of ["heatmap", "table"] as const) {
           for (const metric of entry.metrics) {
-            const { container, unmount } = methods({ family: entry.family, metric, level, display });
+            const { container, unmount } = section({ family: entry.family, metric, level, display });
             expect(container.textContent).not.toMatch(/NaN|null|Infinity/);
             expect(container.querySelectorAll("tbody td").length).toBeGreaterThan(0);
             unmount();
@@ -595,18 +788,50 @@ describe("MethodsSection", () => {
     expect(runs).toBe(12);
   });
 
-  it("colours every value in every metric between the scale's own ends: positions stay inside -1 to 1", () => {
+  it("sets every heat cell's position from its own value on the metric's scale, for every metric", () => {
+    let inside = 0;
+    let atAnEnd = 0;
     for (const entry of offeredFamilies(study)) {
       for (const metric of entry.metrics) {
+        const view = { ...base, family: entry.family, metric };
+        const matrix = matrixOf(study, view);
+        const values = matrix.rows.flatMap((row) => row.cells.flatMap((cell) => (cell.kind === "value" ? [cell.value] : [])));
+        const scale = scaleFor(metric, values);
         const { container, unmount } = methods({ family: entry.family, metric });
-        for (const cell of container.querySelectorAll<HTMLElement>("td.heat")) {
-          const pos = Number(cell.style.getPropertyValue("--pos"));
-          expect(Number.isFinite(pos)).toBe(true);
-          expect(Math.abs(pos)).toBeLessThanOrEqual(1);
+        const drawn = Array.from(container.querySelectorAll<HTMLElement>("td.heat"), (cell) => cell.style.getPropertyValue("--pos"));
+        // `position` clamps, so a range check could not fail; the cell's own number can.
+        expect(drawn).toEqual(values.map((value) => position(value, scale).toFixed(4)));
+        for (const text of drawn) {
+          if (Math.abs(Number(text)) === 1) atAnEnd += 1;
+          else if (Math.abs(Number(text)) < 1) inside += 1;
         }
         unmount();
       }
     }
+    expect(inside).toBeGreaterThan(0);
+    expect(atAnEnd).toBeGreaterThan(0);
+  });
+
+  it("shows the refused count in a cell's fits line and reason where some fits were refused, and nothing new where none were", () => {
+    const columns = matrixOf(study, { ...base, shape: "cross_section" }).columns.slice(0, 1);
+    const drawn = (cell: Cell) => {
+      const matrix: Matrix = { metric: "bias", columns, rows: [{ estimator: "aipw", family: "cross_sectional", cells: [cell] }] };
+      return [
+        render(<MatrixHeatmap matrix={matrix} scale={{ kind: "flat" }} level="scenario" />),
+        render(<MatrixTable matrix={matrix} view={{ ...base, display: "table" }} href={href} />),
+      ].map(({ container }) => container.querySelector("tbody td") as HTMLElement);
+    };
+    const [heat, table] = drawn({ kind: "value", value: 0.5, mcse: 0.1, nUsed: 30, nFitted: 30, nRefused: 20 });
+    for (const td of [heat, table]) {
+      expect(td.getAttribute("title")).toBe("30 of 30 fits, 20 refused");
+      expect(td.textContent).toContain("30 of 30 fits, 20 refused");
+    }
+    cleanup();
+    const [plainHeat, plainTable] = drawn({ kind: "value", value: 0.5, mcse: 0.1, nUsed: 30, nFitted: 30, nRefused: 0 });
+    expect(plainHeat.textContent).toBe("0.5± 0.1");
+    expect(plainHeat.getAttribute("title")).toBe("30 of 30 fits");
+    expect(plainTable.textContent).toBe("0.5± 0.130 of 30 fits");
+    expect(plainTable.textContent).not.toContain("refused");
   });
 });
 
@@ -634,12 +859,34 @@ describe("ScaleLegend", () => {
     expect(steps).toContain("0.0000");
     // A cell holding the value the legend labels at its high end.
     const columns = matrixOf(study, { ...defaultView(study), shape: "cross_section" }).columns.slice(0, 1);
-    const cell: Cell = { kind: "value", value: 1, mcse: 0, nUsed: 100, nFitted: 100 };
+    const cell: Cell = { kind: "value", value: 1, mcse: 0, nUsed: 100, nFitted: 100, nRefused: 0 };
     const matrix: Matrix = { metric: "coverage_analytic", columns, rows: [{ estimator: "aipw", family: "cross_sectional", cells: [cell] }] };
     const heat = render(<MatrixHeatmap matrix={matrix} scale={scale} level="scenario" />);
     const td = heat.container.querySelector("tbody td") as HTMLElement;
     expect(steps[steps.length - 1]).toBe(td.style.getPropertyValue("--pos"));
     expect(Number(steps[steps.length - 1])).toBeCloseTo(1 / 3, 3);
+  });
+
+  it("clips type_m's low end to 0 on the committed data, and no ratio's legend prints a negative number", () => {
+    for (const [family, metric] of [
+      ["sign_and_magnitude", "type_m"],
+      ["se_calibration", "se_calibration"],
+    ]) {
+      for (const level of ["scenario", "scenario_by_size"] as const) {
+        const matrix = matrixOf(study, { ...defaultView(study), family, metric, level });
+        const values = matrix.rows.flatMap((row) => row.cells.flatMap((cell) => (cell.kind === "value" ? [cell.value] : [])));
+        const scale = scaleFor(metric, values);
+        const { container, unmount } = render(<ScaleLegend scale={scale} />);
+        const ends = Array.from(container.querySelectorAll(".value"), (end) => end.textContent);
+        expect(container.textContent).not.toMatch(/-\d/);
+        if (metric === "type_m") {
+          // The widest deviation from 1 is over 3, so without the bound the low end would be below 0.
+          expect(scale.kind === "diverging" && scale.centre - scale.halfWidth).toBeLessThan(0);
+          expect(ends[0]).toBe("0");
+        }
+        unmount();
+      }
+    }
   });
 
   it("starts a false-positive-rate strip at the colour of a rate of 0, not at the full blue", () => {
@@ -702,8 +949,23 @@ describe("the /study page", () => {
     render(await StudyPage({ searchParams: Promise.resolve({ family: "coverage", display: "table", level: "scenario_by_size" }) }));
     expect(within(screen.getByRole("group", { name: "Metric family" })).getByRole("link", { current: true }).textContent).toBe("coverage");
     expect(within(screen.getByRole("group", { name: "Display" })).getByRole("link", { current: true }).textContent).toBe("Table");
-    expect(screen.getByText(study.report_tables.coverage_note)).toBeTruthy();
-    expect(screen.getByText(study.report_tables.exploratory_note)).toBeTruthy();
+    // Each note appears once on the page, inside the block of the report's own tables, whatever the view.
+    const published = screen.getByRole("region", { name: "As published" });
+    for (const note of [study.report_tables.coverage_note, study.report_tables.exploratory_note]) {
+      const found = screen.getAllByText(note);
+      expect(found).toHaveLength(1);
+      expect(published.contains(found[0])).toBe(true);
+    }
+  });
+
+  it("shows each note once, in the block of the report's own tables, at the default view too", async () => {
+    render(await StudyPage({ searchParams: Promise.resolve({}) }));
+    const published = screen.getByRole("region", { name: "As published" });
+    for (const note of [study.report_tables.coverage_note, study.report_tables.exploratory_note]) {
+      const found = screen.getAllByText(note);
+      expect(found).toHaveLength(1);
+      expect(published.contains(found[0])).toBe(true);
+    }
   });
 
   it("replaces a value it does not recognise with the default, and echoes none of it", async () => {

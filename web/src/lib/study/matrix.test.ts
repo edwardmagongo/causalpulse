@@ -94,7 +94,13 @@ describe("cellOf on a row of its own", () => {
       mcse: 0.1,
       nUsed: 3,
       nFitted: 3,
+      nRefused: 0,
     });
+  });
+
+  it("carries the refused count of a row that was partly refused, beside the fits", () => {
+    const cell = cellOf({ ...base, n_fitted: 30, n_refused: 20, bias: 0.5, bias_mcse: 0.1, bias_n_used: 30 }, "bias");
+    expect(cell).toEqual({ kind: "value", value: 0.5, mcse: 0.1, nUsed: 30, nFitted: 30, nRefused: 20 });
   });
 
   it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
@@ -130,6 +136,7 @@ describe("cellOf on a row of its own", () => {
         mcse: null,
         nUsed: 3,
         nFitted: 3,
+        nRefused: 0,
       });
     },
   );

@@ -15,31 +15,34 @@ export type EstimatorFamily = Family;
 export type Shape = "cross_section" | "panel" | "donor_pool";
 
 /**
- * `family` and `shape` are `string` here, not their unions: TypeScript reads a
- * JSON import's literals as `string`, so a union would make the drift guard
- * reject the committed file for a reason that is not drift. `isEstimatorFamily`
- * and `isShape` narrow them once, at the load boundary (`checkVocabulary` in
- * `bundle.ts`), which refuses a bundle holding a value they do not recognise.
+ * `family` and `shape` are `string | null` here, not their unions: TypeScript
+ * reads a JSON import's literals as `string`, so a union would make the drift
+ * guard reject the committed file for a reason that is not drift, and the
+ * writer fills each from a lookup that can miss, which it writes as `null`.
+ * `isEstimatorFamily` and `isShape` narrow them once, at the load boundary
+ * (`checkVocabulary` in `bundle.ts`), which refuses a bundle holding a value
+ * they do not recognise, a `null` included.
  */
-export type Estimator = { name: string; family: string };
+export type Estimator = { name: string; family: string | null };
 
-export type Scenario = { name: string; shape: string };
+export type Scenario = { name: string; shape: string | null };
 
 const SHAPES: readonly string[] = ["cross_section", "panel", "donor_pool"];
 const ESTIMATOR_FAMILIES: readonly string[] = ["cross_sectional", "panel", "donor_pool"];
 
-export function isShape(value: string): value is Shape {
-  return SHAPES.includes(value);
+export function isShape(value: string | null): value is Shape {
+  return value !== null && SHAPES.includes(value);
 }
 
-export function isEstimatorFamily(value: string): value is EstimatorFamily {
-  return ESTIMATOR_FAMILIES.includes(value);
+export function isEstimatorFamily(value: string | null): value is EstimatorFamily {
+  return value !== null && ESTIMATOR_FAMILIES.includes(value);
 }
 
 export type Provenance = {
   cells_done: number;
   cells_expected: number;
-  git_commit: string;
+  /** `null` when the run's manifest records no commit. */
+  git_commit: string | null;
   replications: number;
   role: string;
   tier: string;
@@ -99,7 +102,7 @@ export type ReportTables = {
   tables: Record<string, ReportTableRow[]>;
 };
 
-/** One method on one conditional-effect scenario. */
+/** One method on one conditional-effect scenario. A metric no fit fed, and its error, are `null`. */
 export type CateRow = {
   method: string;
   scenario: string;
@@ -109,8 +112,8 @@ export type CateRow = {
   cate_correlation: number | null;
   cate_correlation_mcse: number | null;
   cate_correlation_n_used: number;
-  cate_rmse: number;
-  cate_rmse_mcse: number;
+  cate_rmse: number | null;
+  cate_rmse_mcse: number | null;
   cate_rmse_n_used: number;
 };
 
@@ -122,18 +125,21 @@ export type Cate = {
   table: CateRow[];
 };
 
-/** One method and interval on scenario P7. */
+/**
+ * One method and interval on scenario P7. A metric no fit fed, and its error,
+ * are `null`; `interval` is an empty string when the method has no interval.
+ */
 export type P7Row = {
-  bias: number;
-  bias_mcse: number;
+  bias: number | null;
+  bias_mcse: number | null;
   bias_n_used: number;
-  coverage: number;
-  coverage_mcse: number;
+  coverage: number | null;
+  coverage_mcse: number | null;
   coverage_n_used: number;
   interval: string;
   method: string;
-  rmse: number;
-  rmse_mcse: number;
+  rmse: number | null;
+  rmse_mcse: number | null;
   rmse_n_used: number;
 };
 
@@ -145,8 +151,11 @@ export type P7 = {
   table: P7Row[];
 };
 
+/** What the study did not cover: a name, as the study writes it, and the reason. */
+export type NotCovered = { name: string; reason: string };
+
 export type Limitations = {
-  not_covered: string[];
+  not_covered: NotCovered[];
   statements: string[];
 };
 

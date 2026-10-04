@@ -194,10 +194,35 @@ describe("a capped scale", () => {
     expect(bias.highEnd).toBe(3);
     expect(bias.lowBeyond).toBe(false);
     expect(bias.highBeyond).toBe(false);
-    for (const metric of ["relative_bias", "se_calibration", "type_m"]) {
-      const scale = scaleFor(metric, [-40, 40]);
-      expect(scale.kind === "diverging" && scale.halfWidth > 0.15).toBe(true);
+    const relative = scaleFor("relative_bias", [-40, 40]);
+    expect(relative.kind === "diverging" && relative.halfWidth > 0.15).toBe(true);
+    for (const metric of ["se_calibration", "type_m"]) {
+      const scale = scaleFor(metric, [1, 41]);
+      expect(scale.kind === "diverging" && scale.halfWidth).toBe(40);
     }
+  });
+
+  it("bounds a ratio below at 0 and leaves its top open, so its low end is never negative", () => {
+    // Centre 1, half-width 3.344: the unclipped low end would be -2.344, for a ratio that cannot be negative.
+    for (const metric of ["type_m", "se_calibration"]) {
+      const scale = scaleFor(metric, [1, 4.344]);
+      expect(scale).toMatchObject({ kind: "diverging", centre: 1, lowEnd: 0, highEnd: 4.344, lowBeyond: false, highBeyond: false });
+      const beyond = scaleFor(metric, [-0.5, 4.344]);
+      expect(beyond).toMatchObject({ lowEnd: 0, lowBeyond: true, highBeyond: false });
+      // No upper bound: a large value sets the half-width and the high end, and is never beyond it.
+      const wide = scaleFor(metric, [0.5, 100]);
+      expect(wide).toMatchObject({ lowEnd: 0, highEnd: 100, highBeyond: false });
+    }
+  });
+
+  it("draws a ratio's strip from the colour of a ratio of 0, not from -1", () => {
+    const scale = scaleFor("type_m", [1, 4.344]);
+    const steps = legendSteps(scale);
+    expect(steps).toHaveLength(5);
+    expect(steps[0]).toBeCloseTo(position(0, scale), 12);
+    expect(steps[0]).toBeCloseTo(-1 / 3.344, 12);
+    expect(steps[steps.length - 1]).toBe(1);
+    expect(steps).toContain(0);
   });
 
   it("bounds the sequential shares, and says nothing of it while every value is possible", () => {

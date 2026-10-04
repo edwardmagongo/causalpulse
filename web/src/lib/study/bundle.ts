@@ -16,16 +16,25 @@ export function checkVersion(found: number): VersionCheck {
 /**
  * Every scenario's shape and every estimator's family must be one this build
  * knows: `matrixOf` has no column or family for any other. `unknown` names each
- * offender, for example `scenario P9: shape "staggered"`.
+ * offender, for example `scenario P9: shape "staggered"`, or
+ * `scenario P9: no shape recorded` where the study holds `null`.
  */
 export function checkVocabulary(study: StudyBundle): VocabularyCheck {
   const unknown = [
     ...study.scenarios
       .filter((scenario) => !isShape(scenario.shape))
-      .map((scenario) => `scenario ${scenario.name}: shape "${scenario.shape}"`),
+      .map((scenario) =>
+        scenario.shape === null
+          ? `scenario ${scenario.name}: no shape recorded`
+          : `scenario ${scenario.name}: shape "${scenario.shape}"`,
+      ),
     ...study.estimators
       .filter((estimator) => !isEstimatorFamily(estimator.family))
-      .map((estimator) => `estimator ${estimator.name}: family "${estimator.family}"`),
+      .map((estimator) =>
+        estimator.family === null
+          ? `estimator ${estimator.name}: no family recorded`
+          : `estimator ${estimator.name}: family "${estimator.family}"`,
+      ),
   ];
   return unknown.length === 0 ? { ok: true } : { ok: false, reason: "vocabulary", unknown };
 }

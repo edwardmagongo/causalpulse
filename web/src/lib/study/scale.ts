@@ -24,6 +24,8 @@ export const NOMINAL_FALSE_POSITIVE_RATE = 0.05;
  * in the cell. These are the only caps and bounds in the file.
  */
 const SHARE_BOUNDS = { min: 0, max: 1 } as const;
+/** A ratio that is not a sign: it cannot be negative, and has no upper limit. */
+const RATIO_BOUNDS = { min: 0 } as const;
 const COVERAGE_CAP = 0.15;
 const FALSE_POSITIVE_RATE_CAP = 0.15;
 
@@ -49,7 +51,8 @@ export type Scale =
   | { kind: "sequential"; low: number; high: number; lowBeyond?: true; highBeyond?: true }
   | { kind: "flat" }; // nothing to compare: one value, or none
 
-type Bounds = { readonly min: number; readonly max: number };
+/** The values a metric can take; an absent `max` is an open upper end. */
+type Bounds = { readonly min: number; readonly max?: number };
 
 type Rule = (
   | { kind: "diverging"; centre: number; centreLabel: string; cap?: number }
@@ -62,8 +65,8 @@ const SEQUENTIAL_SHARE: Rule = { kind: "sequential", bounds: SHARE_BOUNDS };
 const RULES: Record<string, Rule> = {
   bias: { kind: "diverging", centre: 0, centreLabel: "0" },
   relative_bias: { kind: "diverging", centre: 0, centreLabel: "0" },
-  se_calibration: { kind: "diverging", centre: 1, centreLabel: "1" },
-  type_m: { kind: "diverging", centre: 1, centreLabel: "1" },
+  se_calibration: { kind: "diverging", centre: 1, centreLabel: "1", bounds: RATIO_BOUNDS },
+  type_m: { kind: "diverging", centre: 1, centreLabel: "1", bounds: RATIO_BOUNDS },
   false_positive_rate: {
     kind: "diverging",
     centre: NOMINAL_FALSE_POSITIVE_RATE,
@@ -109,7 +112,8 @@ export function scaleFor(metric: string, values: number[]): Scale {
     const halfWidth = rule.cap === undefined ? widest : Math.min(widest, rule.cap);
     // An end the bounds do not clip is judged by the deviation that set the
     // half-width, so no rounding of `centre + halfWidth` can call a value beyond it.
-    const clippedHigh = bounds !== undefined && bounds.max < centre + halfWidth;
+    const max = bounds?.max;
+    const clippedHigh = max !== undefined && max < centre + halfWidth;
     const clippedLow = bounds !== undefined && bounds.min > centre - halfWidth;
     return {
       kind: "diverging",
@@ -117,12 +121,12 @@ export function scaleFor(metric: string, values: number[]): Scale {
       halfWidth,
       centreLabel: rule.centreLabel,
       lowEnd: clippedLow ? bounds.min : centre - halfWidth,
-      highEnd: clippedHigh ? bounds.max : centre + halfWidth,
+      highEnd: clippedHigh ? max : centre + halfWidth,
       lowBeyond: clippedLow
         ? finite.some((value) => value < bounds.min)
         : finite.some((value) => centre - value > halfWidth),
       highBeyond: clippedHigh
-        ? finite.some((value) => value > bounds.max)
+        ? finite.some((value) => value > max)
         : finite.some((value) => value - centre > halfWidth),
     };
   }
@@ -130,9 +134,10 @@ export function scaleFor(metric: string, values: number[]): Scale {
   let high = Math.max(...finite);
   if (low === high) return { kind: "flat" };
   const lowBeyond = bounds !== undefined && low < bounds.min;
-  const highBeyond = bounds !== undefined && high > bounds.max;
+  const max = bounds?.max;
+  const highBeyond = max !== undefined && high > max;
   if (lowBeyond) low = bounds.min;
-  if (highBeyond) high = bounds.max;
+  if (highBeyond) high = max;
   if (low >= high) return { kind: "flat" };
   return {
     kind: "sequential",

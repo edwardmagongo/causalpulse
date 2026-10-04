@@ -1786,9 +1786,13 @@ an empty scratch directory to check that the current code reproduces the committ
 byte, or at `$REPORT` to replace it. Report and bundle must be regenerated together:
 `tests/report/test_bundle_committed.py` fails when one is regenerated without the other. The
 bundle is written only by this command and is never edited by hand. A bundle whose shape the page
-does not expect fails `make check-web`, which type-checks the import. That test cannot show that
-the bundle is what the current code would write; only running the command shows that. `docs/specs/2026-10-04-dashboard-phase2-explorer-design.md`
-section 12 records what changed while building it.
+does not expect fails `make check-web`, which type-checks the import. The Python test
+`tests/report/test_bundle_committed.py` also ties the bundle's copies of the code's own constants
+(the metric definitions, each family's metrics, the levels and each estimator's family) to the code.
+Neither check can show that the rest of the bundle is what the current code would write; only
+running the command shows that.
+`docs/specs/2026-10-04-dashboard-phase2-explorer-design.md` section 12 records what changed while
+building it.
 
 ### Its API types cannot drift
 

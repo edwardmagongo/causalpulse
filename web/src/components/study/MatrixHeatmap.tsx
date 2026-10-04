@@ -17,7 +17,9 @@ export function sizeLabel(column: Column): string | null {
 export function cellReason(cell: Cell): string {
   switch (cell.kind) {
     case "value":
-      return `${cell.nUsed} of ${cell.nFitted} fits`;
+      return cell.nRefused > 0
+        ? `${cell.nUsed} of ${cell.nFitted} fits, ${cell.nRefused} refused`
+        : `${cell.nUsed} of ${cell.nFitted} fits`;
     case "not_eligible":
       return "Not eligible for this scenario";
     case "refused":
@@ -139,10 +141,8 @@ function HeatCell({ cell, scale }: { cell: Cell; scale: Scale }) {
     >
       <span className="block">{formatNumber(cell.value)}</span>
       <span className="label block">± {formatNumber(cell.mcse)}</span>
-      {cell.nUsed < cell.nFitted ? (
-        <span className="label block">
-          {cell.nUsed} of {cell.nFitted} fits
-        </span>
+      {cell.nUsed < cell.nFitted || cell.nRefused > 0 ? (
+        <span className="label block">{title}</span>
       ) : null}
     </td>
   );

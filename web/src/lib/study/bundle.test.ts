@@ -67,6 +67,19 @@ describe("checkVocabulary", () => {
     });
   });
 
+  it("reads a null shape or family as none recorded, not as the text null", () => {
+    const altered: StudyBundle = {
+      ...study,
+      scenarios: [...study.scenarios, { name: "P9", shape: null }],
+      estimators: [...study.estimators, { name: "newcomer", family: null }],
+    };
+    expect(checkVocabulary(altered)).toEqual({
+      ok: false,
+      reason: "vocabulary",
+      unknown: ["scenario P9: no shape recorded", "estimator newcomer: no family recorded"],
+    });
+  });
+
   it("lists every offender, scenarios first", () => {
     const altered: StudyBundle = {
       ...study,
