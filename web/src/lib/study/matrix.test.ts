@@ -123,10 +123,20 @@ describe("matrixOf", () => {
     expect(aipw?.cells[h].kind).toBe("refused");
   });
 
-  it("knows the shape of every scenario and the family of every estimator", () => {
-    const matrix = matrixOf(study, { ...accuracy, level: "scenario" });
-    expect(matrix.columns.map((c) => c.scenario)).toEqual(study.scenarios.map((s) => s.name));
-    expect(matrix.rows.every((r) => r.family !== null)).toBe(true);
+  it("throws, naming the scenario, for a scenario whose shape it does not know", () => {
+    const altered: StudyBundle = {
+      ...study,
+      scenarios: study.scenarios.map((s) => (s.name === "P1" ? { ...s, shape: "staggered" } : s)),
+    };
+    expect(() => matrixOf(altered, { ...accuracy, level: "scenario" })).toThrow(/scenario P1.*"staggered"/);
+  });
+
+  it("throws, naming the estimator, for an estimator whose family it does not know", () => {
+    const altered: StudyBundle = {
+      ...study,
+      estimators: study.estimators.map((e) => (e.name === "aipw" ? { ...e, family: "bayesian" } : e)),
+    };
+    expect(() => matrixOf(altered, { ...accuracy, level: "scenario" })).toThrow(/estimator aipw.*"bayesian"/);
   });
 
   it("keeps only the panel scenarios when asked for the panel shape", () => {
@@ -164,13 +174,34 @@ describe("matrixOf", () => {
     expect(changes).toHaveLength(order.length - 1);
   });
 
-  it("has no cell for a metric the family does not hold, never a made-up one", () => {
+  it("gives absent for a fitted pair, and the reason for an unfitted one, when the family lacks the metric", () => {
+    // `power` is a detection metric: the accuracy rows carry no `power` column.
     const matrix = matrixOf(study, { ...accuracy, level: "scenario", metric: "power" });
-    for (const row of matrix.rows) for (const cell of row.cells) expect(["absent", "not_eligible", "refused"]).toContain(cell.kind);
+    const cell = (estimator: string, scenario: string) =>
+      matrix.rows.find((r) => r.estimator === estimator)?.cells[
+        matrix.columns.findIndex((c) => c.scenario === scenario)
+      ];
+    expect(cell("aipw", "A")).toEqual({ kind: "absent" });
+    expect(cell("aipw", "P1")).toEqual({ kind: "not_eligible" });
+    expect(cell("aipw", "H")?.kind).toBe("refused");
   });
 
-  it("gives an empty matrix for a family the bundle does not hold", () => {
+  it("reads power from detection: a value where there is an effect, not_applicable under the null", () => {
+    const matrix = matrixOf(study, { ...accuracy, family: "detection", level: "scenario", metric: "power" });
+    const cell = (estimator: string, scenario: string) =>
+      matrix.rows.find((r) => r.estimator === estimator)?.cells[
+        matrix.columns.findIndex((c) => c.scenario === scenario)
+      ];
+    expect(cell("aipw", "A")?.kind).toBe("value");
+    expect(cell("aipw", "B")?.kind).toBe("not_applicable");
+    expect(cell("aipw", "P1")).toEqual({ kind: "not_eligible" });
+    expect(cell("aipw", "H")?.kind).toBe("refused");
+  });
+
+  it("has a row of absent cells for each estimator when the bundle does not hold the family", () => {
     const matrix = matrixOf(study, { ...accuracy, family: "nope", level: "scenario" });
+    expect(matrix.rows).toHaveLength(12);
+    expect(matrix.columns).toHaveLength(19);
     expect(matrix.rows.every((r) => r.cells.every((c) => c.kind === "absent"))).toBe(true);
   });
 });

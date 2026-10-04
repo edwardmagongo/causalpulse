@@ -1,7 +1,10 @@
 /**
  * The shape of `src/data/benchmark-study.json`, written by hand. The bundle is
- * assigned to `StudyBundle` in `bundle.ts`, so a field the generator adds,
- * drops or retypes fails `tsc` there instead of surfacing on the page.
+ * assigned to `StudyBundle` in `bundle.ts`, so a field the generator drops or
+ * retypes fails `tsc` there instead of surfacing on the page. A key it adds
+ * does not: a JSON import gets no excess-property check, and the index
+ * signatures accept any column. Added keys are pinned on the Python side by
+ * `tests/report/test_bundle.py`.
  */
 import type { Family } from "@/lib/api/types";
 
@@ -15,7 +18,8 @@ export type Shape = "cross_section" | "panel" | "donor_pool";
  * `family` and `shape` are `string` here, not their unions: TypeScript reads a
  * JSON import's literals as `string`, so a union would make the drift guard
  * reject the committed file for a reason that is not drift. `isEstimatorFamily`
- * and `isShape` narrow them where they are used.
+ * and `isShape` narrow them once, at the load boundary (`checkVocabulary` in
+ * `bundle.ts`), which refuses a bundle holding a value they do not recognise.
  */
 export type Estimator = { name: string; family: string };
 

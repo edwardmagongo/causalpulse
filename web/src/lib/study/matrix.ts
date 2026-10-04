@@ -9,7 +9,7 @@ export type Cell =
   | { kind: "refused"; nRefused: number }
   | { kind: "not_applicable"; nFitted: number } // fitted, but no fit feeds this metric
   | { kind: "undefined"; nUsed: number } // fitted and used, the metric has no value here
-  | { kind: "absent" }; // no row for the pair
+  | { kind: "absent" }; // no row for the pair, or a fitted row without a usable value or `_n_used` for the metric
 
 export type Column = {
   key: string;
@@ -19,7 +19,7 @@ export type Column = {
   nPeriods?: number | null;
 };
 
-export type MatrixRow = { estimator: string; family: EstimatorFamily | null; cells: Cell[] };
+export type MatrixRow = { estimator: string; family: EstimatorFamily; cells: Cell[] };
 
 export type Matrix = { metric: string; columns: Column[]; rows: MatrixRow[] };
 
@@ -95,15 +95,30 @@ export function matrixOf(
   const byPair = new Map<string, FamilyRow>();
   for (const row of rows) byPair.set(`${row.method}|${keyOfRow(row)}`, row);
 
-  // A scenario whose shape this build does not know has no column to sit in;
-  // `schema_version` is what keeps that from happening, and a test pins it.
-  const columns = study.scenarios.flatMap((scenario) =>
-    isShape(scenario.shape) && (view.shape === "all" || scenario.shape === view.shape)
+  // `loadStudy` refuses a bundle with a shape or family this build does not
+  // know, so these throws are unreachable after it. Reaching one means a study
+  // got here without the load check, and a quiet drop would show a matrix with
+  // a column or a row missing.
+  const scenarios = study.scenarios.map((scenario) => {
+    if (!isShape(scenario.shape)) {
+      throw new Error(`scenario ${scenario.name} has a shape this build does not know: "${scenario.shape}"`);
+    }
+    return { name: scenario.name, shape: scenario.shape };
+  });
+  const known = study.estimators.map((estimator) => {
+    if (!isEstimatorFamily(estimator.family)) {
+      throw new Error(`estimator ${estimator.name} has a family this build does not know: "${estimator.family}"`);
+    }
+    return { name: estimator.name, family: estimator.family };
+  });
+
+  const columns = scenarios.flatMap((scenario) =>
+    view.shape === "all" || scenario.shape === view.shape
       ? columnsOf(rows, scenario.name, scenario.shape, view.level)
       : [],
   );
 
-  const estimators = study.estimators.filter(
+  const estimators = known.filter(
     (estimator) => view.estimatorFamily === "all" || estimator.family === view.estimatorFamily,
   );
 
@@ -112,7 +127,7 @@ export function matrixOf(
     columns,
     rows: estimators.map((estimator) => ({
       estimator: estimator.name,
-      family: isEstimatorFamily(estimator.family) ? estimator.family : null,
+      family: estimator.family,
       cells: columns.map((column) => cellOf(byPair.get(`${estimator.name}|${column.key}`), view.metric)),
     })),
   };
