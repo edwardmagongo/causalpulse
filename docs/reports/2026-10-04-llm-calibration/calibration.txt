@@ -1,0 +1,359 @@
+== d  (104 facts)
+  attempt 1: input=8599 output=3156 cost=$0.098 violations=0
+# Interpretation
+
+## Summary
+
+- With assignment provenance recorded as observational, the difference_in_means estimate of the ATE is 0.1693 on the percentage_point scale, with an interval from 0.07461 to 0.2589 that excludes zero .
+- The covariate-adjusted ipw estimate is smaller at 0.06601 , with an interval from -0.03947 to 0.1715 that includes zero , so the adjusted evidence for an effect appears less clear.
+- The cross-method comparison reports the 2 methods as consistent , though neither result should be read as settled given the observational design.
+
+## Estimates
+
+- If treatment had been randomly assigned, difference_in_means would estimate the ATE at 0.1693 , with a 95% interval from 0.07461 to 0.2589 and a p-value of < 0.001 .
+- For difference_in_means the direction is positive , based on 218 treated and 182 control units.
+- Assuming no unmeasured confounding given the supplied covariates, ipw would estimate the ATE at 0.06601 , with a 95% interval from -0.03947 to 0.1715 and a p-value of 0.22 .
+- For ipw the direction is positive and the interval includes zero , based on 218 treated and 182 control units.
+
+## Validity
+
+- The diagnostics place difference_in_means in the MODERATE band, under a design ceiling of MODERATE .
+- For difference_in_means the randomised_assignment check has status NOT_TESTABLE , since random assignment is a claim about how the data were produced and may not hold here.
+- The diagnostics place ipw in the WEAK band, below its design ceiling of MODERATE , because its positivity check returned WARN .
+- For ipw the covariate_balance check has status PASS , with a largest standardised difference of 0.09662 against a threshold of 0.1 .
+- For ipw the unconfoundedness check has status NOT_TESTABLE , so balance on supplied covariates may say nothing about omitted ones.
+
+## Agreement across methods
+
+- Across 2 methods the comparison verdict is consistent , meaning the intervals overlap, which is consistent with a common effect under each method's own assumptions.
+- Point estimates in the comparison run from 0.06601 to 0.1693 , with a descriptive dispersion of 0.07305 that is not a test of heterogeneity.
+
+## Caveats
+
+- The positivity check for ipw returned WARN , indicating that some units may lie outside the region where both arms are represented, so their contribution could rest on extrapolation.
+- Trimming to common support may help, as the remedy for ipw suggests: Trim to the common support, or restrict the population to where both arms exist.
+- The router marked bsts as not eligible and synthetic_control as not eligible , because both need panel data and very few treated units.
+- The router marked did_2x2 as not eligible , event_study as not eligible , twfe as not eligible , callaway_santanna as not eligible and hierarchical_did as not eligible , mainly because the dataset is a cross-section rather than a panel.
+- The router marked aipw as eligible , causal_forest as eligible and lin_regression as eligible , yet no estimate from these appears among the results, so a doubly robust or regression-adjusted check may be missing.
+
+## Limits
+
+This band scores observable diagnostics, not truth. It is not a probability that the effect is causal, and it cannot establish an assumption the data are unable to test.
+
+  verified
+== single  (62 facts)
+  attempt 1: input=5647 output=2802 cost=$0.079 violations=0
+# Interpretation
+
+## Summary
+
+- Under the assumption that treatment was randomly assigned, the difference_in_means estimate of the ATE is 0.1693 on the percentage_point scale, with an interval from 0.07461 to 0.2589 .
+- The interval for difference_in_means is labelled excludes zero , but the data are labelled observational , so the estimate may also reflect confounding rather than the treatment alone.
+- Only 1 method produced an estimate, so no cross-method check is available.
+
+## Estimates
+
+- For difference_in_means , the estimated ATE is 0.1693 with a 95% analytic interval from 0.07461 to 0.2589 .
+- The difference_in_means estimate has a standard error of 0.04736 , a p-value of < 0.001 and a direction labelled positive , based on 218 treated and 182 control units.
+
+## Validity
+
+- The difference_in_means estimate receives a validity band of MODERATE with a ceiling of MODERATE .
+- The ceiling for difference_in_means appears to reflect the observational design, under which the band can go no higher than MODERATE .
+- The randomised_assignment check for difference_in_means has status NOT_TESTABLE , since random assignment is a claim about how the data were generated rather than something the data can show.
+
+## Agreement across methods
+
+- No cross-method comparison was made because only one method estimated the ATE on the percentage_point scale, so there is no second estimate to compare it with .
+
+## Caveats
+
+- The randomised_assignment check for difference_in_means has status NOT_TESTABLE , so the estimate would be unbiased only if assignment was in fact random, which seems doubtful for observational data.
+- The router marked aipw as eligible , and also listed ipw , lin_regression and causal_forest as options, yet only 1 estimate was produced, so no covariate-adjusted estimate is available to compare against.
+- The router marked did_2x2 as not eligible , and likewise excluded event_study , twfe , callaway_santanna , hierarchical_did , synthetic_control and bsts , mainly because the dataset is a cross-section rather than a panel.
+- The count of estimator fits that raised an error is 0 .
+
+## Limits
+
+This band scores observable diagnostics, not truth. It is not a probability that the effect is causal, and it cannot establish an assumption the data are unable to test.
+
+  verified
+== lalonde  (93 facts)
+  attempt 1: input=7909 output=3589 cost=$0.103 violations=2
+    [vocabulary] 'fail' states a check status; cite the status fact
+      No check in this analysis carries a FAIL or WARN status, and the number of estimators whose fit raised an error is {analysis.n_failed} .
+    [vocabulary] 'warn' states a check status; cite the status fact
+      No check in this analysis carries a FAIL or WARN status, and the number of estimators whose fit raised an error is {analysis.n_failed} .
+  attempt 2: input=11705 output=1731 cost=$0.081 violations=0
+# Interpretation
+
+## Summary
+
+- Under the assumptions of difference_in_means, the estimated ATE is -8333, with an interval from -9484 to -7182, and that interval excludes zero .
+- Under the assumptions of lin_regression, which adjusts for covariates, the estimate is -3597, with an interval from -9360 to 2167, and that interval includes zero .
+- The comparison verdict across methods is consistent, but the design is labelled observational, so neither estimate should be read as settled.
+
+## Estimates
+
+- difference_in_means estimates the ATE on the absolute scale as -8333, with a 95% analytic interval from -9484 to -7182 and a standard error of 583.4 .
+- For difference_in_means, the direction is negative and the p-value is < 0.001 , based on 185 treated and 16252 control units.
+- lin_regression estimates the ATE on the absolute scale as -3597, with a 95% analytic interval from -9360 to 2167 and a standard error of 2941 .
+- For lin_regression, the direction is negative and the p-value is 0.221 , based on 185 treated and 16252 control units.
+
+## Validity
+
+- difference_in_means receives a validity band of MODERATE under a ceiling of MODERATE .
+- For difference_in_means, the scoring notes read: Design provenance is observational, so the band cannot exceed MODERATE.
+- For difference_in_means, the randomised_assignment check has status NOT_TESTABLE , since random assignment is a claim about how the data were gathered rather than something the data can show.
+- lin_regression receives a validity band of MODERATE under a ceiling of MODERATE .
+- For lin_regression, the scoring notes read: Design provenance is observational, so the band cannot exceed MODERATE.
+- For lin_regression, the randomised_assignment check has status NOT_TESTABLE and the outcome_model_specification check has status NOT_TESTABLE .
+
+## Agreement across methods
+
+- Across 2 methods the comparison verdict is consistent , with point estimates ranging from -8333 to -3597 and a descriptive dispersion of 3349 .
+- The 2 methods scored WEAK or better report intervals that overlap pairwise, which is consistent with a common effect under each method's own assumptions. Highest validity band: difference_in_means at MODERATE. Point estimates range from -8333 to -3597; descriptive dispersion (standard deviation across methods, not a test of heterogeneity) is 3349. Interval bases in this comparison: analytic.
+
+## Caveats
+
+- The number of estimators whose fit raised an error is 0 , and every recorded check carries a status that reflects untested assumptions rather than a flagged problem.
+- The design is labelled observational , so difference_in_means would be unbiased only if treatment had been randomly assigned, which the data cannot confirm.
+- Even for lin_regression, the adjustment covers only the supplied covariates and offers no protection against confounding by anything unobserved.
+- The router marked aipw as eligible , yet no estimate from it appears in this analysis.
+- The router marked ipw as eligible and causal_forest as eligible , yet no estimates from them appear here, so propensity-based checks on this observational design are missing.
+- The router marked did_2x2 as not eligible , with the reason given as: requires panel data; dataset is a cross-section .
+- The router marked synthetic_control as not eligible , with reasons given as: requires panel data; dataset is a cross-section ; requires at most 1 treated unit(s); dataset has 185 .
+
+## Limits
+
+This band scores observable diagnostics, not truth. It is not a probability that the effect is causal, and it cannot establish an assumption the data are unable to test.
+
+  verified
+== 4 model calls
+== free-text words in verified narratives, most frequent first
+   88 the
+   35 a
+   29 is
+   29 and
+   27 as
+   25 of
+   22 for
+   18 with
+   16 estimate
+   15 from
+   15 to
+   14 interval
+   13 check
+   12 on
+   11 so
+    9 an
+    9 that
+    9 no
+    9 has
+    9 status
+    9 data
+    9 router
+    9 marked
+    8 under
+    7 design
+    7 units
+    7 than
+    6 comparison
+    6 based
+    6 treated
+    6 band
+    6 ceiling
+    6 may
+    6 rather
+    5 assignment
+    5 cross
+    5 method
+    5 be
+    5 p
+    5 value
+    5 direction
+    5 control
+    5 in
+    5 because
+    5 which
+    5 estimates
+    5 labelled
+    5 only
+    5 error
+    4 scale
+    4 adjusted
+    4 appears
+    4 methods
+    4 read
+    4 given
+    4 treatment
+    4 would
+    4 covariates
+    4 random
+    4 about
+    4 assumptions
+    4 yet
+    4 was
+    3 at
+    3 if
+    3 randomly
+    3 assigned
+    3 confounding
+    3 supplied
+    3 since
+    3 claim
+    3 how
+    3 were
+    3 produced
+    3 against
+    3 across
+    3 verdict
+    3 are
+    3 panel
+    3 standard
+    3 receives
+    3 validity
+    3 can
+    2 recorded
+    2 covariate
+    2 effect
+    2 neither
+    2 should
+    2 settled
+    2 observational
+    2 had
+    2 been
+    2 diagnostics
+    2 place
+    2 not
+    2 here
+    2 its
+    2 returned
+    2 common
+    2 point
+    2 descriptive
+    2 dispersion
+    2 both
+    2 mainly
+    2 dataset
+    2 section
+    2 missing
+    2 but
+    2 also
+    2 reflect
+    2 available
+    2 estimated
+    2 something
+    2 show
+    2 unbiased
+    2 raised
+    2 scoring
+    2 notes
+    2 this
+    1 provenance
+    1 smaller
+    1 evidence
+    1 less
+    1 clear
+    1 reports
+    1 though
+    1 result
+    1 assuming
+    1 unmeasured
+    1 hold
+    1 below
+    1 largest
+    1 standardised
+    1 difference
+    1 threshold
+    1 balance
+    1 say
+    1 nothing
+    1 omitted
+    1 ones
+    1 meaning
+    1 intervals
+    1 overlap
+    1 consistent
+    1 each
+    1 s
+    1 own
+    1 run
+    1 test
+    1 heterogeneity
+    1 indicating
+    1 some
+    1 lie
+    1 outside
+    1 region
+    1 where
+    1 arms
+    1 represented
+    1 their
+    1 contribution
+    1 could
+    1 rest
+    1 extrapolation
+    1 trimming
+    1 support
+    1 help
+    1 remedy
+    1 suggests
+    1 need
+    1 very
+    1 few
+    1 these
+    1 among
+    1 results
+    1 doubly
+    1 robust
+    1 or
+    1 regression
+    1 assumption
+    1 alone
+    1 go
+    1 higher
+    1 generated
+    1 made
+    1 fact
+    1 seems
+    1 doubtful
+    1 listed
+    1 options
+    1 compare
+    1 likewise
+    1 excluded
+    1 count
+    1 estimator
+    1 fits
+    1 adjusts
+    1 gathered
+    1 ranging
+    1 number
+    1 estimators
+    1 whose
+    1 fit
+    1 every
+    1 carries
+    1 reflects
+    1 untested
+    1 flagged
+    1 problem
+    1 cannot
+    1 confirm
+    1 even
+    1 adjustment
+    1 covers
+    1 offers
+    1 protection
+    1 by
+    1 anything
+    1 unobserved
+    1 it
+    1 analysis
+    1 them
+    1 appear
+    1 propensity
+    1 checks
+    1 reason
+    1 reasons
