@@ -32,6 +32,13 @@ import { StudyTable } from "./StudyTable";
 
 afterEach(cleanup);
 
+/** What a screen reader reads of an element: its text without the `aria-hidden` subtrees. */
+function withoutHidden(element: Element): string {
+  const copy = element.cloneNode(true) as Element;
+  for (const hidden of copy.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
+  return copy.textContent ?? "";
+}
+
 /** What a sighted reader sees of an element: its text without the screen-reader-only spans. */
 function visibleText(element: Element): string {
   const copy = element.cloneNode(true) as Element;
@@ -75,7 +82,7 @@ describe("OverviewSection", () => {
     for (const [label, value] of facts) {
       expect(screen.getByText(label).nextElementSibling?.textContent).toBe(value);
     }
-    // Two labels would pass the check above if the values were swapped, so the values must differ.
+    // This is what catches two values being swapped: equal values would pass the label check above either way.
     expect(new Set(facts.map(([, value]) => value)).size).toBe(facts.length);
     const lines = screen.getAllByRole("listitem");
     expect(lines).toHaveLength(3);
@@ -339,7 +346,10 @@ describe("MethodsSection", () => {
         "a table",
         (matrix: Matrix) => render(<MatrixTable matrix={matrix} view={{ ...base, display: "table" }} href={href} />),
       ],
-    ] as const)("puts each neutral kind's reason in the cell's text of %s, for a reader who cannot see the title", (_name, draw) => {
+    ] as const)("puts each neutral kind's reason in the cell's text of %s, for a reader who cannot see the title", (name, draw) => {
+      // The table names an ineligible pair; the heatmap leaves it a hatch.
+      const visibleMark = (cell: Cell) =>
+        cell.kind === "not_eligible" && name === "a table" ? "not eligible" : states.find(([state]) => state.kind === cell.kind)![1];
       for (const [cell, , reason] of states) {
         const matrix: Matrix = { metric: "bias", columns, rows: [{ estimator: "aipw", family: "cross_sectional", cells: [cell] }] };
         const { container, unmount } = draw(matrix);
@@ -348,8 +358,20 @@ describe("MethodsSection", () => {
         expect(td.getAttribute("title")).toBe(reason);
         const hidden = td.querySelector(".sr-only");
         expect(hidden?.textContent).toBe(reason);
-        // The visible mark is not read as well as the reason.
-        for (const mark of td.querySelectorAll("[aria-hidden]")) expect(mark.classList.contains("sr-only")).toBe(false);
+        // The visible mark is hidden from a screen reader, so it is not read as well as the reason.
+        const marks = td.querySelectorAll('[aria-hidden="true"]');
+        const mark = marks[0];
+        if (visibleMark(cell) === "") {
+          // An ineligible pair in the heatmap is a hatch: no mark, nothing hidden, only the reason.
+          expect(marks).toHaveLength(0);
+          expect(td.querySelectorAll("span")).toHaveLength(1);
+        } else {
+          expect(marks).toHaveLength(1);
+          expect(mark.classList.contains("sr-only")).toBe(false);
+          expect(mark.textContent).toBe(visibleMark(cell));
+        }
+        // What a screen reader reads: the cell's text without the hidden subtrees is exactly the reason.
+        expect(withoutHidden(td)).toBe(reason);
         unmount();
       }
     });
@@ -599,6 +621,29 @@ describe("ScaleLegend", () => {
     expect(Array.from(container.querySelectorAll(".value"), (end) => end.textContent)).toEqual(["≤ 0.8", "1"]);
     expect(Math.max(...numbersIn(text))).toBeLessThanOrEqual(1);
     expect(container.querySelectorAll(".scale-step.heat")).toHaveLength(5);
+  });
+
+  it("draws the strip only over colours a value can take: its last step is the colour of a coverage of 1", () => {
+    const scale = scaleFor("coverage_analytic", [0, 0.93, 0.95, 0.97]);
+    const { container } = render(<ScaleLegend scale={scale} />);
+    const steps = Array.from(container.querySelectorAll<HTMLElement>(".scale-step"), (step) => step.style.getPropertyValue("--pos"));
+    expect(steps).toHaveLength(5);
+    expect(steps[0]).toBe("-1.0000");
+    expect(steps).toContain("0.0000");
+    // A cell holding the value the legend labels at its high end.
+    const columns = matrixOf(study, { ...defaultView(study), shape: "cross_section" }).columns.slice(0, 1);
+    const cell: Cell = { kind: "value", value: 1, mcse: 0, nUsed: 100, nFitted: 100 };
+    const matrix: Matrix = { metric: "coverage_analytic", columns, rows: [{ estimator: "aipw", family: "cross_sectional", cells: [cell] }] };
+    const heat = render(<MatrixHeatmap matrix={matrix} scale={scale} level="scenario" />);
+    const td = heat.container.querySelector("tbody td") as HTMLElement;
+    expect(steps[steps.length - 1]).toBe(td.style.getPropertyValue("--pos"));
+    expect(Number(steps[steps.length - 1])).toBeCloseTo(1 / 3, 3);
+  });
+
+  it("starts a false-positive-rate strip at the colour of a rate of 0, not at the full blue", () => {
+    const { container } = render(<ScaleLegend scale={scaleFor("false_positive_rate", [0.02, 0.05, 0.3])} />);
+    const first = container.querySelector<HTMLElement>(".scale-step")!;
+    expect(Number(first.style.getPropertyValue("--pos"))).toBeCloseTo(-1 / 3, 3);
   });
 
   it("prints an end as a plain number when no value in view lies beyond it", () => {

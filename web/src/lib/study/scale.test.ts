@@ -3,7 +3,14 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 
 import { loadStudy } from "./bundle";
-import { NOMINAL_COVERAGE, NOMINAL_FALSE_POSITIVE_RATE, hasScaleRule, position, scaleFor } from "./scale";
+import {
+  NOMINAL_COVERAGE,
+  NOMINAL_FALSE_POSITIVE_RATE,
+  hasScaleRule,
+  legendSteps,
+  position,
+  scaleFor,
+} from "./scale";
 import type { StudyBundle } from "./types";
 
 function bundle(): StudyBundle {
@@ -198,6 +205,42 @@ describe("a capped scale", () => {
     expect(scaleFor("type_s", [0, 0.4])).toEqual({ kind: "sequential", low: 0, high: 0.4 });
     expect(scaleFor("power", [-0.1, 0.5])).toEqual({ kind: "sequential", low: 0, high: 0.5, lowBeyond: true });
     expect(scaleFor("power", [0.5, 1.2])).toEqual({ kind: "sequential", low: 0.5, high: 1, highBeyond: true });
+  });
+});
+
+describe("legendSteps", () => {
+  it("runs a coverage scale from the blue end to where a coverage of 1 sits, through the centre", () => {
+    const scale = scaleFor("coverage_analytic", [0, 0.93, 0.95, 0.97]);
+    const steps = legendSteps(scale);
+    expect(steps).toHaveLength(5);
+    expect(steps[0]).toBe(-1);
+    expect(steps[steps.length - 1]).toBeCloseTo(position(1, scale), 12);
+    expect(steps[steps.length - 1]).toBeCloseTo(1 / 3, 12);
+    expect(steps).toContain(0);
+    expect(Math.max(...steps)).toBeLessThanOrEqual(position(1, scale));
+    expect([...steps].sort((a, b) => a - b)).toEqual(steps);
+  });
+
+  it("starts a false-positive-rate scale at where a rate of 0 sits, not at -1", () => {
+    const scale = scaleFor("false_positive_rate", [0.02, 0.05, 0.3]);
+    const steps = legendSteps(scale);
+    expect(steps).toHaveLength(5);
+    expect(steps[0]).toBeCloseTo(position(0, scale), 12);
+    expect(steps[0]).toBeCloseTo(-1 / 3, 12);
+    expect(steps[steps.length - 1]).toBe(1);
+    expect(steps).toContain(0);
+    expect(Math.min(...steps)).toBeGreaterThanOrEqual(position(0, scale));
+  });
+
+  it("keeps an unclipped diverging scale at -1 to 1, and a sequential one at 0 to 1", () => {
+    expect(legendSteps(scaleFor("bias", [-0.2, 0.1, 0.2]))).toEqual([-1, -0.5, 0, 0.5, 1]);
+    expect(legendSteps(scaleFor("bias", [-0.3, 0.1]))).toEqual([-1, -0.5, 0, 0.5, 1]);
+    expect(legendSteps(scaleFor("rmse", [0.1, 0.4]))).toEqual([0, 0.25, 0.5, 0.75, 1]);
+    expect(legendSteps(scaleFor("power", [-0.1, 0.5]))).toEqual([0, 0.25, 0.5, 0.75, 1]);
+  });
+
+  it("draws nothing for a flat scale", () => {
+    expect(legendSteps({ kind: "flat" })).toEqual([]);
   });
 });
 

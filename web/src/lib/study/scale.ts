@@ -156,3 +156,28 @@ export function position(value: number, scale: Scale): number {
   }
   return Math.max(0, Math.min(1, (value - scale.low) / (scale.high - scale.low)));
 }
+
+/** `count` positions evenly spaced from `from` to `to`, ends included. */
+function evenly(from: number, to: number, count: number): number[] {
+  return Array.from({ length: count }, (_, index) => from + ((to - from) * index) / (count - 1));
+}
+
+/**
+ * The positions a legend's strip draws: only those a value can take, so the
+ * colour beside each end label is the colour a cell with that end value gets.
+ * The strip runs from the position of the low end to the position of the high
+ * end (printed in the legend, clipped to the metric's bounds): -1 to 1 for a
+ * scale the bounds do not clip, 0 to 1 for a sequential one. Five steps; a
+ * diverging scale whose range holds its centre puts two steps each side of it
+ * and one on it (position 0), so the centre colour is always shown. A flat
+ * scale has no strip.
+ */
+export function legendSteps(scale: Scale): number[] {
+  if (scale.kind === "flat") return [];
+  if (scale.kind === "sequential") return evenly(position(scale.low, scale), position(scale.high, scale), 5);
+  // An end the bounds do not clip is, by definition, the end of the scale: -1 or 1 exactly.
+  const low = scale.lowEnd <= scale.centre - scale.halfWidth ? -1 : position(scale.lowEnd, scale);
+  const high = scale.highEnd >= scale.centre + scale.halfWidth ? 1 : position(scale.highEnd, scale);
+  if (low < 0 && high > 0) return [...evenly(low, 0, 3), ...evenly(0, high, 3).slice(1)];
+  return evenly(low, high, 5);
+}
