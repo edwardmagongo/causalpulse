@@ -52,11 +52,15 @@ describe("EstimatesTable", () => {
     }
   });
 
-  it("shows the bootstrap interval alone when its level was not stored", () => {
-    // An analysis stored before the level was kept: the summary has no such key.
+  it.each([
+    ["absent", (summary: Record<string, unknown>) => void delete summary.bootstrap_ci_level],
+    // What the API sends for such an analysis: the model's default, serialised.
+    ["null", (summary: Record<string, unknown>) => void (summary.bootstrap_ci_level = null)],
+  ])("shows the bootstrap interval alone when its level was not stored (%s)", (_case, strip) => {
+    // An analysis stored before the level was kept.
     const stored = lalonde.estimates.map((estimate) => {
       const summary: Record<string, unknown> = { ...estimate.summary };
-      delete summary.bootstrap_ci_level;
+      strip(summary);
       return { ...estimate, summary };
     }) as Estimate[];
     render(<EstimatesTable analysisId="a1" estimates={stored} />);

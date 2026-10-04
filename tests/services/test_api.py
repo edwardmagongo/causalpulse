@@ -114,10 +114,14 @@ def test_upload_to_report_end_to_end(client, redis_conn):
     assert body["dataset_filename"] == "d.csv"
     assert [e["method"] for e in body["estimates"]] == PAIR
     assert all(e["band"] for e in body["estimates"])
+    with_level = 0
     for estimate in body["estimates"]:
         summary = estimate["summary"]
         if summary["bootstrap_ci_lower"] is not None:
             assert 0 < summary["bootstrap_ci_level"] < 1, estimate["method"]
+            with_level += 1
+    # Both methods report a bootstrap interval; none checked would pass vacuously.
+    assert with_level > 0
     for method in PAIR:
         base = f"/v1/analyses/{analysis_id}/estimates/{method}"
         html = client.get(f"{base}/report.html")
