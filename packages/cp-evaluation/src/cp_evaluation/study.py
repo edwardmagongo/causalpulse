@@ -43,7 +43,6 @@ TABLE_METRICS: dict[str, tuple[str, ...]] = {
     "runtime": ("runtime_seconds",),
 }
 
-# The two levels every table is reported at.
 # One sentence per headline metric, for a reader of the tables. Each restates
 # the definition in `docs/specs/2026-09-05-causal-core-phase14-design.md`
 # section 6 and the docstrings of `cp_evaluation.metrics`; none adds to them.
@@ -79,6 +78,7 @@ METRIC_DEFINITIONS: dict[str, str] = {
     "runtime_seconds": "Mean seconds per fit.",
 }
 
+# The two levels every table is reported at.
 LEVELS: dict[str, tuple[str, ...]] = {
     "scenario": ("scenario",),
     "scenario_by_size": ("scenario", "n_units", "n_periods"),

@@ -13,7 +13,13 @@ import json
 import numpy as np
 import pandas as pd
 import pytest
-from cp_report.benchmark import write_markdown_benchmark_report
+from cp_report.benchmark import (
+    CATE_NOTE,
+    P7_NOTE,
+    CateSectionData,
+    P7SectionData,
+    write_markdown_benchmark_report,
+)
 from cp_report.bundle import (
     SCHEMA_VERSION,
     RunProvenance,
@@ -77,6 +83,78 @@ def test_each_section_has_exactly_the_keys_the_explorer_reads(benchmark_evidence
         {"name": "donor_pool", "reason": "Not yet implemented."}
     ]
     assert bundle["cate"] is None and bundle["p7"] is None
+
+
+def _with_cate_and_p7(evidence):
+    # The same tables `test_benchmark_render` builds its CATE and P7 sections from; each holds
+    # a NaN, as a scenario with no scored fit does, so the `None` conversion runs on this path.
+    cate = pd.DataFrame(
+        {
+            "method": ["causal_forest", "causal_forest"],
+            "scenario": ["NULL", "RICH"],
+            "cate_correlation": [np.nan, 0.8123],
+            "cate_correlation_mcse": [np.nan, 0.0101],
+            "cate_correlation_n_used": [0, 50],
+            "cate_rmse": [0.0391, 0.0842],
+        }
+    )
+    p7 = pd.DataFrame(
+        {
+            "method": ["callaway_santanna", "twfe"],
+            "bias": [0.0123, -0.4567],
+            "interval": ["bootstrap_se", None],
+            "coverage": [0.9400, np.nan],
+            "coverage_n_used": [50, 0],
+        }
+    )
+    return dataclasses.replace(
+        evidence,
+        cate_section=CateSectionData(
+            table=cate, replications=50, cells_done=148, cells_expected=150, note=CATE_NOTE
+        ),
+        p7_section=P7SectionData(
+            table=p7, replications=40, cells_done=30, cells_expected=50, note=P7_NOTE
+        ),
+    )
+
+
+def test_the_cate_and_p7_sections_carry_their_own_table_counts_and_note(benchmark_evidence):
+    evidence = _with_cate_and_p7(benchmark_evidence)
+
+    text = render_benchmark_bundle(evidence, REPORT)
+    bundle = json.loads(text, parse_constant=_no_constants)
+
+    section_keys = {"table", "replications", "cells_done", "cells_expected", "note"}
+    assert set(bundle["cate"]) == section_keys
+    assert set(bundle["p7"]) == section_keys
+    assert bundle["cate"]["table"] == [
+        {
+            "method": "causal_forest", "scenario": "NULL", "cate_correlation": None,
+            "cate_correlation_mcse": None, "cate_correlation_n_used": 0, "cate_rmse": 0.0391,
+        },
+        {
+            "method": "causal_forest", "scenario": "RICH", "cate_correlation": 0.8123,
+            "cate_correlation_mcse": 0.0101, "cate_correlation_n_used": 50, "cate_rmse": 0.0842,
+        },
+    ]  # fmt: skip
+    assert bundle["p7"]["table"] == [
+        {
+            "method": "callaway_santanna", "bias": 0.0123, "interval": "bootstrap_se",
+            "coverage": 0.94, "coverage_n_used": 50,
+        },
+        {
+            "method": "twfe", "bias": -0.4567, "interval": None,
+            "coverage": None, "coverage_n_used": 0,
+        },
+    ]  # fmt: skip
+    # Counts that differ within and between the two sections, so a swap shows.
+    assert [bundle["cate"][key] for key in ("replications", "cells_done", "cells_expected")] == [
+        50, 148, 150,
+    ]  # fmt: skip
+    assert [bundle["p7"][key] for key in ("replications", "cells_done", "cells_expected")] == [
+        40, 30, 50,
+    ]  # fmt: skip
+    assert bundle["cate"]["note"] == CATE_NOTE and bundle["p7"]["note"] == P7_NOTE
 
 
 def test_the_headline_tables_are_filed_by_family_then_level(benchmark_evidence):
