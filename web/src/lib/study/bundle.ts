@@ -8,11 +8,13 @@ import type { StudyBundle } from "./types";
 /** The schema versions this build of the dashboard can read. */
 export const KNOWN_SCHEMA_VERSIONS = [1] as const;
 
-export type VersionCheck = { ok: true } | { ok: false; found: number; known: readonly number[] };
+export type VersionCheck =
+  | { ok: true }
+  | { ok: false; reason: "version"; found: number; known: readonly number[] };
 
 export function checkVersion(found: number): VersionCheck {
   const known: readonly number[] = KNOWN_SCHEMA_VERSIONS;
-  return known.includes(found) ? { ok: true } : { ok: false, found, known };
+  return known.includes(found) ? { ok: true } : { ok: false, reason: "version", found, known };
 }
 
 export type VocabularyCheck = { ok: true } | { ok: false; reason: "vocabulary"; unknown: string[] };
@@ -40,15 +42,17 @@ export function checkVocabulary(study: StudyBundle): VocabularyCheck {
  */
 const study: StudyBundle = bundle;
 
-export type StudyLoad =
-  | { ok: true; study: StudyBundle }
-  | { ok: false; reason: "version"; found: number; known: readonly number[] }
-  | { ok: false; reason: "vocabulary"; unknown: string[] };
+export type StudyLoad = { ok: true; study: StudyBundle } | Exclude<VersionCheck, { ok: true }> | Exclude<VocabularyCheck, { ok: true }>;
+
+/** Version first, then vocabulary: a study of another version is not read for its names. */
+export function loadFrom(candidate: StudyBundle): StudyLoad {
+  const version = checkVersion(candidate.schema_version);
+  if (!version.ok) return version;
+  const vocabulary = checkVocabulary(candidate);
+  if (!vocabulary.ok) return vocabulary;
+  return { ok: true, study: candidate };
+}
 
 export function loadStudy(): StudyLoad {
-  const version = checkVersion(study.schema_version);
-  if (!version.ok) return { ok: false, reason: "version", found: version.found, known: version.known };
-  const vocabulary = checkVocabulary(study);
-  if (!vocabulary.ok) return vocabulary;
-  return { ok: true, study };
+  return loadFrom(study);
 }

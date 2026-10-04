@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-import { KNOWN_SCHEMA_VERSIONS, checkVersion, checkVocabulary, loadStudy } from "./bundle";
+import { KNOWN_SCHEMA_VERSIONS, checkVersion, checkVocabulary, loadFrom, loadStudy } from "./bundle";
 import type { StudyBundle } from "./types";
 
 describe("loadStudy", () => {
@@ -25,7 +25,12 @@ describe("checkVersion", () => {
   });
 
   it("refuses a version it does not know, naming the one found and the ones known", () => {
-    expect(checkVersion(2)).toEqual({ ok: false, found: 2, known: KNOWN_SCHEMA_VERSIONS });
+    expect(checkVersion(2)).toEqual({
+      ok: false,
+      reason: "version",
+      found: 2,
+      known: KNOWN_SCHEMA_VERSIONS,
+    });
   });
 });
 
@@ -72,6 +77,42 @@ describe("checkVocabulary", () => {
       ok: false,
       reason: "vocabulary",
       unknown: ['scenario A: shape "x"', 'scenario S0: shape "x"', 'estimator ipw: family "y"'],
+    });
+  });
+});
+
+describe("loadFrom", () => {
+  const loaded = loadStudy();
+  if (!loaded.ok) throw new Error("the committed bundle must load");
+  const study = loaded.study;
+  const staggered = study.scenarios.map((s) => (s.name === "P1" ? { ...s, shape: "staggered" } : s));
+
+  it("loads the committed study", () => {
+    expect(loadFrom(study)).toEqual({ ok: true, study });
+  });
+
+  it("refuses a study of a version it does not know, naming the version", () => {
+    expect(loadFrom({ ...study, schema_version: 2 })).toEqual({
+      ok: false,
+      reason: "version",
+      found: 2,
+      known: KNOWN_SCHEMA_VERSIONS,
+    });
+  });
+
+  it("refuses a study with a shape it does not know, naming the scenario", () => {
+    expect(loadFrom({ ...study, scenarios: staggered })).toEqual({
+      ok: false,
+      reason: "vocabulary",
+      unknown: ['scenario P1: shape "staggered"'],
+    });
+  });
+
+  it("reports the version first when the study fails both checks", () => {
+    expect(loadFrom({ ...study, schema_version: 2, scenarios: staggered })).toMatchObject({
+      ok: false,
+      reason: "version",
+      found: 2,
     });
   });
 });

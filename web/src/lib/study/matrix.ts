@@ -105,7 +105,7 @@ export function matrixOf(
     }
     return { name: scenario.name, shape: scenario.shape };
   });
-  const known = study.estimators.map((estimator) => {
+  const classified = study.estimators.map((estimator) => {
     if (!isEstimatorFamily(estimator.family)) {
       throw new Error(`estimator ${estimator.name} has a family this build does not know: "${estimator.family}"`);
     }
@@ -118,7 +118,7 @@ export function matrixOf(
       : [],
   );
 
-  const estimators = known.filter(
+  const estimators = classified.filter(
     (estimator) => view.estimatorFamily === "all" || estimator.family === view.estimatorFamily,
   );
 

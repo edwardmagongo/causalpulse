@@ -139,6 +139,26 @@ describe("matrixOf", () => {
     expect(() => matrixOf(altered, { ...accuracy, level: "scenario" })).toThrow(/estimator aipw.*"bayesian"/);
   });
 
+  it("throws for a scenario of an unknown shape even when the shape filter would have hidden it", () => {
+    const altered: StudyBundle = {
+      ...study,
+      scenarios: study.scenarios.map((s) => (s.name === "A" ? { ...s, shape: "staggered" } : s)),
+    };
+    expect(() => matrixOf(altered, { ...accuracy, level: "scenario", shape: "panel" })).toThrow(
+      /scenario A.*"staggered"/,
+    );
+  });
+
+  it("throws for an estimator of an unknown family even when the family filter would have hidden it", () => {
+    const altered: StudyBundle = {
+      ...study,
+      estimators: study.estimators.map((e) => (e.name === "aipw" ? { ...e, family: "bayesian" } : e)),
+    };
+    expect(() =>
+      matrixOf(altered, { ...accuracy, level: "scenario", estimatorFamily: "panel" }),
+    ).toThrow(/estimator aipw.*"bayesian"/);
+  });
+
   it("keeps only the panel scenarios when asked for the panel shape", () => {
     const matrix = matrixOf(study, { ...accuracy, level: "scenario", shape: "panel" });
     expect(matrix.columns).toHaveLength(6);

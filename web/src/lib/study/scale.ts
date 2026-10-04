@@ -8,6 +8,13 @@
 /** The nominal coverage of every interval the study reports. */
 export const NOMINAL_COVERAGE = 0.95;
 
+/**
+ * The rate at which a true null is rejected at that level. Written out rather
+ * than computed as `1 - NOMINAL_COVERAGE`, which is 0.050000000000000044 and
+ * would make a matrix of exact 0.05 values not flat; a test ties the two.
+ */
+export const NOMINAL_FALSE_POSITIVE_RATE = 0.05;
+
 export type Scale =
   | { kind: "diverging"; centre: number; halfWidth: number; centreLabel: string }
   | { kind: "sequential"; low: number; high: number }
@@ -24,8 +31,8 @@ const RULES: Record<string, Rule> = {
   type_m: { kind: "diverging", centre: 1, centreLabel: "1" },
   false_positive_rate: {
     kind: "diverging",
-    centre: 1 - NOMINAL_COVERAGE,
-    centreLabel: String(Number((1 - NOMINAL_COVERAGE).toFixed(12))),
+    centre: NOMINAL_FALSE_POSITIVE_RATE,
+    centreLabel: String(NOMINAL_FALSE_POSITIVE_RATE),
   },
   rmse: SEQUENTIAL,
   mae: SEQUENTIAL,
@@ -66,9 +73,9 @@ export function scaleFor(metric: string, values: number[]): Scale {
   return { kind: "sequential", low, high };
 }
 
-/** Diverging: -1 to 1 about the centre. Sequential: 0 to 1. Flat: 0. Clamped. */
+/** Diverging: -1 to 1 about the centre. Sequential: 0 to 1. Flat, or a value that is not finite: 0. Clamped. */
 export function position(value: number, scale: Scale): number {
-  if (scale.kind === "flat") return 0;
+  if (scale.kind === "flat" || !Number.isFinite(value)) return 0;
   if (scale.kind === "diverging") {
     return Math.max(-1, Math.min(1, (value - scale.centre) / scale.halfWidth));
   }

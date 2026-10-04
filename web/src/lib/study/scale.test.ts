@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 
 import { loadStudy } from "./bundle";
-import { NOMINAL_COVERAGE, hasScaleRule, position, scaleFor } from "./scale";
+import { NOMINAL_COVERAGE, NOMINAL_FALSE_POSITIVE_RATE, hasScaleRule, position, scaleFor } from "./scale";
 import type { StudyBundle } from "./types";
 
 function bundle(): StudyBundle {
@@ -36,8 +36,19 @@ describe("scaleFor", () => {
     expect(centreOf("relative_bias")).toBe(0);
     expect(centreOf("se_calibration")).toBe(1);
     expect(centreOf("type_m")).toBe(1);
-    expect(centreOf("false_positive_rate")).toBeCloseTo(1 - NOMINAL_COVERAGE, 12);
+    expect(centreOf("false_positive_rate")).toBe(NOMINAL_FALSE_POSITIVE_RATE);
     expect(centreOf("coverage_bootstrap_se")).toBe(NOMINAL_COVERAGE);
+  });
+
+  it("ties the false-positive centre to the nominal coverage, to 12 places", () => {
+    expect(NOMINAL_COVERAGE + NOMINAL_FALSE_POSITIVE_RATE).toBeCloseTo(1, 12);
+  });
+
+  it("is flat when every false-positive rate sits exactly at 0.05, and puts 0.05 at 0 otherwise", () => {
+    expect(scaleFor("false_positive_rate", [0.05, 0.05])).toEqual({ kind: "flat" });
+    const mixed = scaleFor("false_positive_rate", [0.05, 0.2, 0.01]);
+    expect(mixed.kind).toBe("diverging");
+    expect(position(0.05, mixed)).toBe(0);
   });
 
   it("scales the farther side to the half-width, so the other side stays inside", () => {
@@ -80,6 +91,17 @@ describe("scaleFor", () => {
     expect(position(-10, scaleFor("bias", [-1, 1]))).toBe(-1);
   });
 
+  it("puts a value that is not a finite number at 0, on any scale", () => {
+    for (const scale of [
+      scaleFor("rmse", [1, 3]),
+      scaleFor("bias", [-1, 1]),
+      { kind: "flat" } as const,
+    ]) {
+      expect(position(Number.NaN, scale)).toBe(0);
+      expect(position(Number.POSITIVE_INFINITY, scale)).toBe(0);
+    }
+  });
+
   it("ignores a value that is not a finite number", () => {
     expect(scaleFor("rmse", [1, Number.NaN, 3, Number.POSITIVE_INFINITY])).toEqual({
       kind: "sequential",
@@ -99,9 +121,8 @@ describe("the scales against the committed bundle", () => {
   });
 
   it("gives every metric in family_metrics an explicit rule", () => {
-    const missing = Object.values(study.family_metrics)
-      .flat()
-      .filter((metric) => !hasScaleRule(metric));
-    expect(missing).toEqual([]);
+    const metrics = Object.values(study.family_metrics).flat();
+    expect(metrics).toHaveLength(16);
+    expect(metrics.filter((metric) => !hasScaleRule(metric))).toEqual([]);
   });
 });

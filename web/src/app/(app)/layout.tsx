@@ -9,8 +9,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <>
       <header className="border-b border-rule">
-        <div className="mx-auto flex h-header max-w-page items-center justify-between gap-4 px-gutter">
-          <nav aria-label="Main" className="brand-mark flex flex-none items-center gap-3 text-note font-medium sm:gap-5">
+        <div className="mx-auto flex h-header max-w-page items-center justify-between gap-2 px-gutter sm:gap-4">
+          <nav aria-label="Main" className="brand-mark flex flex-none items-center gap-2 text-note font-medium sm:gap-5">
             <Link href="/" className="hover:text-accent">
               Analyses
             </Link>
@@ -23,8 +23,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
               New analysis
             </Link>
           </nav>
-          <form action={signOut} className="flex min-w-0 items-center gap-3">
-            <span className="value min-w-0 truncate text-ink-soft">{name}</span>
+          <form action={signOut} className="flex min-w-0 items-center gap-2 sm:gap-3">
+            {/* Below 24rem the bar has no room for any of it, so it goes rather than leave a zero-width gap. */}
+            <span className="value min-w-0 truncate text-ink-soft max-[24rem]:hidden">{name}</span>
             <button type="submit" className="link flex-none cursor-pointer text-note">
               Sign out
             </button>
