@@ -153,6 +153,8 @@ adds its results to the research report as their own section.
 Scenario P7 (many treatment cohorts) runs in the `full` and `study` tiers as a fixed-protocol arm at its
 own 600-unit, 20-period protocol. `bench run --tier p7` runs it alone at 50 replications (about 2 hours with
 4 workers), and `bench study-report --p7-run DIR` adds a "Scenario P7" section to the report.
+`bench study-report --bundle PATH` also writes the study bundle, the same evidence as one JSON file for
+the dashboard's benchmark explorer (see "Web dashboard" below); it needs `--format markdown`.
 
 **Phase 18** closed the first of those four items: the missing benchmark-grid axes.
 `PropensityAssignment` gained an intercept and `LogisticBaseline` an additive noise scale, both
@@ -227,7 +229,7 @@ a report without writing Python.
 | `cp-causal` | Cross-sectional and panel estimators, propensity diagnostics, panel assumption checks, design router. Forbidden from importing `cp-simulation`. |
 | `cp-evaluation` | The benchmark grid: `run_grid` fits estimators across the DGP axes that exist and `summarise` reports bias, coverage, and calibration with Monte Carlo standard error. The first package allowed to import both `cp-simulation` and `cp-causal` together, so it sits above `cp-causal` in the layers contract and nothing below it may import it in turn. `store` and `execute` run a benchmark as a resumable set of shards. |
 | `cp-figures` | Eight publication-quality matplotlib figures — counterfactual path, event study, love plot, propensity overlap, specification curve, placebo distribution, cross-method forest plot, benchmark heatmaps — each a pure data function plus a thin drawing function. Imports only `cp-core` and `cp-causal`. |
-| `cp-report` | The evidence report generator: assumption table, validity band, cross-method comparison, and stated limitations, rendered to Markdown or one self-contained HTML file with figures inlined as SVG. Refuses to emit prose that fails `causal_language_lint`. |
+| `cp-report` | The evidence report generator: assumption table, validity band, cross-method comparison, and stated limitations, rendered to Markdown or one self-contained HTML file with figures inlined as SVG. Refuses to emit prose that fails `causal_language_lint`. `bundle` renders the benchmark study's evidence a third time, as one deterministic JSON document for the dashboard, recording the SHA-256 of the Markdown report written beside it. |
 | `cp-llm` | Plain-language interpretation of a whole analysis. `extract` turns an `AnalysisOutcome` into a table of citable facts; a model writes a narrative in which every value is a placeholder naming a fact; `verify` refuses any narrative it cannot trace back to the table. Sits between `cp-report` and the command line in the layers contract. Only `cp_llm.extract` imports the analysis outcome types from `cp-report` and `cp-causal`, and only `cp_llm.client` imports the model SDK. |
 | `cp-cli` | The `causalpulse` command-line entry point (`simulate`, `analyze`, `interpret`, `replay`, `bench run`, `bench report`, `bench status`, `bench compact`, `bench study`, `bench track`) and Parquet-plus-JSON-sidecar result persistence. Sits at the top of the layers contract; nothing imports it. |
 | `cp-api` | The FastAPI service: upload a CSV, request an analysis, read what the worker wrote. Not in the layers contract — its own forbidden-imports contract keeps it from importing `cp_causal` directly, so router refusals happen in the worker, not here. |
@@ -1744,6 +1746,50 @@ groups, which are made of estimates with the same estimand and scale. A value th
 The schema form checks that the required fields are filled. Every other rule is the API's, and its
 refusal is shown verbatim.
 
+### The benchmark explorer
+
+`/study`, linked from the header as "Benchmark study", is the published benchmark report
+(`docs/reports/2026-09-26-benchmark-study/`) made explorable, for a signed-in user. It shows the
+report's sections in order (overview, findings, methods, CATE, scenario P7, limitations), and in
+Methods an estimator-by-scenario matrix of any headline metric: the six metric families, by
+scenario or by scenario and size, filtered by scenario shape and estimator family, as a heatmap or
+a sortable table. Each value carries its Monte Carlo standard error and, where fewer fits fed it
+than were fitted, the count. A pair with no number says why (not eligible, every fit refused, no
+fit feeds the metric, the metric undefined), in a hatch, a word or a dash, and is never coloured
+on the metric's scale. The view lives in the URL's query string, and every switch is a link, so a
+view can be shared and the back button steps through views.
+
+It reads no API. The data is `web/src/data/benchmark-study.json`, the study bundle, committed, and
+imported by one server-only module, so the 1.85 MB file never reaches the browser. The page writes
+no claims of its own: narratives, limitations, notes and metric definitions are the bundle's
+strings, shown as they are. It refuses a bundle whose `schema_version`, scenario shapes or
+estimator families it does not know, with a message that says so.
+
+`bench study-report` writes the bundle in the same run as the report, from the same evidence, and
+the bundle records the report's SHA-256. The stores it reads, `benchmarks/runs/study-60`,
+`cate-50` and `p7-50`, are git-ignored and exist only on the machine that ran them. From the
+repository root, with `RUNS` the directory holding them and `OUT` an existing directory:
+
+```bash
+REPORT=docs/reports/2026-09-26-benchmark-study
+uv run causalpulse bench study-report "$RUNS/study-60" --out "$OUT" --format markdown \
+  --narratives "$REPORT/narratives.json" \
+  --cate-run "$RUNS/cate-50" --p7-run "$RUNS/p7-50" \
+  --limitation "<the report's first Limitations bullet, verbatim>" \
+  --limitation "<the report's second Limitations bullet, verbatim>" \
+  --bundle web/src/data/benchmark-study.json
+```
+
+The two `--limitation` texts are the published report's own two Limitations bullets, without the
+leading `- `; read them from `$REPORT/benchmark-report.md` instead of retyping them. Point `OUT` at
+an empty scratch directory to check that the current code reproduces the committed report byte for
+byte, or at `$REPORT` to replace it. Report and bundle must be regenerated together:
+`tests/report/test_bundle_committed.py` fails when one is regenerated without the other. The
+bundle is written only by this command and is never edited by hand. A bundle whose shape the page
+does not expect fails `make check-web`, which type-checks the import. That test cannot show that
+the bundle is what the current code would write; only running the command shows that. `docs/specs/2026-10-04-dashboard-phase2-explorer-design.md`
+section 12 records what changed while building it.
+
 ### Its API types cannot drift
 
 `web/openapi.json` is the API's OpenAPI document, committed. `make openapi` rewrites it. A Python
@@ -1759,11 +1805,13 @@ make smoke-web   # whole stack + browser; project causalpulse-web-smoke, ports 5
 
 `make check-web` and `make smoke-web` both run `pnpm` on the host, so both need Node.js 24 and
 `pnpm`. `make smoke-web` builds both images, issues two keys of one user inside the container,
-installs Playwright's Chromium, and runs nine browser tests: a wrong key and then the issued one;
+installs Playwright's Chromium, and runs ten browser tests: a wrong key and then the issued one;
 LaLonde from upload through two estimators to an opened evidence report; Proposition 99 with
 `synthetic_control` through to the end of its analysis; a 12 MB upload; an upload one byte over the
 API's 50 MB limit and one of exactly that size; an upload posted from another origin, which is
-refused with a 403; the header's "Sign out" button; and a revoked key. It tears the stack down
+refused with a 403; the benchmark study opened from the header, with a figure from the published
+report found at its estimator and scenario at both levels; the header's "Sign out" button; and a
+revoked key. It tears the stack down
 afterwards.
 
 ## On scikit-learn
