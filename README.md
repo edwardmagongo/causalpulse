@@ -1460,7 +1460,7 @@ All routes are under `/v1`. Every route except `GET /healthz` needs an `Authoriz
 | `GET /datasets` | Your datasets, newest first, without their columns. `limit` (1 to 200, default 50) and `cursor`, the previous page's `next_cursor`. |
 | `GET /datasets/{id}` | One dataset with its columns. |
 | `GET /analyses` | Your analyses, newest first, paged like the datasets. An in-flight analysis whose job is gone is marked `failed` here, as on the single read. |
-| `GET /analyses/{id}` | Status, `partial`, error, routing decisions, and per estimate its method, band, error, and `summary` (point, standard error, intervals, p-value, group sizes). |
+| `GET /analyses/{id}` | Status, `partial`, error, the dataset's id and `dataset_filename`, routing decisions, and per estimate its method, band, error, and `summary` (point, standard error, intervals, the bootstrap interval's level, p-value, group sizes). |
 | `GET /analyses/{id}/estimates/{method}/report.html` | One estimate's evidence report, figures inlined. |
 | `GET /analyses/{id}/estimates/{method}/report.md` | The Markdown report. Its relative figure links resolve against the next route. |
 | `GET /analyses/{id}/estimates/{method}/{filename}` | One Markdown figure, from `report_assets`. |
