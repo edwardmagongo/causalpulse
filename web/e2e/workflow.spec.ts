@@ -61,6 +61,31 @@ function csvOf(bytes: number, name: string): string {
   return path;
 }
 
+/**
+ * The cell of the study's matrix for one estimator at one scenario. The row is the one whose
+ * row header is the estimator; the column is found from the header row that names the scenarios
+ * (the sizes are a second header row at the by-size level, so the set of columns changes with the
+ * level). The offset counts every cell of the header row up to the scenario's, and the body rows
+ * are laid out the same way. A scenario run at several sizes would own several columns; this
+ * returns its first.
+ */
+async function matrixCell(page: Page, metric: string, estimator: string, scenario: string) {
+  const table = page.getByRole("table", { name: `${metric} by estimator and scenario` });
+  const offset = await table.evaluate((element, wanted) => {
+    const rows = Array.from(element.querySelectorAll("thead tr"));
+    const named = rows.find((row) => row.querySelector("th[scope=colgroup]")) ?? rows[rows.length - 1];
+    let offset = 0;
+    for (const head of Array.from(named.children)) {
+      if (head.tagName === "TH" && head.textContent?.trim() === wanted) return offset;
+      offset += (head as HTMLTableCellElement).colSpan;
+    }
+    return -1;
+  }, scenario);
+  expect(offset, `a column for ${scenario}`).toBeGreaterThan(0);
+  const row = table.getByRole("row").filter({ has: page.getByRole("rowheader", { name: estimator, exact: true }) });
+  return row.locator("th, td").nth(offset);
+}
+
 async function chooseColumn(page: Page, label: string, column: string) {
   await page.getByLabel(label, { exact: true }).selectOption(column);
 }
@@ -190,6 +215,34 @@ test("an upload posted from another origin, or from a null one, is refused", asy
     const response = await page.request.post("/api/datasets", { headers: { origin }, multipart });
     expect(response.status(), `Origin: ${origin}`).toBe(403);
   }
+});
+
+test("the benchmark study opens from the header, and its view lives in the URL", async ({ page }) => {
+  await signIn(page, KEY);
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Benchmark study", exact: true }).click();
+  await expect(page).toHaveURL(/\/study$/);
+  await expect(page.getByRole("heading", { name: "Findings", exact: true })).toBeVisible();
+
+  const choose = (group: string, name: string) =>
+    page.getByRole("group", { name: group, exact: true }).getByRole("link", { name, exact: true });
+  await choose("Metric family", "coverage").click();
+  await choose("Metric", "coverage_permutation").click();
+  // The figure in the published report's coverage table: S2 ran at one size, so it is the same at both levels.
+  await expect(await matrixCell(page, "coverage_permutation", "synthetic_control", "S2")).toContainText("0.86");
+
+  await choose("Level", "By scenario and size").click();
+  await expect(choose("Level", "By scenario and size")).toHaveAttribute("aria-current", "true");
+  await expect(page).toHaveURL((url) => url.searchParams.get("level") === "scenario_by_size");
+  const query = new URL(page.url()).searchParams;
+  expect(query.get("family")).toBe("coverage");
+  expect(query.get("metric")).toBe("coverage_permutation");
+  expect(query.get("level")).toBe("scenario_by_size");
+  await expect(await matrixCell(page, "coverage_permutation", "synthetic_control", "S2")).toContainText("0.86");
+
+  // Every switch is a link, so the browser's back steps to the view before it.
+  await page.goBack();
+  await expect(choose("Level", "By scenario")).toHaveAttribute("aria-current", "true");
+  expect(new URL(page.url()).searchParams.get("level")).toBeNull();
 });
 
 test("the header's Sign out button ends the session", async ({ page }) => {
