@@ -85,5 +85,9 @@ def test_the_prompt_states_the_rules_the_word_lists_cannot_carry():
     assert "Put nothing inside the braces but the id" in prompt
     assert "any form of that verb" in prompt
     assert "any form of prove" in prompt
-    assert "on both sides of every placeholder" in prompt
+    assert "a space or an opening bracket before every placeholder" in prompt
+    # Calibration, 2026-10-04: told "a space or punctuation on both sides", the
+    # model wrote "{x} ," in 47 of 54 statements.
+    assert "directly against it with no space before it" in prompt
+    assert "on both sides of every placeholder" not in prompt
     assert "on one line" in prompt

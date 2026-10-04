@@ -1595,7 +1595,8 @@ uv run causalpulse interpret out/lalonde
 ```
 
 It needs `ANTHROPIC_API_KEY` (or an `ant auth login` profile) and makes one model call, or two
-when the first reply is rejected. It writes `interpretation.md`, the narrative, and
+when the first reply is rejected. Measured on real output (2026-10-04), one interpretation costs
+$0.07 to $0.20; the calibration record is in `docs/reports/2026-10-04-llm-calibration/`. It writes `interpretation.md`, the narrative, and
 `interpretation.json`, the record: the narrative as the model wrote it, the rendered text, the
 model id, the effort and the token limit it ran with, `prompt_version` (a short hash of the
 system prompt and the reply schema), every attempt with its violations and token usage, and the

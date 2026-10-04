@@ -66,6 +66,9 @@ CONTROLLED_WORDS: Mapping[str, str] = {
             "failing",
             "testable",
             "untestable",
+            # Calibration, 2026-10-04: "every recorded check carries a status
+            # that reflects untested assumptions rather than a flagged problem".
+            "untested",
         ),
         _STATUS,
     ),

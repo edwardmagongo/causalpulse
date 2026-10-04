@@ -40,9 +40,11 @@ any other fact value belongs, write a placeholder: the fact's id in braces, \
 such as {est.aipw.point}. The system replaces each placeholder with the value. \
 Use only ids that appear in the facts. \
 Put nothing inside the braces but the id, with no format and no spaces, and use \
-braces for nothing else. Put a space or sentence punctuation on both sides of every \
-placeholder, with no sign or operator before a number, and write a range as from \
-one bound to the other.
+braces for nothing else. Put a space or an opening bracket before every placeholder. \
+After a placeholder put a space, or put sentence punctuation directly against it with \
+no space before it: write "the point is {est.aipw.point}, with" and never \
+"the point is {est.aipw.point} , with". Write no sign or operator before a number, \
+and write a range as from one bound to the other.
 """
 
 _STRUCTURE = """\
