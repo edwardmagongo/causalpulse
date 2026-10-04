@@ -351,10 +351,10 @@ describe("MethodsSection", () => {
   /** The whole section for a view. */
   const section = (view: Partial<View> = {}, of: StudyBundle = study) =>
     render(<MethodsSection study={of} view={{ ...base, ...view }} />);
-  /** The section without its "As published" block, so a query over tables reads the matrix alone. */
+  /** The section without its "As published in the report" block, so a query over tables reads the matrix alone. */
   const methods = (view: Partial<View> = {}, of: StudyBundle = study) => {
     const rendered = section(view, of);
-    screen.getByRole("region", { name: "As published" }).remove();
+    screen.getByRole("region", { name: "As published in the report" }).remove();
     return rendered;
   };
 
@@ -639,7 +639,7 @@ describe("MethodsSection", () => {
     it("show neither report note beside the matrix, in any family at either level and either display", () => {
       // Each note describes the report's own tables, not the matrix: the coverage note says the
       // interval column names the interval's kind, and the exploratory note says a table is not
-      // reproduced here. `methods` drops the "As published" block, which is where both belong.
+      // reproduced here. `methods` drops the "As published in the report" block, which is where both belong.
       let runs = 0;
       for (const entry of offeredFamilies(study)) {
         for (const level of entry.levels) {
@@ -667,7 +667,7 @@ describe("MethodsSection", () => {
   });
 
   describe("the report's own tables, as published", () => {
-    const published = () => screen.getByRole("region", { name: "As published" });
+    const published = () => screen.getByRole("region", { name: "As published in the report" });
     const BIAS = "Bias by method and scenario";
     const COVERAGE = "Coverage of each estimator's primary interval, by scenario";
     const names = study.scenarios.map((scenario) => scenario.name);
@@ -689,7 +689,7 @@ describe("MethodsSection", () => {
       const { container } = section();
       const block = published();
       expect(container.firstElementChild?.lastElementChild).toBe(block);
-      expect(within(block).getByRole("heading", { name: "As published", level: 3 })).toBeTruthy();
+      expect(within(block).getByRole("heading", { name: "As published in the report", level: 3 })).toBeTruthy();
       expect(within(block).getAllByRole("heading", { level: 4 }).map((heading) => heading.textContent)).toEqual(
         Object.keys(study.report_tables.tables),
       );
@@ -950,7 +950,7 @@ describe("the /study page", () => {
     expect(within(screen.getByRole("group", { name: "Metric family" })).getByRole("link", { current: true }).textContent).toBe("coverage");
     expect(within(screen.getByRole("group", { name: "Display" })).getByRole("link", { current: true }).textContent).toBe("Table");
     // Each note appears once on the page, inside the block of the report's own tables, whatever the view.
-    const published = screen.getByRole("region", { name: "As published" });
+    const published = screen.getByRole("region", { name: "As published in the report" });
     for (const note of [study.report_tables.coverage_note, study.report_tables.exploratory_note]) {
       const found = screen.getAllByText(note);
       expect(found).toHaveLength(1);
@@ -960,7 +960,7 @@ describe("the /study page", () => {
 
   it("shows each note once, in the block of the report's own tables, at the default view too", async () => {
     render(await StudyPage({ searchParams: Promise.resolve({}) }));
-    const published = screen.getByRole("region", { name: "As published" });
+    const published = screen.getByRole("region", { name: "As published in the report" });
     for (const note of [study.report_tables.coverage_note, study.report_tables.exploratory_note]) {
       const found = screen.getAllByText(note);
       expect(found).toHaveLength(1);

@@ -6,6 +6,10 @@ import type { ReportTableRow, ReportTables } from "@/lib/study/types";
  * report's notes where it puts them: the coverage note directly after the table
  * it describes (the one with an `interval` column), the exploratory note after
  * the tables. Plain tables, not coloured, and every string is the bundle's own.
+ * The heading names the report, so that "here" in a note reads as the report's.
+ * Nineteen scenarios at the report's four significant figures are wider than the
+ * page, so the tables are set tight and their container shows when more lies to
+ * the right.
  * A record's own keys are alphabetical, so the columns are declared here: the
  * method, the interval if the rows have one, then the scenarios in `scenarios`
  * order. A note that is empty is not drawn.
@@ -24,7 +28,7 @@ export function PublishedTables({
   return (
     <section aria-labelledby="published" className="mt-10">
       <h3 id="published" className="title-group mb-4">
-        As published
+        As published in the report
       </h3>
       <div className="flex flex-col gap-8">
         {entries.map(([title, rows]) => (
@@ -60,8 +64,8 @@ function PublishedTable({
 }) {
   const withInterval = hasInterval(rows);
   return (
-    <div className="table-scroll">
-      <table className="data-table">
+    <div className="table-scroll scroll-cue">
+      <table className="data-table published">
         <caption className="sr-only">{title}</caption>
         <thead>
           <tr>

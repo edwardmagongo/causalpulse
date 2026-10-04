@@ -411,6 +411,24 @@
     margin-left: calc(var(--spacing-ring) * -1);
   }
 
+  /*
+   * A cue that a table runs on to the right: a soft shadow at the container's
+   * right edge, covered by a paper-coloured patch that travels with the content
+   * and so uncovers the shadow only while there is more to scroll to. Drawn on
+   * the container's own background, under the table.
+   */
+  .table-scroll.scroll-cue {
+    background:
+      linear-gradient(to left, var(--color-paper) 40%, transparent) right / 3rem 100% no-repeat local,
+      linear-gradient(to left, color-mix(in srgb, var(--color-ink) 14%, transparent), transparent) right / 1rem
+        100% no-repeat scroll;
+  }
+
+  /* The report's own tables, set tight: nineteen scenario columns at four significant figures. */
+  .data-table.published :is(th, td):not(:first-child) {
+    padding-inline: 0.3125rem;
+  }
+
   .data-table {
     width: 100%;
     border-collapse: separate; /* `collapse` drops the rules of a sticky cell */
