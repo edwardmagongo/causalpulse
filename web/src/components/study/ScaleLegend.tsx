@@ -1,39 +1,42 @@
+import type { CSSProperties } from "react";
+
 import { formatNumber } from "@/lib/format";
 import type { Scale } from "@/lib/study/scale";
 
-/** The coverage metrics and the false-positive rate sit about a level the study sets out to reach. */
-function isNominal(metric: string): boolean {
-  return metric.startsWith("coverage_") || metric === "false_positive_rate";
+/** An end's value, behind `≤` or `≥` only where values in view lie beyond it. */
+function endLabel(value: number, beyond: boolean, sign: "≤" | "≥"): string {
+  return beyond ? `${sign} ${formatNumber(value)}` : formatNumber(value);
 }
 
 /**
- * The scale in words, beside a strip of its steps. The strip is drawn with the
- * cells' own colour rule (`heat`, `--pos`), so it cannot drift from the cells.
- * Nothing is said when the scale is flat: there is nothing to compare.
+ * The scale in words, beside a strip of its steps. Every word comes from the
+ * scale it is given, and the strip is drawn with the cells' own colour rule
+ * (`heat`, `--pos`), so neither can drift from the cells. Nothing is said when
+ * the scale is flat: there is nothing to compare.
  */
-export function ScaleLegend({ scale, metric }: { scale: Scale; metric: string }) {
+export function ScaleLegend({ scale }: { scale: Scale }) {
   if (scale.kind === "flat") return null;
   const diverging = scale.kind === "diverging";
   const steps = diverging ? [-1, -0.5, 0, 0.5, 1] : [0, 0.25, 0.5, 0.75, 1];
-  const words = diverging
-    ? `diverging about ${scale.centreLabel}${isNominal(metric) ? ", the nominal level" : ""}`
-    : `low to high: ${formatNumber(scale.low)} to ${formatNumber(scale.high)}`;
+  const low = diverging ? endLabel(scale.lowEnd, scale.lowBeyond, "≤") : endLabel(scale.low, scale.lowBeyond === true, "≤");
+  const high = diverging ? endLabel(scale.highEnd, scale.highBeyond, "≥") : endLabel(scale.high, scale.highBeyond === true, "≥");
+  const words = diverging ? `diverging about ${scale.centreLabel}` : `low to high: ${low} to ${high}`;
   return (
     <p className="label mb-3 flex flex-wrap items-center gap-x-3 gap-y-1">
       <span>{words}</span>
       <span className="inline-flex items-center gap-2">
-        {diverging ? <span className="value">{formatNumber(scale.centre - scale.halfWidth)}</span> : null}
+        {diverging ? <span className="value">{low}</span> : null}
         <span className="scale-strip" aria-hidden="true">
           {steps.map((step) => (
             <span
               key={step}
               className="scale-step heat"
               data-scale={scale.kind}
-              style={{ "--pos": step } as React.CSSProperties}
+              style={{ "--pos": step } as CSSProperties}
             />
           ))}
         </span>
-        {diverging ? <span className="value">{formatNumber(scale.centre + scale.halfWidth)}</span> : null}
+        {diverging ? <span className="value">{high}</span> : null}
       </span>
     </p>
   );

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 
 import StudyPage from "@/app/(app)/study/page";
-import { DASH } from "@/lib/format";
+import { DASH, formatNumber } from "@/lib/format";
 import { loadStudy } from "@/lib/study/bundle";
 import { matrixOf, offeredFamilies } from "@/lib/study/matrix";
 import type { Cell, Matrix } from "@/lib/study/matrix";
@@ -26,14 +26,26 @@ import {
   StudyUnavailable,
 } from "./StudySections";
 import { MatrixHeatmap } from "./MatrixHeatmap";
+import { MatrixTable } from "./MatrixTable";
 import { ScaleLegend } from "./ScaleLegend";
 import { StudyTable } from "./StudyTable";
 
 afterEach(cleanup);
 
+/** What a sighted reader sees of an element: its text without the screen-reader-only spans. */
+function visibleText(element: Element): string {
+  const copy = element.cloneNode(true) as Element;
+  for (const hidden of copy.querySelectorAll(".sr-only")) hidden.remove();
+  return copy.textContent ?? "";
+}
+
 const loaded = loadStudy();
 if (!loaded.ok) throw new Error("the committed bundle must load");
 const study: StudyBundle = loaded.study;
+// The committed study has both sections; a null here would be the writer dropping one.
+const cate = study.cate;
+const p7 = study.p7;
+if (cate === null || p7 === null) throw new Error("the committed bundle must carry its CATE and P7 sections");
 
 describe("StudyReport", () => {
   it("sets the sections in the report's order, each an h2 with its own id", () => {
@@ -52,10 +64,19 @@ describe("StudyReport", () => {
 
 describe("OverviewSection", () => {
   it("states the study's size and one provenance line per run", () => {
-    const { container } = render(<OverviewSection overview={study.overview} provenance={study.provenance} />);
-    expect(container.textContent).toContain(`${study.overview.n_cells}`);
-    expect(container.textContent).toContain(`${study.overview.n_estimators}`);
-    expect(container.textContent).toContain(`${study.overview.n_scenarios}`);
+    render(<OverviewSection overview={study.overview} provenance={study.provenance} />);
+    const facts: [string, string][] = [
+      ["Estimators", `${study.overview.n_estimators}`],
+      ["Scenarios", `${study.overview.n_scenarios}`],
+      ["Cells", `${study.overview.n_cells}`],
+      ["Replications", `${study.overview.replications}`],
+      ["Coverage Monte Carlo error", formatNumber(study.overview.coverage_mcse)],
+    ];
+    for (const [label, value] of facts) {
+      expect(screen.getByText(label).nextElementSibling?.textContent).toBe(value);
+    }
+    // Two labels would pass the check above if the values were swapped, so the values must differ.
+    expect(new Set(facts.map(([, value]) => value)).size).toBe(facts.length);
     const lines = screen.getAllByRole("listitem");
     expect(lines).toHaveLength(3);
     study.provenance.forEach((entry, index) => {
@@ -95,8 +116,8 @@ describe("FindingsSection", () => {
 describe("the tables' declared columns", () => {
   it("name exactly the committed table's keys, with each metric's _mcse and _n_used", () => {
     for (const [columns, table] of [
-      [CATE_COLUMNS, study.cate.table],
-      [P7_COLUMNS, study.p7.table],
+      [CATE_COLUMNS, cate.table],
+      [P7_COLUMNS, p7.table],
     ] as const) {
       const declared = [
         ...columns.keys,
@@ -110,11 +131,11 @@ describe("the tables' declared columns", () => {
 
 describe("CateSection", () => {
   it("shows the note, the counts and a table of three rows", () => {
-    render(<CateSection cate={study.cate} />);
-    expect(screen.getByText(study.cate.note)).toBeTruthy();
+    render(<CateSection cate={cate} />);
+    expect(screen.getByText(cate.note)).toBeTruthy();
     const rows = within(screen.getByRole("table")).getAllByRole("row");
     expect(rows).toHaveLength(1 + 3);
-    expect(study.cate.table).toHaveLength(3);
+    expect(cate.table).toHaveLength(3);
     expect(within(rows[0]).getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual([
       "method",
       "scenario",
@@ -125,8 +146,8 @@ describe("CateSection", () => {
   });
 
   it("shows the Monte Carlo error beside each metric and a dash where the report has none", () => {
-    render(<CateSection cate={study.cate} />);
-    const nullCorrelation = study.cate.table.find((row) => row.cate_correlation === null);
+    render(<CateSection cate={cate} />);
+    const nullCorrelation = cate.table.find((row) => row.cate_correlation === null);
     expect(nullCorrelation).toBeDefined();
     const row = screen.getByRole("row", { name: new RegExp(nullCorrelation!.scenario) });
     // The metric is a dash, with no error beside it; the fit count says why: none fed it.
@@ -144,9 +165,9 @@ describe("CateSection", () => {
 
 describe("P7Section", () => {
   it("shows the note, the counts and every row's method and interval", () => {
-    render(<P7Section p7={study.p7} />);
-    expect(screen.getByText(study.p7.note)).toBeTruthy();
-    expect(screen.getAllByRole("row")).toHaveLength(1 + study.p7.table.length);
+    render(<P7Section p7={p7} />);
+    expect(screen.getByText(p7.note)).toBeTruthy();
+    expect(screen.getAllByRole("row")).toHaveLength(1 + p7.table.length);
     expect(screen.getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual([
       "method",
       "interval",
@@ -285,7 +306,7 @@ describe("MethodsSection", () => {
   it("says refused where every fit was refused, and gives the count", () => {
     methods();
     const cell = cellAt("aipw", "H");
-    expect(cell.textContent).toBe("refused");
+    expect(visibleText(cell)).toBe("refused");
     expect(cell.getAttribute("title")).toBe("Every fit was refused (100)");
     expect(cell.style.getPropertyValue("--pos")).toBe("");
   });
@@ -302,14 +323,35 @@ describe("MethodsSection", () => {
 
     it.each(states)("shows %j as %j, titled %j, with no colour from the scale", (cell, text, title) => {
       const matrix: Matrix = { metric: "bias", columns, rows: [{ estimator: "aipw", family: "cross_sectional", cells: [cell] }] };
-      const { container } = render(<MatrixHeatmap matrix={matrix} scale={{ kind: "diverging", centre: 0, halfWidth: 1, centreLabel: "0" }} level="scenario" />);
+      const { container } = render(<MatrixHeatmap matrix={matrix} scale={scaleFor("bias", [-1, 1])} level="scenario" />);
       const td = container.querySelector("tbody td") as HTMLElement;
       expect(td.getAttribute("title")).toBe(title);
-      expect(td.textContent?.replace("not eligible", "")).toBe(text);
+      expect(visibleText(td)).toBe(text);
       expect(td.getAttribute("data-kind")).toBe(cell.kind);
       expect(td.classList.contains("heat")).toBe(false);
       expect(td.style.getPropertyValue("--pos")).toBe("");
       expect(td.textContent).not.toBe("0");
+    });
+
+    it.each([
+      ["a heatmap", (matrix: Matrix) => render(<MatrixHeatmap matrix={matrix} scale={{ kind: "flat" }} level="scenario" />)],
+      [
+        "a table",
+        (matrix: Matrix) => render(<MatrixTable matrix={matrix} view={{ ...base, display: "table" }} href={href} />),
+      ],
+    ] as const)("puts each neutral kind's reason in the cell's text of %s, for a reader who cannot see the title", (_name, draw) => {
+      for (const [cell, , reason] of states) {
+        const matrix: Matrix = { metric: "bias", columns, rows: [{ estimator: "aipw", family: "cross_sectional", cells: [cell] }] };
+        const { container, unmount } = draw(matrix);
+        const td = container.querySelector("tbody td") as HTMLElement;
+        expect(td.textContent).toContain(reason);
+        expect(td.getAttribute("title")).toBe(reason);
+        const hidden = td.querySelector(".sr-only");
+        expect(hidden?.textContent).toBe(reason);
+        // The visible mark is not read as well as the reason.
+        for (const mark of td.querySelectorAll("[aria-hidden]")) expect(mark.classList.contains("sr-only")).toBe(false);
+        unmount();
+      }
     });
 
     it("tells the five apart: no two share the same word and kind", () => {
@@ -342,6 +384,18 @@ describe("MethodsSection", () => {
     expect(heads.filter((head) => /\.|undefined|null|NaN/.test(head ?? ""))).toEqual([]);
     expect(screen.getByRole("columnheader", { name: "P1" }).getAttribute("colspan")).toBe("2");
   });
+
+  it.each(["heatmap", "table"] as const)(
+    "has one header over the estimator column at the second level of the %s, the corner above it a plain cell",
+    (display) => {
+      methods({ level: "scenario_by_size", display });
+      expect(screen.getAllByRole("columnheader", { name: /Estimator/ })).toHaveLength(1);
+      expect(screen.queryByRole("columnheader", { name: "Scenario" })).toBeNull();
+      const corner = within(screen.getAllByRole("row")[0]).getAllByRole("cell")[0];
+      expect(corner.tagName).toBe("TD");
+      expect(corner.textContent).toBe("Scenario");
+    },
+  );
 
   it("heads each column with its scenario at the first level", () => {
     methods();
@@ -426,7 +480,7 @@ describe("MethodsSection", () => {
       expect(column("aipw").textContent).toBe("0.001247± 0.003131100 of 100 fits");
       expect(container.querySelectorAll(".heat, [data-scale]")).toHaveLength(0);
       expect(container.querySelector("[style]")).toBeNull();
-      expect(column("bsts").textContent).toBe("not eligible");
+      expect(visibleText(column("bsts"))).toBe("not eligible");
     });
 
     it.each([
@@ -533,38 +587,66 @@ describe("MethodsSection", () => {
 });
 
 describe("ScaleLegend", () => {
-  it("states a diverging scale about its centre, as the nominal level for coverage", () => {
-    const { container } = render(
-      <ScaleLegend scale={{ kind: "diverging", centre: 0.95, halfWidth: 0.1, centreLabel: "0.95" }} metric="coverage_analytic" />,
-    );
-    expect(container.textContent).toContain("diverging about 0.95, the nominal level");
+  const numbersIn = (text: string) => (text.match(/\d+(?:\.\d+)?/g) ?? []).map(Number);
+
+  it("reads a capped coverage scale as its clipped ends and the nominal centre, and prints no share above 1", () => {
+    const { container } = render(<ScaleLegend scale={scaleFor("coverage_analytic", [0, 0.93, 0.95, 0.97])} />);
+    const text = container.textContent ?? "";
+    expect(text).toContain("diverging about 0.95, the nominal level");
+    expect(text).toContain("≤ 0.8");
+    expect(text).not.toContain("≥");
+    expect(container.querySelectorAll(".value")).toHaveLength(2);
+    expect(Array.from(container.querySelectorAll(".value"), (end) => end.textContent)).toEqual(["≤ 0.8", "1"]);
+    expect(Math.max(...numbersIn(text))).toBeLessThanOrEqual(1);
     expect(container.querySelectorAll(".scale-step.heat")).toHaveLength(5);
   });
 
-  it("states a diverging scale without a nominal level for a bias", () => {
-    const { container } = render(
-      <ScaleLegend scale={{ kind: "diverging", centre: 0, halfWidth: 0.2, centreLabel: "0" }} metric="bias" />,
-    );
+  it("prints an end as a plain number when no value in view lies beyond it", () => {
+    const { container } = render(<ScaleLegend scale={scaleFor("bias", [-0.2, 0.1, 0.2])} />);
     expect(container.textContent).toContain("diverging about 0");
     expect(container.textContent).not.toContain("nominal");
+    expect(Array.from(container.querySelectorAll(".value"), (end) => end.textContent)).toEqual(["-0.2", "0.2"]);
+  });
+
+  it("takes every word from the scale: a centre label it was not built for is printed as given", () => {
+    const { container } = render(
+      <ScaleLegend
+        scale={{ kind: "diverging", centre: 3, halfWidth: 2, centreLabel: "3, a label of its own", lowEnd: 1, highEnd: 5, lowBeyond: false, highBeyond: true }}
+      />,
+    );
+    expect(container.textContent).toContain("diverging about 3, a label of its own");
+    expect(Array.from(container.querySelectorAll(".value"), (end) => end.textContent)).toEqual(["1", "≥ 5"]);
   });
 
   it("states a sequential scale from its low to its high", () => {
-    const { container } = render(<ScaleLegend scale={{ kind: "sequential", low: 0.012, high: 0.31 }} metric="rmse" />);
+    const { container } = render(<ScaleLegend scale={{ kind: "sequential", low: 0.012, high: 0.31 }} />);
     expect(container.textContent).toContain("low to high: 0.012 to 0.31");
     expect(container.querySelectorAll(".scale-step.heat")).toHaveLength(5);
   });
 
   it("says nothing, and draws no strip, when the scale is flat", () => {
-    const { container } = render(<ScaleLegend scale={{ kind: "flat" }} metric="bias" />);
+    const { container } = render(<ScaleLegend scale={{ kind: "flat" }} />);
     expect(container.innerHTML).toBe("");
   });
 
-  it("is built from the same scale the matrix colours with", () => {
+  it("is built from the same scale the matrix colours with, and says the default view's centre", () => {
     const view = defaultView(study);
     const matrix = matrixOf(study, view);
     const values = matrix.rows.flatMap((row) => row.cells.flatMap((cell) => (cell.kind === "value" ? [cell.value] : [])));
-    expect(scaleFor(view.metric, values).kind).toBe("diverging");
+    const scale = scaleFor(view.metric, values);
+    expect(scale.kind).toBe("diverging");
+    const { container } = render(<ScaleLegend scale={scale} />);
+    expect(container.textContent).toContain("diverging about 0");
+  });
+
+  it("reads coverage in the study's own view as the brief does, with the cap in the cells", () => {
+    const view = { ...defaultView(study), family: "coverage", metric: "coverage_analytic" };
+    const matrix = matrixOf(study, view);
+    const values = matrix.rows.flatMap((row) => row.cells.flatMap((cell) => (cell.kind === "value" ? [cell.value] : [])));
+    const scale = scaleFor(view.metric, values);
+    expect(scale.kind === "diverging" && scale.halfWidth).toBeCloseTo(0.15, 12);
+    const { container } = render(<ScaleLegend scale={scale} />);
+    expect(Array.from(container.querySelectorAll(".value"), (end) => end.textContent)).toEqual(["≤ 0.8", "1"]);
   });
 });
 

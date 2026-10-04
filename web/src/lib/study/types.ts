@@ -166,7 +166,22 @@ export type StudyBundle = {
   metric_definitions: Record<string, string>;
   families: Families;
   report_tables: ReportTables;
-  cate: Cate;
-  p7: P7;
+  /** `null` when the report has no such section: the writer emits `null`, not a missing key. */
+  cate: Cate | null;
+  p7: P7 | null;
   limitations: Limitations;
 };
+
+/** What `checkVersion` says: the schema versions this build can read, or the one it found. */
+export type VersionCheck =
+  | { ok: true }
+  | { ok: false; reason: "version"; found: number; known: readonly number[] };
+
+/** What `checkVocabulary` says: `unknown` names each shape or family this build does not know. */
+export type VocabularyCheck = { ok: true } | { ok: false; reason: "vocabulary"; unknown: string[] };
+
+/** The result of loading the study: the bundle, or the check that refused it. */
+export type StudyLoad =
+  | { ok: true; study: StudyBundle }
+  | Exclude<VersionCheck, { ok: true }>
+  | Exclude<VocabularyCheck, { ok: true }>;

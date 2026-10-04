@@ -4,7 +4,7 @@ import { formatNumber } from "@/lib/format";
 import type { Cell, Matrix, MatrixRow } from "@/lib/study/matrix";
 import type { View } from "@/lib/study/query";
 
-import { cellReason, cellWord, scenarioGroups, sizeLabel } from "./MatrixHeatmap";
+import { NoValue, cellReason, cellWord, scenarioGroups, sizeLabel } from "./MatrixHeatmap";
 
 /**
  * The rows in the order the view asks for: by the sorted column's value, or by
@@ -60,7 +60,8 @@ export function MatrixTable({
         <thead>
           {sized ? (
             <tr>
-              <th scope="col">Scenario</th>
+              {/* Not a header: it fills the corner above the estimators, whose own head is in the next row. */}
+              <td>Scenario</td>
               {scenarioGroups(matrix.columns).map((group) => (
                 <th key={group.scenario} scope="colgroup" colSpan={group.span} className="num value">
                   {group.scenario}
@@ -102,7 +103,7 @@ function TableCell({ cell }: { cell: Cell }) {
   if (cell.kind !== "value") {
     return (
       <td className="num text-ink-soft" data-kind={cell.kind} title={cellReason(cell)}>
-        {cellWord(cell, false)}
+        <NoValue cell={cell} mark={cellWord(cell, false)} />
       </td>
     );
   }

@@ -3,21 +3,15 @@ import "server-only";
 import bundle from "@/data/benchmark-study.json";
 
 import { isEstimatorFamily, isShape } from "./types";
-import type { StudyBundle } from "./types";
+import type { StudyBundle, StudyLoad, VersionCheck, VocabularyCheck } from "./types";
 
 /** The schema versions this build of the dashboard can read. */
 export const KNOWN_SCHEMA_VERSIONS = [1] as const;
-
-export type VersionCheck =
-  | { ok: true }
-  | { ok: false; reason: "version"; found: number; known: readonly number[] };
 
 export function checkVersion(found: number): VersionCheck {
   const known: readonly number[] = KNOWN_SCHEMA_VERSIONS;
   return known.includes(found) ? { ok: true } : { ok: false, reason: "version", found, known };
 }
-
-export type VocabularyCheck = { ok: true } | { ok: false; reason: "vocabulary"; unknown: string[] };
 
 /**
  * Every scenario's shape and every estimator's family must be one this build
@@ -41,8 +35,6 @@ export function checkVocabulary(study: StudyBundle): VocabularyCheck {
  * bundle stops matching `StudyBundle`. It is the only import of the file.
  */
 const study: StudyBundle = bundle;
-
-export type StudyLoad = { ok: true; study: StudyBundle } | Exclude<VersionCheck, { ok: true }> | Exclude<VocabularyCheck, { ok: true }>;
 
 /** Version first, then vocabulary: a study of another version is not read for its names. */
 export function loadFrom(candidate: StudyBundle): StudyLoad {

@@ -96,6 +96,43 @@ describe("cellOf on a row of its own", () => {
       nFitted: 3,
     });
   });
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+    "does not take %s as a value: the metric has no value here",
+    (bad) => {
+      expect(cellOf({ ...base, bias: bad, bias_mcse: 0.1, bias_n_used: 3 }, "bias")).toEqual({
+        kind: "undefined",
+        nUsed: 3,
+      });
+    },
+  );
+
+  it("reads a non-finite metric from a row no fit fed as not applicable, as null is", () => {
+    expect(cellOf({ ...base, bias: Number.NaN, bias_mcse: null, bias_n_used: 0 }, "bias")).toEqual({
+      kind: "not_applicable",
+      nFitted: 3,
+    });
+  });
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY])(
+    "does not take a count of fits of %s: the row does not usably carry the metric",
+    (bad) => {
+      expect(cellOf({ ...base, bias: 0.5, bias_mcse: 0.1, bias_n_used: bad }, "bias")).toEqual({ kind: "absent" });
+    },
+  );
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+    "keeps a value whose Monte Carlo standard error is %s, with the error null",
+    (bad) => {
+      expect(cellOf({ ...base, bias: 0.5, bias_mcse: bad, bias_n_used: 3 }, "bias")).toEqual({
+        kind: "value",
+        value: 0.5,
+        mcse: null,
+        nUsed: 3,
+        nFitted: 3,
+      });
+    },
+  );
 });
 
 describe("matrixOf", () => {

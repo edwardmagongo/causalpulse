@@ -63,8 +63,12 @@ describe("scaleFor", () => {
   });
 
   it("is sequential for an error or a width, low to high", () => {
-    for (const metric of ["rmse", "mae", "mean_ci_width", "type_s", "power", "runtime_seconds"]) {
+    for (const metric of ["rmse", "mae", "mean_ci_width", "runtime_seconds"]) {
       expect(scaleFor(metric, [1, 3])).toEqual({ kind: "sequential", low: 1, high: 3 });
+    }
+    // A share cannot be 3: type_s and power are bounded to [0, 1] and read in that range.
+    for (const metric of ["type_s", "power"]) {
+      expect(scaleFor(metric, [0.1, 0.3])).toEqual({ kind: "sequential", low: 0.1, high: 0.3 });
     }
     expect(position(2, scaleFor("rmse", [1, 3]))).toBe(0.5);
     expect(position(1, scaleFor("rmse", [1, 3]))).toBe(0);
@@ -91,14 +95,19 @@ describe("scaleFor", () => {
     expect(position(-10, scaleFor("bias", [-1, 1]))).toBe(-1);
   });
 
-  it("puts a value that is not a finite number at 0, on any scale", () => {
-    for (const scale of [
-      scaleFor("rmse", [1, 3]),
-      scaleFor("bias", [-1, 1]),
-      { kind: "flat" } as const,
-    ]) {
-      expect(position(Number.NaN, scale)).toBe(0);
-      expect(position(Number.POSITIVE_INFINITY, scale)).toBe(0);
+  it("takes an infinite value to the end of the scale, like any value out of range", () => {
+    const sequential = scaleFor("rmse", [1, 3]);
+    const diverging = scaleFor("bias", [-1, 1]);
+    expect(position(Number.POSITIVE_INFINITY, sequential)).toBe(1);
+    expect(position(Number.NEGATIVE_INFINITY, sequential)).toBe(0);
+    expect(position(Number.POSITIVE_INFINITY, diverging)).toBe(1);
+    expect(position(Number.NEGATIVE_INFINITY, diverging)).toBe(-1);
+    expect(position(Number.POSITIVE_INFINITY, { kind: "flat" })).toBe(0);
+  });
+
+  it("throws on NaN, on every kind of scale, rather than place it anywhere", () => {
+    for (const scale of [scaleFor("rmse", [1, 3]), scaleFor("bias", [-1, 1]), { kind: "flat" } as const]) {
+      expect(() => position(Number.NaN, scale)).toThrow(RangeError);
     }
   });
 
@@ -108,6 +117,87 @@ describe("scaleFor", () => {
       low: 1,
       high: 3,
     });
+  });
+});
+
+describe("a capped scale", () => {
+  const coverage = scaleFor("coverage_analytic", [0, 0.93, 0.95, 0.97]);
+
+  it("takes the cap as its half-width when a value lies farther from the centre than that", () => {
+    expect(coverage.kind).toBe("diverging");
+    if (coverage.kind !== "diverging") return;
+    expect(coverage.halfWidth).toBeCloseTo(0.15, 12);
+    expect(coverage.centre).toBe(NOMINAL_COVERAGE);
+  });
+
+  it("tells 0.93 from 0.97 and from the centre, and gives the end colour to a coverage of 0", () => {
+    expect(position(0.93, coverage)).toBeCloseTo(-0.02 / 0.15, 12);
+    expect(position(0.97, coverage)).toBeCloseTo(0.02 / 0.15, 12);
+    expect(position(0.93, coverage)).toBeLessThan(-0.13);
+    expect(position(0.97, coverage)).toBeGreaterThan(0.13);
+    expect(position(0.95, coverage)).toBe(0);
+    expect(position(0, coverage)).toBe(-1);
+  });
+
+  it("names its ends: clipped to the possible values, with whether any value lies beyond", () => {
+    expect(coverage.kind).toBe("diverging");
+    if (coverage.kind !== "diverging") return;
+    expect(coverage.lowEnd).toBeCloseTo(0.8, 12);
+    expect(coverage.lowBeyond).toBe(true); // the coverage of 0
+    expect(coverage.highEnd).toBe(1); // 1.1 clipped to the largest possible share
+    expect(coverage.highBeyond).toBe(false);
+  });
+
+  it("never reaches below 0 or above 1 for a share, and flags a value beyond the cap on the high side", () => {
+    const high = scaleFor("false_positive_rate", [0.05, 0.9]);
+    expect(high.kind).toBe("diverging");
+    if (high.kind !== "diverging") return;
+    expect(high.halfWidth).toBeCloseTo(0.15, 12);
+    expect(high.lowEnd).toBe(0); // -0.1 clipped to 0
+    expect(high.lowBeyond).toBe(false);
+    expect(high.highEnd).toBeCloseTo(0.2, 12);
+    expect(high.highBeyond).toBe(true);
+    expect(position(0.9, high)).toBe(1);
+  });
+
+  it("uses the largest deviation, not the cap, when every value sits within the cap", () => {
+    const near = scaleFor("coverage_analytic", [0.9, 0.95, 0.99]);
+    expect(near.kind).toBe("diverging");
+    if (near.kind !== "diverging") return;
+    expect(near.halfWidth).toBeCloseTo(0.05, 12);
+    expect(near.lowBeyond).toBe(false);
+    expect(near.highBeyond).toBe(false);
+    expect(position(0.9, near)).toBe(-1);
+  });
+
+  it("does not call a value beyond an end it sits exactly on", () => {
+    const exact = scaleFor("coverage_analytic", [0.9, 1]);
+    expect(exact.kind).toBe("diverging");
+    if (exact.kind !== "diverging") return;
+    expect(exact.highEnd).toBe(1);
+    expect(exact.highBeyond).toBe(false);
+  });
+
+  it("gives only the coverage metrics and false_positive_rate a cap, and leaves the others as they were", () => {
+    const bias = scaleFor("bias", [-3, 0.1]);
+    expect(bias.kind).toBe("diverging");
+    if (bias.kind !== "diverging") return;
+    expect(bias.halfWidth).toBe(3);
+    expect(bias.lowEnd).toBe(-3);
+    expect(bias.highEnd).toBe(3);
+    expect(bias.lowBeyond).toBe(false);
+    expect(bias.highBeyond).toBe(false);
+    for (const metric of ["relative_bias", "se_calibration", "type_m"]) {
+      const scale = scaleFor(metric, [-40, 40]);
+      expect(scale.kind === "diverging" && scale.halfWidth > 0.15).toBe(true);
+    }
+  });
+
+  it("bounds the sequential shares, and says nothing of it while every value is possible", () => {
+    expect(scaleFor("power", [0.2, 0.9])).toEqual({ kind: "sequential", low: 0.2, high: 0.9 });
+    expect(scaleFor("type_s", [0, 0.4])).toEqual({ kind: "sequential", low: 0, high: 0.4 });
+    expect(scaleFor("power", [-0.1, 0.5])).toEqual({ kind: "sequential", low: 0, high: 0.5, lowBeyond: true });
+    expect(scaleFor("power", [0.5, 1.2])).toEqual({ kind: "sequential", low: 0.5, high: 1, highBeyond: true });
   });
 });
 

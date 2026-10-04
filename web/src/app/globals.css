@@ -436,7 +436,7 @@
     padding-right: 0;
   }
 
-  :where(.data-table thead th) {
+  :where(.data-table thead th, .data-table thead td) {
     font-size: var(--text-label);
     line-height: var(--text-label--line-height);
     font-weight: 500;
@@ -460,7 +460,7 @@
     white-space: nowrap;
   }
 
-  :where(.data-table th:first-child) {
+  :where(.data-table th:first-child, .data-table thead td:first-child) {
     padding-right: var(--spacing-cell-x);
   }
 
@@ -473,7 +473,7 @@
    * value stays readable.
    */
   @media (width >= 40rem) {
-    :where(.data-table th:first-child) {
+    :where(.data-table th:first-child, .data-table thead td:first-child) {
       position: sticky;
       left: 0;
       background: var(--color-paper);
@@ -497,7 +497,7 @@
    * the screen, wrapping rather than cutting off, and the room for a focus
    * ring that `.data-table` already leaves.
    */
-  .data-table.matrix th:first-child {
+  .data-table.matrix :is(th, td):first-child {
     position: sticky;
     left: 0;
     z-index: 1; /* above the cells, which are positioned too */
@@ -521,7 +521,9 @@
     color: var(--color-ink);
   }
 
+  /* `relative` also keeps a table cell's screen-reader-only reason inside the scroll area. */
   .matrix td.num {
+    position: relative;
     text-align: right;
   }
 

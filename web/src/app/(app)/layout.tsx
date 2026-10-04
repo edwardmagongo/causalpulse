@@ -24,8 +24,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             </Link>
           </nav>
           <form action={signOut} className="flex min-w-0 items-center gap-2 sm:gap-3">
-            {/* Below 24rem the bar has no room for any of it, so it goes rather than leave a zero-width gap. */}
-            <span className="value min-w-0 truncate text-ink-soft max-[24rem]:hidden">{name}</span>
+            {/* Below 25.875rem (414 px) the name would get under 44 px, a sliver of two characters, so it goes. */}
+            <span className="value min-w-0 truncate text-ink-soft max-[25.875rem]:hidden">{name}</span>
             <button type="submit" className="link flex-none cursor-pointer text-note">
               Sign out
             </button>

@@ -46,6 +46,21 @@ export function cellWord(cell: Exclude<Cell, { kind: "value" }>, blankIneligible
   }
 }
 
+/**
+ * What a cell with no number holds. The visible mark, if any, is hidden from a
+ * screen reader; the reason (the cell's `title`, which touch and keyboard users
+ * never see) is read instead, and hidden from the eye. An ineligible pair has
+ * no mark.
+ */
+export function NoValue({ cell, mark }: { cell: Exclude<Cell, { kind: "value" }>; mark: string }) {
+  return (
+    <>
+      {mark === "" ? null : <span aria-hidden="true">{mark}</span>}
+      <span className="sr-only">{cellReason(cell)}</span>
+    </>
+  );
+}
+
 /** The scenarios of a matrix in order, each with the number of columns it spans. */
 export function scenarioGroups(columns: readonly Column[]): { scenario: string; span: number }[] {
   const groups: { scenario: string; span: number }[] = [];
@@ -72,7 +87,8 @@ export function MatrixHeatmap({ matrix, scale, level }: { matrix: Matrix; scale:
         <thead>
           {sized ? (
             <tr>
-              <th scope="col">Scenario</th>
+              {/* Not a header: it fills the corner above the estimators, whose own head is in the next row. */}
+              <td>Scenario</td>
               {scenarioGroups(matrix.columns).map((group) => (
                 <th key={group.scenario} scope="colgroup" colSpan={group.span} className="value">
                   {group.scenario}
@@ -107,10 +123,9 @@ export function MatrixHeatmap({ matrix, scale, level }: { matrix: Matrix; scale:
 function HeatCell({ cell, scale }: { cell: Cell; scale: Scale }) {
   const title = cellReason(cell);
   if (cell.kind !== "value") {
-    const word = cellWord(cell, true);
     return (
       <td className="matrix-cell value" data-kind={cell.kind} title={title}>
-        {word === "" ? <span className="sr-only">not eligible</span> : word}
+        <NoValue cell={cell} mark={cellWord(cell, true)} />
       </td>
     );
   }

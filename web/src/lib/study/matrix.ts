@@ -25,8 +25,9 @@ export type Matrix = { metric: string; columns: Column[]; rows: MatrixRow[] };
 
 const LEVELS: readonly Level[] = ["scenario", "scenario_by_size"];
 
-function numberOrNull(value: number | string | null | undefined): number | null {
-  return typeof value === "number" ? value : null;
+/** A number a person can read: one that is finite. `NaN` and the infinities are not values. */
+function finiteOrNull(value: number | string | null | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 /**
@@ -34,7 +35,10 @@ function numberOrNull(value: number | string | null | undefined): number | null 
  * is a reason (`refused` or `not_eligible`), never a number; a fitted row whose
  * metric is `null` says whether no fit fed it (`not_applicable`) or fits did
  * and it is undefined (`undefined`). A row that does not carry the metric at
- * all is `absent`.
+ * all is `absent`. A number that is not finite is no value: a metric of `NaN`
+ * or an infinity reads as `null` does, and a count of fits that is not finite
+ * is a count the row does not usably carry. The page never colours or prints
+ * what this function does not call a `value`.
  */
 export function cellOf(row: FamilyRow | undefined, metric: string): Cell {
   if (row === undefined) return { kind: "absent" };
@@ -43,15 +47,15 @@ export function cellOf(row: FamilyRow | undefined, metric: string): Cell {
   }
   const value = row[metric];
   const nUsed = row[`${metric}_n_used`];
-  if (typeof nUsed !== "number") return { kind: "absent" };
-  if (value === null) {
+  if (typeof nUsed !== "number" || !Number.isFinite(nUsed)) return { kind: "absent" };
+  if (value === null || (typeof value === "number" && !Number.isFinite(value))) {
     return nUsed === 0 ? { kind: "not_applicable", nFitted: row.n_fitted } : { kind: "undefined", nUsed };
   }
   if (typeof value !== "number") return { kind: "absent" };
   return {
     kind: "value",
     value,
-    mcse: numberOrNull(row[`${metric}_mcse`]),
+    mcse: finiteOrNull(row[`${metric}_mcse`]),
     nUsed,
     nFitted: row.n_fitted,
   };

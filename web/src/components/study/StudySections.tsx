@@ -6,8 +6,8 @@ import type {
   P7,
   Provenance,
   StudyBundle,
+  StudyLoad,
 } from "@/lib/study/types";
-import type { StudyLoad } from "@/lib/study/bundle";
 import { formatNumber } from "@/lib/format";
 import { matrixOf, offeredFamilies } from "@/lib/study/matrix";
 import { defaultView, viewHref } from "@/lib/study/query";
@@ -205,7 +205,7 @@ export function MethodsSection({ study, view }: { study: StudyBundle; view: View
       <div className="mt-6">
         {view.display === "heatmap" ? (
           <>
-            <ScaleLegend scale={scale} metric={view.metric} />
+            <ScaleLegend scale={scale} />
             <MatrixHeatmap matrix={matrix} scale={scale} level={view.level} />
           </>
         ) : (
