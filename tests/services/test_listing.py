@@ -146,6 +146,32 @@ def test_the_dataset_list_never_selects_the_csv(alice, sessions):
     assert any("datasets.csv" in s for s in on_the_read)
 
 
+def test_reading_an_analysis_names_its_dataset_without_selecting_the_csv(alice, sessions):
+    content, _ = scenario_d_upload()
+    dataset = _upload(alice, content, name="trial.csv")
+    analysis_id = _submit(alice, dataset["id"])
+    statements: list[str] = []
+    engine = sessions.kw["bind"]
+
+    def record(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", record)
+    try:
+        read = alice.get(f"/v1/analyses/{analysis_id}")
+        on_the_analysis = [s for s in statements if "datasets" in s]
+        statements.clear()
+        alice.get(f"/v1/datasets/{dataset['id']}")
+        on_the_dataset = [s for s in statements if "FROM datasets" in s]
+    finally:
+        event.remove(engine, "before_cursor_execute", record)
+
+    assert read.json()["dataset_filename"] == "trial.csv"
+    assert on_the_analysis and not any("datasets.csv" in s for s in on_the_analysis)
+    # The control: the dataset read does load the bytes, and this capture sees it.
+    assert any("datasets.csv" in s for s in on_the_dataset)
+
+
 @pytest.mark.parametrize("path", ["/v1/datasets", "/v1/analyses"])
 def test_paging_returns_every_row_once_even_when_rows_share_a_created_at(
     alice, sessions, path

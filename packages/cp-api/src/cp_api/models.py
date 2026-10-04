@@ -84,6 +84,9 @@ class EstimateSummary(BaseModel):
     ci_basis: str
     bootstrap_ci_lower: float | None
     bootstrap_ci_upper: float | None
+    # The only field with a default: a summary stored before the core kept the
+    # bootstrap interval's level has no such key, and must still validate.
+    bootstrap_ci_level: float | None = None
     p_value: float | None
     n_treated: int
     n_control: int
@@ -100,6 +103,7 @@ class Estimate(BaseModel):
 class AnalysisDetail(BaseModel):
     id: str
     dataset_id: str
+    dataset_filename: str
     status: Status
     partial: bool
     error: str | None

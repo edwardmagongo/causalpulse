@@ -228,6 +228,8 @@ export interface components {
         AnalysisDetail: {
             /** Created At */
             created_at: string | null;
+            /** Dataset Filename */
+            dataset_filename: string;
             /** Dataset Id */
             dataset_id: string;
             /** Error */
@@ -398,6 +400,8 @@ export interface components {
          * @description `cp_core.results.estimate_summary`'s row, key for key.
          */
         EstimateSummary: {
+            /** Bootstrap Ci Level */
+            bootstrap_ci_level?: number | null;
             /** Bootstrap Ci Lower */
             bootstrap_ci_lower: number | null;
             /** Bootstrap Ci Upper */

@@ -41,6 +41,14 @@ def test_a_summary_passes_through_the_model_unchanged(compared):
         assert EstimateSummary.model_validate(summary).model_dump() == summary
 
 
+def test_a_summary_stored_before_the_interval_level_was_kept_still_validates(compared):
+    # Analyses stored before `bootstrap_ci_level` existed have summaries without it.
+    summary = estimate_summary(compared.reports[0].estimate)
+    del summary["bootstrap_ci_level"]
+
+    assert EstimateSummary.model_validate(summary).bootstrap_ci_level is None
+
+
 def test_a_group_answers_with_exactly_the_keys_it_was_stored_with(compared, alone):
     stored = [group.to_dict() for group in (*compared.comparisons, *alone.comparisons)]
     # Both shapes, or the loop below would prove only one of them.

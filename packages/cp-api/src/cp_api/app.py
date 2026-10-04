@@ -336,6 +336,10 @@ def create_app(
     ) -> dict[str, Any]:
         analysis = _analysis_or_404(session, analysis_id, user)
         _fail_if_lost(session, analysis)
+        # One column, never the entity: `datasets.csv` holds up to 50 MB a row.
+        filename = session.scalars(
+            select(Dataset.filename).where(Dataset.id == analysis.dataset_id)
+        ).one()
         decisions = session.scalars(
             select(RoutingDecisionRow)
             .where(RoutingDecisionRow.analysis_id == analysis_id)
@@ -349,6 +353,7 @@ def create_app(
         return {
             "id": str(analysis.id),
             "dataset_id": str(analysis.dataset_id),
+            "dataset_filename": filename,
             "status": analysis.status,
             "partial": analysis.partial,
             "error": analysis.error,

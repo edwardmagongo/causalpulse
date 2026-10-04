@@ -337,6 +337,7 @@ def estimate_summary(estimate: EffectEstimate) -> dict[str, str | float | int | 
         "ci_basis": estimate.ci_basis,
         "bootstrap_ci_lower": None if bootstrap is None else float(bootstrap.lower),
         "bootstrap_ci_upper": None if bootstrap is None else float(bootstrap.upper),
+        "bootstrap_ci_level": None if bootstrap is None else float(bootstrap.level),
         "p_value": None if estimate.p_value is None else float(estimate.p_value),
         "n_treated": int(estimate.n_treated),
         "n_control": int(estimate.n_control),

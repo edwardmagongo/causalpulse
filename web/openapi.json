@@ -38,6 +38,10 @@
             ],
             "title": "Created At"
           },
+          "dataset_filename": {
+            "title": "Dataset Filename",
+            "type": "string"
+          },
           "dataset_id": {
             "title": "Dataset Id",
             "type": "string"
@@ -111,6 +115,7 @@
         "required": [
           "id",
           "dataset_id",
+          "dataset_filename",
           "status",
           "partial",
           "error",
@@ -575,6 +580,17 @@
       "EstimateSummary": {
         "description": "`cp_core.results.estimate_summary`'s row, key for key.",
         "properties": {
+          "bootstrap_ci_level": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bootstrap Ci Level"
+          },
           "bootstrap_ci_lower": {
             "anyOf": [
               {

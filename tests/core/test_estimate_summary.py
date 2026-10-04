@@ -27,6 +27,9 @@ def test_the_summary_matches_the_estimate_and_survives_json():
     assert summary["ci_lower"] == estimate.ci.lower
     assert summary["ci_upper"] == estimate.ci.upper
     assert summary["ci_level"] == estimate.ci.level
+    # The fit must carry a bootstrap interval, or `None == None` would pass.
+    assert estimate.bootstrap_ci is not None
+    assert summary["bootstrap_ci_level"] == estimate.bootstrap_ci.level
     assert summary["scale"] == estimate.scale
     assert type(summary["n_treated"]) is int
 
@@ -39,4 +42,5 @@ def test_absent_optional_values_are_none_not_nan():
     assert summary["se"] is None
     assert summary["bootstrap_ci_lower"] is None
     assert summary["bootstrap_ci_upper"] is None
+    assert summary["bootstrap_ci_level"] is None
     assert summary["p_value"] is None
