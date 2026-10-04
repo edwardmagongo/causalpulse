@@ -1,12 +1,13 @@
 {
-  "id": "42952ad3-a251-49c4-8ad9-c931c7a5c907",
-  "dataset_id": "c02fdf2f-3308-46a9-b5b8-9472590c8837",
+  "id": "6af55c31-2371-4032-91ab-12862b84dced",
+  "dataset_id": "b0065945-ce00-44f3-b27a-c7c7a35fa35c",
+  "dataset_filename": "prop99.csv",
   "status": "succeeded",
   "partial": false,
   "error": null,
-  "created_at": "2026-10-02T13:39:59.941633+00:00",
-  "started_at": "2026-10-02T13:39:59.992921+00:00",
-  "finished_at": "2026-10-02T13:40:16.373354+00:00",
+  "created_at": "2026-10-04T00:14:24.118614+00:00",
+  "started_at": "2026-10-04T00:14:24.137836+00:00",
+  "finished_at": "2026-10-04T00:14:25.854698+00:00",
   "routing": [
     {
       "estimator": "aipw",
@@ -113,10 +114,11 @@
         "ci_basis": "permutation",
         "bootstrap_ci_lower": null,
         "bootstrap_ci_upper": null,
+        "bootstrap_ci_level": null,
         "p_value": 0.07692307692307693,
         "n_treated": 1,
         "n_control": 38,
-        "runtime_seconds": 16.003262423997512
+        "runtime_seconds": 1.576260417001322
       },
       "error": null
     }

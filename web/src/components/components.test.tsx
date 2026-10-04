@@ -2,6 +2,7 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { AnalysisDetail, Estimate } from "@/lib/api/types";
+import { formatInterval, formatLevel } from "@/lib/format";
 import { panels } from "@/lib/plot";
 import lalonde from "@/test/fixtures/lalonde.analysis.json";
 import lalondeSummary from "@/test/fixtures/lalonde.summary.json";
@@ -34,6 +35,43 @@ describe("EstimatesTable", () => {
     );
     expect(screen.getByText("95% permutation interval")).toBeTruthy();
     expect(container.textContent?.toLowerCase()).not.toContain("confidence");
+  });
+
+  it("labels the bootstrap interval with its own level", () => {
+    render(<EstimatesTable analysisId="a1" estimates={lalonde.estimates as Estimate[]} />);
+    for (const estimate of lalonde.estimates) {
+      const { summary } = estimate;
+      const level = summary.bootstrap_ci_level;
+      expect(typeof level).toBe("number");
+      const cell = within(screen.getByRole("row", { name: new RegExp(estimate.method) })).getAllByRole(
+        "cell",
+      )[5];
+      const interval = formatInterval(summary.bootstrap_ci_lower, summary.bootstrap_ci_upper);
+      expect(cell.textContent).toContain(interval);
+      expect(within(cell).getByText(`${formatLevel(level)} bootstrap interval`)).toBeTruthy();
+    }
+  });
+
+  it("shows the bootstrap interval alone when its level was not stored", () => {
+    // An analysis stored before the level was kept: the summary has no such key.
+    const stored = lalonde.estimates.map((estimate) => {
+      const summary: Record<string, unknown> = { ...estimate.summary };
+      delete summary.bootstrap_ci_level;
+      return { ...estimate, summary };
+    }) as Estimate[];
+    render(<EstimatesTable analysisId="a1" estimates={stored} />);
+    const first = lalonde.estimates[0].summary;
+    const cell = within(screen.getByRole("row", { name: /difference_in_means/ })).getAllByRole("cell")[5];
+    expect(cell.textContent).toBe(formatInterval(first.bootstrap_ci_lower, first.bootstrap_ci_upper));
+    expect(screen.queryByText(/bootstrap interval/)).toBeNull();
+  });
+
+  it("shows a dash and no label when there is no bootstrap interval", () => {
+    render(<EstimatesTable analysisId="a1" estimates={prop99.estimates as Estimate[]} />);
+    expect(prop99.estimates[0].summary.bootstrap_ci_lower).toBeNull();
+    const cell = within(screen.getByRole("row", { name: /synthetic_control/ })).getAllByRole("cell")[5];
+    expect(cell.textContent).toBe("—");
+    expect(screen.queryByText(/bootstrap interval/)).toBeNull();
   });
 
   it("renders an absent standard error as a dash, not as zero", () => {

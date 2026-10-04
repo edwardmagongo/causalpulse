@@ -109,8 +109,11 @@ test("LaLonde: upload, schema, two estimators, results and the evidence report",
   await pickEstimators(page, ["difference_in_means", "lin_regression"]);
   await runToTheEnd(page);
 
+  // The name comes from the analysis itself, not from a second call for the dataset.
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Analysis of lalonde.csv");
   const estimates = page.getByRole("region", { name: "Estimates" });
   await expect(estimates.locator("tbody tr")).toHaveCount(2);
+  await expect(estimates).toContainText(/\d+% bootstrap interval/);
   await expect(estimates.locator("td[data-band]")).toHaveText([/^[A-Z]+$/, /^[A-Z]+$/]);
   // One panel: both methods estimate the ATE on the absolute scale.
   await expect(page.getByRole("region", { name: "Points and intervals" }).getByRole("img")).toHaveCount(1);

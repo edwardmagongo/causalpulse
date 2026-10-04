@@ -5,7 +5,7 @@ import { Poller } from "@/components/Poller";
 import { RoutingTable } from "@/components/RoutingTable";
 import { StatusHeader } from "@/components/StatusHeader";
 import { Unavailable } from "@/components/Unavailable";
-import { getAnalysis, getDataset, getSummary } from "@/lib/api/client";
+import { getAnalysis, getSummary } from "@/lib/api/client";
 import { load } from "@/lib/api/load";
 import { panels } from "@/lib/plot";
 import { inFlight } from "@/lib/polling";
@@ -14,18 +14,15 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
   const { id } = await params;
   const loaded = await load(async () => {
     const analysis = await getAnalysis(id);
-    const [dataset, summary] = await Promise.all([
-      getDataset(analysis.dataset_id),
-      // Only a succeeded analysis has a summary; the API answers 404 otherwise.
-      analysis.status === "succeeded" ? getSummary(id) : null,
-    ]);
-    return { analysis, dataset, comparisons: summary?.comparisons ?? [] };
+    // Only a succeeded analysis has a summary; the API answers 404 otherwise.
+    const summary = analysis.status === "succeeded" ? await getSummary(id) : null;
+    return { analysis, comparisons: summary?.comparisons ?? [] };
   });
   if (!loaded.ok) return <Unavailable />;
-  const { analysis, dataset, comparisons } = loaded.data;
+  const { analysis, comparisons } = loaded.data;
   return (
     <>
-      <StatusHeader analysis={analysis} filename={dataset.filename} />
+      <StatusHeader analysis={analysis} filename={analysis.dataset_filename} />
       {inFlight(analysis.status) ? <Poller analysisId={analysis.id} /> : null}
       <EstimatesTable analysisId={analysis.id} estimates={analysis.estimates} />
       {/* The picture and the verdict on it, side by side where there is room. */}

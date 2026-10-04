@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import type { Estimate } from "@/lib/api/types";
+import type { Estimate, EstimateSummary } from "@/lib/api/types";
 import {
   DASH,
   formatInterval,
@@ -9,6 +9,13 @@ import {
   formatP,
   formatSeconds,
 } from "@/lib/format";
+
+/** Whether both ends of the bootstrap interval are present: only then is it labelled. */
+function hasBootstrapInterval(summary: EstimateSummary): boolean {
+  return (
+    typeof summary.bootstrap_ci_lower === "number" && typeof summary.bootstrap_ci_upper === "number"
+  );
+}
 
 /**
  * One row per requested estimator: its numbers and band, or its error.
@@ -86,6 +93,14 @@ export function EstimatesTable({
                   </td>
                   <td className="whitespace-nowrap">
                     {formatInterval(summary.bootstrap_ci_lower, summary.bootstrap_ci_upper)}
+                    {hasBootstrapInterval(summary) && typeof summary.bootstrap_ci_level === "number" ? (
+                      <>
+                        {" "}
+                        <span className="label block">
+                          {formatLevel(summary.bootstrap_ci_level)} bootstrap interval
+                        </span>
+                      </>
+                    ) : null}
                   </td>
                   <td className="num">{formatP(summary.p_value)}</td>
                   <td className="num">

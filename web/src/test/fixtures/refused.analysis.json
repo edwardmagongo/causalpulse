@@ -1,12 +1,13 @@
 {
-  "id": "9d28802b-6670-4ffd-bb26-5524a50c0c1b",
-  "dataset_id": "68b49fb5-20f5-4c5e-ba49-8210ebf9e8bb",
+  "id": "174127c8-a99d-4a6f-ac23-faf6187804dc",
+  "dataset_id": "5f93962c-5cb0-4d06-917e-a8adfed8e96d",
+  "dataset_filename": "lalonde.csv",
   "status": "failed",
   "partial": false,
   "error": "requested estimator(s) are not eligible for this dataset: twfe: requires panel data; dataset is a cross-section",
-  "created_at": "2026-10-02T13:40:16.825491+00:00",
-  "started_at": "2026-10-02T13:40:16.909138+00:00",
-  "finished_at": "2026-10-02T13:40:16.981479+00:00",
+  "created_at": "2026-10-04T00:14:26.178558+00:00",
+  "started_at": "2026-10-04T00:14:26.207366+00:00",
+  "finished_at": "2026-10-04T00:14:26.231309+00:00",
   "routing": [],
   "estimates": []
 }

@@ -1,12 +1,13 @@
 {
-  "id": "8a9bcbb2-efcb-4f07-80ca-c47165eb9479",
-  "dataset_id": "68b49fb5-20f5-4c5e-ba49-8210ebf9e8bb",
+  "id": "1fbac0f9-47c5-497e-830a-e2042daf57e4",
+  "dataset_id": "5f93962c-5cb0-4d06-917e-a8adfed8e96d",
+  "dataset_filename": "lalonde.csv",
   "status": "succeeded",
   "partial": false,
   "error": null,
-  "created_at": "2026-10-02T13:37:45.847045+00:00",
-  "started_at": "2026-10-02T13:37:58.456479+00:00",
-  "finished_at": "2026-10-02T13:39:58.908624+00:00",
+  "created_at": "2026-10-04T00:14:10.819617+00:00",
+  "started_at": "2026-10-04T00:14:14.686883+00:00",
+  "finished_at": "2026-10-04T00:14:23.266654+00:00",
   "routing": [
     {
       "estimator": "aipw",
@@ -101,10 +102,11 @@
         "ci_basis": "analytic",
         "bootstrap_ci_lower": -9400.5754426158,
         "bootstrap_ci_upper": -7160.690490459208,
+        "bootstrap_ci_level": 0.95,
         "p_value": 6.188467170262585e-32,
         "n_treated": 185,
         "n_control": 16252,
-        "runtime_seconds": 0.28130508400136023
+        "runtime_seconds": 0.0936937500082422
       },
       "error": null
     },
@@ -123,10 +125,11 @@
         "ci_basis": "analytic",
         "bootstrap_ci_lower": -9071.790316438803,
         "bootstrap_ci_upper": 2363.311856245569,
+        "bootstrap_ci_level": 0.95,
         "p_value": 0.22130372747550187,
         "n_treated": 185,
         "n_control": 16252,
-        "runtime_seconds": 119.78547517900006
+        "runtime_seconds": 8.30863721302012
       },
       "error": null
     }

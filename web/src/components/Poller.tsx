@@ -33,6 +33,8 @@ export function Poller({ analysisId }: { analysisId: string }) {
         if (response.ok) {
           setUnreachable(false);
           const analysis = (await response.json()) as AnalysisDetail;
+          // The page may have been left while the body was arriving.
+          if (stopped) return;
           if (!inFlight(analysis.status)) {
             router.refresh();
             return;
