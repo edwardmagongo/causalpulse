@@ -9,8 +9,16 @@ import type {
 } from "@/lib/study/types";
 import type { StudyLoad } from "@/lib/study/bundle";
 import { formatNumber } from "@/lib/format";
+import { matrixOf, offeredFamilies } from "@/lib/study/matrix";
+import { defaultView, viewHref } from "@/lib/study/query";
+import type { View } from "@/lib/study/query";
+import { scaleFor } from "@/lib/study/scale";
 
+import { MatrixHeatmap } from "./MatrixHeatmap";
+import { MatrixTable } from "./MatrixTable";
+import { ScaleLegend } from "./ScaleLegend";
 import { StudyTable } from "./StudyTable";
+import { ViewSwitches } from "./ViewSwitches";
 
 /**
  * The columns of each table, in the report's order. A record's own keys are
@@ -31,12 +39,12 @@ const METRIC_LEGEND =
   "Each metric is followed by its Monte Carlo standard error (±). A count of fits appears only where fewer fits than the replications fed a metric.";
 
 /** The whole report, sections in order. Server-compatible: props in, markup out. */
-export function StudyReport({ study }: { study: StudyBundle }) {
+export function StudyReport({ study, view }: { study: StudyBundle; view?: View }) {
   return (
     <>
       <OverviewSection overview={study.overview} provenance={study.provenance} />
       <FindingsSection expectations={study.expectations} />
-      <MethodsSection />
+      <MethodsSection study={study} view={view ?? defaultView(study)} />
       <CateSection cate={study.cate} />
       <P7Section p7={study.p7} />
       <LimitationsSection limitations={study.limitations} />
@@ -172,9 +180,40 @@ export function FindingsSection({ expectations }: { expectations: Expectations }
   );
 }
 
-/** Where the methods matrix goes; its content arrives with the matrix itself. */
-export function MethodsSection() {
-  return <Section id="methods" title="Methods" />;
+/**
+ * The estimator-by-scenario matrix for one view: the switches, the metric's
+ * definition and the study's notes (each verbatim), then the matrix as a
+ * heatmap or a sortable table. Built here, on the server, from the view the
+ * URL named.
+ */
+export function MethodsSection({ study, view }: { study: StudyBundle; view: View }) {
+  const href = (next: View) => viewHref(study, next);
+  const matrix = matrixOf(study, view);
+  const values = matrix.rows.flatMap((row) => row.cells.flatMap((cell) => (cell.kind === "value" ? [cell.value] : [])));
+  const scale = scaleFor(view.metric, values);
+  const definition = Object.hasOwn(study.metric_definitions, view.metric)
+    ? study.metric_definitions[view.metric]
+    : undefined;
+  return (
+    <Section id="methods" title="Methods">
+      <ViewSwitches view={view} offered={offeredFamilies(study)} href={href} />
+      {definition ? <p className="engine mt-6">{definition}</p> : null}
+      {view.family === "coverage" ? <p className="engine mt-4">{study.report_tables.coverage_note}</p> : null}
+      {view.level === "scenario_by_size" ? (
+        <p className="engine mt-4">{study.report_tables.exploratory_note}</p>
+      ) : null}
+      <div className="mt-6">
+        {view.display === "heatmap" ? (
+          <>
+            <ScaleLegend scale={scale} metric={view.metric} />
+            <MatrixHeatmap matrix={matrix} scale={scale} level={view.level} />
+          </>
+        ) : (
+          <MatrixTable matrix={matrix} view={view} href={href} />
+        )}
+      </div>
+    </Section>
+  );
 }
 
 const NO_SECTION = "The report has no such section.";
