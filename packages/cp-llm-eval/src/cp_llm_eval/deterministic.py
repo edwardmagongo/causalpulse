@@ -47,7 +47,7 @@ class StatementGrade:
     flags: tuple[Flag, ...]
 
 
-_WORD = re.compile(r"[a-z]+(?:[''-][a-z]+)*")
+_WORD = re.compile(r"[a-z]+(?:['’-][a-z]+)*")
 
 
 def _masked(statement: str) -> str:
@@ -152,7 +152,7 @@ def _comparative(statement: str, facts: FactTable) -> Iterator[Flag]:
 _NEGATIONS = frozenset(
     {"not", "no", "never", "neither", "nor", "cannot"}
     | {"isn't", "wasn't", "aren't", "weren't", "doesn't", "didn't", "don't"}
-    | {"isn't", "wasn't", "aren't", "weren't", "doesn't", "didn't"}
+    | {"isn’t", "wasn’t", "aren’t", "weren’t", "doesn’t", "didn’t"}
 )
 # A value the analysis computed. A name fact is excluded: "no estimate from
 # {route.aipw.estimator}" negates nothing the table states.
