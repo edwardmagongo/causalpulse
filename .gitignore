@@ -28,6 +28,7 @@ env/
 .coverage.*
 htmlcov/
 coverage.xml
+slow-*.xml
 .tox/
 .nox/
 
