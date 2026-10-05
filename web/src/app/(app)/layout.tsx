@@ -19,8 +19,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
               <span className="sm:hidden">Study</span>
               <span className="hidden sm:inline">Benchmark study</span>
             </Link>
-            <Link href="/analyses/new" className="button button-primary">
-              New analysis
+            <Link href="/analyses/new" aria-label="New analysis" className="button button-primary">
+              {/*
+                Below 24rem (384 px) the full label leaves the bar no slack: it fitted at 320 px
+                with Apple's system font by a pixel or two, and with the wider system font of a
+                Linux desktop the page scrolled sideways by 2 px.
+              */}
+              <span className="min-[24rem]:hidden">New</span>
+              <span className="hidden min-[24rem]:inline">New analysis</span>
             </Link>
           </nav>
           <form action={signOut} className="flex min-w-0 items-center gap-2 sm:gap-3">
