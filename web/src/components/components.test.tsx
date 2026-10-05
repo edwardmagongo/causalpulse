@@ -2,11 +2,15 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import AppError from "@/app/(app)/error";
-import type { AnalysisDetail, Estimate } from "@/lib/api/types";
+import AnalysesPage from "@/app/(app)/page";
+import { listAnalyses } from "@/lib/api/client";
+import type { AnalysisDetail, AnalysisPage, Estimate } from "@/lib/api/types";
 import { formatInterval, formatLevel } from "@/lib/format";
 import { panels } from "@/lib/plot";
 import lalonde from "@/test/fixtures/lalonde.analysis.json";
+import analyses from "@/test/fixtures/analyses.json";
 import lalondeSummary from "@/test/fixtures/lalonde.summary.json";
+import partial from "@/test/fixtures/partial.analysis.json";
 import prop99 from "@/test/fixtures/prop99.analysis.json";
 import prop99Summary from "@/test/fixtures/prop99.summary.json";
 import refused from "@/test/fixtures/refused.analysis.json";
@@ -17,6 +21,10 @@ import { EstimatesTable } from "./EstimatesTable";
 import { IntervalPlot } from "./IntervalPlot";
 import { RoutingTable } from "./RoutingTable";
 import { StatusHeader } from "./StatusHeader";
+
+// The list is a page that reads through the API client; only that read is replaced.
+vi.mock("server-only", () => ({}));
+vi.mock("@/lib/api/client", () => ({ listAnalyses: vi.fn() }));
 
 afterEach(cleanup);
 
@@ -118,6 +126,26 @@ describe("EstimatesTable", () => {
     expect(within(row).queryByRole("link")).toBeNull();
     expect(screen.getAllByRole("link", { name: "Evidence report" })).toHaveLength(1);
   });
+
+  it("shows a recorded failed estimate as its method and the engine's error, with no numbers", () => {
+    const failed = partial.estimates.find((estimate) => estimate.error !== null)!;
+    expect(failed.method).toBe("lin_regression");
+    expect(failed.summary).toBeNull();
+    render(<EstimatesTable analysisId={partial.id} estimates={partial.estimates as Estimate[]} />);
+    const row = screen.getByRole("row", { name: /lin_regression/ });
+    const cells = within(row).getAllByRole("cell");
+    expect(cells).toHaveLength(1);
+    expect(cells[0].textContent).toBe(failed.error);
+    // Nothing else in the row: no point, interval, band or runtime.
+    expect(row.textContent).toBe(`${failed.method}${failed.error}`);
+    expect(within(row).queryByRole("link")).toBeNull();
+    // The estimator that succeeded in the same analysis keeps its numbers and its report.
+    const succeeded = screen.getByRole("row", { name: /difference_in_means/ });
+    expect(within(succeeded).getAllByRole("cell")).toHaveLength(11);
+    expect(within(succeeded).getByRole("link", { name: "Evidence report" }).getAttribute("href")).toBe(
+      `/analyses/${partial.id}/estimates/difference_in_means`,
+    );
+  });
 });
 
 describe("RoutingTable", () => {
@@ -202,10 +230,45 @@ describe("StatusHeader", () => {
     expect(screen.getByText("failed")).toBeTruthy();
   });
 
-  it("flags a partial analysis and shows no alert for a clean one", () => {
-    render(<StatusHeader analysis={{ ...(lalonde as AnalysisDetail), partial: true }} filename="l.csv" />);
-    expect(screen.getByText(/partial/)).toBeTruthy();
+  it("flags a recorded partial analysis, which succeeded and has no alert", () => {
+    expect(partial.partial).toBe(true);
+    const { container } = render(
+      <StatusHeader analysis={partial as AnalysisDetail} filename={partial.dataset_filename} />,
+    );
+    expect(screen.getByRole("heading", { name: "Analysis of lalonde-inf.csv" })).toBeTruthy();
+    expect(screen.getByText("succeeded")).toBeTruthy();
+    expect(container.querySelector("[data-partial]")?.textContent?.trim()).toBe(
+      "partial: some estimators failed",
+    );
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("shows no partial mark and no alert for a clean analysis", () => {
+    expect(lalonde.partial).toBe(false);
+    const { container } = render(
+      <StatusHeader analysis={lalonde as AnalysisDetail} filename={lalonde.dataset_filename} />,
+    );
+    expect(container.querySelector("[data-partial]")).toBeNull();
+    expect(screen.queryByText(/partial/)).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+});
+
+describe("the analyses list", () => {
+  it("marks the recorded partial analysis's row, and no clean row", async () => {
+    vi.mocked(listAnalyses).mockResolvedValue(analyses as AnalysisPage);
+    render(await AnalysesPage({ searchParams: Promise.resolve({}) }));
+    const rows = screen.getAllByRole("row").slice(1);
+    expect(analyses.items.map((item) => item.partial)).toEqual([true, false, false, false]);
+    expect(rows).toHaveLength(analyses.items.length);
+    analyses.items.forEach((item, index) => {
+      expect(within(rows[index]).getByRole("rowheader").textContent).toBe(item.dataset_filename);
+      // The first cell after the dataset's row header is the status.
+      expect(within(rows[index]).getAllByRole("cell")[0].textContent).toBe(
+        item.partial ? `${item.status} (partial)` : item.status,
+      );
+    });
+    expect(analyses.items[0].id).toBe(partial.id);
   });
 });
 

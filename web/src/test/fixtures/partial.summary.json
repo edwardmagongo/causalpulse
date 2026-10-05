@@ -1,0 +1,12 @@
+{
+  "comparisons": [
+    {
+      "estimand": "ATE",
+      "scale": "absolute",
+      "methods": [
+        "difference_in_means"
+      ],
+      "not_compared_reason": "only one method estimated the ATE on the absolute scale, so there is no second estimate to compare it with"
+    }
+  ]
+}

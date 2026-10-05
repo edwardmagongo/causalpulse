@@ -1,8 +1,23 @@
 {
   "items": [
     {
-      "id": "174127c8-a99d-4a6f-ac23-faf6187804dc",
-      "dataset_id": "5f93962c-5cb0-4d06-917e-a8adfed8e96d",
+      "id": "461396ca-6425-4ed6-aa4f-1baca4aa4959",
+      "dataset_id": "7c8d65c2-5036-4a3e-82cb-a4f1ce24f3ee",
+      "dataset_filename": "lalonde-inf.csv",
+      "status": "succeeded",
+      "partial": true,
+      "error": null,
+      "requested_estimators": [
+        "difference_in_means",
+        "lin_regression"
+      ],
+      "created_at": "2026-10-05T08:55:48.751044+00:00",
+      "started_at": "2026-10-05T08:55:48.771613+00:00",
+      "finished_at": "2026-10-05T08:55:48.941242+00:00"
+    },
+    {
+      "id": "09ae615b-cfaf-4c2a-a2fa-61c24d1b4495",
+      "dataset_id": "c08016de-01b7-4e1a-bdef-8c4695be354c",
       "dataset_filename": "lalonde.csv",
       "status": "failed",
       "partial": false,
@@ -10,13 +25,13 @@
       "requested_estimators": [
         "twfe"
       ],
-      "created_at": "2026-10-04T00:14:26.178558+00:00",
-      "started_at": "2026-10-04T00:14:26.207366+00:00",
-      "finished_at": "2026-10-04T00:14:26.231309+00:00"
+      "created_at": "2026-10-05T08:55:47.612733+00:00",
+      "started_at": "2026-10-05T08:55:47.644405+00:00",
+      "finished_at": "2026-10-05T08:55:47.673598+00:00"
     },
     {
-      "id": "6af55c31-2371-4032-91ab-12862b84dced",
-      "dataset_id": "b0065945-ce00-44f3-b27a-c7c7a35fa35c",
+      "id": "97de4c3f-bd3d-474c-ad60-7e9715f865a6",
+      "dataset_id": "18b43fd6-a635-4d39-b6d1-936b6aa65f40",
       "dataset_filename": "prop99.csv",
       "status": "succeeded",
       "partial": false,
@@ -24,13 +39,13 @@
       "requested_estimators": [
         "synthetic_control"
       ],
-      "created_at": "2026-10-04T00:14:24.118614+00:00",
-      "started_at": "2026-10-04T00:14:24.137836+00:00",
-      "finished_at": "2026-10-04T00:14:25.854698+00:00"
+      "created_at": "2026-10-05T08:55:45.478514+00:00",
+      "started_at": "2026-10-05T08:55:45.497550+00:00",
+      "finished_at": "2026-10-05T08:55:47.204393+00:00"
     },
     {
-      "id": "1fbac0f9-47c5-497e-830a-e2042daf57e4",
-      "dataset_id": "5f93962c-5cb0-4d06-917e-a8adfed8e96d",
+      "id": "1f128165-f1af-4a66-bc78-ac71d8dc27a2",
+      "dataset_id": "c08016de-01b7-4e1a-bdef-8c4695be354c",
       "dataset_filename": "lalonde.csv",
       "status": "succeeded",
       "partial": false,
@@ -39,9 +54,9 @@
         "difference_in_means",
         "lin_regression"
       ],
-      "created_at": "2026-10-04T00:14:10.819617+00:00",
-      "started_at": "2026-10-04T00:14:14.686883+00:00",
-      "finished_at": "2026-10-04T00:14:23.266654+00:00"
+      "created_at": "2026-10-05T08:55:34.116056+00:00",
+      "started_at": "2026-10-05T08:55:37.697454+00:00",
+      "finished_at": "2026-10-05T08:55:45.271759+00:00"
     }
   ],
   "next_cursor": null

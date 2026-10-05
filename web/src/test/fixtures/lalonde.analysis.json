@@ -1,13 +1,13 @@
 {
-  "id": "1fbac0f9-47c5-497e-830a-e2042daf57e4",
-  "dataset_id": "5f93962c-5cb0-4d06-917e-a8adfed8e96d",
+  "id": "1f128165-f1af-4a66-bc78-ac71d8dc27a2",
+  "dataset_id": "c08016de-01b7-4e1a-bdef-8c4695be354c",
   "dataset_filename": "lalonde.csv",
   "status": "succeeded",
   "partial": false,
   "error": null,
-  "created_at": "2026-10-04T00:14:10.819617+00:00",
-  "started_at": "2026-10-04T00:14:14.686883+00:00",
-  "finished_at": "2026-10-04T00:14:23.266654+00:00",
+  "created_at": "2026-10-05T08:55:34.116056+00:00",
+  "started_at": "2026-10-05T08:55:37.697454+00:00",
+  "finished_at": "2026-10-05T08:55:45.271759+00:00",
   "routing": [
     {
       "estimator": "aipw",
@@ -106,7 +106,7 @@
         "p_value": 6.188467170262585e-32,
         "n_treated": 185,
         "n_control": 16252,
-        "runtime_seconds": 0.0936937500082422
+        "runtime_seconds": 0.09212874999502674
       },
       "error": null
     },
@@ -129,7 +129,7 @@
         "p_value": 0.22130372747550187,
         "n_treated": 185,
         "n_control": 16252,
-        "runtime_seconds": 8.30863721302012
+        "runtime_seconds": 7.342635462002363
       },
       "error": null
     }
