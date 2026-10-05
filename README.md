@@ -1246,8 +1246,9 @@ gaps has to be constructible, because `complete_cases` and imputation take one, 
 or covariate value is refused only when an estimator is fitted. Nothing can use an infinity, so
 `CausalDataset` refuses `inf` or `-inf` in any column the schema names (unit, treatment, outcome,
 covariates, time, cohort, negative-control outcome, auxiliary columns) when the dataset is built:
-one message, naming the columns, before anything is routed or fitted. An upload, `cp analyze` and
-`cp replay` all go through it. Text such as `1e400`, which pandas reads as infinite, is refused the
+one message, naming the columns, before anything is routed or fitted. The analysis of an upload,
+`cp analyze` and `cp replay` all go through it; the upload itself is accepted, and its analysis
+fails with this message. Text such as `1e400`, which pandas reads as infinite, is refused the
 same way.
 
 Before this, measured on the real datasets with one cell changed: an infinite covariate gave a

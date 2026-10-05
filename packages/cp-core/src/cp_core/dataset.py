@@ -329,9 +329,12 @@ class CausalDataset:
         and not others, each with a library's own message naming no column,
         and one in a panel's time column was fitted and returned an estimate.
 
-        Only numeric columns are looked at: a datetime or a text column cannot
-        hold an infinity. An auxiliary column absent from the frame is passed
-        over, since nothing here requires it to be present.
+        Only columns with a numeric dtype are looked at. A datetime column
+        cannot hold an infinity, and a column pandas read as text is not
+        inspected value by value: one that mixes text with numbers is not
+        usable as it stands, and fails where an estimator reads it. An
+        auxiliary column absent from the frame is passed over, since nothing
+        here requires it to be present.
         """
         declared = (*self.schema.required_columns, *self.schema.auxiliary_columns)
         offending = sorted(

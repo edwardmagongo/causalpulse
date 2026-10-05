@@ -128,6 +128,16 @@ def test_a_nullable_integer_column_with_a_gap_constructs():
     CausalDataset(frame=changed, schema=SCHEMA)
 
 
+def test_a_nullable_float_column_holding_an_infinity_is_refused():
+    # The masked float dtype can hold both a gap and an infinity; the gap
+    # must not hide the infinity.
+    changed = frame()
+    changed["x1"] = pd.array([1.0, None, np.inf, 4.0, 5.0, 6.0, 7.0, 8.0], dtype="Float64")
+    with pytest.raises(ValueError, match="infinite values") as refusal:
+        CausalDataset(frame=changed, schema=SCHEMA)
+    assert "columns ['x1'] contain" in str(refusal.value)
+
+
 def test_a_datetime_time_column_and_a_text_unit_column_construct():
     changed = frame()
     changed["unit_id"] = changed["unit_id"].map(lambda unit: f"unit-{unit}")
