@@ -265,6 +265,53 @@ test("an upload posted from another origin, or from a null one, is refused", asy
   }
 });
 
+test("the header fits a phone: no sideways scroll, every control in view, the name only where there is room", async ({ page }) => {
+  await signIn(page, KEY);
+  const header = page.getByRole("banner");
+  const nav = header.getByRole("navigation", { name: "Main" });
+  const controls = [
+    nav.getByRole("link", { name: "Analyses", exact: true }),
+    // Its visible text is shortened on a narrow screen; its accessible name is not.
+    nav.getByRole("link", { name: "Benchmark study", exact: true }),
+    nav.getByRole("link", { name: "New analysis", exact: true }),
+    header.getByRole("button", { name: "Sign out", exact: true }),
+  ];
+  // The signed-in name: the only span in the sign-out form, hidden by a class below 414 px.
+  const name = header.locator("form span");
+
+  const height = 800;
+  for (const width of [320, 360, 390]) {
+    await page.setViewportSize({ width, height });
+    await page.goto("/");
+    await expect(page.getByRole("heading", { name: "Analyses" })).toBeVisible();
+    const scroll = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+    expect(scroll.scrollWidth, `no sideways scroll at ${width} px`).toBe(scroll.clientWidth);
+    for (const control of controls) {
+      await expect(control).toBeVisible();
+      const box = await control.boundingBox();
+      const label = `${await control.textContent()} at ${width} px: ${JSON.stringify(box)}`;
+      expect(box, label).not.toBeNull();
+      expect(box!.x, label).toBeGreaterThanOrEqual(0);
+      expect(box!.y, label).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width, label).toBeLessThanOrEqual(width);
+      expect(box!.y + box!.height, label).toBeLessThanOrEqual(height);
+    }
+    // It is in the page and hidden, not missing: a locator that matched nothing would be hidden too.
+    await expect(name).toHaveCount(1);
+    await expect(name).toBeHidden();
+  }
+
+  // The suite's own size, where there is room for the name.
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto("/");
+  await expect(name).toHaveCount(1);
+  await expect(name).toBeVisible();
+  await expect(name).not.toHaveText("");
+});
+
 test("the benchmark study opens from the header, and its view lives in the URL", async ({ page }) => {
   await signIn(page, KEY);
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Benchmark study", exact: true }).click();

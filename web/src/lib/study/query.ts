@@ -35,6 +35,10 @@ function metricsOf(study: StudyBundle, family: string): string[] | undefined {
   return offeredFamilies(study).find((offered) => offered.family === family)?.metrics;
 }
 
+function levelsOf(study: StudyBundle, family: string): Level[] {
+  return offeredFamilies(study).find((offered) => offered.family === family)?.levels ?? [];
+}
+
 export function defaultView(study: StudyBundle): View {
   const offered = offeredFamilies(study);
   const family = offered.some((o) => o.family === DEFAULT_FAMILY) ? DEFAULT_FAMILY : (offered[0]?.family ?? DEFAULT_FAMILY);
@@ -68,8 +72,11 @@ export function parseView(study: StudyBundle, params: Params): View {
         : (metrics[0] ?? base.metric);
 
   const requestedLevel = first(params, "level");
-  const level: Level =
+  const wantedLevel: Level =
     requestedLevel === "scenario" || requestedLevel === "scenario_by_size" ? requestedLevel : base.level;
+  // A level the chosen family has no table for would show an empty matrix: take one it offers.
+  const levels = levelsOf(study, family);
+  const level: Level = levels.includes(wantedLevel) ? wantedLevel : (levels[0] ?? base.level);
 
   const requestedShape = first(params, "shape");
   const shape: Shape | "all" = requestedShape !== undefined && isShape(requestedShape) ? requestedShape : "all";

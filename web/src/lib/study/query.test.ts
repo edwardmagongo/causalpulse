@@ -122,6 +122,47 @@ describe("parseView", () => {
     expect(parseView(study, { sort: key }).sort).toBeNull();
   });
 
+  describe("for a family that lacks the by-size level", () => {
+    // The committed study, with one family's by-size table taken out: every family in it has both.
+    const lacking: StudyBundle = {
+      ...study,
+      families: { ...study.families, runtime: { scenario: study.families.runtime.scenario } },
+    };
+    const bySizeKey = matrixOf(study, {
+      ...defaultView(study),
+      family: "runtime",
+      metric: study.family_metrics.runtime[0],
+      level: "scenario_by_size",
+    }).columns[0].key;
+
+    it("falls back to the level the family offers", () => {
+      expect(Object.keys(study.families.runtime).sort()).toEqual(["scenario", "scenario_by_size"]);
+      expect(Object.keys(lacking.families.runtime)).toEqual(["scenario"]);
+      const view = parseView(lacking, { family: "runtime", level: "scenario_by_size" });
+      expect(view.family).toBe("runtime");
+      expect(view.level).toBe("scenario");
+      // The href of the view it gives names no level, so it parses to the same view.
+      const href = viewHref(lacking, view);
+      expect(Object.keys(paramsOf(href))).toEqual(["family", "metric"]);
+      expect(parseView(lacking, paramsOf(href))).toEqual(view);
+    });
+
+    it("keeps the by-size level for a family that has it", () => {
+      expect(parseView(lacking, { family: "coverage", level: "scenario_by_size" }).level).toBe("scenario_by_size");
+      // and for the same family in the study that holds its by-size table
+      expect(parseView(study, { family: "runtime", level: "scenario_by_size" }).level).toBe("scenario_by_size");
+    });
+
+    it("reads a sort against the by-scenario view it fell back to", () => {
+      expect(bySizeKey).toContain(":");
+      // In the whole study the key is a column of the by-size view.
+      expect(parseView(study, { family: "runtime", level: "scenario_by_size", sort: bySizeKey }).sort).toBe(bySizeKey);
+      expect(parseView(lacking, { family: "runtime", level: "scenario_by_size", sort: bySizeKey }).sort).toBeNull();
+      // A by-scenario column is one of the view's columns, so it is kept.
+      expect(parseView(lacking, { family: "runtime", level: "scenario_by_size", sort: "A" }).sort).toBe("A");
+    });
+  });
+
   it("never carries an unparsed value into the view or its href", () => {
     const hostile = "<script>alert(1)</script>";
     const view = parseView(study, {
