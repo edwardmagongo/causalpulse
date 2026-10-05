@@ -1757,7 +1757,7 @@ properties in `style` attributes, and an evidence report is shown in a sandboxed
 which inherits the page's policy and carries its own `<style>` element and `data:` images. The
 frame is still granted nothing: no scripts, no forms, no same-origin access. In development
 `script-src` also has `'unsafe-eval'`, which React's development build needs. Because the nonce is
-per request, no page is prerendered: the root layout waits for the request, so every page is
+per request, no page of the dashboard's is prerendered: the root layout waits for the request, so every page is
 rendered per request, sign-in and the 404 page included. The policy is enforced, not report-only,
 and the browser suite fails on any violation of it. `upgrade-insecure-requests` and
 `Strict-Transport-Security` are not set: the stack is served over plain HTTP locally, and both
