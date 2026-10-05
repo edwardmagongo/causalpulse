@@ -1239,6 +1239,27 @@ the choice is recorded (`CompleteCaseRecord`, which rows were dropped and which 
 Complete-case is a starting point offered for convenience, not a recommendation — the error message
 that points to it says so, rather than presenting it as the fix.
 
+### A dataset holding an infinite value is refused when it is built
+
+A missing value and an infinite one are refused in different places, on purpose. A dataset with
+gaps has to be constructible, because `complete_cases` and imputation take one, so a missing outcome
+or covariate value is refused only when an estimator is fitted. Nothing can use an infinity, so
+`CausalDataset` refuses `inf` or `-inf` in any column the schema names (unit, treatment, outcome,
+covariates, time, cohort, negative-control outcome, auxiliary columns) when the dataset is built:
+one message, naming the columns, before anything is routed or fitted. An upload, `cp analyze` and
+`cp replay` all go through it. Text such as `1e400`, which pandas reads as infinite, is refused the
+same way.
+
+Before this, measured on the real datasets with one cell changed: an infinite covariate gave a
+partial analysis (`difference_in_means` succeeded and the other four failed, each with a library's
+own message naming no column); an infinite outcome failed every estimator the same way; and an
+infinite period in Prop 99 was **fitted**, with `hierarchical_did` returning an estimate.
+
+Not covered: a value that is finite and absurdly large. One covariate cell of `1e39` in LaLonde
+gives `aipw` and `causal_forest` estimates near -1e36, and `1e155` leaves the causal forest without
+an answer after a minute. That is a question of magnitude with no threshold to justify yet; it is
+recorded in `docs/specs/2026-10-05-refuse-infinite-values-design.md`, section 8.
+
 ### What a wide bound means
 
 `tipping_point` reports the estimate under the two extreme corner fills — every missing outcome
