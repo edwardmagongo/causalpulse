@@ -1,6 +1,7 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import AppError from "@/app/(app)/error";
 import type { AnalysisDetail, Estimate } from "@/lib/api/types";
 import { formatInterval, formatLevel } from "@/lib/format";
 import { panels } from "@/lib/plot";
@@ -11,6 +12,7 @@ import prop99Summary from "@/test/fixtures/prop99.summary.json";
 import refused from "@/test/fixtures/refused.analysis.json";
 
 import { ComparisonList } from "./ComparisonList";
+import { ErrorNotice } from "./ErrorNotice";
 import { EstimatesTable } from "./EstimatesTable";
 import { IntervalPlot } from "./IntervalPlot";
 import { RoutingTable } from "./RoutingTable";
@@ -204,5 +206,51 @@ describe("StatusHeader", () => {
     render(<StatusHeader analysis={{ ...(lalonde as AnalysisDetail), partial: true }} filename="l.csv" />);
     expect(screen.getByText(/partial/)).toBeTruthy();
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+});
+
+describe("ErrorNotice", () => {
+  it("says what happened in the dashboard's own two sentences", () => {
+    render(<ErrorNotice digest={undefined} retry={() => {}} />);
+    const notice = screen.getByRole("alert");
+    expect(within(notice).getByRole("heading", { name: "Something went wrong on this page." })).toBeTruthy();
+    expect(within(notice).getByText("Nothing was changed by this. You can try again.")).toBeTruthy();
+  });
+
+  it("calls retry once per click", () => {
+    const retry = vi.fn();
+    render(<ErrorNotice digest={undefined} retry={retry} />);
+    const button = screen.getByRole("button", { name: "Try again" });
+    fireEvent.click(button);
+    expect(retry).toHaveBeenCalledTimes(1);
+    fireEvent.click(button);
+    expect(retry).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows the digest when there is one", () => {
+    render(<ErrorNotice digest="1234567890" retry={() => {}} />);
+    expect(screen.getByText("Reference: 1234567890")).toBeTruthy();
+  });
+
+  it.each([
+    ["undefined", undefined],
+    ["empty", ""],
+  ])("shows no reference line when the digest is %s", (_case, digest) => {
+    const { container } = render(<ErrorNotice digest={digest} retry={() => {}} />);
+    expect(container.textContent).not.toContain("Reference");
+    expect(container.textContent).toBe(
+      "Something went wrong on this page.Nothing was changed by this. You can try again.Try again",
+    );
+  });
+
+  it("never shows the error's own message", () => {
+    const retry = vi.fn();
+    const error: Error & { digest?: string } = new Error("secret detail");
+    error.digest = "abc123";
+    const { container } = render(<AppError error={error} retry={retry} />);
+    expect(container.textContent).not.toContain("secret detail");
+    expect(screen.getByText("Reference: abc123")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(retry).toHaveBeenCalledTimes(1);
   });
 });
