@@ -116,22 +116,25 @@ await save("prop99.summary.json", await get(`/v1/analyses/${single.id}/summary`)
 // A panel estimator on a cross-section: the router refuses, and the analysis fails.
 await save("refused.analysis.json", await analyse(lalonde.id, LALONDE, ["twfe"]));
 
-// One infinite covariate value: difference in means uses no covariate and
-// succeeds, Lin regression fails while fitting, and the analysis is partial.
-// The CSV is built in memory from the real file. This is requested before
-// analyses.json is saved, on purpose: the list fixture then holds a partial row.
+// One huge finite covariate value (1e200): difference in means uses no
+// covariate and succeeds, Lin regression overflows while fitting and fails,
+// and the analysis is partial. An infinite value no longer serves: the engine
+// refuses a dataset that holds one before anything is fitted. The Python suite
+// pins this request too (tests/worker/test_execute.py). The CSV is built in
+// memory from the real file. This is requested before analyses.json is saved,
+// on purpose: the list fixture then holds a partial row.
 function notPartial(answer) {
   console.error(
-    "the engine no longer turns an infinite covariate into a partial analysis " +
+    "the engine no longer turns a huge finite covariate into a partial analysis " +
       "(wanted succeeded, partial, a summary for difference_in_means and an error for " +
       `lin_regression); the partial fixture needs another source. The answer was: ${answer}`,
   );
   process.exit(1);
 }
-const infiniteCsv = withCell(await readFile(resolve(data, "lalonde.csv"), "utf8"), "re75", "inf");
+const hugeCsv = withCell(await readFile(resolve(data, "lalonde.csv"), "utf8"), "re75", "1e200");
 // A refusal of the upload or of the request is the same news as a clean answer.
-const partial = await upload("lalonde-inf.csv", infiniteCsv)
-  .then((infinite) => analyse(infinite.id, LALONDE, ["difference_in_means", "lin_regression"]))
+const partial = await upload("lalonde-huge.csv", hugeCsv)
+  .then((huge) => analyse(huge.id, LALONDE, ["difference_in_means", "lin_regression"]))
   .catch((error) => notPartial(error.message));
 const estimate = (method) => (partial.estimates ?? []).find((row) => row.method === method);
 if (
