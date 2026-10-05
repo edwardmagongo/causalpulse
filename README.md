@@ -1732,6 +1732,56 @@ API does, on every call. After a key is revoked, the next page that calls the AP
 the cookie, and lands on sign-in. The server exits at start-up without `CP_SESSION_SECRET` (at least
 32 characters) and `CP_API_URL`; the compose file sets both, the secret to a local-only value.
 
+### The session gate and the Content-Security-Policy
+
+`web/src/proxy.ts`, the Next.js middleware, runs on every page request. It looks only for the
+session cookie: a request without one is redirected to `/sign-in`. That one path is let through
+without a session; a sub-path of it is gated like any other page. The middleware's matcher leaves
+out `/api` and `/sign-out`, each as that path and its sub-paths, and the static files, and nothing
+else, so `/sign-in` is matched. `/api` has to stay out: when the middleware runs on a request,
+Next.js buffers its body and truncates it at 10 MB, which would cut an upload short. The relay
+handlers under `/api` answer 401 themselves when there is no session.
+
+The middleware also sets a Content-Security-Policy on every response it answers, the redirect to
+sign-in included, built in `web/src/lib/csp.ts`:
+
+```
+default-src 'self'; script-src 'self' 'nonce-<per request>' 'strict-dynamic'; style-src 'self' 'unsafe-inline';
+img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self';
+form-action 'self'; frame-ancestors 'none'
+```
+
+Scripts run only with the request's nonce, which the middleware makes and Next.js puts on its own
+scripts. Styles allow inline for two reasons: the study matrix and the interval plot set custom
+properties in `style` attributes, and an evidence report is shown in a sandboxed `srcdoc` frame,
+which inherits the page's policy and carries its own `<style>` element and `data:` images. The
+frame is still granted nothing: no scripts, no forms, no same-origin access. In development
+`script-src` also has `'unsafe-eval'`, which React's development build needs. Because the nonce is
+per request, no page is prerendered: the root layout waits for the request, so every page is
+rendered per request, sign-in and the 404 page included. The policy is enforced, not report-only,
+and the browser suite fails on any violation of it. `upgrade-insecure-requests` and
+`Strict-Transport-Security` are not set: the stack is served over plain HTTP locally, and both
+belong to hosting (sub-project 6).
+
+### When the API does not answer, and when a page fails
+
+Every call the dashboard's server makes to the API has a deadline, one of three constants in
+`web/src/lib/api/client.ts`. A page's own reads and the analysis submission have 30 seconds. A
+relayed call (the poll for a running analysis, a manifest or a Markdown report) has 60 seconds.
+The upload has 600 seconds,
+because its body is streamed from the browser and the deadline covers the time the browser takes
+to send the file: 50 MB at 1 Mbit/s is about seven minutes. The deadline keeps running while the
+response body arrives. A call that outlives it is treated as a refused connection is: the page
+shows its "service is unavailable" state, and a relay handler answers 503 with
+`the service is unavailable`. A relayed download that stalls after its headers were sent is cut
+off at the deadline.
+
+A signed-in page that throws anything else shows an error page inside the header: "Something went
+wrong on this page.", "Nothing was changed by this. You can try again.", and a "Try again" button.
+A failure of the root layout itself shows the same words in a document of its own. Neither shows
+the error's message or stack; the framework's digest, when there is one, is shown as a reference
+that a report can quote.
+
 ### What it shows, and what it does not write
 
 The analysis page renders what the API returns as data: status, the routing decisions with their
@@ -1810,14 +1860,17 @@ make smoke-web   # whole stack + browser; project causalpulse-web-smoke, ports 5
 
 `make check-web` and `make smoke-web` both run `pnpm` on the host, so both need Node.js 24 and
 `pnpm`. `make smoke-web` builds both images, issues two keys of one user inside the container,
-installs Playwright's Chromium, and runs ten browser tests: a wrong key and then the issued one;
+installs Playwright's Chromium, and runs thirteen browser tests: sign-in and a signed-in page each
+served under the policy, with different nonces; a path that is no page, which redirects to sign-in
+without a session and is a 404 under the policy with one; a wrong key and then the issued one;
 LaLonde from upload through two estimators to an opened evidence report; Proposition 99 with
 `synthetic_control` through to the end of its analysis; a 12 MB upload; an upload one byte over the
 API's 50 MB limit and one of exactly that size; an upload posted from another origin, which is
-refused with a 403; the benchmark study opened from the header, with a figure from the published
-report found at its estimator and scenario at both levels; the header's "Sign out" button; and a
-revoked key. It tears the stack down
-afterwards.
+refused with a 403; the header at 320, 360 and 390 px wide, on one line with every control inside
+it and no sideways scroll; the benchmark study opened from the header, with a figure from the
+published report found at its estimator and scenario at both levels; the header's "Sign out"
+button; and a revoked key. After every test the suite asserts that the browser's console logged no
+violation of the policy. It tears the stack down afterwards.
 
 ## On scikit-learn
 
