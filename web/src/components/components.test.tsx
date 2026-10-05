@@ -235,7 +235,7 @@ describe("StatusHeader", () => {
     const { container } = render(
       <StatusHeader analysis={partial as AnalysisDetail} filename={partial.dataset_filename} />,
     );
-    expect(screen.getByRole("heading", { name: "Analysis of lalonde-inf.csv" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Analysis of lalonde-huge.csv" })).toBeTruthy();
     expect(screen.getByText("succeeded")).toBeTruthy();
     expect(container.querySelector("[data-partial]")?.textContent?.trim()).toBe(
       "partial: some estimators failed",

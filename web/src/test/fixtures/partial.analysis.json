@@ -1,13 +1,13 @@
 {
-  "id": "461396ca-6425-4ed6-aa4f-1baca4aa4959",
-  "dataset_id": "7c8d65c2-5036-4a3e-82cb-a4f1ce24f3ee",
-  "dataset_filename": "lalonde-inf.csv",
+  "id": "2b837ac7-84df-4b5e-a22a-7b91a68fa2e5",
+  "dataset_id": "1499f9b5-4fc2-49b0-8fa1-f428bd2f580c",
+  "dataset_filename": "lalonde-huge.csv",
   "status": "succeeded",
   "partial": true,
   "error": null,
-  "created_at": "2026-10-05T08:55:48.751044+00:00",
-  "started_at": "2026-10-05T08:55:48.771613+00:00",
-  "finished_at": "2026-10-05T08:55:48.941242+00:00",
+  "created_at": "2026-10-05T17:24:56.065522+00:00",
+  "started_at": "2026-10-05T17:24:56.100510+00:00",
+  "finished_at": "2026-10-05T17:24:56.442715+00:00",
   "routing": [
     {
       "estimator": "aipw",
@@ -106,7 +106,7 @@
         "p_value": 6.188467170262585e-32,
         "n_treated": 185,
         "n_control": 16252,
-        "runtime_seconds": 0.09269412500725593
+        "runtime_seconds": 0.15525137500662822
       },
       "error": null
     },
