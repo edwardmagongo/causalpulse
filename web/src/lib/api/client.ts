@@ -23,7 +23,24 @@ import type {
  * which pass a refusal on to the browser. Every typed function below goes
  * through `ask`, which turns a refusal into one of the three errors in
  * `./errors`.
+ *
+ * Every call has a deadline. A call that has not answered by then fails as a
+ * refused connection does, with `ApiUnavailable`. The deadline keeps running
+ * while the body arrives, so a relayed download that stalls is cut off.
  */
+
+/** A typed call: a small JSON request, and none streams a file. */
+export const READ_DEADLINE_MS = 30_000;
+
+/** A relayed call: a manifest or a Markdown report. */
+export const RELAY_DEADLINE_MS = 60_000;
+
+/**
+ * The upload. Its body is streamed from the browser, so the deadline covers
+ * the time the browser takes to send the file: 50 MB at 1 Mbit/s is about
+ * seven minutes.
+ */
+export const UPLOAD_DEADLINE_MS = 600_000;
 
 async function sessionKey(): Promise<string> {
   const { key } = await getSession();
@@ -31,11 +48,17 @@ async function sessionKey(): Promise<string> {
   return key;
 }
 
-async function send(path: string, init: RequestInit, key: string): Promise<Response> {
+async function send(
+  path: string,
+  init: RequestInit,
+  key: string,
+  deadlineMs: number,
+): Promise<Response> {
   try {
     return await fetch(`${apiUrl()}${path}`, {
       ...init,
       cache: "no-store",
+      signal: AbortSignal.timeout(deadlineMs),
       headers: { ...init.headers, authorization: `Bearer ${key}` },
     });
   } catch {
@@ -43,16 +66,23 @@ async function send(path: string, init: RequestInit, key: string): Promise<Respo
   }
 }
 
-/** The API's own response, 4xx included. Throws only for 401, 503 and no connection. */
-export async function forward(path: string, init: RequestInit = {}): Promise<Response> {
-  const response = await send(path, init, await sessionKey());
+/**
+ * The API's own response, 4xx included. Throws only for 401, 503, no
+ * connection and no answer within the deadline.
+ */
+export async function forward(
+  path: string,
+  init: RequestInit = {},
+  deadlineMs: number = RELAY_DEADLINE_MS,
+): Promise<Response> {
+  const response = await send(path, init, await sessionKey(), deadlineMs);
   if (response.status === 401) throw new Unauthorized();
   if (response.status === 503) throw new ApiUnavailable();
   return response;
 }
 
 async function ask(path: string, init: RequestInit = {}, key?: string): Promise<Response> {
-  const response = await send(path, init, key ?? (await sessionKey()));
+  const response = await send(path, init, key ?? (await sessionKey()), READ_DEADLINE_MS);
   if (!response.ok) {
     throw errorFor(response.status, await response.json().catch(() => null));
   }
