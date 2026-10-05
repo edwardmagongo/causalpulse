@@ -1,5 +1,7 @@
 # CausalPulse
 
+[![CI](https://github.com/edwardmagongo/causalpulse/actions/workflows/ci.yml/badge.svg)](https://github.com/edwardmagongo/causalpulse/actions/workflows/ci.yml)
+
 A causal inference and experimentation platform. Given an intervention and an outcome,
 CausalPulse estimates what would have happened without the intervention, how large the effect
 was, for whom it differed, and how much the conclusion should be trusted.
@@ -1886,3 +1888,41 @@ make check      # lint, type-check, import contracts, tests
 make test-fast  # skip reference-parity tests
 make check-llm  # one real interpretation (one or two model calls); needs ANTHROPIC_API_KEY
 ```
+
+## Continuous integration
+
+GitHub Actions runs the same `make` targets a developer runs. A workflow sets a job up and calls
+one target; nothing a gate does is written a second time in YAML, so a gate means the same thing
+on a laptop and on a runner.
+
+| When | Job | Runs |
+|---|---|---|
+| Every pull request, and every push to `main` | Static | `make lint types imports` |
+| | Fast suite | `make test-fast WORKERS=4` |
+| | Services | `make check-services` |
+| | Web | `make check-web` |
+| | Browser | `make smoke-web` |
+| | Stack | `make smoke` |
+| Weekly (Sunday 03:00 UTC), and by hand | Slow tier | `make test-slow SHARD=I/8`, eight shards in parallel |
+| By hand only | Live model call | `make check-llm` |
+
+`main` takes changes by pull request, and the six jobs of the first group must pass before one can
+merge. A branch has no run until it has a pull request.
+
+The slow tier is the tests marked `slow` that need no services and no model API. It is split by
+test file (`pytest --shard I/N`, a hook in `tests/conftest.py`), each shard keeps its JUnit report
+as an artifact, and a weekly run in which any shard does not succeed opens an issue naming it.
+Start it by hand with `gh workflow run slow.yml`. GitHub stops scheduled workflows in a repository
+with no activity for 60 days.
+
+The live model call is billed, so it never runs on a schedule or for a pull request. It needs the
+repository secret `ANTHROPIC_API_KEY` and is started with `gh workflow run llm-live.yml`.
+
+The interpreter is the one `.python-version` names, 3.13, which is what the suite's thresholds
+were measured on. The Docker image is built from `python:3.12-slim`, so the containers the Stack
+and Browser jobs test run 3.12.
+
+Each `pytest-xdist` worker is given one numerical thread (`ONE_THREAD` in the Makefile). Without
+it, four workers on a four-core Linux runner each open a full set of BLAS and OpenMP threads: the
+fast suite reached 22% in an hour there, and with the cap it finishes in about half an hour. macOS
+does not show the problem, because numpy uses Accelerate there.
