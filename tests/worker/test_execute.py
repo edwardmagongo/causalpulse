@@ -102,3 +102,47 @@ def test_a_huge_finite_covariate_still_gives_a_partial_analysis():
     assert [report.estimate.method for report in outcome.reports] == ["difference_in_means"]
     assert [failure.method for failure in outcome.failures] == ["lin_regression"]
     assert outcome.failures[0].error
+
+
+@pytest.mark.parametrize("column", ["re75", "re78"])
+def test_an_infinity_written_with_a_trailing_space_is_refused(column):
+    # pandas reads `inf ` as text, so the whole column is text and the finite
+    # check passes over it; `float()` still makes an infinity of the cell.
+    # Before the numeric-roles rule `re75` gave the partial analysis again.
+    content = with_first_cell("lalonde.csv", column, "inf ")
+
+    with pytest.raises(ValueError) as refusal:
+        execute(content, "lalonde.csv", LALONDE, ["difference_in_means", "lin_regression"], 0)
+
+    message = str(refusal.value)
+    assert message.startswith(f"columns ['{column}'] must hold numbers")
+    assert f"({column}: str)" in message
+    assert "every requested estimator failed" not in message
+
+
+def test_digit_grouping_in_a_covariate_is_refused_where_it_used_to_be_analysed():
+    # `float("1_000")` is 1000.0, so this text column was fitted as numbers.
+    content = with_first_cell("lalonde.csv", "re75", "1_000")
+
+    with pytest.raises(ValueError, match=r"columns \['re75'\] must hold numbers"):
+        execute(content, "lalonde.csv", LALONDE, ["difference_in_means", "lin_regression"], 0)
+
+
+def test_stray_text_in_a_covariate_is_refused_once_by_column():
+    content = with_first_cell("lalonde.csv", "re75", "abc")
+
+    with pytest.raises(ValueError) as refusal:
+        execute(content, "lalonde.csv", LALONDE, ["difference_in_means", "lin_regression"], 0)
+
+    message = str(refusal.value)
+    assert message.startswith("columns ['re75'] must hold numbers")
+    assert "every requested estimator failed" not in message
+    assert "could not convert" not in message
+
+
+def test_a_text_unit_column_is_still_analysed():
+    content = with_first_cell("lalonde.csv", "unit_id", "abc")
+
+    outcome = execute(content, "lalonde.csv", LALONDE, ["difference_in_means"], 0)
+
+    assert [report.estimate.method for report in outcome.reports] == ["difference_in_means"]
