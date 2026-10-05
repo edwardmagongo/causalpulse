@@ -23,10 +23,11 @@ import {
   RELAY_DEADLINE_MS,
   UPLOAD_DEADLINE_MS,
   forward,
+  getReportHtml,
   listAnalyses,
   me,
 } from "./client";
-import { ApiUnavailable } from "./errors";
+import { ApiError, ApiUnavailable } from "./errors";
 import { load } from "./load";
 import { relay } from "./relay";
 
@@ -46,6 +47,22 @@ function neverAnswers() {
         signal.addEventListener("abort", () => reject(signal.reason), { once: true });
       }),
   );
+  vi.stubGlobal("fetch", stub);
+  return stub;
+}
+
+/** An API that sends its status and the start of a body, then nothing more until its signal aborts. */
+function stallsMidBody(status = 200) {
+  const stub = vi.fn<Fetch>(async (_url, init) => {
+    const signal = init?.signal;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"items": ['));
+        signal?.addEventListener("abort", () => controller.error(signal.reason), { once: true });
+      },
+    });
+    return new Response(body, { status, headers: { "content-type": "application/json" } });
+  });
   vi.stubGlobal("fetch", stub);
   return stub;
 }
@@ -102,6 +119,56 @@ describe("a call that outlives its deadline", () => {
     const response = await relay("/v1/analyses/a", {}, {}, 5);
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ detail: "the service is unavailable" });
+  });
+});
+
+describe("a typed call whose body stalls past its deadline", () => {
+  it("throws ApiUnavailable from a JSON read", { timeout: FAST }, async () => {
+    stallsMidBody();
+    shortenDeadlines();
+    await expect(listAnalyses()).rejects.toBeInstanceOf(ApiUnavailable);
+  });
+
+  it("reaches a page as the unavailable state", { timeout: FAST }, async () => {
+    stallsMidBody();
+    shortenDeadlines();
+    expect(await load(() => listAnalyses())).toEqual({ ok: false, reason: "unavailable" });
+  });
+
+  it("throws ApiUnavailable from the HTML report's text read", { timeout: FAST }, async () => {
+    stallsMidBody();
+    shortenDeadlines();
+    await expect(getReportHtml("a", "ipw")).rejects.toBeInstanceOf(ApiUnavailable);
+    expect(await load(() => getReportHtml("a", "ipw"))).toEqual({ ok: false, reason: "unavailable" });
+  });
+
+  it("throws ApiUnavailable when it is a refusal's body that stalls", { timeout: FAST }, async () => {
+    stallsMidBody(500);
+    shortenDeadlines();
+    await expect(listAnalyses()).rejects.toBeInstanceOf(ApiUnavailable);
+  });
+});
+
+describe("a body that arrives in time but is not JSON", () => {
+  const malformed = () => new Response('{"items": [', { status: 200 });
+
+  it("is not called unavailable: the parse error propagates", async () => {
+    answers(malformed);
+    const error: unknown = await listAnalyses().catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(SyntaxError);
+    expect(error).not.toBeInstanceOf(ApiUnavailable);
+  });
+
+  it("is not turned into the unavailable state for a page", async () => {
+    answers(malformed);
+    await expect(load(() => listAnalyses())).rejects.toBeInstanceOf(SyntaxError);
+  });
+
+  it("leaves a refusal with an unreadable body as the refusal it is", async () => {
+    answers(() => new Response("<html>oops", { status: 500 }));
+    const error: unknown = await listAnalyses().catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).status).toBe(500);
   });
 });
 
