@@ -303,6 +303,7 @@ class CausalDataset:
 
     def __post_init__(self) -> None:
         self._validate_columns_present()
+        self._validate_numeric_roles()
         self._validate_finite_values()
         self._validate_treatment_missing_values()
         self._validate_treatment_is_binary()
@@ -315,11 +316,50 @@ class CausalDataset:
         if missing:
             raise ValueError(f"frame is missing required columns: {sorted(missing)}")
 
+    def _validate_numeric_roles(self) -> None:
+        """Refuse a column that must be numeric and was not read as numbers.
+
+        The treatment, the outcome, the covariates, the cohort, the
+        negative-control outcome and the auxiliary columns are all used as
+        numbers. `read_csv` and `float()` disagree about what a number is:
+        `1_000`, or `inf` followed by a space, makes pandas read the whole
+        column as text, and yet every cell converts when an estimator asks for
+        floats. Before this rule such a column was analysed as numbers, and an
+        infinity in it went past `_validate_finite_values`, which looks only
+        at numeric dtypes.
+
+        The unit is an identifier and may be text. The time column keeps its
+        own rule, in `_validate_time_column`. An auxiliary column absent from
+        the frame is passed over, since nothing here requires it to be present.
+
+        Nothing is converted on the caller's behalf: the frame is left as it
+        was read, so the bytes a manifest names still parse to this dataset.
+        """
+        schema = self.schema
+        roles = [schema.treatment, schema.outcome, *schema.covariates]
+        if schema.cohort is not None:
+            roles.append(schema.cohort)
+        if schema.negative_control_outcome is not None:
+            roles.append(schema.negative_control_outcome)
+        roles.extend(c for c in schema.auxiliary_columns if c in self.frame.columns)
+        offending = sorted(
+            column
+            for column in dict.fromkeys(roles)
+            if not pd.api.types.is_numeric_dtype(self.frame[column])
+        )
+        if offending:
+            dtypes = ", ".join(f"{column}: {self.frame[column].dtype}" for column in offending)
+            raise ValueError(
+                f"columns {offending} must hold numbers, and were not read as numbers "
+                f"({dtypes}). Every value has to be a plain number: look for stray "
+                "text, a space after a value, or digit grouping such as 1_000 or 1,000."
+            )
+
     def _validate_finite_values(self) -> None:
         """Refuse an infinite value in any column the schema names.
 
-        This runs before the other checks, so an infinite treatment value is
-        reported as infinite and not as a third treatment level.
+        This runs before the treatment's own checks, so an infinite treatment
+        value is reported as infinite and not as a third treatment level.
 
         A missing value in the outcome or a covariate is deliberately not
         refused here: `complete_cases` and imputation take a dataset with
@@ -329,14 +369,11 @@ class CausalDataset:
         and not others, each with a library's own message naming no column,
         and one in a panel's time column was fitted and returned an estimate.
 
-        Only columns with a numeric dtype are looked at. A datetime column
-        cannot hold an infinity. A column of dtype `object` or text is not
-        inspected value by value, so an infinity held in one is not caught
-        here. `read_csv` gives a column that dtype only when it holds text
-        that is not a number, so an upload does not arrive that way with
-        nothing but numbers in it; a frame built in code can. An auxiliary
-        column absent from the frame is passed over, since nothing here
-        requires it to be present.
+        Only columns with a numeric dtype are looked at. The roles that must
+        be numeric have been through `_validate_numeric_roles` by now, so what
+        is passed over is a unit column of text and a time column of dates,
+        neither of which can hold an infinity, and an auxiliary column absent
+        from the frame.
         """
         declared = (*self.schema.required_columns, *self.schema.auxiliary_columns)
         offending = sorted(
