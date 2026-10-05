@@ -136,6 +136,22 @@ test("sign-in and a signed-in page each carry the policy, with a nonce of their 
   expect(second).not.toBe(first);
 });
 
+test("a path that is no page redirects signed out, and is a 404 under the policy signed in", async ({ page }) => {
+  await page.goto("/sign-in/nope");
+  await expect(page).toHaveURL(/\/sign-in$/);
+
+  await signIn(page, KEY);
+  const missing = await page.goto("/no-such-page");
+  expect(missing?.status()).toBe(404);
+  expect(scriptNonce(missing?.headers() ?? {})).not.toBe("");
+  // Let the page's scripts run, so that a refusal by the policy is logged before the test ends.
+  await page.waitForLoadState("networkidle");
+
+  const analysis = await page.goto("/analyses/00000000-0000-0000-0000-000000000000");
+  expect(analysis?.status()).toBe(404);
+  await page.waitForLoadState("networkidle");
+});
+
 test("a wrong key shows the API's message, and the issued key reaches the list", async ({ page }) => {
   await page.goto("/");
   await expect(page).toHaveURL(/\/sign-in$/);
