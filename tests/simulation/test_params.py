@@ -60,12 +60,31 @@ def test_every_scenario_builds_from_params(scenario_id):
     assert dgp.scenario_id == scenario_id
 
 
+def _nine_digits(value):
+    """A float, or every element of an array, as text at nine significant digits."""
+    if value is None:
+        return None
+    if np.ndim(value) == 0:
+        return f"{float(value):.9g}"
+    return [f"{float(element):.9g}" for element in np.asarray(value).ravel()]
+
+
 def _digest_simulated(simulated):
     """A stable fingerprint of a generated frame and its ground truth.
 
     Content, not identity: two independently generated but numerically equal
-    runs digest the same. Anything that changes a single float anywhere in the
-    frame or the truth arrays changes this digest.
+    runs digest the same. Anything that moves a float anywhere in the frame or
+    the truth arrays by more than rounding at nine significant digits changes
+    this digest.
+
+    Nine digits, not every bit: `exp` and its relatives differ in the last
+    place between CPU families, so the truth arrays are not bit-identical
+    across machines. Measured on 2026-10-05 between Apple silicon and x86-64
+    Linux (numpy 2.5.1): at n_units=2000 the frames were identical, and a
+    handful of `true_cate` and `true_propensity` elements per scenario
+    differed by 1 to 16 units in the last place (at most 1.9e-15 relative).
+    A changed rng draw, which is what this guards against, moves values in
+    the first digit.
 
     Deliberately excludes `truth.config_hash`: that field is provenance
     metadata describing the configuration, not generated data, and it can
@@ -75,20 +94,20 @@ def _digest_simulated(simulated):
     docs/specs/2026-09-13-causal-core-phase18-design.md section 12 for the
     incident this caused.
     """
-    frame_bytes = simulated.dataset.frame.to_csv(index=True).encode()
+    frame_bytes = simulated.dataset.frame.to_csv(index=True, float_format="%.9g").encode()
     truth = simulated.truth
     payload = {
-        "true_ate": truth.true_ate,
-        "true_att": truth.true_att,
-        "true_cate": truth.true_cate.tolist(),
-        "true_propensity": truth.true_propensity.tolist(),
+        "true_ate": _nine_digits(truth.true_ate),
+        "true_att": _nine_digits(truth.true_att),
+        "true_cate": _nine_digits(truth.true_cate),
+        "true_propensity": _nine_digits(truth.true_propensity),
         "true_confounders": list(truth.true_confounders),
         "scenario_id": truth.scenario_id,
         "true_treatment": (
-            None if truth.true_treatment is None else truth.true_treatment.tolist()
+            None if truth.true_treatment is None else _nine_digits(truth.true_treatment)
         ),
         "complete_outcome": (
-            None if truth.complete_outcome is None else truth.complete_outcome.tolist()
+            None if truth.complete_outcome is None else _nine_digits(truth.complete_outcome)
         ),
         "schema": repr(simulated.dataset.schema),
     }
@@ -111,14 +130,21 @@ def _digest_simulated(simulated):
 # scenario's generated data changed. See
 # docs/specs/2026-09-13-causal-core-phase18-design.md section 12 for the
 # incident and why this is not a regression.
+#
+# Recomputed again on 2026-10-05, when `_digest_simulated` began rounding to
+# nine significant digits (see its docstring: the truth arrays differ in the
+# last place between CPU families, and the suite first ran on x86-64 Linux
+# that day). As before, the fingerprint changed and the data did not: with the
+# rounding stashed, the previous constants still matched on the machine they
+# were captured on, and these were computed from that same run.
 _PRE_PHASE18_DIGESTS = {
-    "A": "5112e8a9a3477cf60cf01eccfe997c98b1cf93c7a8a2996e3d65b7ea598cff28",
-    "B": "47e38cfa1c8498e6b39e66ba58dbb4a692deee5fff217aa74846a8a8167d4bd3",
-    "C": "9dba46453432e1d48d46776930c114f1c4642d84f863ffc99657c1cdc443c324",
-    "D": "95b79679f6692e93f4c5acb879f1a07379cddef56188ab1ca11a3ac2b24daa8b",
-    "F": "95976acb5f9dc15804acbc8966ce53ca06709792937bdf7bd7d5f56c259ca6b2",
-    "G": "f9d23466326d8133752d5b701f5f378dd380ba335b229fe6f5624689ac13a424",
-    "H": "e56f2182aa02efe633fc262f6a0f62d262c0b3e0e34edb189b96d3eae709bf63",
+    "A": "617bba1ccae2f187767fb2319c12c6e6bb75a1e305c45e56678087cb40f8f01c",
+    "B": "aba1e1a279a6848831bd0cd4ad242f42a445d798237b0bc7e2289832222c2b8b",
+    "C": "e8a8960f0ca5bedb620ff680f4a2fc47bf512f5d2642773ae7bd9da514669dd7",
+    "D": "aa5b90fb547507a4ac0f03c7bed63714474aa701b8213a0c6086e3f944a48a13",
+    "F": "3922c6b0f73917e4bdc2a8ce4a618820a1f91764a1ad37a8ba204fb794634669",
+    "G": "c13339a97be417f16bf1f32a4ae1faef507d0704191c8a003c8cf1ee48bd0744",
+    "H": "20bc791b96ae00ed2c93ce6d8545f4c691bccd0bfb0deaec3d4b84aec92e69c9",
 }
 
 
