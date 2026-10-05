@@ -47,10 +47,10 @@ SCHEMA = CausalSchema(
 ROLES = ("unit_id", "treated", "outcome", "x1", "period", "cohort", "placebo", "proxy")
 
 
-def with_value(column: str, value: float, row: int = 0) -> pd.DataFrame:
+def with_value(column: str, value: float) -> pd.DataFrame:
     changed = frame()
     changed[column] = changed[column].astype(float)
-    changed.loc[row, column] = value
+    changed.loc[0, column] = value
     return changed
 
 
@@ -74,12 +74,15 @@ def test_a_negative_infinity_is_refused_too(column):
 
 
 def test_every_offending_column_is_named_once_and_sorted():
+    # `x2` is declared before `period` (covariates come before time), so the
+    # order asserted here is the sorted one and not the schema's.
     changed = with_value("x2", np.inf)
-    changed.loc[1, "outcome"] = -np.inf
     changed.loc[2, "x2"] = np.inf
+    changed["period"] = changed["period"].astype(float)
+    changed.loc[1, "period"] = -np.inf
     with pytest.raises(ValueError) as refusal:
         CausalDataset(frame=changed, schema=SCHEMA)
-    assert "columns ['outcome', 'x2'] contain infinite values" in str(refusal.value)
+    assert "columns ['period', 'x2'] contain infinite values" in str(refusal.value)
 
 
 def test_the_message_is_the_one_the_design_gives():
