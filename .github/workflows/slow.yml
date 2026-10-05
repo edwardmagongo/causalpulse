@@ -1,0 +1,61 @@
+name: Slow tier
+
+# The slow tests that need no services and no model API. Too long for every
+# push, so they run weekly and by hand, split by test file into eight shards
+# that each fit well inside a job's time limit.
+on:
+  schedule:
+    # Sundays at 03:00 UTC.
+    - cron: "0 3 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  slow:
+    name: Slow tier (shard ${{ matrix.shard }} of 8)
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      # One shard's failure must not hide what the others would have found.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --frozen
+      - run: make test-slow SHARD=${{ matrix.shard }}/8
+      # Kept whether the shard passed or failed: the per-test durations in it
+      # are what the shards are balanced from.
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: slow-junit-${{ matrix.shard }}-of-8
+          path: slow-${{ matrix.shard }}-of-8.xml
+          retention-days: 30
+          if-no-files-found: warn
+
+  # A failed weekly run opens an issue, so it cannot pass unseen. A run started
+  # by hand has someone watching it and opens none.
+  report:
+    name: Report a failed weekly run
+    needs: slow
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue create \
+            --title "Slow tier failed on $(date -u +%F)" \
+            --body "The weekly slow tier failed. The run, with each shard's log and JUnit report: $RUN_URL"

@@ -1,0 +1,40 @@
+name: Live model call
+
+# Started by hand only. The call is billed, and it reads the repository's one
+# secret: with no `pull_request`, `push` or `schedule` trigger, a pull request
+# from a fork can neither start it nor read the key.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live:
+    name: Live model call
+    # Only the repository's owner may spend on the key.
+    if: github.actor == github.repository_owner
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Fails here, by name, if the secret is unset. Without this the test
+      # would still fail, but only at the first request and with the client's
+      # own message, which does not mention the repository secret. Tests that
+      # the value is empty; never prints it.
+      - name: Require the ANTHROPIC_API_KEY secret
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::error::The repository secret ANTHROPIC_API_KEY is not set."
+            exit 1
+          fi
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --frozen
+      - env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: make check-llm

@@ -18,8 +18,12 @@ imports:
 test:
 	uv run pytest -v -n auto
 
+# WORKERS is the number of pytest-xdist workers. `auto` locally; CI passes
+# `WORKERS=4`, the project's cap and a hosted runner's core count.
+WORKERS ?= auto
+
 test-fast:
-	uv run pytest -v -m "not slow" -n auto
+	uv run pytest -v -m "not slow" -n $(WORKERS)
 
 # The slow tier that needs no services and no model API, as CI runs it: one
 # shard of the slow test files per job (`make test-slow SHARD=3/8`), each
