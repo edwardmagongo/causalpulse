@@ -15,15 +15,23 @@ types:
 imports:
 	uv run lint-imports
 
+# One numerical thread per pytest-xdist worker. Without this each worker opens
+# a machine's worth of BLAS, OpenMP and XLA threads, and N workers on N cores
+# contend: on a 4-core Linux runner the fast suite reached 22% in an hour and
+# stopped moving, with one test taking 31 minutes. macOS hides it (numpy uses
+# Accelerate there). The names are the ones `cp_evaluation.execute` caps for
+# the benchmark's own workers, for the same reason.
+ONE_THREAD = OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1 XLA_FLAGS="--xla_cpu_multi_thread_eigen=false intra_op_parallelism_threads=1"
+
 test:
-	uv run pytest -v -n auto
+	$(ONE_THREAD) uv run pytest -v -n auto
 
 # WORKERS is the number of pytest-xdist workers. `auto` locally; CI passes
 # `WORKERS=4`, the project's cap and a hosted runner's core count.
 WORKERS ?= auto
 
 test-fast:
-	uv run pytest -v -m "not slow" -n $(WORKERS)
+	$(ONE_THREAD) uv run pytest -v -m "not slow" -n $(WORKERS) --durations=25
 
 # The slow tier that needs no services and no model API, as CI runs it: one
 # shard of the slow test files per job (`make test-slow SHARD=3/8`), each
@@ -32,7 +40,7 @@ test-fast:
 SHARD ?=
 
 test-slow:
-	uv run pytest -v -m "slow and not services and not live" -n 4 $(if $(SHARD),--shard $(SHARD) --junitxml=slow-$(subst /,-of-,$(SHARD)).xml,--junitxml=slow-all.xml)
+	$(ONE_THREAD) uv run pytest -v -m "slow and not services and not live" -n 4 --durations=25 $(if $(SHARD),--shard $(SHARD) --junitxml=slow-$(subst /,-of-,$(SHARD)).xml,--junitxml=slow-all.xml)
 
 cov:
 	uv run pytest --cov=packages --cov-report=term-missing
