@@ -108,6 +108,40 @@ def test_the_deselected_tests_are_reported(project: pytest.Pytester) -> None:
     result.assert_outcomes(passed=2, deselected=5)
 
 
+def _passed(result: pytest.RunResult) -> set[str]:
+    return {
+        line.removeprefix("PASSED ").strip()
+        for line in result.stdout.lines
+        if line.startswith("PASSED ")
+    }
+
+
+def test_a_shard_runs_the_same_tests_under_xdist(
+    project: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Every xdist worker collects for itself, and the workers must agree on the
+    # shard or the run aborts. Subprocesses, so the nested workers are real
+    # ones; without the outer run's worker variables, so the nested run is a
+    # controller and not taken for a worker of this one.
+    for name in [name for name in os.environ if name.startswith("PYTEST_XDIST_")]:
+        monkeypatch.delenv(name)
+    args = ["-rA", "-W", "error", "-p", "no:cacheprovider", "--shard", "1/2"]
+
+    serial = project.runpytest_subprocess(*args)
+    parallel = project.runpytest_subprocess(*args, "-n", "2")
+
+    assert serial.ret == pytest.ExitCode.OK, serial.stdout.str() + serial.stderr.str()
+    assert parallel.ret == pytest.ExitCode.OK, parallel.stdout.str() + parallel.stderr.str()
+    assert _passed(serial) == {
+        "test_a.py::test_one",
+        "test_a.py::test_two",
+        "test_c.py::test_one",
+        "test_c.py::test_two",
+        "test_e.py::test_one",
+    }
+    assert _passed(parallel) == _passed(serial)
+
+
 def test_files_are_dealt_after_marker_selection(pytester: pytest.Pytester) -> None:
     # Six files, of which the three even-numbered ones hold a marked test. Dealt
     # before `-m`, shard 1/2 would be files 0, 2, 4 and hold every marked test,

@@ -12,8 +12,10 @@ permissions:
 jobs:
   live:
     name: Live model call
-    # Only the repository's owner may spend on the key.
-    if: github.actor == github.repository_owner
+    # Only the repository's owner may spend on the key. `triggering_actor` is
+    # whoever started this attempt, so a re-run by someone else is not taken
+    # for the owner's.
+    if: github.triggering_actor == github.repository_owner
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
