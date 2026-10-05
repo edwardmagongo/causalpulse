@@ -14,6 +14,8 @@ export default function GlobalError({
 }) {
   return (
     <html lang="en">
+      {/* The root layout's metadata went with the layout; React hoists this into the head. */}
+      <title>CausalPulse</title>
       <body>
         <main className="mx-auto flex max-w-page flex-col gap-section px-gutter pt-10 pb-24">
           <ErrorNotice digest={error.digest} retry={retry} />

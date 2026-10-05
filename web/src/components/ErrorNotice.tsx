@@ -12,6 +12,7 @@ export function ErrorNotice({ digest, retry }: { digest: string | undefined; ret
       <button type="button" onClick={() => retry()} className="button">
         Try again
       </button>
+      {/* Shown on the assumption that it is the framework's opaque hash: nothing in this codebase sets `digest` on an error. */}
       {digest ? <p className="value text-label text-ink-soft">Reference: {digest}</p> : null}
     </div>
   );

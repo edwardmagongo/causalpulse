@@ -291,8 +291,11 @@ describe("ErrorNotice", () => {
   });
 
   it("shows the digest when there is one", () => {
-    render(<ErrorNotice digest="1234567890" retry={() => {}} />);
+    const { container } = render(<ErrorNotice digest="1234567890" retry={() => {}} />);
     expect(screen.getByText("Reference: 1234567890")).toBeTruthy();
+    expect(container.textContent).toBe(
+      "Something went wrong on this page.Nothing was changed by this. You can try again.Try againReference: 1234567890",
+    );
   });
 
   it.each([
