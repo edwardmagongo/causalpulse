@@ -330,11 +330,13 @@ class CausalDataset:
         and one in a panel's time column was fitted and returned an estimate.
 
         Only columns with a numeric dtype are looked at. A datetime column
-        cannot hold an infinity, and a column pandas read as text is not
-        inspected value by value: one that mixes text with numbers is not
-        usable as it stands, and fails where an estimator reads it. An
-        auxiliary column absent from the frame is passed over, since nothing
-        here requires it to be present.
+        cannot hold an infinity. A column of dtype `object` or text is not
+        inspected value by value, so an infinity held in one is not caught
+        here. `read_csv` gives a column that dtype only when it holds text
+        that is not a number, so an upload does not arrive that way with
+        nothing but numbers in it; a frame built in code can. An auxiliary
+        column absent from the frame is passed over, since nothing here
+        requires it to be present.
         """
         declared = (*self.schema.required_columns, *self.schema.auxiliary_columns)
         offending = sorted(
