@@ -32,6 +32,20 @@ test.afterAll(() => {
   if (scratch) rmSync(scratch, { recursive: true, force: true });
 });
 
+// Every page is served under a Content-Security-Policy; a refusal by it is a console error.
+let violations: string[] = [];
+
+test.beforeEach(({ page }) => {
+  violations = [];
+  page.on("console", (message) => {
+    if (/content security policy/i.test(message.text())) violations.push(message.text());
+  });
+});
+
+test.afterEach(() => {
+  expect(violations).toEqual([]);
+});
+
 async function signIn(page: Page, key: string) {
   await page.goto("/sign-in");
   await page.getByLabel("API key").fill(key);
@@ -103,6 +117,24 @@ async function runToTheEnd(page: Page) {
   // LaLonde took 20 s with the worker on the host and 90 s in the composed stack.
   await expect(page.locator("header [data-status]")).toHaveText("succeeded", { timeout: 300_000 });
 }
+
+/** The nonce in the `script-src` of a response's Content-Security-Policy; empty if there is none. */
+function scriptNonce(headers: Record<string, string>): string {
+  const policy = headers["content-security-policy"] ?? "";
+  return /script-src [^;]*'nonce-([^']+)'/.exec(policy)?.[1] ?? "";
+}
+
+test("sign-in and a signed-in page each carry the policy, with a nonce of their own", async ({ page }) => {
+  const signInPage = await page.goto("/sign-in");
+  const first = scriptNonce(signInPage?.headers() ?? {});
+  expect(first).not.toBe("");
+
+  await signIn(page, KEY);
+  const home = await page.goto("/");
+  const second = scriptNonce(home?.headers() ?? {});
+  expect(second).not.toBe("");
+  expect(second).not.toBe(first);
+});
 
 test("a wrong key shows the API's message, and the issued key reaches the list", async ({ page }) => {
   await page.goto("/");
