@@ -303,6 +303,7 @@ class CausalDataset:
 
     def __post_init__(self) -> None:
         self._validate_columns_present()
+        self._validate_finite_values()
         self._validate_treatment_missing_values()
         self._validate_treatment_is_binary()
         self._validate_outcome_type()
@@ -313,6 +314,41 @@ class CausalDataset:
         missing = [c for c in self.schema.required_columns if c not in self.frame.columns]
         if missing:
             raise ValueError(f"frame is missing required columns: {sorted(missing)}")
+
+    def _validate_finite_values(self) -> None:
+        """Refuse an infinite value in any column the schema names.
+
+        This runs before the other checks, so an infinite treatment value is
+        reported as infinite and not as a third treatment level.
+
+        A missing value in the outcome or a covariate is deliberately not
+        refused here: `complete_cases` and imputation take a dataset with
+        gaps, so one has to be constructible, and `require_no_missing` refuses
+        it when an estimator is fitted. Nothing takes a dataset with an
+        infinity. Before this check one in a covariate failed some estimators
+        and not others, each with a library's own message naming no column,
+        and one in a panel's time column was fitted and returned an estimate.
+
+        Only numeric columns are looked at: a datetime or a text column cannot
+        hold an infinity. An auxiliary column absent from the frame is passed
+        over, since nothing here requires it to be present.
+        """
+        declared = (*self.schema.required_columns, *self.schema.auxiliary_columns)
+        offending = sorted(
+            column
+            for column in dict.fromkeys(declared)
+            if column in self.frame.columns
+            and pd.api.types.is_numeric_dtype(self.frame[column])
+            # Through float, with a gap as nan, so a nullable column is read
+            # the same way as a plain one: a gap is not an infinity.
+            and np.isinf(self.frame[column].to_numpy(dtype=float, na_value=np.nan)).any()
+        )
+        if offending:
+            raise ValueError(
+                f"columns {offending} contain infinite values (inf or -inf), and no "
+                "estimator here can use them. Correct those values or remove those "
+                "rows, and supply the data again."
+            )
 
     def _validate_treatment_missing_values(self) -> None:
         if self.frame[self.schema.treatment].isna().any():
