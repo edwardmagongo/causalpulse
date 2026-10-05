@@ -5,6 +5,10 @@
 // The fixtures are real responses, not hand-written ones: a fixture written to
 // agree with a component tests the one case that cannot fail. Run this again
 // whenever a response model changes, and commit what it writes.
+//
+// Record against a freshly created user: the list fixture, and the test that
+// reads it, assume the four analyses this script makes and no other, newest
+// first. Needs Node 20 or later (`Array.prototype.with`).
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -152,8 +156,10 @@ if (
     }),
   );
 }
+// Both are in hand before either is written: a failed read of the summary leaves no unpaired file.
+const partialSummary = await get(`/v1/analyses/${partial.id}/summary`);
 await save("partial.analysis.json", partial);
-await save("partial.summary.json", await get(`/v1/analyses/${partial.id}/summary`));
+await save("partial.summary.json", partialSummary);
 
 await save("estimators.json", await get("/v1/estimators"));
 await save("analyses.json", await get("/v1/analyses"));

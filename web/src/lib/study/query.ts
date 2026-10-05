@@ -4,7 +4,7 @@
  * recognised is replaced by its default, never echoed, so no query text reaches
  * the page unparsed.
  */
-import { matrixOf, offeredFamilies } from "./matrix";
+import { levelFor, matrixOf, offeredFamilies } from "./matrix";
 import type { Level } from "./matrix";
 import { isEstimatorFamily, isShape } from "./types";
 import type { EstimatorFamily, Shape, StudyBundle } from "./types";
@@ -75,8 +75,7 @@ export function parseView(study: StudyBundle, params: Params): View {
   const wantedLevel: Level =
     requestedLevel === "scenario" || requestedLevel === "scenario_by_size" ? requestedLevel : base.level;
   // A level the chosen family has no table for would show an empty matrix: take one it offers.
-  const levels = levelsOf(study, family);
-  const level: Level = levels.includes(wantedLevel) ? wantedLevel : (levels[0] ?? base.level);
+  const level = levelFor(levelsOf(study, family), wantedLevel);
 
   const requestedShape = first(params, "shape");
   const shape: Shape | "all" = requestedShape !== undefined && isShape(requestedShape) ? requestedShape : "all";

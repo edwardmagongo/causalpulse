@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { levelFor } from "@/lib/study/matrix";
 import type { Level } from "@/lib/study/matrix";
 import type { View } from "@/lib/study/query";
 
@@ -57,7 +58,7 @@ export function ViewSwitches({
       ...view,
       family: entry.family,
       metric: entry.metrics[0] ?? view.metric,
-      level: entry.levels.includes(view.level) ? view.level : (entry.levels[0] ?? view.level),
+      level: levelFor(entry.levels, view.level),
     }),
     current: entry.family === view.family,
   }));

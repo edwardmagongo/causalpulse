@@ -123,7 +123,7 @@ describe("parseView", () => {
   });
 
   describe("for a family that lacks the by-size level", () => {
-    // The committed study, with one family's by-size table taken out: every family in it has both.
+    // The committed study, with one family's by-size table taken out: every offered family in it has both.
     const lacking: StudyBundle = {
       ...study,
       families: { ...study.families, runtime: { scenario: study.families.runtime.scenario } },

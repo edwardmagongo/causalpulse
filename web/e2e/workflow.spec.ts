@@ -265,7 +265,7 @@ test("an upload posted from another origin, or from a null one, is refused", asy
   }
 });
 
-test("the header fits a phone: no sideways scroll, every control in view, the name only where there is room", async ({ page }) => {
+test("the header fits a phone: one line, no sideways scroll, every control in it, the name only where there is room", async ({ page }) => {
   await signIn(page, KEY);
   const header = page.getByRole("banner");
   const nav = header.getByRole("navigation", { name: "Main" });
@@ -279,25 +279,34 @@ test("the header fits a phone: no sideways scroll, every control in view, the na
   // The signed-in name: the only span in the sign-out form, hidden by a class below 414 px.
   const name = header.locator("form span");
 
-  const height = 800;
+  // Sign-in leaves the page at the suite's own size, where the bar is one line: its height there is the measure.
+  const oneLine = (await header.boundingBox())?.height;
+  expect(oneLine, "the header's height at the suite's size").toBeGreaterThan(0);
+
   for (const width of [320, 360, 390]) {
-    await page.setViewportSize({ width, height });
+    await page.setViewportSize({ width, height: 800 });
     await page.goto("/");
     await expect(page.getByRole("heading", { name: "Analyses" })).toBeVisible();
     const scroll = await page.evaluate(() => ({
       scrollWidth: document.documentElement.scrollWidth,
       clientWidth: document.documentElement.clientWidth,
     }));
-    expect(scroll.scrollWidth, `no sideways scroll at ${width} px`).toBe(scroll.clientWidth);
+    expect(scroll.scrollWidth, `the document does not scroll sideways at ${width} px`).toBe(scroll.clientWidth);
+    // A bar that wrapped onto a second line would be taller, or would spill out of its own box.
+    const bar = await header.boundingBox();
+    expect(bar, `the header's box at ${width} px`).not.toBeNull();
+    expect(bar!.height, `the header's height at ${width} px`).toBe(oneLine);
+    expect(bar!.x, `the header's left edge at ${width} px`).toBeGreaterThanOrEqual(0);
+    expect(bar!.x + bar!.width, `the header's right edge at ${width} px`).toBeLessThanOrEqual(width);
     for (const control of controls) {
       await expect(control).toBeVisible();
       const box = await control.boundingBox();
-      const label = `${await control.textContent()} at ${width} px: ${JSON.stringify(box)}`;
+      const label = `${await control.textContent()} at ${width} px: ${JSON.stringify(box)} in ${JSON.stringify(bar)}`;
       expect(box, label).not.toBeNull();
-      expect(box!.x, label).toBeGreaterThanOrEqual(0);
-      expect(box!.y, label).toBeGreaterThanOrEqual(0);
-      expect(box!.x + box!.width, label).toBeLessThanOrEqual(width);
-      expect(box!.y + box!.height, label).toBeLessThanOrEqual(height);
+      expect(box!.x, label).toBeGreaterThanOrEqual(bar!.x);
+      expect(box!.y, label).toBeGreaterThanOrEqual(bar!.y);
+      expect(box!.x + box!.width, label).toBeLessThanOrEqual(bar!.x + bar!.width);
+      expect(box!.y + box!.height, label).toBeLessThanOrEqual(bar!.y + bar!.height);
     }
     // It is in the page and hidden, not missing: a locator that matched nothing would be hidden too.
     await expect(name).toHaveCount(1);

@@ -149,6 +149,11 @@ export function matrixOf(
   };
 }
 
+/** The level to show for a family: the one wanted if the family offers it, otherwise the first it does. */
+export function levelFor(levels: readonly Level[], wanted: Level): Level {
+  return levels.includes(wanted) ? wanted : (levels[0] ?? wanted);
+}
+
 /**
  * The metric families the page can show: those in `family_metrics` that
  * `families` also holds, in `family_metrics` order. `false_positive_rate` is a

@@ -263,11 +263,14 @@ describe("the analyses list", () => {
     expect(rows).toHaveLength(analyses.items.length);
     analyses.items.forEach((item, index) => {
       expect(within(rows[index]).getByRole("rowheader").textContent).toBe(item.dataset_filename);
-      // The first cell after the dataset's row header is the status.
-      expect(within(rows[index]).getAllByRole("cell")[0].textContent).toBe(
-        item.partial ? `${item.status} (partial)` : item.status,
-      );
     });
+    // The first cell after the dataset's row header is the status. What the recorder's four analyses give, newest first.
+    expect(rows.map((row) => within(row).getAllByRole("cell")[0].textContent)).toEqual([
+      "succeeded (partial)",
+      "failed",
+      "succeeded",
+      "succeeded",
+    ]);
     expect(analyses.items[0].id).toBe(partial.id);
   });
 });
