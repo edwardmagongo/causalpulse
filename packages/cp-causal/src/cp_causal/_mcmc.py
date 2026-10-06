@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
+import jax
 from jax import random
 from numpyro.infer import MCMC, NUTS
 
@@ -61,4 +62,15 @@ def run_nuts(
         progress_bar=False,
     )
     mcmc.run(random.PRNGKey(random_seed), **model_kwargs)
+    # Every call builds a new kernel, so JAX traces and compiles the sampler
+    # again and keeps the result in caches that nothing empties. A process
+    # that fits many models grows without bound. Measured on 2026-10-06 in a
+    # Linux container, eight HierarchicalDiD fits in one process: resident
+    # memory rose by about 50 to 130 MB a fit without this line (785 MB after
+    # the first, 1,249 MB after the eighth) and stayed level with it (790 MB,
+    # then 859 MB). On a 16 GB CI runner the recovery tests' four worker
+    # processes used all of it in 80 minutes. The samples are arrays, not
+    # compiled code, and are untouched; the next fit would have compiled its
+    # own kernel anyway.
+    jax.clear_caches()  # type: ignore[no-untyped-call]
     return mcmc
