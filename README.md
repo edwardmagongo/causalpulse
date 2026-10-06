@@ -1947,7 +1947,8 @@ merge. A branch has no run until it has a pull request.
 The slow tier is the tests marked `slow` that need no services and no model API. It is split by
 test file (`pytest --shard I/N`, a hook in `tests/conftest.py`), each shard keeps its JUnit report
 as an artifact, and a weekly run in which any shard does not succeed opens an issue naming it.
-Start it by hand with `gh workflow run slow.yml`. GitHub stops scheduled workflows in a repository
+Start it by hand with `gh workflow run slow.yml`. It takes about two hours, set by one file,
+`tests/causal/test_hierarchical_did_recovery.py`; the other seven shards finish in under 20 minutes. GitHub stops scheduled workflows in a repository
 with no activity for 60 days.
 
 The live model call is billed, so it never runs on a schedule or for a pull request. It needs the
