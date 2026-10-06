@@ -17,7 +17,6 @@ dist/
 .venv/
 venv/
 env/
-.python-version
 
 # Tooling caches
 .pytest_cache/
@@ -28,6 +27,7 @@ env/
 .coverage.*
 htmlcov/
 coverage.xml
+slow-*.xml
 .tox/
 .nox/
 

@@ -1,4 +1,4 @@
-.PHONY: install fmt lint types imports test test-fast cov check check-services check-llm check-web smoke smoke-web openapi
+.PHONY: install fmt lint types imports test test-fast test-slow cov check check-services check-llm check-web smoke smoke-web openapi
 
 install:
 	uv sync
@@ -15,11 +15,32 @@ types:
 imports:
 	uv run lint-imports
 
+# One numerical thread per pytest-xdist worker. Without this each worker opens
+# a machine's worth of BLAS, OpenMP and XLA threads, and N workers on N cores
+# contend: on a 4-core Linux runner the fast suite reached 22% in an hour and
+# stopped moving, with one test taking 31 minutes. macOS hides it (numpy uses
+# Accelerate there). The names are the ones `cp_evaluation.execute` caps for
+# the benchmark's own workers, for the same reason.
+ONE_THREAD = OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1 XLA_FLAGS="--xla_cpu_multi_thread_eigen=false intra_op_parallelism_threads=1"
+
 test:
-	uv run pytest -v -n auto
+	$(ONE_THREAD) uv run pytest -v -n auto
+
+# WORKERS is the number of pytest-xdist workers. `auto` locally; CI passes
+# `WORKERS=4`, the project's cap and a hosted runner's core count.
+WORKERS ?= auto
 
 test-fast:
-	uv run pytest -v -m "not slow" -n auto
+	$(ONE_THREAD) uv run pytest -v -m "not slow" -n $(WORKERS) --durations=25
+
+# The slow tier that needs no services and no model API, as CI runs it: one
+# shard of the slow test files per job (`make test-slow SHARD=3/8`), each
+# writing its own JUnit report, `slow-3-of-8.xml`. With SHARD unset it runs
+# every slow test and writes `slow-all.xml`.
+SHARD ?=
+
+test-slow:
+	$(ONE_THREAD) uv run pytest -v -m "slow and not services and not live" -n 4 --durations=25 $(if $(SHARD),--shard $(SHARD) --junitxml=slow-$(subst /,-of-,$(SHARD)).xml,--junitxml=slow-all.xml)
 
 cov:
 	uv run pytest --cov=packages --cov-report=term-missing
@@ -66,8 +87,13 @@ check-web:
 # compose project on 5436/6383/8002/3001, so it can never touch the demo,
 # check-services or smoke stacks. Two keys of one user: the second is revoked
 # by the last test.
+#
+# PLAYWRIGHT_INSTALL is passed to `playwright install`. Empty locally, where
+# the browser's system libraries are already present; CI passes `--with-deps`
+# to install them on a bare runner.
+PLAYWRIGHT_INSTALL ?=
 WEB_SMOKE_STACK = CP_POSTGRES_PORT=5436 CP_REDIS_PORT=6383 CP_API_PORT=8002 CP_WEB_PORT=3001 docker compose -p causalpulse-web-smoke
 
 smoke-web:
 	$(WEB_SMOKE_STACK) up -d --build || { $(WEB_SMOKE_STACK) down -v; exit 1; }
-	$(WEB_SMOKE_STACK) exec -T api cp-api-admin create-user smoke && KEY=$$($(WEB_SMOKE_STACK) exec -T api cp-api-admin issue-key smoke) && REVOCABLE=$$($(WEB_SMOKE_STACK) exec -T api cp-api-admin issue-key smoke) && (cd web && pnpm install --frozen-lockfile && pnpm exec playwright install chromium && CP_WEB_URL=http://localhost:3001 CP_E2E_API_HEALTH=http://localhost:8002/v1/healthz CP_E2E_KEY=$$KEY CP_E2E_REVOCABLE_KEY=$$REVOCABLE CP_E2E_REVOKE='$(WEB_SMOKE_STACK) exec -T api cp-api-admin revoke-key' pnpm run e2e); status=$$?; $(WEB_SMOKE_STACK) down -v; exit $$status
+	$(WEB_SMOKE_STACK) exec -T api cp-api-admin create-user smoke && KEY=$$($(WEB_SMOKE_STACK) exec -T api cp-api-admin issue-key smoke) && REVOCABLE=$$($(WEB_SMOKE_STACK) exec -T api cp-api-admin issue-key smoke) && (cd web && pnpm install --frozen-lockfile && pnpm exec playwright install $(PLAYWRIGHT_INSTALL) chromium && CP_WEB_URL=http://localhost:3001 CP_E2E_API_HEALTH=http://localhost:8002/v1/healthz CP_E2E_KEY=$$KEY CP_E2E_REVOCABLE_KEY=$$REVOCABLE CP_E2E_REVOKE='$(WEB_SMOKE_STACK) exec -T api cp-api-admin revoke-key' pnpm run e2e); status=$$?; $(WEB_SMOKE_STACK) down -v; exit $$status
