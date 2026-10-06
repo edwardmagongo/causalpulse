@@ -9,6 +9,7 @@ of them calls `read_csv` here and passes pandas no option of its own.
 
 from __future__ import annotations
 
+import threading
 import warnings
 from pathlib import Path
 from typing import IO
@@ -20,28 +21,43 @@ MORE_FIELDS_THAN_HEADER = (
     "dropped or land in the wrong column. Check for an unquoted comma inside a value."
 )
 
+# `warnings.catch_warnings` swaps the process's warning filters and puts them
+# back, so two reads at once can leave the `error` filter installed for good,
+# or take it away from under one another. The API calls this from a pool of
+# threads; the lock makes this module's reads take turns.
+_FILTERS = threading.Lock()
+
 
 def read_csv(source: str | Path | IO[bytes], *, nrows: int | None = None) -> pd.DataFrame:
     """Read a CSV the way every reader of an upload must.
 
     `index_col=False`: left to itself pandas takes the first column as an
     index when the rows have one field more than the header, which shifts
-    every column by one. A comma at the end of every line, which spreadsheets
-    write, is enough to do it. With the option set the columns stay under
-    their own names, and pandas warns when that drops a field holding data;
-    the warning is raised here as a refusal, since the alternative is an
-    analysis of a file that was not read whole.
+    every column by one. A comma at the end of every line is enough to do it.
+    With the option set the columns stay under their own names, and pandas
+    warns when that drops a field holding data; the warning is raised here as
+    a refusal, since the alternative is an analysis of a file that was not
+    read whole.
 
     `low_memory=False`: pandas otherwise reads a large file in pieces and
     settles each piece's types separately, so a column that is numbers in one
     piece and text in another holds both.
 
-    A file pandas cannot read at all raises what pandas raises
-    (`EmptyDataError`, `ParserError`, `UnicodeDecodeError`).
+    A file pandas cannot read at all raises what pandas raises, for example
+    `EmptyDataError`, `ParserError` or `UnicodeDecodeError`.
+
+    The lock covers this module only. Code elsewhere in the process that
+    enters `warnings.catch_warnings` on another thread while a read is under
+    way can still take the filter away for that read, and pandas then drops
+    the field with a warning and no refusal. Nothing in this project does
+    that, and the worker, which reads every upload again before analysing
+    it, runs one job to a process.
     """
-    with warnings.catch_warnings():
+    with _FILTERS, warnings.catch_warnings():
         warnings.simplefilter("error", pd.errors.ParserWarning)
         try:
             return pd.read_csv(source, nrows=nrows, index_col=False, low_memory=False)
         except pd.errors.ParserWarning as exc:
+            if "index_col=False" not in str(exc):
+                raise
             raise ValueError(MORE_FIELDS_THAN_HEADER) from exc

@@ -1,6 +1,8 @@
 """Every reader of an upload goes through `cp_core.reading.read_csv`."""
 
 import io
+import threading
+import warnings
 from pathlib import Path
 
 import pandas as pd
@@ -74,3 +76,38 @@ def test_a_large_column_of_numbers_and_text_is_read_as_text_throughout():
         pandas_own = pd.read_csv(io.StringIO(text))
     assert {type(v) for v in pandas_own["unit"]} == {int, str}
     assert {type(v) for v in read(text)["unit"]} == {str}
+
+
+def test_reading_from_several_threads_leaves_the_warning_filters_as_they_were():
+    # `warnings.catch_warnings` swaps process-wide state. Unserialised, two
+    # reads interleaving left an `error` filter behind for good, and in the
+    # other order one of them read with the filter gone and dropped a field.
+    before = list(warnings.filters)
+    refused = []
+
+    def read_many() -> None:
+        for _ in range(200):
+            try:
+                read("a,b,c\n1,2,3,4\n5,6,7,8\n")
+            except ValueError as refusal:
+                refused.append(str(refusal))
+
+    threads = [threading.Thread(target=read_many) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert warnings.filters == before
+    assert refused == [MORE_FIELDS_THAN_HEADER] * 1600
+
+
+def test_a_parser_warning_about_something_else_is_not_called_extra_fields(monkeypatch):
+    def warn_about_something_else(*args, **kwargs):
+        warnings.warn("something pandas may say one day", pd.errors.ParserWarning, stacklevel=1)
+        return pd.DataFrame()
+
+    monkeypatch.setattr(pd, "read_csv", warn_about_something_else)
+
+    with pytest.raises(pd.errors.ParserWarning, match="something pandas may say one day"):
+        read("a,b\n1,2\n")

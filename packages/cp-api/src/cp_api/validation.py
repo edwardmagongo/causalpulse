@@ -48,7 +48,9 @@ def safe_filename(raw: str | None) -> str:
 def _parse(content: bytes, nrows: int | None = None) -> pd.DataFrame:
     try:
         return read_csv(io.BytesIO(content), nrows=nrows)
-    except (pd.errors.EmptyDataError, pd.errors.ParserError, UnicodeDecodeError, ValueError) as exc:
+    # pandas' own failures to read a file (`EmptyDataError`, `ParserError`,
+    # `UnicodeDecodeError`) are all `ValueError`s, as is the reader's refusal.
+    except ValueError as exc:
         raise RequestError(422, f"the upload could not be read as CSV: {exc}") from exc
 
 
