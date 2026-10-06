@@ -197,3 +197,13 @@ def test_a_fractional_period_is_refused_by_name():
     with pytest.raises(ValueError, match="time column 'year' must hold whole-numbered periods"):
         execute("\n".join(shifted).encode(), "prop99.csv", PROP99, ["synthetic_control"], 0)
 
+
+def test_a_missing_covariate_is_refused_once_through_the_pipeline():
+    content = with_first_cell("lalonde.csv", "re75", "")
+
+    with pytest.raises(ValueError) as refusal:
+        execute(content, "lalonde.csv", LALONDE, ["difference_in_means", "lin_regression"], 0)
+
+    message = str(refusal.value)
+    assert message.startswith("columns ['re75'] contain missing values")
+    assert "every requested estimator failed" not in message

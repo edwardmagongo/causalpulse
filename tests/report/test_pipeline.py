@@ -1,6 +1,10 @@
 import re
 
+import pytest
+from cp_causal.registry import get_estimator
+from cp_core.dataset import CausalDataset
 from cp_core.manifest import FixtureReference
+from cp_core.values import EstimatorConfig
 from cp_report.pipeline import analyse, comparison_groups
 
 from report.builders import _estimate, _score
@@ -80,3 +84,31 @@ def test_an_ate_and_an_att_are_compared_within_their_groups_never_across():
     assert groups["ATT"].comparison is None
     assert "only one method" in groups["ATT"].not_compared_reason
     assert groups["ATT"].to_dict()["not_compared_reason"] == groups["ATT"].not_compared_reason
+
+
+def with_a_missing_covariate(dataset):
+    frame = dataset.frame.copy()
+    column = dataset.schema.covariates[0]
+    frame.loc[frame.index[0], column] = float("nan")
+    return CausalDataset(frame=frame, schema=dataset.schema), column
+
+
+def test_a_missing_value_is_refused_once_and_not_once_per_estimator(cross_section):
+    gapped, column = with_a_missing_covariate(cross_section)
+
+    with pytest.raises(ValueError) as refusal:
+        analyse(gapped, REFERENCE, PAIR)
+
+    message = str(refusal.value)
+    assert message.startswith(f"columns ['{column}'] contain missing values")
+    assert message.count("contain missing values") == 1
+    assert "every requested estimator failed" not in message
+
+
+def test_an_estimator_fitted_directly_still_refuses_a_missing_value(cross_section):
+    # The pipeline's refusal is in front of the estimators' own, not instead
+    # of it: the benchmark fits estimators without going through `analyse`.
+    gapped, _ = with_a_missing_covariate(cross_section)
+
+    with pytest.raises(ValueError, match="contain missing values"):
+        get_estimator("difference_in_means")().fit(gapped, EstimatorConfig(random_seed=0))

@@ -275,3 +275,19 @@ def test_min_units_per_arm_is_the_shared_threshold():
     # One constant rather than four copies is the point of this module;
     # pinning the value catches an accidental edit as much as a missing one.
     assert MIN_UNITS_PER_ARM == 10
+
+
+def test_periods_that_are_dates_are_refused_as_dates_and_not_as_non_positive():
+    # A column of dates constructs, by design. It used to be refused here with
+    # the "strictly positive" message, which is about a different problem.
+    frame = dataset().frame.copy()
+    frame["period"] = pd.to_datetime("2024-01-01") + pd.to_timedelta(frame["period"], unit="D")
+
+    with pytest.raises(ValueError) as refusal:
+        panel_arrays(CausalDataset(frame=frame, schema=SCHEMA))
+
+    message = str(refusal.value)
+    assert message.startswith(
+        "panel periods must be whole numbers, and the time column 'period' holds datetime64"
+    )
+    assert "strictly positive" not in message
