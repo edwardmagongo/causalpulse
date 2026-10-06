@@ -23,10 +23,10 @@ from dataclasses import asdict
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
 from cp_causal.manifest import run_analysis
 from cp_core.dataset import CausalDataset
 from cp_core.manifest import DatasetReference, FixtureReference, ScenarioReference
+from cp_core.reading import read_csv
 from cp_core.results import EffectEstimate
 from cp_core.values import EstimatorConfig
 from cp_llm.extract import fact_table
@@ -105,7 +105,7 @@ def _load(args: argparse.Namespace) -> tuple[CausalDataset, DatasetReference]:
         return dataset, reference
 
     schema = schema_from_args(args)
-    frame = pd.read_csv(args.data)
+    frame = read_csv(args.data)
     return CausalDataset(frame=frame, schema=schema), FixtureReference.from_path(str(args.data))
 
 

@@ -7,9 +7,9 @@ import io
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-import pandas as pd
 from cp_core.dataset import CausalDataset, schema_from_dict
 from cp_core.manifest import FixtureReference
+from cp_core.reading import read_csv
 from cp_report.pipeline import AnalysisOutcome, analyse
 
 
@@ -28,8 +28,9 @@ def execute(
     """
     dataset = CausalDataset(
         # Replay parity depends on parsing these bytes exactly as
-        # `cp_core.manifest.resolve_fixture_reference` does: pandas defaults.
-        frame=pd.read_csv(io.BytesIO(content)),
+        # `cp_core.manifest.resolve_fixture_reference` does: both call
+        # `cp_core.reading.read_csv` and pass pandas nothing of their own.
+        frame=read_csv(io.BytesIO(content)),
         schema=schema_from_dict(schema),
     )
     reference = FixtureReference(path=filename, content_sha256=hashlib.sha256(content).hexdigest())

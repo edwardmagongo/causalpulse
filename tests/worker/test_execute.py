@@ -146,3 +146,29 @@ def test_a_text_unit_column_is_still_analysed():
     outcome = execute(content, "lalonde.csv", LALONDE, ["difference_in_means"], 0)
 
     assert [report.estimate.method for report in outcome.reports] == ["difference_in_means"]
+
+
+def lines_of(name: str) -> list[str]:
+    return [line for line in (REAL_DATA / name).read_text().split("\n") if line]
+
+
+def test_a_comma_ending_every_line_gives_the_same_estimate_as_the_file_without():
+    # Left to itself pandas takes the first column of such a file as an index
+    # and shifts every other column by one.
+    rows = lines_of("lalonde.csv")
+    plain = "\n".join(rows).encode()
+    trailing = "\n".join([rows[0], *(row + "," for row in rows[1:])]).encode()
+
+    ours = execute(trailing, "lalonde.csv", LALONDE, ["difference_in_means"], 0)
+    theirs = execute(plain, "lalonde.csv", LALONDE, ["difference_in_means"], 0)
+
+    assert ours.reports[0].estimate.point == theirs.reports[0].estimate.point
+
+
+def test_an_extra_field_holding_data_on_every_row_is_refused_by_the_reader():
+    rows = lines_of("lalonde.csv")
+    content = "\n".join([rows[0], *(row + ",9" for row in rows[1:])]).encode()
+
+    with pytest.raises(ValueError, match="more fields than its header names"):
+        execute(content, "lalonde.csv", LALONDE, ["difference_in_means"], 0)
+

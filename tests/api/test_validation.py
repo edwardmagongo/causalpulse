@@ -114,3 +114,12 @@ def test_an_uploaded_filename_is_reduced_to_a_bare_name(raw, expected):
 
 def test_a_long_uploaded_filename_is_cut_to_the_column_width():
     assert safe_filename("x" * 300 + ".csv") == "x" * 255
+
+
+def test_an_upload_with_an_extra_field_holding_data_is_422():
+    # Before the shared reader this was accepted, with every column shifted.
+    with pytest.raises(RequestError) as caught:
+        check_upload(b"unit_id,treated,outcome\n1,1,0.5,9\n2,0,0.4,9\n")
+
+    assert caught.value.status_code == 422
+    assert "more fields than its header names" in caught.value.message
