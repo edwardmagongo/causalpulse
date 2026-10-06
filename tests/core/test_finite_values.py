@@ -161,12 +161,3 @@ def test_an_infinite_value_in_an_undeclared_column_is_not_this_checks_business()
     changed = frame()
     changed["notes"] = np.inf
     CausalDataset(frame=changed, schema=SCHEMA)
-
-
-def test_an_infinity_under_a_duplicated_label_is_not_seen():
-    # Recorded, not wanted: `frame["x1"]` is a frame when the label is
-    # duplicated, so this check passes it over. `read_csv` renames
-    # duplicates, so only a frame built in code gets here.
-    changed = frame()
-    extra = pd.DataFrame({"x1": [np.inf] + [1.0] * 7}, index=changed.index)
-    CausalDataset(frame=pd.concat([changed, extra], axis=1), schema=SCHEMA)

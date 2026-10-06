@@ -172,3 +172,28 @@ def test_an_extra_field_holding_data_on_every_row_is_refused_by_the_reader():
     with pytest.raises(ValueError, match="more fields than its header names"):
         execute(content, "lalonde.csv", LALONDE, ["difference_in_means"], 0)
 
+
+def test_a_unit_pandas_reads_as_missing_is_refused_by_name():
+    # Before the unit rule this panel crashed while it was being routed, on
+    # a comparison of text with nan.
+    content = (REAL_DATA / "prop99.csv").read_text().replace("Alabama", "NA").encode()
+
+    with pytest.raises(ValueError, match="unit column 'state' contains missing values"):
+        execute(content, "prop99.csv", PROP99, None, 0)
+
+
+def test_a_fractional_period_is_refused_by_name():
+    # Before the time rule the cohort was truncated to a period not in the data.
+    rows = lines_of("prop99.csv")
+    at = rows[0].split(",").index("year")
+    shifted = [rows[0]]
+    for row in rows[1:]:
+        cells = row.split(",")
+        cells[at] = f"{cells[at]}.5"
+        shifted.append(",".join(cells))
+
+    # One quick estimator is asked for, so that the run with the rule switched
+    # off answers in seconds and not after the Bayesian fits.
+    with pytest.raises(ValueError, match="time column 'year' must hold whole-numbered periods"):
+        execute("\n".join(shifted).encode(), "prop99.csv", PROP99, ["synthetic_control"], 0)
+
