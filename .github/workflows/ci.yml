@@ -1,7 +1,7 @@
 name: CI
 
 # Five of the gates a developer runs with `make`, one job each: the quick
-# ones, about eight runner-minutes together. Every job is set-up followed by
+# ones, about ten billed runner-minutes together. Every job is set-up followed by
 # one `make` invocation: nothing a gate does is written again here. The sixth
 # gate, the fast Python suite, is half an hour and has its own workflow
 # (`fast.yml`), which runs only when something it tests has changed.

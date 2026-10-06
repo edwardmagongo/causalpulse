@@ -8,7 +8,13 @@ name: Fast suite
 #
 # The paths are what the suite reads: the packages and tests, the dependency
 # and tool pins, and the committed files some tests check against (the
-# OpenAPI document, the study bundle, the published reports).
+# OpenAPI document, the study bundle, the published reports) or parse (the
+# import contracts). GitHub looks at the first 300 changed files only; the
+# push to `main` is the net under that too.
+#
+# If branch protection is ever enforced again, "Fast suite" must not be a
+# required check as it stands: a pull request this filter skips would wait
+# for it for ever.
 on:
   push:
     branches: [main]
@@ -20,11 +26,14 @@ on:
       - "uv.lock"
       - ".python-version"
       - "Makefile"
+      - ".importlinter"
       - "web/openapi.json"
       - "web/src/data/**"
       - "docs/reports/**"
       - ".github/workflows/fast.yml"
 
+# As in `ci.yml`. On `main` a waiting run can be replaced by a later push, so
+# the latest tree always has a result and an intermediate commit may not.
 concurrency:
   group: fast-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
