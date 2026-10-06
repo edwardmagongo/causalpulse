@@ -1241,17 +1241,29 @@ the choice is recorded (`CompleteCaseRecord`, which rows were dropped and which 
 Complete-case is a starting point offered for convenience, not a recommendation — the error message
 that points to it says so, rather than presenting it as the fix.
 
-### A dataset holding an infinite value is refused when it is built
+### A dataset whose numbers are not numbers, or are infinite, is refused when it is built
 
-A missing value and an infinite one are refused in different places, on purpose. A dataset with
-gaps has to be constructible, because `complete_cases` and imputation take one, so a missing outcome
-or covariate value is refused only when an estimator is fitted. Nothing can use an infinity, so
-`CausalDataset` refuses `inf` or `-inf` in any column the schema names (unit, treatment, outcome,
-covariates, time, cohort, negative-control outcome, auxiliary columns) when the dataset is built:
-one message, naming the columns, before anything is routed or fitted. The analysis of an upload,
-`cp analyze` and `cp replay` all go through it; the upload itself is accepted, and its analysis
-fails with this message. Text such as `1e400`, which pandas reads as infinite, is refused the
-same way.
+A missing value is refused in a different place from the two refusals here, on purpose. A dataset
+with gaps has to be constructible, because `complete_cases` and imputation take one, so a missing
+outcome or covariate value is refused only when an estimator is fitted. Nothing can use a column of
+text where numbers belong, or an infinity, so `CausalDataset` refuses both when the dataset is
+built, each with one message naming the columns, before anything is routed or fitted:
+
+- **A column that must be numeric and was not read as numbers.** The treatment, the outcome, the
+  covariates, the cohort, the negative-control outcome and the auxiliary columns must have a
+  numeric dtype. The unit may be text, and the time column may be dates.
+- **An infinite value**, `inf` or `-inf`, in any of those columns or in a numeric unit or time
+  column. Text such as `1e400`, which pandas reads as infinite, is refused the same way.
+
+The analysis of an upload, `cp analyze` and `cp replay` all go through both; the upload itself is
+accepted, and its analysis fails with the message.
+
+The first rule exists because `read_csv` and Python's `float()` disagree about what a number is.
+One cell of `1_000`, or of `inf` followed by a space, makes pandas read the whole column as text,
+and yet every cell converts when an estimator asks for floats. Measured on LaLonde before the rule:
+a covariate cell of `1_000` was analysed as the number 1000 with no warning, and a covariate cell
+of `inf ` went past the infinity check, which looks only at numeric columns, and reached the
+estimators. Nothing is cleaned on the user's behalf: write `1000`.
 
 Before this, measured on the real datasets with one cell changed: an infinite covariate gave a
 partial analysis (`difference_in_means` succeeded and the other four failed, each with a library's
