@@ -78,27 +78,34 @@ def test_a_large_column_of_numbers_and_text_is_read_as_text_throughout():
     assert {type(v) for v in read(text)["unit"]} == {str}
 
 
-def test_reading_from_several_threads_leaves_the_warning_filters_as_they_were():
+def test_reading_from_several_threads_refuses_every_time_and_leaves_the_filters_alone():
     # `warnings.catch_warnings` swaps process-wide state. Unserialised, two
     # reads interleaving left an `error` filter behind for good, and in the
     # other order one of them read with the filter gone and dropped a field.
-    before = list(warnings.filters)
-    refused = []
+    refused, returned = [], []
 
     def read_many() -> None:
         for _ in range(200):
             try:
-                read("a,b,c\n1,2,3,4\n5,6,7,8\n")
+                returned.append(read("a,b,c\n1,2,3,4\n5,6,7,8\n"))
             except ValueError as refusal:
                 refused.append(str(refusal))
 
-    threads = [threading.Thread(target=read_many) for _ in range(8)]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
+    # The suite runs with every warning an error, under which a read that
+    # lost its own filter would still refuse. Inside this block a warning is
+    # only a warning, as it is in the API, so such a read returns a frame.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", pd.errors.ParserWarning)
+        before = list(warnings.filters)
+        threads = [threading.Thread(target=read_many) for _ in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        after = list(warnings.filters)
 
-    assert warnings.filters == before
+    assert after == before
+    assert returned == []
     assert refused == [MORE_FIELDS_THAN_HEADER] * 1600
 
 

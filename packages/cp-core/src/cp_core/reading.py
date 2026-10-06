@@ -44,14 +44,17 @@ def read_csv(source: str | Path | IO[bytes], *, nrows: int | None = None) -> pd.
     piece and text in another holds both.
 
     A file pandas cannot read at all raises what pandas raises, for example
-    `EmptyDataError`, `ParserError` or `UnicodeDecodeError`.
+    `EmptyDataError`, `ParserError` or `UnicodeDecodeError`. A parser warning
+    about anything else is raised as itself, not relabelled.
 
     The lock covers this module only. Code elsewhere in the process that
     enters `warnings.catch_warnings` on another thread while a read is under
     way can still take the filter away for that read, and pandas then drops
-    the field with a warning and no refusal. Nothing in this project does
-    that, and the worker, which reads every upload again before analysing
-    it, runs one job to a process.
+    the field with a warning and no refusal. No code in this repository does
+    that; whether a library the API imports does so on a request thread was
+    looked for and not found, which is not the same as ruled out. The worker,
+    which reads every upload again before analysing it, runs one job at a
+    time in its process.
     """
     with _FILTERS, warnings.catch_warnings():
         warnings.simplefilter("error", pd.errors.ParserWarning)
