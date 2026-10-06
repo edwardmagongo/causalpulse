@@ -344,10 +344,13 @@ class CausalDataset:
             roles.append(schema.negative_control_outcome)
         roles.extend(c for c in schema.auxiliary_columns if c in self.frame.columns)
 
+        frame_dtypes = self.frame.dtypes
+
         def dtypes_of(column: str) -> list[Any]:
-            # `.loc[:, [column]]` and not `[column]`: a duplicated label gives
-            # a frame, which has no single dtype.
-            return list(self.frame.loc[:, [column]].dtypes)
+            # A duplicated label has one dtype per copy, so the lookup gives a
+            # Series of them; `self.frame[column].dtype` would raise.
+            found = frame_dtypes[column]
+            return list(found) if isinstance(found, pd.Series) else [found]
 
         offending = sorted(
             column
@@ -379,14 +382,17 @@ class CausalDataset:
         and not others, each with a library's own message naming no column,
         and one in a panel's time column was fitted and returned an estimate.
 
-        Only columns with a numeric dtype are looked at. The roles that must
-        be numeric have been through `_validate_numeric_roles` by now, so what
-        is passed over is a unit or a time column that is not numeric, and an
-        auxiliary column absent from the frame. A unit column of dtype
-        `object` can hold a float infinity beside text, which is what a large
-        upload read in chunks gives, and it is not inspected: the unit is used
-        as a label and never as a number. A time column that is neither
-        numeric nor dates is refused by `_validate_time_column`.
+        Only columns with a numeric dtype are looked at. The roles that must be
+        numeric have been through `_validate_numeric_roles` by now, so what is
+        passed over is a unit or a time column that is not numeric, and an
+        auxiliary column absent from the frame. A unit column of dtype `object`
+        can hold a float infinity beside text, which is what a large upload
+        read in chunks gives, and it is not inspected: the unit is used as a
+        label and never as a number. A time column that is neither numeric nor
+        dates is refused by `_validate_time_column`. A column whose label is
+        duplicated in the frame is passed over as well: `frame[label]` is then
+        a frame and not a column. `read_csv` renames duplicates, so only a
+        frame built in code has one, and an infinity in it is not refused.
         """
         declared = (*self.schema.required_columns, *self.schema.auxiliary_columns)
         offending = sorted(

@@ -1,9 +1,10 @@
 """A column in a role that must be numeric is refused unless pandas read it as numbers.
 
 `read_csv` and `float()` disagree about what a number is: `1_000`, or `inf`
-followed by a space, makes pandas read a column as text, and yet every cell
-converts when an estimator asks for floats. Before this rule such a column
-was analysed as numbers, and an infinity in it slipped past the finite check.
+followed by a space, makes pandas read a column as text (or, in a large file,
+as a mix of numbers and text), and yet every cell converts when an estimator
+asks for floats. Before this rule such a column was analysed as numbers, and an
+infinity in it slipped past the finite check.
 """
 
 import numpy as np
@@ -173,8 +174,9 @@ def duplicated_x1(second) -> pd.DataFrame:
     return pd.concat([changed, extra], axis=1)
 
 
-def test_a_duplicated_numeric_label_constructs_as_it_did_before_the_rule():
-    # `frame["x1"]` is a DataFrame here; asking it for `.dtype` raised.
+def test_a_duplicated_numeric_covariate_label_constructs_as_it_did_before_the_rule():
+    # `frame["x1"]` is a DataFrame here; asking it for `.dtype` raised. This
+    # holds for a covariate: a duplicated treatment fails a later check.
     CausalDataset(frame=duplicated_x1(np.arange(8.0)), schema=SCHEMA)
 
 
