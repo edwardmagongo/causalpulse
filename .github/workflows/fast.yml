@@ -1,0 +1,47 @@
+name: Fast suite
+
+# The fast Python suite, `make test-fast`: about half an hour on a hosted
+# runner, most of what a pull request would cost. The repository is private
+# and its Actions minutes are counted, so this runs on a pull request only
+# when something the suite tests has changed, and on every push to `main`,
+# where it is the net under whatever a path filter let through.
+#
+# The paths are what the suite reads: the packages and tests, the dependency
+# and tool pins, and the committed files some tests check against (the
+# OpenAPI document, the study bundle, the published reports).
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "packages/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".python-version"
+      - "Makefile"
+      - "web/openapi.json"
+      - "web/src/data/**"
+      - "docs/reports/**"
+      - ".github/workflows/fast.yml"
+
+concurrency:
+  group: fast-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  fast:
+    name: Fast suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --frozen
+      - run: make test-fast WORKERS=4
