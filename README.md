@@ -1259,11 +1259,12 @@ The analysis of an upload, `cp analyze` and `cp replay` all go through both; the
 accepted, and its analysis fails with the message.
 
 The first rule exists because `read_csv` and Python's `float()` disagree about what a number is.
-One cell of `1_000`, or of `inf` followed by a space, makes pandas read the whole column as text,
-and yet every cell converts when an estimator asks for floats. Measured on LaLonde before the rule:
-a covariate cell of `1_000` was analysed as the number 1000 with no warning, and a covariate cell
-of `inf ` went past the infinity check, which looks only at numeric columns, and reached the
-estimators. Nothing is cleaned on the user's behalf: write `1000`.
+One cell of `1_000`, or of `inf` followed by a space, makes pandas read the column as text (in a
+large file, as a mix of numbers and text), and yet every cell converts when an estimator asks for
+floats. Measured on LaLonde before the rule: a covariate cell of `1_000` was analysed as the number
+1000 with no warning, and a covariate cell of `inf ` went past the infinity check, which looks only
+at numeric columns, and reached the estimators. Nothing is cleaned on the user's behalf: write
+`1000`.
 
 Before this, measured on the real datasets with one cell changed: an infinite covariate gave a
 partial analysis (`difference_in_means` succeeded and the other four failed, each with a library's

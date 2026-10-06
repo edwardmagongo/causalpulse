@@ -164,3 +164,22 @@ def test_a_text_column_the_schema_does_not_name_is_not_this_rules_business():
     changed = frame()
     changed["notes"] = "free text"
     CausalDataset(frame=changed, schema=SCHEMA)
+
+
+def duplicated_x1(second) -> pd.DataFrame:
+    """The frame with a second column that is also labelled `x1`."""
+    changed = frame()
+    extra = pd.DataFrame({"x1": second}, index=changed.index)
+    return pd.concat([changed, extra], axis=1)
+
+
+def test_a_duplicated_numeric_label_constructs_as_it_did_before_the_rule():
+    # `frame["x1"]` is a DataFrame here; asking it for `.dtype` raised.
+    CausalDataset(frame=duplicated_x1(np.arange(8.0)), schema=SCHEMA)
+
+
+def test_a_duplicated_label_with_one_text_copy_is_refused_naming_both_dtypes():
+    with pytest.raises(ValueError) as refusal:
+        CausalDataset(frame=duplicated_x1(["a"] * 8), schema=SCHEMA)
+    assert "columns ['x1'] must hold numbers" in str(refusal.value)
+    assert "(x1: float64 and str)" in str(refusal.value)

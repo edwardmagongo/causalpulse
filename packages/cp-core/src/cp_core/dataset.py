@@ -322,11 +322,12 @@ class CausalDataset:
         The treatment, the outcome, the covariates, the cohort, the
         negative-control outcome and the auxiliary columns are all used as
         numbers. `read_csv` and `float()` disagree about what a number is:
-        `1_000`, or `inf` followed by a space, makes pandas read the whole
-        column as text, and yet every cell converts when an estimator asks for
-        floats. Before this rule such a column was analysed as numbers, and an
-        infinity in it went past `_validate_finite_values`, which looks only
-        at numeric dtypes.
+        `1_000`, or `inf` followed by a space, makes pandas read the column as
+        text (in a large file, read in chunks, as an `object` column mixing
+        numbers and text), and yet every cell converts when an estimator asks
+        for floats. Before this rule such a column was analysed as numbers,
+        and an infinity in it went past `_validate_finite_values`, which looks
+        only at numeric dtypes.
 
         The unit is an identifier and may be text. The time column keeps its
         own rule, in `_validate_time_column`. An auxiliary column absent from
@@ -342,13 +343,22 @@ class CausalDataset:
         if schema.negative_control_outcome is not None:
             roles.append(schema.negative_control_outcome)
         roles.extend(c for c in schema.auxiliary_columns if c in self.frame.columns)
+
+        def dtypes_of(column: str) -> list[Any]:
+            # `.loc[:, [column]]` and not `[column]`: a duplicated label gives
+            # a frame, which has no single dtype.
+            return list(self.frame.loc[:, [column]].dtypes)
+
         offending = sorted(
             column
             for column in dict.fromkeys(roles)
-            if not pd.api.types.is_numeric_dtype(self.frame[column])
+            if not all(pd.api.types.is_numeric_dtype(dtype) for dtype in dtypes_of(column))
         )
         if offending:
-            dtypes = ", ".join(f"{column}: {self.frame[column].dtype}" for column in offending)
+            dtypes = ", ".join(
+                f"{column}: {' and '.join(dict.fromkeys(str(d) for d in dtypes_of(column)))}"
+                for column in offending
+            )
             raise ValueError(
                 f"columns {offending} must hold numbers, and were not read as numbers "
                 f"({dtypes}). Every value has to be a plain number: look for stray "
@@ -356,7 +366,7 @@ class CausalDataset:
             )
 
     def _validate_finite_values(self) -> None:
-        """Refuse an infinite value in any column the schema names.
+        """Refuse an infinite value in a numeric column the schema names.
 
         This runs before the treatment's own checks, so an infinite treatment
         value is reported as infinite and not as a third treatment level.
@@ -371,9 +381,12 @@ class CausalDataset:
 
         Only columns with a numeric dtype are looked at. The roles that must
         be numeric have been through `_validate_numeric_roles` by now, so what
-        is passed over is a unit column of text and a time column of dates,
-        neither of which can hold an infinity, and an auxiliary column absent
-        from the frame.
+        is passed over is a unit or a time column that is not numeric, and an
+        auxiliary column absent from the frame. A unit column of dtype
+        `object` can hold a float infinity beside text, which is what a large
+        upload read in chunks gives, and it is not inspected: the unit is used
+        as a label and never as a number. A time column that is neither
+        numeric nor dates is refused by `_validate_time_column`.
         """
         declared = (*self.schema.required_columns, *self.schema.auxiliary_columns)
         offending = sorted(
