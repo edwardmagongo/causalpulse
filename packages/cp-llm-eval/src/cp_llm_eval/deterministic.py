@@ -248,18 +248,36 @@ _QUANTIFIER = re.compile(
     r"\b(no|none of the|not a single|not one of the|every|all|all of the|all the|each)\s+"
     r"(?:[a-z-]+\s+){0,3}(checks?|diagnostics?)\b"
 )
-_PROBLEM = re.compile(
-    r"\b(fail\w*|warn\w*|flag\w*|problems?|concerns?|issues?|violations?|alarms?)\b"
+
+
+def _phrases(*phrases: str) -> re.Pattern[str]:
+    """Any of `phrases` as whole words; each is a regex fragment."""
+    return re.compile(r"\b(" + "|".join(phrases) + r")\b")
+
+
+# Phase 1's vocabulary refuses pass, fail, warn, untested and testable in a
+# verified narrative, so each list also holds the paraphrases one can use.
+# What a negative quantifier denies: "no check raised a concern".
+_PROBLEM = _phrases(
+    r"fail\w*", r"warn\w*", r"flag\w*", "problems?", "concerns?", "issues?",
+    "violations?", "alarms?", "cause for doubt",
 )
-_UNTESTED = re.compile(
-    r"\b(untest(?:ed|able)|not testable|not checkable|cannot be (?:tested|checked)"
-    r"|could not be (?:tested|checked))\b"
+# Untested, as a universal claims it: "every check could not be tested".
+_UNTESTED = _phrases(
+    "untested", "untestable", "not testable", "not checkable", "not tested", "not checked",
+    "cannot be tested", "cannot be checked", "could not be tested", "could not be checked",
 )
-_PASSED = re.compile(r"\b(pass(?:ed|es|ing)?|cleared|satisfied)\b")
-_STATUS_WORD = re.compile(r"\bstatus(?:es)?\b")
-# A quantified check is a status summary only when the statement says
-# something about status: "each of the checks is listed below" is not one.
+# Passed, as a universal claims it: "every check came back clean".
+_PASSED = _phrases(
+    "pass", "passes", "passed", "passing", "cleared", "satisfied", "satisfactory",
+    "clean", "fine", "ok", "okay", "succeed", "succeeds", "succeeded",
+)
+_STATUS_WORD = _phrases("status", "statuses")
+# A quantified check is a status summary only when its own clause says
+# something about status: "each of the checks is listed below" is not one,
+# and neither is "no check can detect confounding, which is the main concern".
 _STATUS_PREDICATES = (_PROBLEM, _PASSED, _UNTESTED, _STATUS_WORD)
+_CLAUSE_BREAK = re.compile(r"[;:\u2014]|,\s+(?:which|but|so|and)\b")
 # The quantifiers that claim no check has the property ("no check failed").
 _NEGATIVE_QUANTIFIERS = frozenset({"no", "none of the", "not a single", "not one of the"})
 _STATUS_FACT = re.compile(r"check\.([a-z0-9_]+)\.[a-z0-9_]+\.status")
@@ -279,12 +297,19 @@ def _summary_truth(quantifier: str, text: str, statuses: list[str]) -> Truth:
     return "undetermined"
 
 
+def _clause(text: str, start: int, end: int) -> str:
+    """The clause of `text` holding `text[start:end]`, between the breaks around it."""
+    before = [b.end() for b in _CLAUSE_BREAK.finditer(text) if b.end() <= start]
+    after = [b.start() for b in _CLAUSE_BREAK.finditer(text) if b.start() >= end]
+    return text[(before[-1] if before else 0) : (after[0] if after else len(text))]
+
+
 def _status_summary(statement: str, facts: FactTable) -> Iterator[Flag]:
     """A claim about all or none of the checks' statuses that cites no status.
 
-    The statement must carry a status predicate (a problem, a pass, untested,
-    or the word status); a quantified check without one says nothing a status
-    could contradict.
+    The quantifier's clause must carry a status predicate (a problem, a pass,
+    untested, or the word status); a quantified check without one says
+    nothing a status could contradict.
 
     Its truth is read from the table: the checks of the one method the
     statement names, or every check when it names none or several.
@@ -294,7 +319,10 @@ def _status_summary(statement: str, facts: FactTable) -> Iterator[Flag]:
         return
     text = _masked(statement).lower()
     match = _QUANTIFIER.search(text)
-    if match is None or not any(p.search(text) for p in _STATUS_PREDICATES):
+    if match is None:
+        return
+    clause = _clause(text, match.start(), match.end())
+    if not any(p.search(clause) for p in _STATUS_PREDICATES):
         return
     methods = {c.fact.id.split(".")[1] for c in cited if c.fact.id.startswith("est.")}
     statuses = [
@@ -305,7 +333,7 @@ def _status_summary(statement: str, facts: FactTable) -> Iterator[Flag]:
     # "not every check passed" is true when any check did not: the flag
     # stands, but the table cannot call the sentence false.
     negated = _WORD.findall(text[: match.start()])[-1:] == ["not"]
-    truth = "undetermined" if negated else _summary_truth(match.group(1), text, statuses)
+    truth = "undetermined" if negated else _summary_truth(match.group(1), clause, statuses)
     yield Flag("D4", f"{match.group(0)!r} summarises check statuses without citing one", truth)
 
 

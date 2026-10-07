@@ -293,7 +293,9 @@ def test_a_quantified_check_with_no_status_predicate_is_not_a_summary(statement,
 @pytest.mark.parametrize(
     "statement",
     [
-        # Written by the model during phase 1's calibration.
+        # Written by the model during phase 1's calibration. The first contains
+        # "untested", which phase 1's verifier refuses, so in practice only the
+        # second reaches D4.
         "For {est.difference_in_means.method}, every recorded check carries a status that "
         "reflects untested assumptions rather than a flagged problem.",
         "For {est.difference_in_means.method}, every recorded check marks it as not checkable "
@@ -302,6 +304,73 @@ def test_a_quantified_check_with_no_status_predicate_is_not_a_summary(statement,
 )
 def test_the_calibration_summaries_are_still_flagged(statement, known):
     assert "D4" in _categories(statement, known)
+
+
+# The probe table: sentences a verified
+# narrative can contain, since phase 1's vocabulary refuses pass, fail, warn,
+# untested and testable. `None` for the truth: the table fixes none.
+_IPW, _DIM = "{est.ipw.method}", "{est.difference_in_means.method}"
+_D4_FLAGGED = [
+    (f"None of the checks for {_IPW} raised any warnings.", "false"),
+    (f"No check for {_IPW} raised concerns.", "false"),
+    (f"No check for {_IPW} raised any red flags.", "false"),
+    (f"None of the robustness checks for {_IPW} raised an alarm.", "false"),
+    (f"None of the diagnostics for {_IPW} showed problems.", "false"),
+    (f"Every check for {_IPW} cleared.", "false"),
+    (f"All checks for {_IPW} were satisfied.", "false"),
+    (f"Every check for {_IPW} came back without failures.", "undetermined"),
+    (f"All checks for {_DIM} cannot be tested from data alone.", "true"),
+    (f"All checks for {_DIM} could not be tested from the data.", "true"),
+    (f"All checks for {_DIM} were not checkable from data.", "true"),
+    (f"All checks came back clean for {_IPW}.", "false"),
+    (f"All of the diagnostics for {_IPW} look fine.", "false"),
+    (f"Every check for {_IPW} succeeded.", "false"),
+    ("All checks were satisfactory.", None),
+    (f"All the checks for {_IPW} are OK.", "false"),
+    (f"Each check for {_DIM} was not tested against the data.", "true"),
+    (f"No diagnostic for {_IPW} gave cause for doubt.", "false"),
+    (
+        "every recorded check carries a status that marks it as not checkable from data "
+        "rather than flagged by a diagnostic",
+        None,
+    ),
+]
+_KNOWN_FALSE_POSITIVE = (
+    "a known false positive: the status-like word is in the quantifier's clause but is not "
+    "about the checks' outcome, and no clean rule tells the two apart"
+)
+_D4_NOT_FLAGGED = [
+    "Each of the checks is listed below.",
+    "No single robustness check is decisive on its own.",
+    f"Every one of the checks for {_IPW} is described below.",
+    "None of the checks can rule out unmeasured confounding.",
+    "Every check examines one assumption at a time.",
+    f"Each check targets one assumption, and the result for {_IPW} should be read with care.",
+    f"No check for {_IPW} measures overlap directly; {{check.ipw.positivity.name}} comes closest.",
+    "All checks assume the treatment is binary, which this analysis satisfies.",
+    "No check can detect unmeasured confounding, which is the main concern here.",
+    pytest.param(
+        "Each check addresses a different issue with the design.",
+        marks=pytest.mark.xfail(reason=_KNOWN_FALSE_POSITIVE, strict=True),
+    ),
+    "All diagnostics are run on the same sample, so a flagged problem in one may recur.",
+    pytest.param(
+        "Every check result is listed with its status in the table above.",
+        marks=pytest.mark.xfail(reason=_KNOWN_FALSE_POSITIVE, strict=True),
+    ),
+]
+
+
+@pytest.mark.parametrize(("statement", "truth"), _D4_FLAGGED)
+def test_the_probe_tables_status_summaries_are_flagged(statement, truth, known):
+    flagged = _d4(statement, known)
+    if truth is not None:
+        assert flagged == truth
+
+
+@pytest.mark.parametrize("statement", _D4_NOT_FLAGGED)
+def test_the_probe_tables_other_sentences_are_not_flagged(statement, known):
+    assert "D4" not in _categories(statement, known)
 
 
 # D5 ------------------------------------------------------------------------
