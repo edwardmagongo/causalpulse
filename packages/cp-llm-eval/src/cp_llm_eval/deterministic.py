@@ -240,9 +240,13 @@ def _mislabelled(statement: str, facts: FactTable) -> Iterator[Flag]:
 
 # D4 ------------------------------------------------------------------------
 
+# Up to three words may stand between the quantifier and its noun ("none of
+# the five robustness checks"). "Not a single" and "not one of the" read as
+# "no": they are quantifiers themselves, matched from their "not", so the
+# "preceded by not" rule below never sees that "not".
 _QUANTIFIER = re.compile(
-    r"\b(no|none of the|every|all|all of the|all the|each)\s+"
-    r"(?:[a-z-]+\s+)?(checks?|diagnostics?)\b"
+    r"\b(no|none of the|not a single|not one of the|every|all|all of the|all the|each)\s+"
+    r"(?:[a-z-]+\s+){0,3}(checks?|diagnostics?)\b"
 )
 _PROBLEM = re.compile(
     r"\b(fail\w*|warn\w*|flag\w*|problems?|concerns?|issues?|violations?|alarms?)\b"

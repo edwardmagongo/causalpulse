@@ -215,6 +215,25 @@ def test_a_summary_that_cites_a_status_is_not_flagged(known):
     assert _categories(statement, known) == set()
 
 
+@pytest.mark.parametrize(
+    ("statement", "truth"),
+    [
+        ("None of the five robustness checks for {est.ipw.method} raised a concern.", "false"),
+        (
+            "All three robustness checks for {est.difference_in_means.method} are untested "
+            "from the data.",
+            "true",
+        ),
+        ("Not a single check for {est.difference_in_means.method} raised a concern.", "true"),
+        ("Not one of the checks for {est.ipw.method} raised a concern.", "false"),
+    ],
+)
+def test_a_quantifier_with_words_before_its_noun_or_read_as_no_is_graded(
+    statement, truth, known
+):
+    assert _d4(statement, known) == truth
+
+
 # D5 ------------------------------------------------------------------------
 
 
