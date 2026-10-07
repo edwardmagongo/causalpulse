@@ -189,7 +189,7 @@ def _rate(**changes):
 
 def test_every_rate_states_how_many_cases_it_spans():
     assert _rate_text(_rate()) == "12.3% (34/276, SE 2.1%, 25 cases)"
-    assert _rate_text(_rate(clusters=1, se=None)) == "12.3% (34/276, 1 case)"
+    assert _rate_text(_rate(clusters=1, se=None)) == "12.3% (34/276, 1 case, so no SE)"
     zero = _rate(numerator=0, rate=0.0, se=0.0, upper_bound=0.011)
     assert _rate_text(zero) == "0% (at most 1.1%, 0/276, 25 cases)"
     assert _rate_text(zero | {"clusters": 1}) == "0% (at most 1.1%, 0/276, 1 case)"
@@ -386,7 +386,7 @@ def test_a_rate_whose_cases_do_not_vary_says_so():
     flat = _rate(se=None)
 
     assert _rate_text(flat) == "12.3% (34/276, no spread across cases, 25 cases)"
-    assert _rate_text(flat | {"clusters": 1}) == "12.3% (34/276, 1 case)"
+    assert _rate_text(flat | {"clusters": 1}) == "12.3% (34/276, 1 case, so no SE)"
 
 
 def test_a_unanimous_rate_with_a_bound_of_zero_omits_the_bound():
@@ -401,3 +401,18 @@ def test_the_primary_line_names_an_interval_only_when_there_is_one(entry, report
     assert "Normal 95% interval" in with_interval
     assert report["comparison"][0]["primary"] is None
     assert "Normal 95% interval" not in render_markdown(report)
+
+
+def test_a_degenerate_primary_difference_names_no_interval(entry):
+    # Cases a and b each move from 1 to 0: every case the same difference.
+    narratives = [
+        _narrative(case_id, variant, 1, variant == "baseline")
+        for case_id in ("a", "b")
+        for variant in ("baseline", "v")
+    ]
+    report = build_report([entry], narratives, [], [], [])
+
+    assert report["comparison"][0]["primary"]["degenerate"] is True
+    text = render_markdown(report)
+    assert "-100.0 points (no spread across 2 cases; no interval)" in text
+    assert "Normal 95% interval" not in text

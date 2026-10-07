@@ -377,8 +377,11 @@ def _rate_text(rate: Mapping[str, Any] | None) -> str:
         spread = ", no spread across cases"
     else:
         spread = ""
+    # One case gives no clustered standard error at all.
+    alone = ", so no SE" if rate["se"] is None and rate["clusters"] < 2 else ""
     return (
-        f"{_percent(rate['rate'])} ({rate['numerator']}/{rate['denominator']}{spread}, {cases})"
+        f"{_percent(rate['rate'])} "
+        f"({rate['numerator']}/{rate['denominator']}{spread}, {cases}{alone})"
     )
 
 
