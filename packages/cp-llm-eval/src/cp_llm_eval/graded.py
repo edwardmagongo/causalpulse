@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from cp_llm.facts import FactTable
 from cp_llm.narrative import Narrative
 
-from cp_llm_eval.corpus import CorpusEntry, Design
+from cp_llm_eval.corpus import CorpusEntry, Design, check_facts_match
 from cp_llm_eval.deterministic import Flag, grade_narrative
 from cp_llm_eval.judge import Finding, judge_prompt_version, rendered_statements
 from cp_llm_eval.runner import interpretation_key
@@ -74,7 +74,11 @@ def grade_records(
     verdicts: Sequence[Mapping[str, object]],
     judge_model: str,
 ) -> tuple[GradedNarrative, ...]:
-    """Join each interpretation record to its case, its grades and its verdict."""
+    """Join each interpretation record to its case, its grades and its verdict.
+
+    Raises `ValueError` if a record was made from a fact table other than the
+    corpus entry's for its case.
+    """
     by_case = {entry.case_id: entry for entry in entries}
     version = judge_prompt_version()
     by_interpretation = {
@@ -88,6 +92,7 @@ def grade_records(
         assert isinstance(key_fields, dict)
         key = interpretation_key(record)
         entry = by_case[str(key_fields["case_id"])]
+        check_facts_match(record, entry)
         verdict = by_interpretation.get(key)
         judged = verdict is not None and verdict["outcome"] == "judged"
         statements: tuple[GradedStatement, ...] = ()

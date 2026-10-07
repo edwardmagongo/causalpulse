@@ -12,6 +12,7 @@ from cp_llm_eval.judge import (
     JudgeReply,
     StatementVerdict,
     judge_all,
+    judge_jobs,
     judge_message,
     judge_prompt_version,
     rendered_statements,
@@ -151,6 +152,22 @@ def test_a_duplicated_judge_job_is_judged_once(verified, entry, tmp_path):
     summary = judge_all([job, job], lambda: judge, Store(tmp_path), CallBudget(5), workers=2)
 
     assert (judge.calls, summary.stored) == (1, 1)
+
+
+def test_a_record_from_another_fact_table_is_not_judged(verified, entry):
+    _key, record = verified
+    stale = {**record, "key": {**record["key"], "facts_sha256": "0" * 64}}
+
+    with pytest.raises(ValueError, match="t-d"):
+        judge_jobs([stale], {entry.case_id: entry}, "claude-opus-5-5")
+
+
+def test_judge_jobs_reads_the_facts_of_the_records_case(verified, entry):
+    key, record = verified
+
+    (job,) = judge_jobs([record], {entry.case_id: entry}, "claude-opus-5-5")
+
+    assert (job.interpretation, job.facts) == (key, entry.facts)
 
 
 def _response(text, stop_reason="end_turn"):

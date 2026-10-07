@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -265,6 +265,18 @@ class CorpusEntry:
 
 def _sha256(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
+
+
+def check_facts_match(record: Mapping[str, object], entry: CorpusEntry) -> None:
+    """Raise `ValueError` unless `record` was made from `entry`'s fact table."""
+    key = record["key"]
+    assert isinstance(key, Mapping)
+    if key["facts_sha256"] != entry.facts_sha256:
+        raise ValueError(
+            f"{entry.case_id}: a stored record was made from a fact table "
+            f"(sha256 {key['facts_sha256']}) other than the corpus's ({entry.facts_sha256}); "
+            "grade it against the corpus it was run on"
+        )
 
 
 def build_case(case: Case, root: Path) -> FactTable:

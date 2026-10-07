@@ -210,3 +210,11 @@ def _d4_precision(entry, stored, graded, category):
 def test_a_grader_is_credited_only_for_a_misreading_of_its_own_category(entry, stored, graded):
     assert _d4_precision(entry, stored, graded, "J1") == (0.0, 1)
     assert _d4_precision(entry, stored, graded, "D4") == (1.0, 1)
+
+
+def test_a_variant_run_under_two_models_is_refused(entry, stored, graded):
+    records = stored.records(INTERPRETATIONS)
+    records[0] = {**records[0], "key": {**records[0]["key"], "model": "another-model"}}
+
+    with pytest.raises(ValueError, match=records[0]["key"]["variant"]):
+        build_report([entry], graded, [], records, stored.records(VERDICTS))

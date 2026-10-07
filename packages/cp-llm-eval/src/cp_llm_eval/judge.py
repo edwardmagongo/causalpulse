@@ -26,6 +26,7 @@ from cp_llm.model import DEFAULT_EFFORT, DEFAULT_MODEL, MAX_TOKENS, Effort, Mode
 from cp_llm.render import format_fact
 from pydantic import BaseModel, ConfigDict
 
+from cp_llm_eval.corpus import CorpusEntry, check_facts_match
 from cp_llm_eval.runner import Call, CallBudget, StopOnError, cost, interpretation_key
 from cp_llm_eval.store import Store, digest
 
@@ -236,20 +237,24 @@ def _as_call(call: JudgeCall) -> Call:
 
 def judge_jobs(
     interpretations: Sequence[Mapping[str, Any]],
-    facts_by_case: Mapping[str, FactTable],
+    entries_by_case: Mapping[str, CorpusEntry],
     model: str,
 ) -> list[JudgeJob]:
-    """One job per verified interpretation: refused ones have no final narrative to judge."""
-    return [
-        JudgeJob(
-            interpretation_key(record),
-            rendered_statements(record),
-            facts_by_case[record["key"]["case_id"]],
-            model,
+    """One job per verified interpretation: refused ones have no final narrative to judge.
+
+    Raises `ValueError` if a record was made from a fact table other than the
+    loaded corpus's for its case.
+    """
+    jobs = []
+    for record in interpretations:
+        if record["outcome"] != "verified":
+            continue
+        entry = entries_by_case[record["key"]["case_id"]]
+        check_facts_match(record, entry)
+        jobs.append(
+            JudgeJob(interpretation_key(record), rendered_statements(record), entry.facts, model)
         )
-        for record in interpretations
-        if record["outcome"] == "verified"
-    ]
+    return jobs
 
 
 def verdict_record(job: JudgeJob, call: JudgeCall) -> dict[str, object]:

@@ -235,6 +235,20 @@ def _unparsed(narratives: Sequence[GradedNarrative]) -> int:
     )
 
 
+def _check_one_setting_per_variant(interpretations: Sequence[Mapping[str, Any]]) -> None:
+    """Raise if a variant name covers records of more than one model, effort or prompt."""
+    settings: dict[str, set[tuple[str, str, str]]] = defaultdict(set)
+    for record in interpretations:
+        key = record["key"]
+        settings[key["variant"]].add((key["model"], key["effort"], key["prompt_version"]))
+    for variant, found in sorted(settings.items()):
+        if len(found) > 1:
+            raise ValueError(
+                f"variant {variant!r} has records from {len(found)} settings of "
+                f"(model, effort, prompt_version): {sorted(found)}; report one setting per variant"
+            )
+
+
 def build_report(
     entries: Sequence[CorpusEntry],
     narratives: Sequence[GradedNarrative],
@@ -242,6 +256,8 @@ def build_report(
     interpretations: Sequence[Mapping[str, Any]],
     verdicts: Sequence[Mapping[str, Any]],
 ) -> dict[str, object]:
+    """The report as plain data. Raises `ValueError` if one variant mixes settings."""
+    _check_one_setting_per_variant(interpretations)
     categories = (*DETERMINISTIC_CATEGORIES, *JUDGE_CATEGORIES, "any_D", "any_J")
     variants = sorted({n.variant for n in narratives})
     designs = sorted({e.design for e in entries})

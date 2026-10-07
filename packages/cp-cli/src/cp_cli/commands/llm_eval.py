@@ -155,8 +155,8 @@ def run_run(args: argparse.Namespace) -> int:
 
 def run_grade(args: argparse.Namespace) -> int:
     store = Store(Path(args.store))
-    facts = {e.case_id: e.facts for e in corpus.load(Path(args.corpus))}
-    jobs = judge_jobs(store.records(INTERPRETATIONS), facts, args.model)
+    entries = {e.case_id: e for e in corpus.load(Path(args.corpus))}
+    jobs = judge_jobs(store.records(INTERPRETATIONS), entries, args.model)
     summary = judge_all(
         jobs,
         lambda: build_judge(args.model, args.effort),

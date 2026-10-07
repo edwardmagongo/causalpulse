@@ -68,3 +68,13 @@ def test_a_verdict_from_an_older_judge_prompt_is_not_used(entry, stored, monkeyp
     monkeypatch.setattr(graded_module, "judge_prompt_version", lambda: "a-newer-prompt")
 
     assert not any(n.judged for n in _graded(entry, stored))
+
+
+def test_a_record_from_another_fact_table_is_refused(entry, stored):
+    import pytest
+
+    records = stored.records(INTERPRETATIONS)
+    records[0] = {**records[0], "key": {**records[0]["key"], "facts_sha256": "0" * 64}}
+
+    with pytest.raises(ValueError, match="t-d"):
+        grade_records([entry], records, stored.records(VERDICTS), "claude-opus-5-5")

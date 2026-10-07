@@ -69,7 +69,6 @@ def stored(entry: CorpusEntry, tmp_path_factory: pytest.TempPathFactory):
         verdicts[0] = StatementVerdict(number=1, findings=[Finding(category="J1", reason="r")])
         return JudgeReply(statements=verdicts)
 
-    facts = {entry.case_id: entry.facts}
-    jobs = judge_jobs(store.records(INTERPRETATIONS), facts, "claude-opus-5-5")
+    jobs = judge_jobs(store.records(INTERPRETATIONS), {entry.case_id: entry}, "claude-opus-5-5")
     judge_all(jobs, lambda: ReplyJudge(reply), store, CallBudget(20), workers=1)
     return store
