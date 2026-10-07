@@ -5,7 +5,12 @@ window ends without anything sleeping. What the limits do to real requests,
 against a real Redis, is `tests/services/test_limits.py`.
 """
 
+import asyncio
+import contextlib
 import logging
+import socket
+import threading
+import time
 
 import pytest
 from cp_api import limits
@@ -14,11 +19,15 @@ from cp_api.limits import (
     FixedWindow,
     Limit,
     LimitExceededError,
+    SigninFailures,
     client_address,
+    limiter_redis,
     limits_from_environment,
 )
 from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import ExecAbortError
 from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 THREE_A_MINUTE = Limit("uploads_per_day", 3, 60)
 
@@ -206,6 +215,188 @@ def test_a_redis_that_cannot_be_reached_allows(monkeypatch, caplog):
     assert len(caplog.records) == 1
     assert caplog.records[0].levelno == logging.WARNING
     assert "ConnectionError" in caplog.records[0].getMessage()
+
+
+class RefusingRedis:
+    """A Redis older than 7, which will not run `EXPIRE ... NX` or the transaction it is in."""
+
+    def pipeline(self, transaction=True):
+        raise ExecAbortError("Transaction discarded because of previous errors.")
+
+
+def test_a_redis_that_refuses_the_command_allows_and_says_so_as_an_error(monkeypatch, caplog):
+    monkeypatch.setattr(limits, "_outage_logged", False)
+    monkeypatch.setattr(limits, "_refusal_logged", False)
+    window = FixedWindow(RefusingRedis())
+
+    with caplog.at_level(logging.WARNING, logger="cp_api.limits"):
+        hits = [window.hit("uploads:alice", THREE_A_MINUTE) for _ in range(5)]
+        peek = window.peek("uploads:alice", THREE_A_MINUTE)
+
+    assert all(d.allowed for d in (*hits, peek))
+    assert len(caplog.records) == 1
+    assert caplog.records[0].levelno == logging.ERROR
+    message = caplog.records[0].getMessage()
+    assert "Redis refused the rate limiter's command" in message
+    assert "Transaction discarded" in message
+    assert "Redis 7" in message
+    # Not the outage's message: Redis was reached.
+    assert "could not be reached" not in message
+
+
+def test_a_refused_command_and_an_outage_are_each_logged(monkeypatch, caplog):
+    monkeypatch.setattr(limits, "_outage_logged", False)
+    monkeypatch.setattr(limits, "_refusal_logged", False)
+
+    with caplog.at_level(logging.WARNING, logger="cp_api.limits"):
+        FixedWindow(RefusingRedis()).hit("uploads:alice", THREE_A_MINUTE)
+        FixedWindow(DownRedis()).hit("uploads:alice", THREE_A_MINUTE)
+
+    assert [record.levelno for record in caplog.records] == [logging.ERROR, logging.WARNING]
+
+
+@pytest.fixture
+def silent_redis_url():
+    """A server that accepts every connection and never answers: a Redis that hangs."""
+    listening = socket.socket()
+    listening.bind(("127.0.0.1", 0))
+    listening.listen(16)
+    # `accept` gives up every tenth of a second to see whether the test is over.
+    listening.settimeout(0.1)
+    held, over = [], threading.Event()
+
+    def accept():
+        while not over.is_set():
+            with contextlib.suppress(TimeoutError):
+                held.append(listening.accept()[0])
+
+    thread = threading.Thread(target=accept, daemon=True)
+    thread.start()
+    yield f"redis://127.0.0.1:{listening.getsockname()[1]}/0"
+    over.set()
+    thread.join(5)
+    listening.close()
+    for connection in held:
+        connection.close()
+
+
+def test_the_limiters_client_gives_up_on_a_redis_that_does_not_answer(
+    monkeypatch, silent_redis_url
+):
+    monkeypatch.setattr(limits, "_outage_logged", True)
+    client = limiter_redis(silent_redis_url)
+    window = FixedWindow(client)
+    decisions = []
+
+    def ask():
+        decisions.append(window.peek("signin:10.0.0.1", THREE_A_MINUTE))
+        decisions.append(window.hit("signin:10.0.0.1", THREE_A_MINUTE))
+
+    # A watchdog, not a wait: a client with no timeout would never come back.
+    thread = threading.Thread(target=ask, daemon=True)
+    started = time.monotonic()
+    thread.start()
+    thread.join(4 * limits.LIMITER_TIMEOUT_SECONDS)
+    elapsed = time.monotonic() - started
+
+    assert decisions == [Decision(True, 0), Decision(True, 0)], (
+        f"two calls had not both returned after {elapsed:.1f}s"
+    )
+    # Each call waited for an answer, so this was a timeout and not a refused connection.
+    assert elapsed >= limits.LIMITER_TIMEOUT_SECONDS
+    client.close()
+
+
+def test_the_limiters_timeouts_are_a_second_or_less():
+    assert 0 < limits.LIMITER_TIMEOUT_SECONDS <= 1
+    kwargs = limiter_redis("redis://127.0.0.1:1/0").connection_pool.connection_kwargs
+    assert kwargs["socket_timeout"] == limits.LIMITER_TIMEOUT_SECONDS
+    assert kwargs["socket_connect_timeout"] == limits.LIMITER_TIMEOUT_SECONDS
+
+
+class LockedRedis(FakeRedis):
+    """`FakeRedis` for callers on several threads: one transaction at a time, as in Redis."""
+
+    def __init__(self):
+        super().__init__()
+        self._lock = threading.Lock()
+
+    def pipeline(self, transaction=True):
+        pipeline = super().pipeline(transaction)
+        execute = pipeline.execute
+
+        def locked():
+            with self._lock:
+                return execute()
+
+        pipeline.execute = locked
+        return pipeline
+
+
+def test_failed_sign_ins_made_at_once_are_all_answered_before_any_is_counted(monkeypatch):
+    """The sign-in limit is not exact for concurrent requests. This is accepted.
+
+    The middleware reads the count on the way in and adds to it after a 401, so
+    requests that are all in flight together are all let through to the key
+    check. See `SigninFailures`. If a change makes this test fail by refusing
+    some of them, the limit has become exact, at the price of a write to Redis
+    on every request: decide that on purpose, then change this test.
+    """
+    monkeypatch.delenv("CP_ENV", raising=False)
+    redis = LockedRedis()
+    limit = Limit("signin_failures", 2, 900)
+    sent = 8
+    name = "cp:limit:signin:192.0.2.7"
+    counts_when_answered = []
+
+    async def main():
+        arrived = 0
+        everyone_is_in = asyncio.Event()
+
+        async def refuses_the_key(scope, receive, send):
+            # Every request is held here, past the limiter's read, until all are.
+            nonlocal arrived
+            arrived += 1
+            if arrived == sent:
+                everyone_is_in.set()
+            await everyone_is_in.wait()
+            counts_when_answered.append(redis.get(name))
+            await JSONResponse({"detail": "unauthorized"}, status_code=401)(scope, receive, send)
+
+        guarded = SigninFailures(refuses_the_key, FixedWindow(redis), limit)
+
+        async def request():
+            statuses = []
+
+            async def receive():
+                return {"type": "http.request", "body": b"", "more_body": False}
+
+            async def send(message):
+                if message["type"] == "http.response.start":
+                    statuses.append(message["status"])
+
+            scope = {
+                "type": "http", "method": "GET", "path": "/v1/me", "headers": [],
+                "client": ("192.0.2.7", 40_000),
+            }  # fmt: skip
+            await guarded(scope, receive, send)
+            return statuses[0]
+
+        together = await asyncio.wait_for(
+            asyncio.gather(*(request() for _ in range(sent))), timeout=30
+        )
+        return together, await request()
+
+    together, afterwards = asyncio.run(main())
+
+    # Eight guesses against a limit of two, none refused...
+    assert together == [401] * sent
+    # ...the first of them answered with nothing yet counted against the address...
+    assert len(counts_when_answered) == sent
+    assert counts_when_answered[0] is None
+    # ...and each one counted afterwards, so the address is then refused.
+    assert redis.get(name) == str(sent).encode()
+    assert afterwards == 429
 
 
 def test_no_setting_means_no_limit():

@@ -10,7 +10,9 @@ Four limits, read once when the app is built (`limits_from_environment`):
 A window starts at the first request counted in it and ends `window_seconds`
 later, when Redis expires the key. If Redis cannot be reached every limit
 allows the request: the health check already reports the outage, and a limiter
-that refused would turn a Redis blip into a site that refuses uploads.
+that refused would turn a Redis blip into a site that refuses uploads. A Redis
+that accepts a connection and then says nothing is the same outage, so the
+limiter has a client of its own with short timeouts (`limiter_redis`).
 
 This module imports nothing from `cp_api.app`, which imports it.
 """
@@ -24,7 +26,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from redis import Redis
-from redis.exceptions import RedisError
+from redis.exceptions import RedisError, ResponseError
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import HTTPConnection
 from starlette.responses import JSONResponse
@@ -40,6 +42,13 @@ CLIENT_ADDRESS_HEADER = "X-CP-Client-Address"
 # The key for a connection that reports no peer address (a Unix socket, some
 # test transports). All such connections share one window.
 UNKNOWN_ADDRESS = "unknown"
+
+# How long the limiter waits for Redis to accept a connection, and then for
+# each answer. Redis is on the same network and answers a counter in well under
+# a millisecond, so half a second is hundreds of times what a healthy one takes;
+# and while Redis hangs every limited request waits this long, once or twice,
+# before it is allowed, so it cannot be much longer.
+LIMITER_TIMEOUT_SECONDS = 0.5
 
 SIGNIN_WINDOW_SECONDS = 15 * 60
 DAY_SECONDS = 24 * 60 * 60
@@ -59,6 +68,22 @@ _SENTENCES = {
 }
 
 _outage_logged = False
+_refusal_logged = False
+
+
+def limiter_redis(url: str) -> Redis:
+    """A client for the limiter alone, which gives up on a Redis that does not answer.
+
+    Separate from the client the queue uses, so nothing the queue does is held
+    to these timeouts. With the sign-in limit on, every `/v1` request begins
+    with a read through this client; without a timeout of its own a Redis that
+    hangs would hold each of them for as long as the library's default allows.
+    """
+    return Redis.from_url(
+        url,
+        socket_connect_timeout=LIMITER_TIMEOUT_SECONDS,
+        socket_timeout=LIMITER_TIMEOUT_SECONDS,
+    )
 
 
 @dataclass(frozen=True)
@@ -152,7 +177,20 @@ class LimitExceededError(Exception):
 
 
 def _allow_through_outage(exc: RedisError) -> Decision:
-    global _outage_logged
+    global _outage_logged, _refusal_logged
+    if isinstance(exc, ResponseError):
+        # Redis was reached and answered: it would not run the command. That is
+        # a fault in the deployment (see `FixedWindow.hit`), not an outage.
+        if not _refusal_logged:
+            _refusal_logged = True
+            logger.error(
+                "Redis refused the rate limiter's command (%s: %s), so the rate limits "
+                "are counting nothing and allowing every request. The limiter needs "
+                "Redis 7 or later. This is logged once.",
+                type(exc).__name__,
+                exc,
+            )
+        return Decision(True, 0)
     if not _outage_logged:
         _outage_logged = True
         logger.warning(
@@ -182,6 +220,8 @@ class FixedWindow:
         try:
             pipeline = self._redis.pipeline(transaction=True)
             pipeline.incr(name)
+            # `EXPIRE ... NX` needs Redis 7. An older server refuses the whole
+            # transaction, the increment with it, which is logged as an error.
             pipeline.expire(name, limit.window_seconds, nx=True)
             pipeline.ttl(name)
             count, _, ttl = pipeline.execute()
@@ -251,6 +291,14 @@ class SigninFailures:
     reaches the app, so its key is never looked at; that check reads the count
     and adds nothing to it. A 401 is counted after the response has been sent.
     The Redis calls run in the thread pool, not on the event loop.
+
+    The limit is not exact for requests made at the same time. The count is
+    read on the way in and added to on the way out, so every request that
+    arrives before the first 401 has been counted is let through: one address
+    gets as many guesses in a window as it can hold open at once, not `count`.
+    That is accepted. A key is a 12-character id and a 256-bit secret, which
+    no such multiple makes guessable, and taking a place on the way in would
+    make every request with a good key write to Redis.
     """
 
     def __init__(self, app: ASGIApp, window: FixedWindow, limit: Limit) -> None:
@@ -263,6 +311,8 @@ class SigninFailures:
             await self._app(scope, receive, send)
             return
         key = f"signin:{client_address(HTTPConnection(scope))}"
+        # Read now, counted after the answer: see the class's note on requests
+        # made at the same time.
         decision = await run_in_threadpool(self._window.peek, key, self._limit)
         if not decision.allowed:
             refusal = LimitExceededError(self._limit, decision.retry_after).response()

@@ -8,6 +8,7 @@ the API can refuse with `cp_core` alone it refuses here (see
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
 import uuid
@@ -54,6 +55,7 @@ from cp_api.limits import (
     LimitExceededError,
     Limits,
     SigninFailures,
+    limiter_redis,
     limits_from_environment,
 )
 from cp_api.pagination import DEFAULT_LIMIT, MAX_LIMIT, decode_cursor, encode_cursor
@@ -135,6 +137,9 @@ def upload_allowance(request: Request, user: CurrentUser, session: SessionDep) -
     upload costs as well.
     """
     state = request.app.state
+    # Deliberately before the body, and so before the file is known to be valid:
+    # what an upload costs is the read, and only a count taken first can refuse
+    # without it. An analysis is counted when it is accepted (`create_analysis`).
     state.limit_window.require(f"uploads:{user.id}", state.uploads_per_day)
     # Checking the key left a transaction open, and with it a pooled connection.
     # The body is read next and a slow client can take minutes over it, so the
@@ -227,11 +232,17 @@ def create_app(
         sessions = make_sessionmaker(make_engine())
     app = FastAPI(title="CausalPulse")
     app.state.sessions = sessions
-    queue_redis = redis if redis is not None else Redis.from_url(os.environ["REDIS_URL"])
+    if redis is None:
+        queue_redis = Redis.from_url(os.environ["REDIS_URL"])
+        # The limiter's own client, with short timeouts the queue's is not held to.
+        limit_redis = limiter_redis(os.environ["REDIS_URL"])
+    else:
+        # A client handed in (the tests) serves both, with whatever timeouts it has.
+        queue_redis = limit_redis = redis
     # Every limit is off unless its setting is present (see `cp_api.limits`).
     if limits is None:
         limits = limits_from_environment()
-    window = FixedWindow(queue_redis)
+    window = FixedWindow(limit_redis)
     if limits.signin_failures is not None:
         app.add_middleware(SigninFailures, window=window, limit=limits.signin_failures)
     # Read by `upload_allowance`, which is at module scope as `get_session` is.
@@ -294,13 +305,33 @@ def create_app(
         """Mark an in-flight analysis `failed` when its job is gone (spec §11.4).
 
         Shared by the single read and the list, so a dead job never shows as
-        `running` in one and `failed` in the other.
+        `running` in one and `failed` in the other; and by a submission the
+        active limit is about to refuse, so a dead job does not hold a place.
         """
         if analysis.status in ("queued", "running") and _job_lost(queue_redis, analysis.id):
             analysis.status = "failed"
             analysis.error = WORKER_LOST
             analysis.finished_at = utcnow()
             session.commit()
+
+    active_statuses = ("queued", "running")
+
+    def _active_count(session: Session, user: User) -> int:
+        count = session.scalar(
+            select(func.count())
+            .select_from(Analysis)
+            .where(Analysis.owner_id == user.id, Analysis.status.in_(active_statuses))
+        )
+        return count or 0
+
+    def _active_rows(session: Session, user: User) -> list[Analysis]:
+        return list(
+            session.scalars(
+                select(Analysis).where(
+                    Analysis.owner_id == user.id, Analysis.status.in_(active_statuses)
+                )
+            )
+        )
 
     @app.get("/v1/me", response_model=models.Me)
     def read_me(user: CurrentUser) -> dict[str, Any]:
@@ -455,27 +486,33 @@ def create_app(
     def create_analysis(
         user: CurrentUser, body: AnalysisRequest, session: SessionDep
     ) -> dict[str, Any]:
-        if analyses_active is not None:
-            # A count of rows, not a counter, so it cannot drift: an analysis
-            # stops counting when its status changes, however that happens.
-            active = session.scalar(
-                select(func.count())
-                .select_from(Analysis)
-                .where(
-                    Analysis.owner_id == user.id, Analysis.status.in_(("queued", "running"))
-                )
-            )
-            if (active or 0) >= analyses_active.count:
+        # A count of rows, not a counter, so it cannot drift: an analysis stops
+        # counting when its status changes, however that happens.
+        if (
+            analyses_active is not None
+            and _active_count(session, user) >= analyses_active.count
+        ):
+            # A job that died with its worker still counts until something
+            # reads it. A client that only submits never does, so before
+            # refusing, the caller's active rows are checked as a read would
+            # check them, and counted again. If Redis cannot say whether the
+            # jobs are lost, the rows stand.
+            with contextlib.suppress(RedisError):
+                for active in _active_rows(session, user):
+                    _fail_if_lost(session, active)
+            if _active_count(session, user) >= analyses_active.count:
                 raise LimitExceededError(analyses_active, analyses_active.window_seconds)
-        # After the active check, so a submission refused there is not one of the
-        # day's; before validation, like an upload's.
-        window.require(f"analyses:{user.id}", analyses_per_day)
         dataset = session.scalars(
             select(Dataset).where(Dataset.id == body.dataset_id, Dataset.owner_id == user.id)
         ).one_or_none()
         if dataset is None:
             raise HTTPException(404, f"no dataset {body.dataset_id}")
         check_analysis_request(body.causal_schema, csv_header(dataset.csv), body.estimators)
+        # Counted here, when nothing is left that can refuse the request, so a
+        # submission answered 404, 422 or 429 above is not one of the day's.
+        # Counted and judged in one step (`FixedWindow.hit`), before the row
+        # exists: one refused here leaves no row and no job.
+        window.require(f"analyses:{user.id}", analyses_per_day)
         analysis = Analysis(
             owner_id=user.id,
             dataset_id=dataset.id,

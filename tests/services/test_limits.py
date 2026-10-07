@@ -7,17 +7,23 @@ anything when none is configured is shown by every other service test, which
 builds its app without any.
 """
 
+import contextlib
 import re
+import socket
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from cp_api.accounts import revoke_key
-from cp_api.app import create_app
+from cp_api.app import WORKER_LOST, create_app
 from cp_api.auth import parse_key
-from cp_api.db import Analysis, ApiKey
-from cp_api.limits import FixedWindow, Limit, Limits
+from cp_api.db import QUEUE_NAME, Analysis, ApiKey, User
+from cp_api.limits import LIMITER_TIMEOUT_SECONDS, FixedWindow, Limit, Limits
 from fastapi.testclient import TestClient
 from redis import Redis
+from rq import Queue
+from rq.job import Job
 from sqlalchemy import select, update
 from worker.data import scenario_d_upload
 
@@ -83,6 +89,11 @@ def _analyses_refused(response):
 
 def _signin_refused(response):
     return _refused(response, rf"Too many failed sign-ins from this address\. {WAIT}", 900)
+
+
+def _user_id(sessions, name):
+    with sessions() as session:
+        return session.scalars(select(User.id).where(User.name == name)).one()
 
 
 @pytest.fixture
@@ -172,16 +183,61 @@ def test_the_analysis_one_past_the_days_limit_is_refused(
     assert submit_as_bob().status_code == 202
 
 
-def test_an_analysis_that_fails_validation_keeps_its_place_in_the_count(
+def test_an_analysis_that_is_not_accepted_is_not_one_of_the_days(
     sessions, redis_conn, api_key_for, scenario
 ):
     alice = _client(create_app(sessions, redis_conn, analyses(2)), api_key_for("alice"))
     submit = _submitter(alice, scenario)
+    name = f"cp:limit:analyses:{_user_id(sessions, 'alice')}"
 
-    codes = [submit(estimators=[]).status_code, submit().status_code]
+    refused = [
+        submit(estimators=[]).status_code,  # fails the request's validation
+        submit(dataset_id="00000000-0000-4000-8000-000000000000").status_code,  # no such dataset
+        submit(random_seed=-1).status_code,  # fails the body's own schema
+    ]
 
-    assert codes == [422, 202]
+    assert refused == [422, 404, 422]
+    assert redis_conn.get(name) is None
+    # The whole allowance is still there, and it is two.
+    assert [submit().status_code for _ in range(2)] == [202, 202]
+    assert redis_conn.get(name) == b"2"
     assert _analyses_refused(submit())
+
+
+def test_an_analysis_refused_by_the_days_limit_leaves_no_row_and_no_job(
+    sessions, redis_conn, api_key_for, scenario
+):
+    alice = _client(create_app(sessions, redis_conn, analyses(1)), api_key_for("alice"))
+    submit = _submitter(alice, scenario)
+
+    accepted = submit()
+    refusals = [submit() for _ in range(3)]
+
+    assert accepted.status_code == 202
+    assert all(_analyses_refused(response) for response in refusals)
+    with sessions() as session:
+        assert [str(id_) for id_ in session.scalars(select(Analysis.id))] == [
+            accepted.json()["id"]
+        ]
+    assert redis_conn.keys("rq:job:*") == [f"rq:job:{accepted.json()['id']}".encode()]
+    assert Queue(QUEUE_NAME, connection=redis_conn).job_ids == [accepted.json()["id"]]
+
+
+def test_two_submissions_at_once_cannot_both_take_the_days_last_place(
+    sessions, redis_conn, api_key_for, scenario
+):
+    app = create_app(sessions, redis_conn, analyses(2))
+    submit = _submitter(_client(app, api_key_for("alice")), scenario)
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        responses = list(pool.map(lambda _: submit(), range(6)))
+
+    accepted = sorted(r.json()["id"] for r in responses if r.status_code == 202)
+    assert len(accepted) == 2
+    assert all(_analyses_refused(r) for r in responses if r.status_code != 202)
+    with sessions() as session:
+        assert sorted(str(id_) for id_ in session.scalars(select(Analysis.id))) == accepted
+    assert sorted(Queue(QUEUE_NAME, connection=redis_conn).job_ids) == accepted
 
 
 def _finish(sessions, analysis_id, status="succeeded"):
@@ -226,6 +282,44 @@ def test_the_active_limit_is_each_users_own(sessions, redis_conn, api_key_for, s
     assert submit_as_bob().status_code == 202
 
 
+def test_analyses_whose_jobs_are_lost_do_not_hold_the_active_limit(
+    sessions, redis_conn, api_key_for, scenario
+):
+    alice = _client(create_app(sessions, redis_conn, active(3)), api_key_for("alice"))
+    submit = _submitter(alice, scenario)
+    queued = [submit().json()["id"] for _ in range(3)]
+    # The worker died and took its jobs with it; nothing has read the analyses since.
+    redis_conn.flushdb()
+
+    fourth = submit()
+
+    assert fourth.status_code == 202, fourth.text
+    with sessions() as session:
+        rows = {str(row.id): row for row in session.scalars(select(Analysis))}
+        assert {id_: (rows[id_].status, rows[id_].error) for id_ in queued} == {
+            id_: ("failed", WORKER_LOST) for id_ in queued
+        }
+        assert all(rows[id_].finished_at is not None for id_ in queued)
+        assert rows[fourth.json()["id"]].status == "queued"
+
+
+def test_analyses_whose_jobs_are_alive_still_hold_the_active_limit(
+    sessions, redis_conn, api_key_for, scenario
+):
+    alice = _client(create_app(sessions, redis_conn, active(3)), api_key_for("alice"))
+    submit = _submitter(alice, scenario)
+    queued = [submit().json()["id"] for _ in range(3)]
+    # One of the three is lost, so one place comes free and no more.
+    Job.fetch(queued[0], connection=redis_conn).delete()
+
+    codes = [submit().status_code, submit().status_code]
+
+    assert codes == [202, 429]
+    with sessions() as session:
+        statuses = {str(row.id): row.status for row in session.scalars(select(Analysis))}
+    assert [statuses[id_] for id_ in queued] == ["failed", "queued", "queued"]
+
+
 def test_a_submission_refused_as_active_is_not_one_of_the_days(
     sessions, redis_conn, api_key_for, scenario
 ):
@@ -256,6 +350,24 @@ def test_the_eleventh_bad_key_from_one_address_is_refused(sessions, redis_conn, 
     # Another address is not held to this one's count, with a bad key or a good one.
     assert _client(app, "cpk_AAAAAAAAAAAA_wrong", peer=ELSEWHERE).get("/v1/me").status_code == 401
     assert _client(app, key, peer=ELSEWHERE).get("/v1/me").json() == {"name": "alice"}
+
+
+def test_a_401_on_the_upload_route_is_a_failed_sign_in(sessions, redis_conn, api_key_for):
+    # The upload route answers 401 from its own dependency, ahead of the body.
+    app = create_app(sessions, redis_conn, signins(2))
+    revoked = api_key_for("alice")
+    with sessions() as session:
+        revoke_key(session, parse_key(revoked)[0])
+        session.commit()
+
+    codes = [
+        _upload(_client(app), _csv(0)).status_code,  # no key
+        _upload(_client(app, revoked), _csv(0)).status_code,
+    ]
+
+    assert codes == [401, 401]
+    assert redis_conn.get(f"cp:limit:signin:{TESTCLIENT}") == b"2"
+    assert _signin_refused(_upload(_client(app, api_key_for("alice")), _csv(0)))
 
 
 def test_a_refused_address_is_refused_whatever_it_sends(sessions, redis_conn, api_key_for):
@@ -414,6 +526,67 @@ def test_with_redis_unreachable_the_limits_allow(sessions, api_key_for):
 
     assert [_client(app).get("/v1/me").status_code for _ in range(3)] == [401, 401, 401]
     assert [_upload(alice, _csv(n)).status_code for n in range(3)] == [201, 201, 201]
+
+
+@pytest.fixture
+def silent_redis_url():
+    """A server that accepts every connection and never answers: a Redis that hangs."""
+    listening = socket.socket()
+    listening.bind(("127.0.0.1", 0))
+    listening.listen(16)
+    # `accept` gives up every tenth of a second to see whether the test is over.
+    listening.settimeout(0.1)
+    held, over = [], threading.Event()
+
+    def accept():
+        while not over.is_set():
+            with contextlib.suppress(TimeoutError):
+                held.append(listening.accept()[0])
+
+    thread = threading.Thread(target=accept, daemon=True)
+    thread.start()
+    yield f"redis://127.0.0.1:{listening.getsockname()[1]}/0"
+    over.set()
+    thread.join(5)
+    listening.close()
+    for connection in held:
+        connection.close()
+
+
+def _within(seconds, call):
+    """What `call` returns, or a failure if it has not returned in `seconds`."""
+    result = []
+    thread = threading.Thread(target=lambda: result.append(call()), daemon=True)
+    started = time.monotonic()
+    thread.start()
+    thread.join(seconds)
+    assert result, f"no answer after {time.monotonic() - started:.1f}s; the bound is {seconds}s"
+    return result[0]
+
+
+def test_with_redis_hanging_the_limits_allow_and_do_not_stall(
+    sessions, api_key_for, monkeypatch, silent_redis_url
+):
+    # The app makes its own clients from REDIS_URL, as the server does.
+    monkeypatch.setenv("REDIS_URL", silent_redis_url)
+    every = Limits(
+        signin_failures=Limit("signin_failures", 1, 900),
+        uploads_per_day=Limit("uploads_per_day", 1, DAY),
+        analyses_per_day=Limit("analyses_per_day", 1, DAY),
+    )
+    app = create_app(sessions, None, every)
+    alice, stranger = _client(app, api_key_for("alice")), _client(app)
+    # A request waits for Redis at most twice (a 401: the read, then the count;
+    # an upload: the read, then its own count), each for the limiter's timeout.
+    # Three times that leaves room for a loaded machine, and is well under the
+    # single wait of a client that has no timeout of the limiter's.
+    bound = 6 * LIMITER_TIMEOUT_SECONDS
+
+    codes = [_within(bound, lambda: stranger.get("/v1/me")).status_code for _ in range(2)]
+    codes += [_within(bound, lambda n=n: _upload(alice, _csv(n))).status_code for n in range(2)]
+    codes += [_within(bound, lambda: alice.get("/v1/datasets")).status_code]
+
+    assert codes == [401, 401, 201, 201, 200]
 
 
 def test_an_app_given_no_limits_reads_them_from_the_environment(
