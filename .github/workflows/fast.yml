@@ -1,0 +1,61 @@
+name: Fast suite
+
+# The fast Python suite, `make test-fast`: about half an hour on a hosted
+# runner, most of what a pull request would cost. The repository is private
+# and its Actions minutes are counted, so this runs on a pull request only
+# when something the suite tests has changed, and on every push to `main`,
+# where it is the net under whatever a path filter let through.
+#
+# The paths are what the suite reads: the packages and tests, the dependency
+# and tool pins, and the committed files some tests check against (the
+# OpenAPI document, the study bundle, the published reports) or parse (the
+# import contracts). GitHub looks at the first 300 changed files only; the
+# push to `main` is the net under that too.
+#
+# If branch protection is ever enforced again, "Fast suite" must not be a
+# required check as it stands: a pull request this filter skips would wait
+# for it for ever.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "packages/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".python-version"
+      - "Makefile"
+      - ".importlinter"
+      - "web/openapi.json"
+      - "web/src/data/**"
+      - "docs/reports/**"
+      - ".github/workflows/fast.yml"
+
+# As in `ci.yml`. On `main` a waiting run can be replaced by a later push, so
+# the latest tree always has a result and an intermediate commit may not.
+concurrency:
+  group: fast-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  fast:
+    name: Fast suite
+    runs-on: ubuntu-latest
+    # Hosted runners differ by more than a factor of two on this suite: the same
+    # tree has taken 17 and 35 minutes, and a later one ran past 60 at 93% with
+    # nothing failing. The limit leaves room for a slow one.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      # Which machine this is, so that a slow run can be told from a slow suite.
+      - run: lscpu | grep -E 'Model name|^CPU\(s\)|Thread' ; nproc
+      - run: uv sync --frozen
+      - run: make test-fast WORKERS=4

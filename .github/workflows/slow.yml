@@ -1,12 +1,14 @@
 name: Slow tier
 
 # The slow tests that need no services and no model API. Too long for every
-# push, so they run weekly and by hand, split by test file into eight shards
-# that each fit well inside a job's time limit.
+# push, so they run monthly and by hand, split by test file into eight shards
+# that each fit well inside a job's time limit. One run costs about 170
+# runner-minutes of the private repository's monthly allowance, nearly all of
+# it in the shard that holds the hierarchical recovery tests.
 on:
   schedule:
-    # Sundays at 03:00 UTC.
-    - cron: "0 3 * * 0"
+    # The first of each month at 03:00 UTC.
+    - cron: "0 3 1 * *"
   workflow_dispatch:
 
 permissions:
@@ -30,8 +32,8 @@ jobs:
           cache-dependency-glob: uv.lock
       - run: uv sync --frozen
       - run: make test-slow SHARD=${{ matrix.shard }}/8
-      # Kept whether the shard passed or failed: the per-test durations in it
-      # are what the shards are balanced from.
+      # Kept whether the shard passed or failed: its per-test durations are how
+      # the slow tier's cost is known.
       - if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -40,12 +42,12 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
-  # A weekly run in which any shard did not succeed opens an issue naming those
+  # A scheduled run in which any shard did not succeed opens an issue naming those
   # shards, so it cannot pass unseen. A shard over its time limit is cancelled,
   # not failed, which is why this tests the result and not `failure()`. A run
   # started by hand has someone watching it and opens none.
   report:
-    name: Report a failed weekly run
+    name: Report a failed scheduled run
     needs: slow
     if: always() && github.event_name == 'schedule' && needs.slow.result != 'success'
     runs-on: ubuntu-latest
@@ -62,9 +64,9 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           shards=$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID/jobs" --paginate \
-            --jq '.jobs[] | select(.name != "Report a failed weekly run" and .conclusion != "success") | "- \(.name): \(.conclusion)"')
+            --jq '.jobs[] | select(.name != "Report a failed scheduled run" and .conclusion != "success") | "- \(.name): \(.conclusion)"')
           gh issue create \
             --title "Slow tier failed on $(date -u +%F)" \
-            --body "The weekly slow tier did not succeed. The run, with each shard's log and JUnit report: $RUN_URL
+            --body "The scheduled slow tier did not succeed. The run, with each shard's log and JUnit report: $RUN_URL
 
           $shards"

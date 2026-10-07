@@ -61,16 +61,26 @@ def run_nuts(
         chain_method="sequential",
         progress_bar=False,
     )
-    mcmc.run(random.PRNGKey(random_seed), **model_kwargs)
-    # Every call builds a new kernel, so JAX traces and compiles the sampler
-    # again and keeps the result in caches that nothing empties. A process
-    # that fits many models grows without bound. Measured on 2026-10-06 in a
-    # Linux container, eight HierarchicalDiD fits in one process: resident
-    # memory rose by about 50 to 130 MB a fit without this line (785 MB after
-    # the first, 1,249 MB after the eighth) and stayed level with it (790 MB,
-    # then 859 MB). On a 16 GB CI runner the recovery tests' four worker
-    # processes used all of it in 80 minutes. The samples are arrays, not
-    # compiled code, and are untouched; the next fit would have compiled its
-    # own kernel anyway.
-    jax.clear_caches()  # type: ignore[no-untyped-call]
+    try:
+        mcmc.run(random.PRNGKey(random_seed), **model_kwargs)
+    finally:
+        # Every call builds a new kernel, so JAX traces and compiles the
+        # sampler again and keeps the result in caches that nothing empties. A
+        # process that fits many models grows without bound. Measured on
+        # 2026-10-06 in a Linux container, eight HierarchicalDiD fits in one
+        # process: resident memory rose by about 50 to 130 MB a fit without
+        # this call (785 MB after the first, 1,249 MB after the eighth) and by
+        # about 10 MB a fit with it (790 MB, then 859 MB). On a 16 GB CI runner
+        # the recovery tests' four worker processes used all of it in 80
+        # minutes.
+        #
+        # It is not free. JAX reuses part of what it compiled even for a new
+        # kernel, and this throws that away: a small model fitted eight times
+        # took about 4 s a fit with the call and 1.5 to 2.3 s without it after
+        # the first. A production fit runs for minutes, so the cost is small
+        # beside it; a caller that fits thousands of small models would feel
+        # it. In `finally`, because a fit that raises (the worker's job
+        # timeout arrives as an exception inside it) has compiled as much.
+        # The samples are arrays, not compiled code, and are untouched.
+        jax.clear_caches()  # type: ignore[no-untyped-call]
     return mcmc
