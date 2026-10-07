@@ -60,9 +60,10 @@ def read_csv(content: bytes, *, nrows: int | None = None) -> pd.DataFrame:
     piece, which left a column that was numbers in one piece and text in
     another holding both.
 
-    The first data row is looked at whatever `nrows` is, zero included; no
-    row after the first `nrows` is. The line in the refusal is pandas' count,
-    in which a quoted value that runs over several lines is one line.
+    The first data row's width is checked whatever `nrows` is, zero included;
+    beyond that, the width of no row after the first `nrows` is. The line in
+    the refusal is pandas' count, in which a quoted value that runs over
+    several lines is one line.
 
     A row with fewer fields than the header is filled with missing values, as
     pandas does. A file pandas cannot read at all raises what pandas raises,
