@@ -1,7 +1,7 @@
 """What a production deployment must not start with.
 
 `CP_ENV=production` is set by the production compose file and by nothing else.
-With it, the API, the worker and the migration call
+With it, the API, the worker, the migration and `cp-api-admin` call
 `require_production_settings` before they contact anything, and exit if the
 database password is one this repository publishes. Without it nothing here
 does anything: the demo stack and the gates start as they always have.
@@ -15,7 +15,6 @@ from __future__ import annotations
 import os
 
 from sqlalchemy.engine import make_url
-from sqlalchemy.exc import ArgumentError
 
 # Every database password that appears in this repository, and the empty one.
 # `tests/api/test_settings.py` reads the demo compose file and the Makefile and
@@ -27,24 +26,36 @@ def is_production() -> bool:
     return os.environ.get("CP_ENV") == "production"
 
 
-def _database_password() -> str | None:
-    """The password in `DATABASE_URL`, decoded; None if there is none to read."""
-    try:
-        return make_url(os.environ.get("DATABASE_URL", "")).password
-    except ArgumentError:
-        return None
+_REFUSED = "CP_ENV=production does not start with it"
 
 
 def require_production_settings() -> None:
     """Exit, in production, unless the database password is the deployment's own.
 
-    The message names the setting and never its value: it goes to a log.
+    The password has one place, before the `@`. A `password` query parameter
+    is refused whatever it holds, because the driver uses it in preference to
+    that one (measured with psycopg: `u:strong@h/db?password=demo` connects
+    with `demo`), so a check that read only the first would pass a URL that
+    connects on the second.
+
+    Each message names the setting and never its value: it goes to a log.
     """
     if not is_production():
         return
-    password = _database_password()
-    if password is None or password in DEMO_DATABASE_PASSWORDS:
+    try:
+        url = make_url(os.environ.get("DATABASE_URL", ""))
+    except Exception:
+        # Whatever the parser objects to (`ArgumentError` for most, a bare
+        # `ValueError` for a port that is not a number), and without the
+        # parser's own message, which may quote the URL.
+        raise SystemExit(f"DATABASE_URL is unset or cannot be read as a URL. {_REFUSED}.") from None
+    if any(key.lower() == "password" for key in url.query):
         raise SystemExit(
-            "DATABASE_URL has no password, or one published as a demo value. "
-            "CP_ENV=production does not start with it: set the deployment's own."
+            f"DATABASE_URL carries a `password` query parameter. {_REFUSED}: "
+            "put the password before the `@` and nowhere else."
+        )
+    if url.password is None or url.password in DEMO_DATABASE_PASSWORDS:
+        raise SystemExit(
+            f"DATABASE_URL has no password, or one published as a demo value. {_REFUSED}: "
+            "set the deployment's own."
         )
