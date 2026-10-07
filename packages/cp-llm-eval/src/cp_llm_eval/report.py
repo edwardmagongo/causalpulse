@@ -172,7 +172,7 @@ def _validation(
     graders: dict[str, object] = {}
     for category in DETERMINISTIC_CATEGORIES:
         flagged = [label for label, s in labelled if _has(s, category)]
-        misread = sum(label.verdict == "misreading" for label in flagged)
+        misread = sum(_labelled_as(label, category) for label in flagged)
         graders[category] = {"precision": interval(misread, len(flagged))}
     return {"labelled": len(labelled), "judge": judge, "graders": graders}
 
@@ -291,10 +291,15 @@ def _percent(value: float) -> str:
 def _rate_text(rate: Mapping[str, Any] | None) -> str:
     if rate is None:
         return "-"
+    cases = f"{rate['clusters']} case" + ("" if rate["clusters"] == 1 else "s")
     if rate["upper_bound"] is not None:
-        return f"0% (at most {_percent(rate['upper_bound'])}, 0/{rate['denominator']})"
+        return (
+            f"0% (at most {_percent(rate['upper_bound'])}, 0/{rate['denominator']}, {cases})"
+        )
     spread = f", SE {_percent(rate['se'])}" if rate["se"] is not None else ""
-    return f"{_percent(rate['rate'])} ({rate['numerator']}/{rate['denominator']}{spread})"
+    return (
+        f"{_percent(rate['rate'])} ({rate['numerator']}/{rate['denominator']}{spread}, {cases})"
+    )
 
 
 def _interval_text(interval: Mapping[str, Any] | None) -> str:

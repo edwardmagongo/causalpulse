@@ -8,6 +8,7 @@ from cp_llm_eval.labels import Label
 from cp_llm_eval.report import (
     PRIMARY_ENDPOINT,
     _comparison,
+    _rate_text,
     build_report,
     render_markdown,
     write_report,
@@ -169,3 +170,43 @@ def test_a_label_on_the_variants_statement_measures_the_judge_too(entry, stored,
     )
 
     assert report["validation"]["labelled"] == 1
+
+
+def _rate(**changes):
+    rate = {
+        "numerator": 34,
+        "denominator": 276,
+        "clusters": 25,
+        "rate": 0.123,
+        "se": 0.021,
+        "upper_bound": None,
+    }
+    return rate | changes
+
+
+def test_every_rate_states_how_many_cases_it_spans():
+    assert _rate_text(_rate()) == "12.3% (34/276, SE 2.1%, 25 cases)"
+    assert _rate_text(_rate(clusters=1, se=None)) == "12.3% (34/276, 1 case)"
+    zero = _rate(numerator=0, rate=0.0, se=0.0, upper_bound=0.011)
+    assert _rate_text(zero) == "0% (at most 1.1%, 0/276, 25 cases)"
+    assert _rate_text(zero | {"clusters": 1}) == "0% (at most 1.1%, 0/276, 1 case)"
+
+
+def _d4_precision(entry, stored, graded, category):
+    flagged = [
+        s
+        for n in graded
+        for s in n.statements
+        if any(f.category == "D4" for f in s.deterministic)
+    ]
+    labels = [Label(flagged[0].statement_id, "misreading", category, "")]
+    report = build_report(
+        [entry], graded, labels, stored.records(INTERPRETATIONS), stored.records(VERDICTS)
+    )
+    precision = report["validation"]["graders"]["D4"]["precision"]
+    return precision["estimate"], precision["n"]
+
+
+def test_a_grader_is_credited_only_for_a_misreading_of_its_own_category(entry, stored, graded):
+    assert _d4_precision(entry, stored, graded, "J1") == (0.0, 1)
+    assert _d4_precision(entry, stored, graded, "D4") == (1.0, 1)
