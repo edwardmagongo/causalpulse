@@ -1,5 +1,8 @@
 import "server-only";
 
+import { headers } from "next/headers";
+import { unstable_rethrow } from "next/navigation";
+
 import { apiUrl } from "@/lib/env";
 import { getSession } from "@/lib/session";
 
@@ -28,7 +31,38 @@ import type {
  * typed call that outlives it, waiting for the response or reading it, fails
  * as a refused connection does, with `ApiUnavailable`. So does a relayed call
  * still waiting for the response; one whose download stalls is cut off.
+ *
+ * Every call carries the address of the browser it is made for, which the
+ * API counts failed sign-ins against (it believes the header in production
+ * only). `send` sets it, and nothing a caller passes can.
  */
+
+const CLIENT_ADDRESS_HEADER = "x-cp-client-address";
+
+/**
+ * The browser's address, as the reverse proxy in front of this server saw it.
+ *
+ * A proxy puts the peer it accepted the connection from at the end of
+ * `X-Forwarded-For`, after anything the client sent there that it kept. With
+ * one proxy in front, the last entry is the only one the client cannot have
+ * chosen, so it is the one taken: going by the first would let a client name
+ * a new address for each attempt and never reach the limit. With no proxy,
+ * Next.js fills an absent header in with the connection's own peer.
+ *
+ * `null` when there is no such entry, or no request to read one from.
+ */
+async function clientAddress(): Promise<string | null> {
+  let forwarded: string | null;
+  try {
+    forwarded = (await headers()).get("x-forwarded-for");
+  } catch (error) {
+    // Next.js's own signals (a page being rendered ahead of any request) are not ours to swallow.
+    unstable_rethrow(error);
+    return null;
+  }
+  const entries = (forwarded ?? "").split(",");
+  return entries[entries.length - 1].trim() || null;
+}
 
 /** A typed call: a small JSON request, and none streams a file. */
 export const READ_DEADLINE_MS = 30_000;
@@ -56,12 +90,18 @@ async function send(
   key: string,
   deadline: AbortSignal,
 ): Promise<Response> {
+  const sent = new Headers(init.headers);
+  // Removed first: a name in another case, or a request with no address, must not let a caller's value through.
+  sent.delete(CLIENT_ADDRESS_HEADER);
+  const address = await clientAddress();
+  if (address) sent.set(CLIENT_ADDRESS_HEADER, address);
+  sent.set("authorization", `Bearer ${key}`);
   try {
     return await fetch(`${apiUrl()}${path}`, {
       ...init,
       cache: "no-store",
       signal: deadline,
-      headers: { ...init.headers, authorization: `Bearer ${key}` },
+      headers: sent,
     });
   } catch {
     throw new ApiUnavailable();
