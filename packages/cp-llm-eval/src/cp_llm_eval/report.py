@@ -367,11 +367,16 @@ def _rate_text(rate: Mapping[str, Any] | None) -> str:
             f"0% (at most {_percent(rate['upper_bound'])}, 0/{rate['denominator']}, {cases})"
         )
     if rate.get("lower_bound") is not None:
-        return (
-            f"100% (at least {_percent(rate['lower_bound'])}, "
-            f"{rate['numerator']}/{rate['denominator']}, {cases})"
-        )
-    spread = f", SE {_percent(rate['se'])}" if rate["se"] is not None else ""
+        # At three units or fewer the bound is 0 and says nothing.
+        bound = f"at least {_percent(rate['lower_bound'])}, " if rate["lower_bound"] > 0 else ""
+        return f"100% ({bound}{rate['numerator']}/{rate['denominator']}, {cases})"
+    if rate["se"] is not None:
+        spread = f", SE {_percent(rate['se'])}"
+    elif rate["clusters"] >= 2:
+        # Every case has the same proportion: a clustered SE would be 0.
+        spread = ", no spread across cases"
+    else:
+        spread = ""
     return (
         f"{_percent(rate['rate'])} ({rate['numerator']}/{rate['denominator']}{spread}, {cases})"
     )
@@ -400,6 +405,13 @@ def _difference_text(difference: Mapping[str, Any] | None) -> str:
         f"[{100 * difference['lower']:+.1f}, {100 * difference['upper']:+.1f}], "
         f"{difference['pairs']} cases"
     )
+
+
+def _interval_kind(difference: Mapping[str, Any] | None) -> str:
+    """Names the interval, when the difference has one."""
+    if difference is None or difference.get("degenerate"):
+        return ""
+    return " Normal 95% interval."
 
 
 def _table(header: Sequence[str], rows: Iterable[Sequence[str]]) -> list[str]:
@@ -499,8 +511,8 @@ def render_markdown(report: Mapping[str, Any]) -> str:
             f"## Comparison: {comparison['variant']} minus baseline",
             "",
             f"Primary endpoint, fixed before any paid call ({comparison['primary_endpoint']}): "
-            f"{_difference_text(comparison['primary'])}. Normal 95% interval, paired by case "
-            f"over {over['primary']}.",
+            f"{_difference_text(comparison['primary'])}.{_interval_kind(comparison['primary'])} "
+            f"Paired by case over {over['primary']}.",
             "",
             "Exploratory, final narratives, per narrative:",
             "",

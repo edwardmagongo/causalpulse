@@ -380,3 +380,24 @@ def test_statements_of_an_unjudged_narrative_do_not_enter_the_weights():
 
     assert not unjudged.judged
     assert _validation([judged, unjudged], labels) == _validation([judged], labels)
+
+
+def test_a_rate_whose_cases_do_not_vary_says_so():
+    flat = _rate(se=None)
+
+    assert _rate_text(flat) == "12.3% (34/276, no spread across cases, 25 cases)"
+    assert _rate_text(flat | {"clusters": 1}) == "12.3% (34/276, 1 case)"
+
+
+def test_a_unanimous_rate_with_a_bound_of_zero_omits_the_bound():
+    tiny = _rate(numerator=3, denominator=3, clusters=2, rate=1.0, se=None, lower_bound=0.0)
+
+    assert _rate_text(tiny) == "100% (3/3, 2 cases)"
+
+
+def test_the_primary_line_names_an_interval_only_when_there_is_one(entry, report):
+    with_interval = render_markdown(build_report([entry], _first_attempt_narratives(), [], [], []))
+
+    assert "Normal 95% interval" in with_interval
+    assert report["comparison"][0]["primary"] is None
+    assert "Normal 95% interval" not in render_markdown(report)
