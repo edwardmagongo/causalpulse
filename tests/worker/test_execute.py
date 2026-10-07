@@ -152,25 +152,32 @@ def lines_of(name: str) -> list[str]:
     return [line for line in (REAL_DATA / name).read_text().split("\n") if line]
 
 
-def test_a_comma_ending_every_line_gives_the_same_estimate_as_the_file_without():
+@pytest.mark.parametrize("extra", [",", ",9"], ids=["a comma ending every line", "a field of data"])
+def test_a_row_wider_than_the_header_is_refused_by_the_reader(extra):
     # Left to itself pandas takes the first column of such a file as an index
-    # and shifts every other column by one.
+    # and shifts every other column by one. LaLonde was refused then only by
+    # luck: its treatment column came to hold ages.
     rows = lines_of("lalonde.csv")
-    plain = "\n".join(rows).encode()
-    trailing = "\n".join([rows[0], *(row + "," for row in rows[1:])]).encode()
+    content = "\n".join([rows[0], *(row + extra for row in rows[1:])]).encode()
 
-    ours = execute(trailing, "lalonde.csv", LALONDE, ["difference_in_means"], 0)
-    theirs = execute(plain, "lalonde.csv", LALONDE, ["difference_in_means"], 0)
-
-    assert ours.reports[0].estimate.point == theirs.reports[0].estimate.point
-
-
-def test_an_extra_field_holding_data_on_every_row_is_refused_by_the_reader():
-    rows = lines_of("lalonde.csv")
-    content = "\n".join([rows[0], *(row + ",9" for row in rows[1:])]).encode()
-
-    with pytest.raises(ValueError, match="more fields than its header names"):
+    with pytest.raises(ValueError, match="line 2 of the CSV has 13 fields and its header names 12"):
         execute(content, "lalonde.csv", LALONDE, ["difference_in_means"], 0)
+
+
+def test_a_stray_comma_before_an_empty_last_column_is_refused():
+    # Every earnings value written with a decimal comma and an empty `notes`
+    # column: pandas, told to keep the columns in place, read `re78` as its
+    # whole part and put the rest under `notes`, and an estimate came back.
+    rows = lines_of("lalonde.csv")
+    at = rows[0].split(",").index("re78")
+    rewritten = [rows[0] + ",notes"]
+    for row in rows[1:]:
+        cells = row.split(",")
+        cells[at] = cells[at].replace(".", ",") if "." in cells[at] else cells[at] + ",0"
+        rewritten.append(",".join(cells) + ",")
+
+    with pytest.raises(ValueError, match="line 2 of the CSV has 14 fields and its header names 13"):
+        execute("\n".join(rewritten).encode(), "lalonde.csv", LALONDE, ["difference_in_means"], 0)
 
 
 def test_a_unit_pandas_reads_as_missing_is_refused_by_name():

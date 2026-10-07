@@ -103,7 +103,9 @@ def resolve_fixture_reference(reference: FixtureReference, schema: CausalSchema)
             f"expected sha256 {reference.content_sha256}, got {actual}. "
             "The file changed after this reference was built."
         )
-    frame = read_csv(path)
+    # The bytes that were hashed, not the path again: pandas would decide from
+    # the file's name whether to decompress it, which the analysis did not do.
+    frame = read_csv(content)
     return CausalDataset(frame=frame, schema=schema)
 
 

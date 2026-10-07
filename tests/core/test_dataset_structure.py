@@ -5,8 +5,6 @@ unseen under a duplicated label, a crash while routing a panel with a missing
 unit, a cohort truncated to a period that is not in the data.
 """
 
-import io
-
 import numpy as np
 import pandas as pd
 import pytest
@@ -133,7 +131,7 @@ def test_each_spelling_the_message_lists_is_read_as_a_missing_unit(spelling):
     # The message tells the user which names to avoid; this holds it to what
     # the reader does.
     text = f"unit_id,treated,outcome,x1,x2\nalpha,1,1.0,0.1,0.2\n{spelling},0,2.0,0.3,0.4\n"
-    read = read_csv(io.BytesIO(text.encode()))
+    read = read_csv(text.encode())
     assert read["unit_id"].isna().tolist() == [False, True]
     with pytest.raises(ValueError, match="unit column 'unit_id' contains missing values"):
         CausalDataset(frame=read, schema=CROSS_SECTION)
@@ -141,7 +139,7 @@ def test_each_spelling_the_message_lists_is_read_as_a_missing_unit(spelling):
 
 def test_a_unit_named_like_a_missing_value_but_not_read_as_one_constructs():
     text = "unit_id,treated,outcome,x1,x2\nalpha,1,1.0,0.1,0.2\nNAM,0,2.0,0.3,0.4\n"
-    CausalDataset(frame=read_csv(io.BytesIO(text.encode())), schema=CROSS_SECTION)
+    CausalDataset(frame=read_csv(text.encode()), schema=CROSS_SECTION)
 
 
 def test_a_unit_column_mixing_numbers_and_text_is_refused():
@@ -197,11 +195,15 @@ def test_a_period_that_is_not_an_exact_whole_number_is_refused(periods, found):
     "periods",
     [
         np.array([1970.0, 1971.0]),
+        np.array([1.0, 2.0**53]),
         np.array([1, 2**53], dtype=np.int64),
         np.array([-3, 0], dtype=np.int64),
         np.array([1, 2], dtype=np.uint8),
     ],
-    ids=["whole-numbered floats", "the limit itself", "zero and below", "small unsigned"],
+    ids=[
+        "whole-numbered floats", "the limit as a float", "the limit itself", "zero and below",
+        "small unsigned",
+    ],
 )
 def test_whole_numbered_periods_construct(periods):
     # Zero and negative periods are refused later, by the panel code, with

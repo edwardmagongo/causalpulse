@@ -288,9 +288,10 @@ def analyse(
 ) -> AnalysisOutcome:
     """Route, fit each estimator, and report on each estimate separately.
 
-    Raises if the request is refused (unknown or ineligible estimators) or
-    if every estimator fails; otherwise returns, recording any per-estimator
-    failure on the outcome.
+    Raises if the dataset has a missing value in a column the schema requires
+    (checked first, before the request is looked at), if the request is refused
+    (unknown or ineligible estimators), or if every estimator fails; otherwise
+    returns, recording any per-estimator failure on the outcome.
     """
     # Once, here, and not once per estimator: every estimator refuses a missing
     # value for itself, and `fit_each` would report the same sentence N times.

@@ -356,7 +356,8 @@ class CausalDataset:
 
         A unit column mixing numbers and text cannot be sorted, which every
         panel estimator does, and holds `5` and `'5'` as two units. Only a
-        column of dtype `object` can mix them, so only that is scanned.
+        column of dtype `object` is scanned for that. A categorical column
+        can mix them too and is not looked at.
         """
         name = self.schema.unit
         column = self.frame[name]
@@ -533,9 +534,12 @@ class CausalDataset:
                 unusable = (values != np.floor(values)) | (np.abs(values) > MAX_EXACT_PERIOD)
             if unusable.any():
                 found = column[unusable].iloc[0]
+                # A numpy scalar prints as `np.float64(1989.5)`; one from another
+                # backend may already be a plain number, with no `item`.
+                shown = found.item() if hasattr(found, "item") else found
                 raise ValueError(
                     f"time column {self.schema.time!r} must hold whole-numbered periods "
-                    f"no larger than 2**53; found {found.item()!r}. Periods are used as "
+                    f"no larger than 2**53; found {shown!r}. Periods are used as "
                     "integers, so a fractional or very large value would be changed."
                 )
 

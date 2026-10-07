@@ -1,50 +1,101 @@
-"""Every reader of an upload goes through `cp_core.reading.read_csv`."""
+"""Every reader of a dataset goes through `cp_core.reading.read_csv`."""
 
 import io
-import threading
-import warnings
 from pathlib import Path
 
 import pandas as pd
 import pytest
-from cp_core.reading import MORE_FIELDS_THAN_HEADER, read_csv
+from cp_core.reading import read_csv
 
 REAL_DATA = Path(__file__).parents[1] / "fixtures" / "real_data"
 
 
 def read(text: str, **kwargs) -> pd.DataFrame:
-    return read_csv(io.BytesIO(text.encode()), **kwargs)
+    return read_csv(text.encode(), **kwargs)
+
+
+def pandas_own(text: str) -> pd.DataFrame:
+    return pd.read_csv(io.StringIO(text))
 
 
 @pytest.mark.parametrize("name", ["lalonde.csv", "prop99.csv"])
-def test_a_well_formed_file_is_read_exactly_as_pandas_reads_it(name):
+def test_the_real_datasets_are_read_exactly_as_pandas_reads_them(name):
     # A manifest written before this reader existed has to replay to the
-    # same dataset, so a well-formed file must not change by a dtype.
-    ours, pandas_own = read_csv(REAL_DATA / name), pd.read_csv(REAL_DATA / name)
-    pd.testing.assert_frame_equal(ours, pandas_own, check_exact=True)
-
-
-def test_a_comma_at_the_end_of_every_line_does_not_shift_the_columns():
-    assert pd.read_csv(io.StringIO("a,b,c\n1,2,3,\n5,6,7,\n"))["a"].tolist() == [2, 6]
-    frame = read("a,b,c\n1,2,3,\n5,6,7,\n")
-    assert list(frame.columns) == ["a", "b", "c"]
-    assert frame.to_numpy().tolist() == [[1, 2, 3], [5, 6, 7]]
+    # same dataset, so these files must not change by a dtype.
+    content = (REAL_DATA / name).read_bytes()
+    pd.testing.assert_frame_equal(
+        read_csv(content), pd.read_csv(io.BytesIO(content)), check_exact=True
+    )
 
 
 @pytest.mark.parametrize(
     "text",
-    ["a,b,c\n1,2,3,4\n5,6,7,8\n", "a,b,c\n1,2,3,4\n5,6,7\n", "a,b,c\n1,2,3,\n5,6,7,9\n"],
-    ids=["every row", "the first row", "one row among trailing commas"],
+    [
+        "a,b\n1,2\n3,4\n",
+        'a,b\n1,"x,y"\n',
+        'a,b\n1,"x\ny"\n2,z\n',
+        "a,b\n\n1,2\n\n3,4\n",
+        "\na,b\n1,2\n",
+        "a,b\r\n1,2\r\n",
+        "﻿a,b\n1,2\n",
+        "a,b\n",
+        "a\n1\n2\n",
+        "a,a,b\n1,2,3\n",
+        "a,,c\n1,2,3\n",
+        "a,b,c\n1,2\n5,6,7\n",
+        "a,b,c,\n1,2,3,\n5,6,7,\n",
+    ],
+    ids=[
+        "plain", "a quoted comma", "a quoted line break", "blank lines", "a blank first line",
+        "CRLF", "a byte-order mark", "a header alone", "one column", "a repeated name",
+        "an empty name", "a short row", "a comma ending the header too",
+    ],
 )
-def test_an_extra_field_holding_data_is_refused(text):
+def test_a_file_with_no_row_wider_than_its_header_is_read_as_pandas_reads_it(text):
+    pd.testing.assert_frame_equal(read(text), pandas_own(text), check_exact=True)
+
+
+@pytest.mark.parametrize(
+    ("text", "line", "saw", "names"),
+    [
+        ("a,b,c\n1,2,3,4\n5,6,7,8\n", 2, 4, 3),
+        ("a,b,c\n1,2,3,4\n5,6,7\n", 2, 4, 3),
+        ("a,b,c\n1,2,3\n5,6,7,8\n", 3, 4, 3),
+        ("a,b,c\n1,2,3,\n5,6,7,\n", 2, 4, 3),
+        ("unit,treat,y,comment\n1,0,3,5,\n", 2, 5, 4),
+        ("a,b,c\n1,2,3,,\n", 2, 5, 3),
+        ("a,b\nr1,1,2\nr2,3,4\n", 2, 3, 2),
+        ("a\n1,\n", 2, 2, 1),
+        ("a;b;c\n1,5;2,5;3\n", 2, 3, 1),
+        ("\na,b\n1,2,3\n", 3, 3, 2),
+        ("a,b\r\n1,2,3\r\n", 2, 3, 2),
+    ],
+    ids=[
+        "data on every row", "data on the first row", "data on a later row",
+        "a comma ending every line", "a stray comma before an empty last column",
+        "two commas ending a line", "row names with no header for them", "one column",
+        "semicolons with decimal commas", "after a blank first line", "CRLF",
+    ],
+)
+def test_a_row_wider_than_the_header_is_refused_naming_the_line(text, line, saw, names):
     with pytest.raises(ValueError) as refusal:
         read(text)
-    assert str(refusal.value) == MORE_FIELDS_THAN_HEADER
+    assert str(refusal.value) == (
+        f"line {line} of the CSV has {saw} fields and its header names {names}, so a value "
+        "would be dropped or land in the wrong column. Check for an unquoted comma inside "
+        "a value, or a comma at the end of the line."
+    )
 
 
-def test_a_later_row_with_an_extra_field_is_still_pandas_own_error():
-    with pytest.raises(pd.errors.ParserError, match="Expected 3 fields in line 3, saw 4"):
-        read("a,b,c\n1,2,3\n5,6,7,8\n")
+def test_the_two_readings_of_a_stray_comma_cannot_be_told_apart_which_is_why_both_are_refused():
+    # `y` is 3 and `comment` is 5, with a comma ending the line; or `y` is the
+    # decimal 3,5 and `comment` is empty. pandas, told to keep the columns in
+    # place, takes the first reading and says nothing.
+    text = "unit,treat,y,comment\n1,0,3,5,\n"
+    assumed = pd.read_csv(io.StringIO(text), index_col=False)
+    assert assumed[["y", "comment"]].to_numpy().tolist() == [[3, 5]]
+    with pytest.raises(ValueError, match="line 2 of the CSV has 5 fields"):
+        read(text)
 
 
 def test_an_empty_file_is_still_pandas_own_error():
@@ -52,19 +103,30 @@ def test_an_empty_file_is_still_pandas_own_error():
         read("")
 
 
-def test_a_row_with_too_few_fields_is_filled_with_a_missing_value():
-    frame = read("a,b,c\n1,2\n5,6,7\n")
-    assert frame["c"].isna().tolist() == [True, False]
+def test_a_file_pandas_cannot_tokenise_is_still_pandas_own_error():
+    with pytest.raises(pd.errors.ParserError, match="EOF inside string"):
+        read('a,b\n"1,2\n')
 
 
-def test_a_quoted_comma_is_a_value_and_not_a_field():
-    assert read('a,b\n1,"x,y"\n')["b"].tolist() == ["x,y"]
-
-
-def test_nrows_zero_gives_the_header_alone():
-    frame = read("a,b\n1,2\n", nrows=0)
+def test_nrows_zero_gives_the_header_alone_and_looks_at_no_row():
+    frame = read("a,b\n1,2,3\n", nrows=0)
     assert list(frame.columns) == ["a", "b"]
     assert frame.empty
+
+
+def test_nrows_looks_only_at_the_rows_it_reads():
+    assert read("a,b\n1,2\n3,4,5\n", nrows=1).to_numpy().tolist() == [[1, 2]]
+    with pytest.raises(ValueError, match="line 3 of the CSV has 3 fields"):
+        read("a,b\n1,2\n3,4,5\n", nrows=2)
+
+
+def test_the_bytes_are_read_as_they_are_whatever_the_file_was_called(tmp_path):
+    # Given a path, pandas decides from the name whether to decompress.
+    path = tmp_path / "plain.csv.gz"
+    path.write_text("a,b\n1,2\n")
+    with pytest.raises(Exception, match="gzip"):
+        pd.read_csv(path)
+    assert read_csv(path.read_bytes()).to_numpy().tolist() == [[1, 2]]
 
 
 def test_a_large_column_of_numbers_and_text_is_read_as_text_throughout():
@@ -73,48 +135,13 @@ def test_a_large_column_of_numbers_and_text_is_read_as_text_throughout():
     rows = 300_000
     text = "unit,y\n" + "".join(f"{i},1.5\n" for i in range(rows)) + "abc,1.5\n"
     with pytest.warns(pd.errors.DtypeWarning):
-        pandas_own = pd.read_csv(io.StringIO(text))
-    assert {type(v) for v in pandas_own["unit"]} == {int, str}
+        mixed = pandas_own(text)
+    assert {type(v) for v in mixed["unit"]} == {int, str}
     assert {type(v) for v in read(text)["unit"]} == {str}
 
 
-def test_reading_from_several_threads_refuses_every_time_and_leaves_the_filters_alone():
-    # `warnings.catch_warnings` swaps process-wide state. Unserialised, two
-    # reads interleaving left an `error` filter behind for good, and in the
-    # other order one of them read with the filter gone and dropped a field.
-    refused, returned = [], []
-
-    def read_many() -> None:
-        for _ in range(200):
-            try:
-                returned.append(read("a,b,c\n1,2,3,4\n5,6,7,8\n"))
-            except ValueError as refusal:
-                refused.append(str(refusal))
-
-    # The suite runs with every warning an error, under which a read that
-    # lost its own filter would still refuse. Inside this block a warning is
-    # only a warning, as it is in the API, so such a read returns a frame.
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", pd.errors.ParserWarning)
-        before = list(warnings.filters)
-        threads = [threading.Thread(target=read_many) for _ in range(8)]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join()
-        after = list(warnings.filters)
-
-    assert after == before
-    assert returned == []
-    assert refused == [MORE_FIELDS_THAN_HEADER] * 1600
-
-
-def test_a_parser_warning_about_something_else_is_not_called_extra_fields(monkeypatch):
-    def warn_about_something_else(*args, **kwargs):
-        warnings.warn("something pandas may say one day", pd.errors.ParserWarning, stacklevel=1)
-        return pd.DataFrame()
-
-    monkeypatch.setattr(pd, "read_csv", warn_about_something_else)
-
-    with pytest.raises(pd.errors.ParserWarning, match="something pandas may say one day"):
-        read("a,b\n1,2\n")
+def test_a_wide_row_far_into_a_large_file_is_found():
+    # The width is checked in pieces of 200,000 rows; this row is in the third.
+    text = "a,b\n" + "1,2\n" * 450_000 + "1,2,3\n"
+    with pytest.raises(ValueError, match="line 450002 of the CSV has 3 fields"):
+        read(text)

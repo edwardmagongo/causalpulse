@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import io
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -29,8 +28,8 @@ def execute(
     dataset = CausalDataset(
         # Replay parity depends on parsing these bytes exactly as
         # `cp_core.manifest.resolve_fixture_reference` does: both call
-        # `cp_core.reading.read_csv` and pass pandas nothing of their own.
-        frame=read_csv(io.BytesIO(content)),
+        # `cp_core.reading.read_csv` on the bytes and pass pandas nothing.
+        frame=read_csv(content),
         schema=schema_from_dict(schema),
     )
     reference = FixtureReference(path=filename, content_sha256=hashlib.sha256(content).hexdigest())

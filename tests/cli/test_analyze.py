@@ -118,7 +118,7 @@ def test_a_csv_with_an_extra_field_holding_data_is_refused_by_the_reader(tmp_pat
     data = _simulate(tmp_path)
     header, *rows = data.read_text().splitlines()
     data.write_text("\n".join([header, *(f"{row},9" for row in rows)]) + "\n")
-    with pytest.raises(ValueError, match="more fields than its header names"):
+    with pytest.raises(ValueError, match="line 2 of the CSV has"):
         main(["analyze", "--data", str(data), "--unit", "unit_id", "--treatment", "treated",
               "--outcome", "outcome", "--covariates", "x1,x2", "--outcome-type", "binary",
               "--estimators", "difference_in_means", "--out", str(tmp_path / "r")])

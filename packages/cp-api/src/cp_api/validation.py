@@ -8,7 +8,6 @@ test tier.
 
 from __future__ import annotations
 
-import io
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -47,7 +46,7 @@ def safe_filename(raw: str | None) -> str:
 
 def _parse(content: bytes, nrows: int | None = None) -> pd.DataFrame:
     try:
-        return read_csv(io.BytesIO(content), nrows=nrows)
+        return read_csv(content, nrows=nrows)
     # pandas' own failures to read a file (`EmptyDataError`, `ParserError`,
     # `UnicodeDecodeError`) are all `ValueError`s, as is the reader's refusal.
     except ValueError as exc:

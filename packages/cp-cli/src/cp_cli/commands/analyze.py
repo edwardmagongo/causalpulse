@@ -105,7 +105,7 @@ def _load(args: argparse.Namespace) -> tuple[CausalDataset, DatasetReference]:
         return dataset, reference
 
     schema = schema_from_args(args)
-    frame = read_csv(args.data)
+    frame = read_csv(Path(args.data).read_bytes())
     return CausalDataset(frame=frame, schema=schema), FixtureReference.from_path(str(args.data))
 
 

@@ -116,10 +116,18 @@ def test_a_long_uploaded_filename_is_cut_to_the_column_width():
     assert safe_filename("x" * 300 + ".csv") == "x" * 255
 
 
-def test_an_upload_with_an_extra_field_holding_data_is_422():
-    # Before the shared reader this was accepted, with every column shifted.
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"unit_id,treated,outcome\n1,1,0.5,9\n2,0,0.4,9\n",
+        b"unit_id,treated,outcome\n1,1,0.5,\n2,0,0.4,\n",
+    ],
+    ids=["an extra field holding data", "a comma ending every line"],
+)
+def test_an_upload_with_a_row_wider_than_its_header_is_422(content):
+    # Before the shared reader both were accepted, with every column shifted.
     with pytest.raises(RequestError) as caught:
-        check_upload(b"unit_id,treated,outcome\n1,1,0.5,9\n2,0,0.4,9\n")
+        check_upload(content)
 
     assert caught.value.status_code == 422
-    assert "more fields than its header names" in caught.value.message
+    assert "line 2 of the CSV has 4 fields and its header names 3" in caught.value.message

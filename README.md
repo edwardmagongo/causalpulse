@@ -1246,14 +1246,22 @@ An upload is read, checked and analysed in different places, and a file that one
 differently from another is analysed as something its owner did not send. So there is one reader,
 and the dataset built from what it reads refuses, by name, whatever the estimators cannot use.
 
-**The reader** (`cp_core.reading.read_csv`) is the only function that turns a CSV into a frame.
-The API's check of an upload, the worker, `causalpulse analyze --data` and the replay of a manifest
-all call it and pass pandas nothing of their own. It differs from pandas' defaults in two ways. A
-row with one field more than the header names is not allowed to move every column along by one,
-which is what pandas does with it, and which a comma at the end of every line (as spreadsheets
-write) is enough to cause: such a file is read with its columns in place, and if the extra field
-holds data the file is refused. And a large file is read whole, not in pieces whose types are
-settled separately. The two real datasets in this repository are read exactly as before.
+**The reader** (`cp_core.reading.read_csv`) is the only function that turns the bytes of a CSV
+dataset into a frame. The API's check of an upload, the worker, `causalpulse analyze --data` and
+the replay of a manifest all hand it the file's bytes and pass pandas nothing of their own. It
+differs from pandas' defaults in three ways.
+
+- **A row with more fields than the header names is refused, with its line number,** whether or
+  not the extra field holds anything. pandas takes the first column of such a file as an index and
+  moves every other column along by one. A file whose every line ends in a comma is refused too:
+  it reads the same as a stray comma inside a value before an empty last column (`3,5,` is `3`
+  then `5`, or the decimal `3,5` then nothing), and nothing in the file says which was meant.
+- **A large file is read whole,** not in pieces whose types are settled separately, which left a
+  column that was numbers in one piece and text in another holding both.
+- **The bytes are read as they are.** Given a path pandas decides from the file's name whether to
+  decompress it, so the same bytes could be read two ways under two names.
+
+The two real datasets in this repository are read exactly as before.
 
 **`CausalDataset`** then refuses, when the dataset is built, each with one message naming the
 column:
