@@ -108,7 +108,7 @@ def test_a_file_pandas_cannot_tokenise_is_still_pandas_own_error():
         read('a,b\n"1,2\n')
 
 
-def test_nrows_zero_gives_the_header_alone_and_looks_at_no_row():
+def test_nrows_zero_gives_the_header_alone_and_refuses_no_row():
     frame = read("a,b\n1,2,3\n", nrows=0)
     assert list(frame.columns) == ["a", "b"]
     assert frame.empty
@@ -140,8 +140,32 @@ def test_a_large_column_of_numbers_and_text_is_read_as_text_throughout():
     assert {type(v) for v in read(text)["unit"]} == {str}
 
 
-def test_a_wide_row_far_into_a_large_file_is_found():
-    # The width is checked in pieces of 200,000 rows; this row is in the third.
-    text = "a,b\n" + "1,2\n" * 450_000 + "1,2,3\n"
-    with pytest.raises(ValueError, match="line 450002 of the CSV has 3 fields"):
+@pytest.mark.parametrize("extra", [",", ",3"], ids=["an empty field", "a field of data"])
+@pytest.mark.parametrize(
+    "data_row",
+    [1, 2, 199_999, 200_000, 200_001, 400_000, 450_000],
+    ids=["first", "second", "last of a piece", "first of the second piece", "after it",
+         "first of the third piece", "last"],
+)
+def test_a_wide_row_is_refused_wherever_it_falls_among_the_pieces(data_row, extra):
+    # Neither read refuses every wide row. The count of fields is made in
+    # pieces of 200,000 rows and lets through the first row of each piece
+    # after the first; the read with a header lets through the first data
+    # row. Each catches what the other lets through.
+    rows = ["1,2"] * 450_000
+    rows[data_row - 1] += extra
+    text = "a,b\n" + "\n".join(rows) + "\n"
+
+    with pytest.raises(ValueError) as refusal:
         read(text)
+
+    assert str(refusal.value).startswith(
+        f"line {data_row + 1} of the CSV has 3 fields and its header names 2, "
+    )
+
+
+def test_the_line_named_is_pandas_count_in_which_a_quoted_line_break_is_no_new_line():
+    # Recorded so the message's "line" is not taken for an editor's: the wide
+    # row is on the fourth line of this file.
+    with pytest.raises(ValueError, match="line 3 of the CSV has 3 fields"):
+        read('a,b\n1,"x\ny"\n2,3,4\n')

@@ -17,6 +17,7 @@ left to fail later.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from dataclasses import asdict
@@ -105,8 +106,13 @@ def _load(args: argparse.Namespace) -> tuple[CausalDataset, DatasetReference]:
         return dataset, reference
 
     schema = schema_from_args(args)
-    frame = read_csv(Path(args.data).read_bytes())
-    return CausalDataset(frame=frame, schema=schema), FixtureReference.from_path(str(args.data))
+    # Read once: the frame and the hash the manifest records are of the same
+    # bytes even if the file changes while this runs.
+    content = Path(args.data).read_bytes()
+    reference = FixtureReference(
+        path=str(args.data), content_sha256=hashlib.sha256(content).hexdigest()
+    )
+    return CausalDataset(frame=read_csv(content), schema=schema), reference
 
 
 def _write_outcome(outcome: AnalysisOutcome, out: Path) -> None:
