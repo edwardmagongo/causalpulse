@@ -229,6 +229,7 @@ a report without writing Python.
 | `cp-figures` | Eight publication-quality matplotlib figures — counterfactual path, event study, love plot, propensity overlap, specification curve, placebo distribution, cross-method forest plot, benchmark heatmaps — each a pure data function plus a thin drawing function. Imports only `cp-core` and `cp-causal`. |
 | `cp-report` | The evidence report generator: assumption table, validity band, cross-method comparison, and stated limitations, rendered to Markdown or one self-contained HTML file with figures inlined as SVG. Refuses to emit prose that fails `causal_language_lint`. |
 | `cp-llm` | Plain-language interpretation of a whole analysis. `extract` turns an `AnalysisOutcome` into a table of citable facts; a model writes a narrative in which every value is a placeholder naming a fact; `verify` refuses any narrative it cannot trace back to the table. Sits between `cp-report` and the command line in the layers contract. Only `cp_llm.extract` imports the analysis outcome types from `cp-report` and `cp-causal`, and only `cp_llm.client` imports the model SDK. |
+| `cp-llm-eval` | Measures how often a verified interpretation misreads its analysis: a corpus of real fits, interpretations run within a call budget and stored by key, deterministic graders and a judge validated against hand labels, and a report with case-clustered uncertainty. Only `cp-cli` imports it; the api and worker never do. |
 | `cp-cli` | The `causalpulse` command-line entry point (`simulate`, `analyze`, `interpret`, `replay`, `bench run`, `bench report`, `bench status`, `bench compact`, `bench study`, `bench track`) and Parquet-plus-JSON-sidecar result persistence. Sits at the top of the layers contract; nothing imports it. |
 | `cp-api` | The FastAPI service: upload a CSV, request an analysis, read what the worker wrote. Not in the layers contract — its own forbidden-imports contract keeps it from importing `cp_causal` directly, so router refusals happen in the worker, not here. |
 | `cp-worker` | The RQ worker that runs a queued analysis through `cp_report.pipeline`: fit, score validity, render each estimate's report. Sits alongside `cp-cli` at the top of the layers contract; may import `cp_api.db` and nothing else from `cp_api`. |
@@ -1705,6 +1706,64 @@ lists can still reach the narrative as the model's own free text.
 
 `make check` never calls the model: every test but one runs against a scripted model or a mock of
 the SDK's transport. `make check-llm` runs that one test against the real API.
+
+## Measuring misreadings (sub-project 4, phase 2)
+
+A verified interpretation cannot cite a figure that is not in its fact table, but it can still
+misread the analysis: call a result strong when the table says weak, say a check passed that
+failed, or state a conclusion the facts do not support. `cp-llm-eval` measures how often that
+happens. It builds a corpus of real fits, has the model interpret each fact table several times
+within a call budget, grades every final statement with five deterministic graders (D1 to D5) and
+with a judge model, and compares both against statements you label by hand. The report gives each
+misreading rate with an interval clustered by case.
+
+The commands, in order. Every `--max-calls` is required: a paid step does not run without a ceiling.
+
+```bash
+uv run causalpulse llm-eval build --out out/llm-eval/corpus
+uv run causalpulse llm-eval run --corpus out/llm-eval/corpus --store out/llm-eval/store --max-calls 50
+uv run causalpulse llm-eval grade --corpus out/llm-eval/corpus --store out/llm-eval/store --max-calls 50
+uv run causalpulse llm-eval label export --corpus out/llm-eval/corpus --store out/llm-eval/store \
+  --out out/llm-eval/to-label.csv
+# fill in the verdict, category and note columns of the CSV, then:
+uv run causalpulse llm-eval label import --corpus out/llm-eval/corpus --store out/llm-eval/store \
+  --csv out/llm-eval/to-label.csv
+uv run causalpulse llm-eval report --corpus out/llm-eval/corpus --store out/llm-eval/store \
+  --out out/llm-eval/report
+uv run causalpulse llm-eval restore --bundle out/llm-eval/report --store out/llm-eval/store-restored
+```
+
+- `build` fits each corpus case and writes its fact table. `--case` builds only the cases named. A
+  case whose fit lacks the property it was included for is refused.
+- `run` writes one record per fact table, prompt and replicate into the store, keyed so that a
+  repeated run skips what is already stored. `--variant`, `--replicates` (default 4), `--case` and
+  `--workers` select the work. It exits 1 if the budget stopped it before every job ran, or if a
+  call failed in transport.
+- `grade` sends each stored narrative to the judge and exits 1 under the same two conditions.
+- `label export` writes a seeded sample of final statements (`--size`, default 150; `--seed`) to
+  a CSV without the judge's verdict or any grader's flag, so that the labelling is blind. It also
+  writes `sample.json` into the store. `label import` reads that file and refuses a CSV that does
+  not label exactly the exported sample, or that uses a value outside the allowed verdicts and
+  categories.
+- `report` writes `report.md` and `report.json`, and the stored interpretations and verdicts as
+  two gzipped JSON-lines files beside them. `restore` loads such a directory into a store, so the
+  report can be rebuilt without another model call.
+
+`run` and `grade` send each fact table to the Anthropic API, as `interpret` does, and need
+`ANTHROPIC_API_KEY` (or an `ant auth login` profile). They are billed.
+
+What it does not establish:
+
+- The judge's error is measured on about 150 statements, so its intervals are wide for rare
+  categories, and the report says so per category.
+- The labels are one person's. No agreement between labellers is measured.
+- The corpus is about 25 tables. The rates describe analyses like these, not every dataset a user
+  may upload.
+- One model: the rates describe `claude-opus-5-5` at its default effort.
+- D1 to D5 detect patterns. A misreading phrased outside a grader's patterns is left to the judge,
+  or missed; the labelled sample estimates how much.
+
+Results: see Task 16
 
 ## Web dashboard (sub-project 5)
 

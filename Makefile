@@ -36,7 +36,7 @@ check-services:
 	$(TEST_STACK) up -d --wait postgres redis || { $(TEST_STACK) down -v; exit 1; }
 	$(SERVICES_ENV) uv run pytest -v -m "services and not slow"; status=$$?; $(TEST_STACK) down -v; exit $$status
 
-# One real interpretation: one or two model calls. Needs ANTHROPIC_API_KEY (or an `ant auth login` profile)
+# One real interpretation (one or two model calls) and one judge call. Needs ANTHROPIC_API_KEY (or an `ant auth login` profile)
 # and is billed. -s shows the token usage the test prints.
 check-llm:
 	CP_LLM_LIVE=1 uv run pytest -v -s -m live
