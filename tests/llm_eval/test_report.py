@@ -340,3 +340,43 @@ def test_each_comparison_states_how_many_shared_cases_it_paired(entry):
     text = render_markdown(report)
     assert "2 of 3 shared cases" in text
     assert "| D4 | - | 0 of 3 shared cases |" in text
+
+
+def test_statements_of_an_unjudged_narrative_do_not_enter_the_weights():
+    # The same population and labels as above, plus a verified narrative the
+    # judge could not grade: its statements are not in the population the
+    # sample draws from, so the weights, and every figure, are unchanged.
+    import dataclasses
+
+    j1 = (Finding(category="J1", reason="r"),)
+    statements = (
+        _statement(0, j1, d4=True), _statement(1, j1),
+        *(_statement(p, d4=True) for p in range(2, 6)),
+        *(_statement(p) for p in range(6, 16)),
+    )
+    judged = GradedNarrative(
+        interpretation="i", case_id="a", design="cross_section", variant="baseline",
+        replicate=1, outcome="verified", attempts=1, statements=statements,
+        first_attempt=((),) * 16, judge_error=False,
+    )
+    unjudged_statements = tuple(
+        dataclasses.replace(
+            _statement(p, judge=None, d4=p < 6), statement_id=f"u{p}", interpretation="u"
+        )
+        for p in range(20)
+    )
+    unjudged = dataclasses.replace(
+        judged, interpretation="u", replicate=2, statements=unjudged_statements,
+        first_attempt=((),) * 20, judge_error=True,
+    )
+    labels = [
+        Label("s0", "misreading", "J1", ""),
+        Label("s1", "ok", "", ""),
+        Label("s2", "misreading", "D4", ""),
+        Label("s3", "ok", "", ""),
+        Label("s6", "misreading", "J1", ""),
+        Label("s7", "ok", "", ""),
+    ]
+
+    assert not unjudged.judged
+    assert _validation([judged, unjudged], labels) == _validation([judged], labels)
