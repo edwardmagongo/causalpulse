@@ -23,7 +23,7 @@ from redis.exceptions import RedisError
 from rq import Queue
 from rq.exceptions import NoSuchJobError
 from rq.job import Job, JobStatus
-from sqlalchemy import select, text, tuple_
+from sqlalchemy import func, select, text, tuple_
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -44,6 +44,13 @@ from cp_api.db import (
     utcnow,
 )
 from cp_api.deps import SessionDep
+from cp_api.limits import (
+    FixedWindow,
+    LimitExceededError,
+    Limits,
+    SigninFailures,
+    limits_from_environment,
+)
 from cp_api.pagination import DEFAULT_LIMIT, MAX_LIMIT, decode_cursor, encode_cursor
 from cp_api.settings import require_production_settings
 from cp_api.validation import RequestError, check_analysis_request, check_upload, csv_header
@@ -87,7 +94,9 @@ def _job_lost(redis: Redis, analysis_id: uuid.UUID) -> bool:
 
 
 def create_app(
-    sessions: sessionmaker[Session] | None = None, redis: Redis | None = None
+    sessions: sessionmaker[Session] | None = None,
+    redis: Redis | None = None,
+    limits: Limits | None = None,
 ) -> FastAPI:
     if sessions is None:
         # The server's own start: uvicorn calls this factory before it listens.
@@ -98,10 +107,23 @@ def create_app(
     app = FastAPI(title="CausalPulse")
     app.state.sessions = sessions
     queue_redis = redis if redis is not None else Redis.from_url(os.environ["REDIS_URL"])
+    # Every limit is off unless its setting is present (see `cp_api.limits`).
+    if limits is None:
+        limits = limits_from_environment()
+    window = FixedWindow(queue_redis)
+    if limits.signin_failures is not None:
+        app.add_middleware(SigninFailures, window=window, limit=limits.signin_failures)
+    uploads_per_day = limits.uploads_per_day
+    analyses_per_day = limits.analyses_per_day
+    analyses_active = limits.analyses_active
 
     @app.exception_handler(RequestError)
     async def _refused(request: Request, exc: RequestError) -> JSONResponse:
         return JSONResponse(status_code=exc.status_code, content={"detail": exc.message})
+
+    @app.exception_handler(LimitExceededError)
+    async def _limited(request: Request, exc: LimitExceededError) -> JSONResponse:
+        return exc.response()
 
     async def _unavailable(request: Request, exc: Exception) -> JSONResponse:
         return JSONResponse(
@@ -225,6 +247,10 @@ def create_app(
         file: Annotated[UploadFile, File()],
         session: SessionDep,
     ) -> dict[str, Any]:
+        # Taken before the upload is looked at and kept whatever becomes of it:
+        # what the allowance bounds is the reading and parsing, which a refused
+        # or repeated upload costs as well.
+        window.require(f"uploads:{user.id}", uploads_per_day)
         content = file.file.read(validation.MAX_UPLOAD_BYTES + 1)
         columns = check_upload(content)
         sha256 = hashlib.sha256(content).hexdigest()
@@ -304,6 +330,21 @@ def create_app(
     def create_analysis(
         user: CurrentUser, body: AnalysisRequest, session: SessionDep
     ) -> dict[str, Any]:
+        if analyses_active is not None:
+            # A count of rows, not a counter, so it cannot drift: an analysis
+            # stops counting when its status changes, however that happens.
+            active = session.scalar(
+                select(func.count())
+                .select_from(Analysis)
+                .where(
+                    Analysis.owner_id == user.id, Analysis.status.in_(("queued", "running"))
+                )
+            )
+            if (active or 0) >= analyses_active.count:
+                raise LimitExceededError(analyses_active, analyses_active.window_seconds)
+        # After the active check, so a submission refused there is not one of the
+        # day's; before validation, like an upload's.
+        window.require(f"analyses:{user.id}", analyses_per_day)
         dataset = session.scalars(
             select(Dataset).where(Dataset.id == body.dataset_id, Dataset.owner_id == user.id)
         ).one_or_none()
