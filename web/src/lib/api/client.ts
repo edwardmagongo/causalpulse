@@ -23,7 +23,25 @@ import type {
  * which pass a refusal on to the browser. Every typed function below goes
  * through `ask`, which turns a refusal into one of the three errors in
  * `./errors`.
+ *
+ * Every call has a deadline, which keeps running while the body arrives. A
+ * typed call that outlives it, waiting for the response or reading it, fails
+ * as a refused connection does, with `ApiUnavailable`. So does a relayed call
+ * still waiting for the response; one whose download stalls is cut off.
  */
+
+/** A typed call: a small JSON request, and none streams a file. */
+export const READ_DEADLINE_MS = 30_000;
+
+/** A relayed call: a manifest or a Markdown report. */
+export const RELAY_DEADLINE_MS = 60_000;
+
+/**
+ * The upload. Its body is streamed from the browser, so the deadline covers
+ * the time the browser takes to send the file: 50 MB at 1 Mbit/s is about
+ * seven minutes.
+ */
+export const UPLOAD_DEADLINE_MS = 600_000;
 
 async function sessionKey(): Promise<string> {
   const { key } = await getSession();
@@ -31,11 +49,18 @@ async function sessionKey(): Promise<string> {
   return key;
 }
 
-async function send(path: string, init: RequestInit, key: string): Promise<Response> {
+// A caller's own `init.signal` is replaced by the deadline's; no caller passes one.
+async function send(
+  path: string,
+  init: RequestInit,
+  key: string,
+  deadline: AbortSignal,
+): Promise<Response> {
   try {
     return await fetch(`${apiUrl()}${path}`, {
       ...init,
       cache: "no-store",
+      signal: deadline,
       headers: { ...init.headers, authorization: `Bearer ${key}` },
     });
   } catch {
@@ -43,24 +68,58 @@ async function send(path: string, init: RequestInit, key: string): Promise<Respo
   }
 }
 
-/** The API's own response, 4xx included. Throws only for 401, 503 and no connection. */
-export async function forward(path: string, init: RequestInit = {}): Promise<Response> {
-  const response = await send(path, init, await sessionKey());
+/**
+ * The API's own response, 4xx included. Throws only for 401, 503, no
+ * connection and no answer within the deadline.
+ */
+export async function forward(
+  path: string,
+  init: RequestInit = {},
+  deadlineMs: number = RELAY_DEADLINE_MS,
+): Promise<Response> {
+  const response = await send(path, init, await sessionKey(), AbortSignal.timeout(deadlineMs));
   if (response.status === 401) throw new Unauthorized();
   if (response.status === 503) throw new ApiUnavailable();
   return response;
 }
 
-async function ask(path: string, init: RequestInit = {}, key?: string): Promise<Response> {
-  const response = await send(path, init, key ?? (await sessionKey()));
-  if (!response.ok) {
-    throw errorFor(response.status, await response.json().catch(() => null));
+/**
+ * Read a response's body, which the deadline can still cut off.
+ *
+ * A read that fails after the deadline has passed is the API not answering,
+ * so it is `ApiUnavailable`. A read that fails before it (a body that arrived
+ * and is not JSON) is something else and is rethrown as it is. The signal's
+ * `aborted` state tells the two apart; the error thrown does not, reliably.
+ */
+async function received<T>(deadline: AbortSignal, read: () => Promise<T>): Promise<T> {
+  try {
+    return await read();
+  } catch (error) {
+    if (deadline.aborted) throw new ApiUnavailable();
+    throw error;
   }
-  return response;
 }
 
-async function json<T>(path: string, init: RequestInit = {}, key?: string): Promise<T> {
-  return (await (await ask(path, init, key)).json()) as T;
+/** One typed call: the body of a 2xx as `read` takes it, or the error a refusal stands for. */
+async function ask<T>(
+  path: string,
+  read: (response: Response) => Promise<T>,
+  init: RequestInit = {},
+  key?: string,
+): Promise<T> {
+  const deadline = AbortSignal.timeout(READ_DEADLINE_MS);
+  const response = await send(path, init, key ?? (await sessionKey()), deadline);
+  if (response.ok) return received(deadline, () => read(response));
+  // A refusal whose body cannot be parsed is still the refusal; one cut off is not.
+  const body: unknown = await received(deadline, () => response.json()).catch((error: unknown) => {
+    if (error instanceof ApiUnavailable) throw error;
+    return null;
+  });
+  throw errorFor(response.status, body);
+}
+
+function json<T>(path: string, init: RequestInit = {}, key?: string): Promise<T> {
+  return ask(path, (response) => response.json() as Promise<T>, init, key);
 }
 
 function paged(path: string, cursor: string | undefined): string {
@@ -104,7 +163,7 @@ export function getSummary(id: string): Promise<Summary> {
   return json<Summary>(`/v1/analyses/${encodeURIComponent(id)}/summary`);
 }
 
-export async function getReportHtml(id: string, method: string): Promise<string> {
+export function getReportHtml(id: string, method: string): Promise<string> {
   const path = `/v1/analyses/${encodeURIComponent(id)}/estimates/${encodeURIComponent(method)}`;
-  return (await ask(`${path}/report.html`)).text();
+  return ask(`${path}/report.html`, (response) => response.text());
 }

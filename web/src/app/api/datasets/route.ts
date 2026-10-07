@@ -1,3 +1,4 @@
+import { UPLOAD_DEADLINE_MS } from "@/lib/api/client";
 import { relay } from "@/lib/api/relay";
 
 /**
@@ -7,6 +8,8 @@ import { relay } from "@/lib/api/relay";
  * body is passed on as a stream, so a 50 MB file is never held in memory
  * here. This path must stay out of `proxy.ts`'s matcher: when the proxy runs
  * on a request, Next.js buffers the body and cuts it off at 10 MB.
+ *
+ * It has the long deadline: the clock runs while the browser is still sending.
  */
 export async function POST(request: Request) {
   const origin = request.headers.get("origin");
@@ -15,11 +18,16 @@ export async function POST(request: Request) {
   if (!origin || !host || !URL.canParse(origin) || new URL(origin).host !== host) {
     return Response.json({ detail: "the upload must come from this site" }, { status: 403 });
   }
-  return relay("/v1/datasets", {
-    method: "POST",
-    headers: { "content-type": request.headers.get("content-type") ?? "" },
-    body: request.body,
-    // Node's fetch requires this to send a stream as a request body; the DOM types omit it.
-    duplex: "half",
-  } as RequestInit);
+  return relay(
+    "/v1/datasets",
+    {
+      method: "POST",
+      headers: { "content-type": request.headers.get("content-type") ?? "" },
+      body: request.body,
+      // Node's fetch requires this to send a stream as a request body; the DOM types omit it.
+      duplex: "half",
+    } as RequestInit,
+    {},
+    UPLOAD_DEADLINE_MS,
+  );
 }

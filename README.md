@@ -1,5 +1,7 @@
 # CausalPulse
 
+[![CI](https://github.com/edwardmagongo/causalpulse/actions/workflows/ci.yml/badge.svg)](https://github.com/edwardmagongo/causalpulse/actions/workflows/ci.yml)
+
 A causal inference and experimentation platform. Given an intervention and an outcome,
 CausalPulse estimates what would have happened without the intervention, how large the effect
 was, for whom it differed, and how much the conclusion should be trusted.
@@ -153,6 +155,8 @@ adds its results to the research report as their own section.
 Scenario P7 (many treatment cohorts) runs in the `full` and `study` tiers as a fixed-protocol arm at its
 own 600-unit, 20-period protocol. `bench run --tier p7` runs it alone at 50 replications (about 2 hours with
 4 workers), and `bench study-report --p7-run DIR` adds a "Scenario P7" section to the report.
+`bench study-report --bundle PATH` also writes the study bundle, the same evidence as one JSON file for
+the dashboard's benchmark explorer (see "Web dashboard" below); it needs `--format markdown`.
 
 **Phase 18** closed the first of those four items: the missing benchmark-grid axes.
 `PropensityAssignment` gained an intercept and `LogisticBaseline` an additive noise scale, both
@@ -227,7 +231,7 @@ a report without writing Python.
 | `cp-causal` | Cross-sectional and panel estimators, propensity diagnostics, panel assumption checks, design router. Forbidden from importing `cp-simulation`. |
 | `cp-evaluation` | The benchmark grid: `run_grid` fits estimators across the DGP axes that exist and `summarise` reports bias, coverage, and calibration with Monte Carlo standard error. The first package allowed to import both `cp-simulation` and `cp-causal` together, so it sits above `cp-causal` in the layers contract and nothing below it may import it in turn. `store` and `execute` run a benchmark as a resumable set of shards. |
 | `cp-figures` | Eight publication-quality matplotlib figures — counterfactual path, event study, love plot, propensity overlap, specification curve, placebo distribution, cross-method forest plot, benchmark heatmaps — each a pure data function plus a thin drawing function. Imports only `cp-core` and `cp-causal`. |
-| `cp-report` | The evidence report generator: assumption table, validity band, cross-method comparison, and stated limitations, rendered to Markdown or one self-contained HTML file with figures inlined as SVG. Refuses to emit prose that fails `causal_language_lint`. |
+| `cp-report` | The evidence report generator: assumption table, validity band, cross-method comparison, and stated limitations, rendered to Markdown or one self-contained HTML file with figures inlined as SVG. Refuses to emit prose that fails `causal_language_lint`. `bundle` renders the benchmark study's evidence a third time, as one deterministic JSON document for the dashboard, recording the SHA-256 of the Markdown report written beside it. |
 | `cp-llm` | Plain-language interpretation of a whole analysis. `extract` turns an `AnalysisOutcome` into a table of citable facts; a model writes a narrative in which every value is a placeholder naming a fact; `verify` refuses any narrative it cannot trace back to the table. Sits between `cp-report` and the command line in the layers contract. Only `cp_llm.extract` imports the analysis outcome types from `cp-report` and `cp-causal`, and only `cp_llm.client` imports the model SDK. |
 | `cp-llm-eval` | Measures how often a verified interpretation misreads its analysis: a corpus of real fits, interpretations run within a call budget and stored by key, deterministic graders and a judge validated against hand labels, and a report with case-clustered uncertainty. Only `cp-cli` imports it; the api and worker never do. |
 | `cp-cli` | The `causalpulse` command-line entry point (`simulate`, `analyze`, `interpret`, `replay`, `bench run`, `bench report`, `bench status`, `bench compact`, `bench study`, `bench track`) and Parquet-plus-JSON-sidecar result persistence. Sits at the top of the layers contract; nothing imports it. |
@@ -1238,6 +1242,41 @@ the choice is recorded (`CompleteCaseRecord`, which rows were dropped and which 
 Complete-case is a starting point offered for convenience, not a recommendation — the error message
 that points to it says so, rather than presenting it as the fix.
 
+### A dataset whose numbers are not numbers, or are infinite, is refused when it is built
+
+A missing value is refused in a different place from the two refusals here, on purpose. A dataset
+with gaps has to be constructible, because `complete_cases` and imputation take one, so a missing
+outcome or covariate value is refused only when an estimator is fitted. Nothing can use a column of
+text where numbers belong, or an infinity, so `CausalDataset` refuses both when the dataset is
+built, each with one message naming the columns, before anything is routed or fitted:
+
+- **A column that must be numeric and was not read as numbers.** The treatment, the outcome, the
+  covariates, the cohort, the negative-control outcome and the auxiliary columns must have a
+  numeric dtype. The unit may be text, and the time column may be dates.
+- **An infinite value**, `inf` or `-inf`, in any of those columns or in a numeric unit or time
+  column. Text such as `1e400`, which pandas reads as infinite, is refused the same way.
+
+The analysis of an upload, `cp analyze` and `cp replay` all go through both; the upload itself is
+accepted, and its analysis fails with the message.
+
+The first rule exists because `read_csv` and Python's `float()` disagree about what a number is.
+One cell of `1_000`, or of `inf` followed by a space, makes pandas read the column as text (in a
+large file, as a mix of numbers and text), and yet every cell converts when an estimator asks for
+floats. Measured on LaLonde before the rule: a covariate cell of `1_000` was analysed as the number
+1000 with no warning, and a covariate cell of `inf ` went past the infinity check, which looks only
+at numeric columns, and reached the estimators. Nothing is cleaned on the user's behalf: write
+`1000`.
+
+Before this, measured on the real datasets with one cell changed: an infinite covariate gave a
+partial analysis (`difference_in_means` succeeded and the other four failed, each with a library's
+own message naming no column); an infinite outcome failed every estimator the same way; and an
+infinite period in Prop 99 was **fitted**, with `hierarchical_did` returning an estimate.
+
+Not covered: a value that is finite and absurdly large. One covariate cell of `1e39` in LaLonde
+gives `aipw` and `causal_forest` estimates near -1e36, and `1e155` leaves the causal forest without
+an answer after a minute. That is a question of magnitude with no threshold to justify yet; it is
+recorded in `docs/specs/2026-10-05-refuse-infinite-values-design.md`, section 8.
+
 ### What a wide bound means
 
 `tipping_point` reports the estimate under the two extreme corner fills — every missing outcome
@@ -1791,6 +1830,56 @@ API does, on every call. After a key is revoked, the next page that calls the AP
 the cookie, and lands on sign-in. The server exits at start-up without `CP_SESSION_SECRET` (at least
 32 characters) and `CP_API_URL`; the compose file sets both, the secret to a local-only value.
 
+### The session gate and the Content-Security-Policy
+
+`web/src/proxy.ts`, the Next.js middleware, runs on every page request. It looks only for the
+session cookie: a request without one is redirected to `/sign-in`. That one path is let through
+without a session; a sub-path of it is gated like any other page. The middleware's matcher leaves
+out `/api` and `/sign-out`, each as that path and its sub-paths, and the static files, and nothing
+else, so `/sign-in` is matched. `/api` has to stay out: when the middleware runs on a request,
+Next.js buffers its body and truncates it at 10 MB, which would cut an upload short. The relay
+handlers under `/api` answer 401 themselves when there is no session.
+
+The middleware also sets a Content-Security-Policy on every response it answers, the redirect to
+sign-in included, built in `web/src/lib/csp.ts`:
+
+```
+default-src 'self'; script-src 'self' 'nonce-<per request>' 'strict-dynamic'; style-src 'self' 'unsafe-inline';
+img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self';
+form-action 'self'; frame-ancestors 'none'
+```
+
+Scripts run only with the request's nonce, which the middleware makes and Next.js puts on its own
+scripts. Styles allow inline for two reasons: the study matrix and the interval plot set custom
+properties in `style` attributes, and an evidence report is shown in a sandboxed `srcdoc` frame,
+which inherits the page's policy and carries its own `<style>` element and `data:` images. The
+frame is still granted nothing: no scripts, no forms, no same-origin access. In development
+`script-src` also has `'unsafe-eval'`, which React's development build needs. Because the nonce is
+per request, no page of the dashboard's is prerendered: the root layout waits for the request, so every page is
+rendered per request, sign-in and the 404 page included. The policy is enforced, not report-only,
+and the browser suite fails on any violation of it. `upgrade-insecure-requests` and
+`Strict-Transport-Security` are not set: the stack is served over plain HTTP locally, and both
+belong to hosting (sub-project 6).
+
+### When the API does not answer, and when a page fails
+
+Every call the dashboard's server makes to the API has a deadline, one of three constants in
+`web/src/lib/api/client.ts`. A page's own reads and the analysis submission have 30 seconds. A
+relayed call (the poll for a running analysis, a manifest or a Markdown report) has 60 seconds.
+The upload has 600 seconds,
+because its body is streamed from the browser and the deadline covers the time the browser takes
+to send the file: 50 MB at 1 Mbit/s is about seven minutes. The deadline keeps running while the
+response body arrives. A call that outlives it is treated as a refused connection is: the page
+shows its "service is unavailable" state, and a relay handler answers 503 with
+`the service is unavailable`. A relayed download that stalls after its headers were sent is cut
+off at the deadline.
+
+A signed-in page that throws anything else shows an error page inside the header: "Something went
+wrong on this page.", "Nothing was changed by this. You can try again.", and a "Try again" button.
+A failure of the root layout itself shows the same words in a document of its own. Neither shows
+the error's message or stack; the framework's digest, when there is one, is shown as a reference
+that a report can quote.
+
 ### What it shows, and what it does not write
 
 The analysis page renders what the API returns as data: status, the routing decisions with their
@@ -1805,6 +1894,54 @@ groups, which are made of estimates with the same estimand and scale. A value th
 
 The schema form checks that the required fields are filled. Every other rule is the API's, and its
 refusal is shown verbatim.
+
+### The benchmark explorer
+
+`/study`, linked from the header as "Benchmark study", is the published benchmark report
+(`docs/reports/2026-09-26-benchmark-study/`) made explorable, for a signed-in user. It shows the
+report's sections in order (overview, findings, methods, CATE, scenario P7, limitations), and in
+Methods an estimator-by-scenario matrix of any headline metric: the six metric families, by
+scenario or by scenario and size, filtered by scenario shape and estimator family, as a heatmap or
+a sortable table. Each value carries its Monte Carlo standard error and, where fewer fits fed it
+than were fitted, the count. A pair with no number says why (not eligible, every fit refused, no
+fit feeds the metric, the metric undefined), in a hatch, a word or a dash, and is never coloured
+on the metric's scale. The view lives in the URL's query string, and every switch is a link, so a
+view can be shared and the back button steps through views.
+
+It reads no API. The data is `web/src/data/benchmark-study.json`, the study bundle, committed, and
+imported by one server-only module, so the 1.85 MB file never reaches the browser. The page writes
+no claims of its own: narratives, limitations, notes and metric definitions are the bundle's
+strings, shown as they are. It refuses a bundle whose `schema_version`, scenario shapes or
+estimator families it does not know, with a message that says so.
+
+`bench study-report` writes the bundle in the same run as the report, from the same evidence, and
+the bundle records the report's SHA-256. The stores it reads, `benchmarks/runs/study-60`,
+`cate-50` and `p7-50`, are git-ignored and exist only on the machine that ran them. From the
+repository root, with `RUNS` the directory holding them and `OUT` an existing directory:
+
+```bash
+REPORT=docs/reports/2026-09-26-benchmark-study
+uv run causalpulse bench study-report "$RUNS/study-60" --out "$OUT" --format markdown \
+  --narratives "$REPORT/narratives.json" \
+  --cate-run "$RUNS/cate-50" --p7-run "$RUNS/p7-50" \
+  --limitation "<the report's first Limitations bullet, verbatim>" \
+  --limitation "<the report's second Limitations bullet, verbatim>" \
+  --bundle web/src/data/benchmark-study.json
+```
+
+The two `--limitation` texts are the published report's own two Limitations bullets, without the
+leading `- `; read them from `$REPORT/benchmark-report.md` instead of retyping them. Point `OUT` at
+an empty scratch directory to check that the current code reproduces the committed report byte for
+byte, or at `$REPORT` to replace it. Report and bundle must be regenerated together:
+`tests/report/test_bundle_committed.py` fails when one is regenerated without the other. The
+bundle is written only by this command and is never edited by hand. A bundle whose shape the page
+does not expect fails `make check-web`, which type-checks the import. The Python test
+`tests/report/test_bundle_committed.py` also ties the bundle's copies of the code's own constants
+(the metric definitions, each family's metrics, the levels and each estimator's family) to the code.
+Neither check can show that the rest of the bundle is what the current code would write; only
+running the command shows that.
+`docs/specs/2026-10-04-dashboard-phase2-explorer-design.md` section 12 records what changed while
+building it.
 
 ### Its API types cannot drift
 
@@ -1821,12 +1958,17 @@ make smoke-web   # whole stack + browser; project causalpulse-web-smoke, ports 5
 
 `make check-web` and `make smoke-web` both run `pnpm` on the host, so both need Node.js 24 and
 `pnpm`. `make smoke-web` builds both images, issues two keys of one user inside the container,
-installs Playwright's Chromium, and runs nine browser tests: a wrong key and then the issued one;
+installs Playwright's Chromium, and runs thirteen browser tests: sign-in and a signed-in page each
+served under the policy, with different nonces; a path that is no page, which redirects to sign-in
+without a session and is a 404 under the policy with one; a wrong key and then the issued one;
 LaLonde from upload through two estimators to an opened evidence report; Proposition 99 with
 `synthetic_control` through to the end of its analysis; a 12 MB upload; an upload one byte over the
 API's 50 MB limit and one of exactly that size; an upload posted from another origin, which is
-refused with a 403; the header's "Sign out" button; and a revoked key. It tears the stack down
-afterwards.
+refused with a 403; the header at 320, 360 and 390 px wide, on one line with every control inside
+it and no sideways scroll; the benchmark study opened from the header, with a figure from the
+published report found at its estimator and scenario at both levels; the header's "Sign out"
+button; and a revoked key. After every test the suite asserts that the browser's console logged no
+violation of the policy. It tears the stack down afterwards.
 
 ## On scikit-learn
 
@@ -1842,3 +1984,41 @@ make check      # lint, type-check, import contracts, tests
 make test-fast  # skip reference-parity tests
 make check-llm  # one real interpretation (one or two model calls); needs ANTHROPIC_API_KEY
 ```
+
+## Continuous integration
+
+GitHub Actions runs the same `make` targets a developer runs. A workflow sets a job up and calls
+one target; nothing a gate does is written a second time in YAML, so a gate means the same thing
+on a laptop and on a runner.
+
+| When | Job | Runs |
+|---|---|---|
+| Every pull request, and every push to `main` | Static | `make lint types imports` |
+| | Fast suite | `make test-fast WORKERS=4` |
+| | Services | `make check-services` |
+| | Web | `make check-web` |
+| | Browser | `make smoke-web` |
+| | Stack | `make smoke` |
+| Weekly (Sunday 03:00 UTC), and by hand | Slow tier | `make test-slow SHARD=I/8`, eight shards in parallel |
+| By hand only | Live model call | `make check-llm` |
+
+`main` takes changes by pull request, and the six jobs of the first group must pass before one can
+merge. A branch has no run until it has a pull request.
+
+The slow tier is the tests marked `slow` that need no services and no model API. It is split by
+test file (`pytest --shard I/N`, a hook in `tests/conftest.py`), each shard keeps its JUnit report
+as an artifact, and a weekly run in which any shard does not succeed opens an issue naming it.
+Start it by hand with `gh workflow run slow.yml`. GitHub stops scheduled workflows in a repository
+with no activity for 60 days.
+
+The live model call is billed, so it never runs on a schedule or for a pull request. It needs the
+repository secret `ANTHROPIC_API_KEY` and is started with `gh workflow run llm-live.yml`.
+
+The interpreter is the one `.python-version` names, 3.13, which is what the suite's thresholds
+were measured on. The Docker image is built from `python:3.12-slim`, so the containers the Stack
+and Browser jobs test run 3.12.
+
+Each `pytest-xdist` worker is given one numerical thread (`ONE_THREAD` in the Makefile). Without
+it, four workers on a four-core Linux runner each open a full set of BLAS and OpenMP threads: the
+fast suite reached 22% in an hour there, and with the cap it finishes in about half an hour. macOS
+does not show the problem, because numpy uses Accelerate there.

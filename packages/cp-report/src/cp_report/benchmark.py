@@ -453,6 +453,8 @@ class BenchmarkEvidence:
     exploratory_note: str
     cate_section: CateSectionData | None = None
     p7_section: P7SectionData | None = None
+    # Each ATE scenario's cell shape. Read only by the study bundle; neither report shows it.
+    scenario_shapes: Mapping[str, str] | None = None
 
 
 def _exploratory_note(by_size: pd.DataFrame) -> str:
@@ -653,6 +655,10 @@ def benchmark_evidence_from_run(
         ),
         cate_section=cate_section_data(cate_rows, cate_status, cate_replications),
         p7_section=p7_section_data(long_rows, p7_status, p7_replications),
+        scenario_shapes={
+            str(scenario): str(shape)
+            for scenario, shape in frame.groupby("scenario")["shape"].first().items()
+        },
     )
 
 

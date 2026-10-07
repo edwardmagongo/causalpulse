@@ -303,6 +303,8 @@ class CausalDataset:
 
     def __post_init__(self) -> None:
         self._validate_columns_present()
+        self._validate_numeric_roles()
+        self._validate_finite_values()
         self._validate_treatment_missing_values()
         self._validate_treatment_is_binary()
         self._validate_outcome_type()
@@ -313,6 +315,101 @@ class CausalDataset:
         missing = [c for c in self.schema.required_columns if c not in self.frame.columns]
         if missing:
             raise ValueError(f"frame is missing required columns: {sorted(missing)}")
+
+    def _validate_numeric_roles(self) -> None:
+        """Refuse a column that must be numeric and was not read as numbers.
+
+        The treatment, the outcome, the covariates, the cohort, the
+        negative-control outcome and the auxiliary columns are all used as
+        numbers. `read_csv` and `float()` disagree about what a number is:
+        `1_000`, or `inf` followed by a space, makes pandas read the column as
+        text (in a large file, read in chunks, as an `object` column mixing
+        numbers and text), and yet every cell converts when an estimator asks
+        for floats. Before this rule such a column was analysed as numbers,
+        and an infinity in it went past `_validate_finite_values`, which looks
+        only at numeric dtypes.
+
+        The unit is an identifier and may be text. The time column keeps its
+        own rule, in `_validate_time_column`. An auxiliary column absent from
+        the frame is passed over, since nothing here requires it to be present.
+
+        Nothing is converted on the caller's behalf: the frame is left as it
+        was read, so the bytes a manifest names still parse to this dataset.
+        """
+        schema = self.schema
+        roles = [schema.treatment, schema.outcome, *schema.covariates]
+        if schema.cohort is not None:
+            roles.append(schema.cohort)
+        if schema.negative_control_outcome is not None:
+            roles.append(schema.negative_control_outcome)
+        roles.extend(c for c in schema.auxiliary_columns if c in self.frame.columns)
+
+        frame_dtypes = self.frame.dtypes
+
+        def dtypes_of(column: str) -> list[Any]:
+            # A duplicated label has one dtype per copy, so the lookup gives a
+            # Series of them; `self.frame[column].dtype` would raise.
+            found = frame_dtypes[column]
+            return list(found) if isinstance(found, pd.Series) else [found]
+
+        offending = sorted(
+            column
+            for column in dict.fromkeys(roles)
+            if not all(pd.api.types.is_numeric_dtype(dtype) for dtype in dtypes_of(column))
+        )
+        if offending:
+            dtypes = ", ".join(
+                f"{column}: {' and '.join(dict.fromkeys(str(d) for d in dtypes_of(column)))}"
+                for column in offending
+            )
+            raise ValueError(
+                f"columns {offending} must hold numbers, and were not read as numbers "
+                f"({dtypes}). Every value has to be a plain number: look for stray "
+                "text, a space after a value, or digit grouping such as 1_000 or 1,000."
+            )
+
+    def _validate_finite_values(self) -> None:
+        """Refuse an infinite value in a numeric column the schema names.
+
+        This runs before the treatment's own checks, so an infinite treatment
+        value is reported as infinite and not as a third treatment level.
+
+        A missing value in the outcome or a covariate is deliberately not
+        refused here: `complete_cases` and imputation take a dataset with
+        gaps, so one has to be constructible, and `require_no_missing` refuses
+        it when an estimator is fitted. Nothing takes a dataset with an
+        infinity. Before this check one in a covariate failed some estimators
+        and not others, each with a library's own message naming no column,
+        and one in a panel's time column was fitted and returned an estimate.
+
+        Only columns with a numeric dtype are looked at. The roles that must be
+        numeric have been through `_validate_numeric_roles` by now, so what is
+        passed over is a unit or a time column that is not numeric, and an
+        auxiliary column absent from the frame. A unit column of dtype `object`
+        can hold a float infinity beside text, which is what a large upload
+        read in chunks gives, and it is not inspected: the unit is used as a
+        label and never as a number. A time column that is neither numeric nor
+        dates is refused by `_validate_time_column`. A column whose label is
+        duplicated in the frame is passed over as well: `frame[label]` is then
+        a frame and not a column. `read_csv` renames duplicates, so only a
+        frame built in code has one, and an infinity in it is not refused.
+        """
+        declared = (*self.schema.required_columns, *self.schema.auxiliary_columns)
+        offending = sorted(
+            column
+            for column in dict.fromkeys(declared)
+            if column in self.frame.columns
+            and pd.api.types.is_numeric_dtype(self.frame[column])
+            # Through float, with a gap as nan, so a nullable column is read
+            # the same way as a plain one: a gap is not an infinity.
+            and np.isinf(self.frame[column].to_numpy(dtype=float, na_value=np.nan)).any()
+        )
+        if offending:
+            raise ValueError(
+                f"columns {offending} contain infinite values (inf or -inf), and no "
+                "estimator here can use them. Correct those values or remove those "
+                "rows, and supply the data again."
+            )
 
     def _validate_treatment_missing_values(self) -> None:
         if self.frame[self.schema.treatment].isna().any():

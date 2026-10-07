@@ -35,7 +35,7 @@ from cp_report.benchmark import (
 )
 from cp_report.language import ReportLanguageError, require_clean_prose
 
-from report.benchmark_builders import result, tables
+from report.benchmark_builders import result, tables, tiny_grid_with_scenario_d
 
 
 def test_overview_data_reports_the_grid_shape_and_mcse():
@@ -246,6 +246,13 @@ def test_benchmark_evidence_from_run_builds_from_a_real_tiny_study(d_run):
     assert evidence.status.expected == evidence.status.done > 0
     assert set(evidence.scenarios_run) == {"D", "P1"}
     assert set(evidence.estimators_run) == {"difference_in_means", "lin_regression"}
+    # Each scenario's shape is the one the grid declared it under, not a second groupby of
+    # the frame the evidence was built from.
+    grid = tiny_grid_with_scenario_d()
+    declared = {name: "cross_section" for name in grid.cross_section.scenarios} | {
+        name: "panel" for name in grid.panel.scenarios
+    }
+    assert evidence.scenario_shapes == {name: declared[name] for name in evidence.scenarios_run}
     assert evidence.replications == 2
     assert len(evidence.expectations) > 0
     assert evidence.limitations == ("A stand-in limitation for this tiny fixture.",)

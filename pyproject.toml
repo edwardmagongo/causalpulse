@@ -3,6 +3,7 @@ name = "causalpulse"
 version = "0.1.0"
 description = "Causal inference and experimentation platform"
 requires-python = ">=3.12"
+license = "MIT"
 dependencies = ["cp-core", "cp-statistics", "cp-simulation", "cp-causal", "cp-evaluation", "cp-figures", "cp-report", "cp-llm", "cp-llm-eval", "cp-cli", "cp-api", "cp-worker"]
 
 [tool.uv.workspace]

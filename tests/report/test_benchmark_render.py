@@ -27,6 +27,7 @@ from cp_report.benchmark import (
     render_html_benchmark_report,
     write_markdown_benchmark_report,
 )
+from cp_report.bundle import write_benchmark_bundle
 from cp_report.language import ReportLanguageError
 
 from report.benchmark_builders import make_benchmark_evidence
@@ -84,9 +85,17 @@ _PROSE_SOURCES: dict[str, Callable[[BenchmarkEvidence], BenchmarkEvidence]] = {
     "figure caption": _bad_caption,
 }
 
+def _write_bundle(evidence: BenchmarkEvidence, directory: Path) -> object:
+    # The report it is hashed against exists already; only the bundle's own lint is under test.
+    report = directory / "report.md"
+    report.write_text("# a report\n", encoding="utf-8")
+    return write_benchmark_bundle(evidence, directory / "bundle.json", report)
+
+
 _ENTRY_POINTS: dict[str, Callable[[BenchmarkEvidence, Path], object]] = {
     "render_html_benchmark_report": lambda e, d: render_html_benchmark_report(e),
     "write_markdown_benchmark_report": write_markdown_benchmark_report,
+    "write_benchmark_bundle": _write_bundle,
 }
 
 
@@ -109,6 +118,16 @@ def test_a_refused_markdown_report_writes_nothing(prose_source, benchmark_eviden
         write_markdown_benchmark_report(bad, tmp_path)
 
     assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("prose_source", sorted(_PROSE_SOURCES))
+def test_a_refused_bundle_is_not_written(prose_source, benchmark_evidence, tmp_path):
+    bad = _PROSE_SOURCES[prose_source](benchmark_evidence)
+
+    with pytest.raises(ReportLanguageError):
+        _write_bundle(bad, tmp_path)
+
+    assert not (tmp_path / "bundle.json").exists()
 
 
 def test_markdown_refuses_a_directory_that_does_not_exist(benchmark_evidence, tmp_path):

@@ -36,6 +36,7 @@ from cp_report.benchmark import (
     render_html_benchmark_report,
     write_markdown_benchmark_report,
 )
+from cp_report.bundle import run_provenance, write_benchmark_bundle
 from matplotlib.figure import Figure
 
 from cp_cli.commands.bench import load_run
@@ -205,6 +206,14 @@ def add_study_report_arguments(parser: argparse.ArgumentParser) -> None:
         metavar="DIR",
         help="A finished `bench run --tier p7` run, reported in its own Scenario P7 section.",
     )
+    parser.add_argument(
+        "--bundle",
+        metavar="PATH",
+        help=(
+            "Also write the study bundle, the dashboard's JSON rendering of the same "
+            "evidence, to PATH. Markdown only: the bundle records the Markdown report's hash."
+        ),
+    )
 
 
 def _read_narratives(path: str | None) -> dict[str, str]:
@@ -222,6 +231,14 @@ def run_study_report(args: argparse.Namespace) -> int:
     out = Path(args.out)
     if not out.is_dir():
         raise FileNotFoundError(f"--out must be an existing directory, got {out}")
+    if args.bundle is not None and args.format != "markdown":
+        raise ValueError(
+            "--bundle needs --format markdown: the bundle records the Markdown report's hash"
+        )
+    if args.bundle is not None and not Path(args.bundle).parent.is_dir():
+        raise FileNotFoundError(
+            f"--bundle must be in an existing directory, got {Path(args.bundle).parent}"
+        )
     evidence = benchmark_evidence_from_run(
         Path(args.directory),
         cate_directory=None if args.cate_run is None else Path(args.cate_run),
@@ -235,6 +252,11 @@ def run_study_report(args: argparse.Namespace) -> int:
     else:
         path = write_markdown_benchmark_report(evidence, out)
     print(f"wrote the benchmark study report to {path}")
+    if args.bundle is not None:
+        runs = [("study", args.directory), ("cate", args.cate_run), ("p7", args.p7_run)]
+        provenance = [run_provenance(role, Path(d)) for role, d in runs if d is not None]
+        bundle = write_benchmark_bundle(evidence, Path(args.bundle), path, provenance)
+        print(f"wrote the study bundle to {bundle}")
     return 0
 
 

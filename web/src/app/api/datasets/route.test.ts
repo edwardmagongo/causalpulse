@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 
 const relay = vi.hoisted(() => vi.fn(async () => new Response("relayed", { status: 201 })));
 vi.mock("@/lib/api/relay", () => ({ relay }));
+// The route takes its deadline from the client module, which is server-only.
+vi.mock("server-only", () => ({}));
 
 import { POST } from "./route";
 
