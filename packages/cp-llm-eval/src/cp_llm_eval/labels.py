@@ -51,13 +51,22 @@ class Label:
     note: str
 
 
-def _stratum(statement: GradedStatement) -> int:
-    """0 if the judge flagged it, 1 if only a grader did, 2 if nothing did."""
+def stratum(statement: GradedStatement) -> int:
+    """0 if the judge flagged it, 1 if only a grader did, 2 if nothing did.
+
+    `sample` draws about a third from each; the report weights each labelled
+    statement back to its stratum's share of the population.
+    """
     if statement.judge:
         return 0
     if any(f.category in DETERMINISTIC_CATEGORIES for f in statement.deterministic):
         return 1
     return 2
+
+
+def population(narratives: Sequence[GradedNarrative]) -> list[GradedStatement]:
+    """The statements `sample` draws from: those of judged final narratives."""
+    return [s for n in narratives if n.judged for s in n.statements]
 
 
 def sample(
@@ -71,12 +80,12 @@ def sample(
     the order of the rows does not reveal the stratum.
     """
     rng = random.Random(seed)
-    statements = [s for n in narratives if n.judged for s in n.statements]
+    statements = population(narratives)
     chosen: list[GradedStatement] = []
     for index in range(3):
-        stratum = [s for s in statements if _stratum(s) == index]
-        rng.shuffle(stratum)
-        chosen.extend(stratum[: size // 3])
+        members = [s for s in statements if stratum(s) == index]
+        rng.shuffle(members)
+        chosen.extend(members[: size // 3])
     taken = {s.statement_id for s in chosen}
     left = [s for s in statements if s.statement_id not in taken]
     rng.shuffle(left)

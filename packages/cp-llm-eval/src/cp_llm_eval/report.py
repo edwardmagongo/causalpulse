@@ -19,12 +19,18 @@ from cp_llm_eval.corpus import CorpusEntry
 from cp_llm_eval.deterministic import D1_UNPARSED, DETERMINISTIC_CATEGORIES
 from cp_llm_eval.graded import GradedNarrative, GradedStatement
 from cp_llm_eval.judge import JUDGE_CATEGORIES
-from cp_llm_eval.labels import Label
+from cp_llm_eval.labels import Label, population, stratum
 from cp_llm_eval.runner import INPUT_PRICE, OUTPUT_PRICE
-from cp_llm_eval.stats import clustered_rate, paired_difference, wilson
+from cp_llm_eval.stats import clustered_rate, paired_difference, wilson_weighted
 
 PRIMARY_ENDPOINT = "D4 per narrative, first attempts"
 BASELINE_VARIANT = "baseline"
+WEIGHTING_NOTE = (
+    "The judge's sensitivity and specificity and each grader's precision are weighted "
+    "by stratum (judge-flagged, grader-only, unflagged) back to all judged statements, "
+    "with Wilson intervals at the effective sample size n_eff; they are noisy, because "
+    "each unflagged label stands for many statements."
+)
 
 
 def _has(statement: GradedStatement, category: str) -> bool:
@@ -144,36 +150,68 @@ def _labelled_as(label: Label, category: str) -> bool:
     return label.category == category
 
 
+def _weighted(pairs: Sequence[tuple[bool, float]]) -> dict[str, object] | None:
+    """A weighted proportion of `(success, weight)` pairs, its Wilson interval at
+    Kish's effective sample size, the labelled count and that size."""
+    if not pairs:
+        return None
+    total = sum(w for _, w in pairs)
+    n_eff = total**2 / sum(w**2 for _, w in pairs)
+    p = sum(w for success, w in pairs if success) / total
+    interval = wilson_weighted(min(1.0, p), n_eff)
+    return {
+        "estimate": interval.estimate,
+        "lower": interval.lower,
+        "upper": interval.upper,
+        "labelled": len(pairs),
+        "n_eff": n_eff,
+    }
+
+
 def _validation(
     narratives: Sequence[GradedNarrative], labels: Sequence[Label]
 ) -> dict[str, object]:
-    """The judge's sensitivity and specificity, and each grader's precision, against labels."""
-    statements = {s.statement_id: s for n in narratives for s in n.statements}
+    """The judge's sensitivity and specificity, and each grader's precision, against labels.
+
+    The labels are a stratified sample (`labels.sample`: judge-flagged,
+    grader-only, unflagged, about a third each), so each labelled statement is
+    weighted by its stratum's population over its labelled count, the
+    population being the statements the sample is drawn from.
+    """
+    statements = {s.statement_id: s for s in population(narratives)}
     labelled = [
         (label, statements[label.statement_id])
         for label in labels
         if label.statement_id in statements
     ]
+    sizes: dict[int, int] = defaultdict(int)
+    for s in statements.values():
+        sizes[stratum(s)] += 1
+    counts: dict[int, int] = defaultdict(int)
+    for _, s in labelled:
+        counts[stratum(s)] += 1
+    weighted = [(label, s, sizes[stratum(s)] / counts[stratum(s)]) for label, s in labelled]
 
-    def interval(successes: int, n: int) -> dict[str, object] | None:
-        return asdict(wilson(successes, n)) if n else None
-
-    judged = [(label, s) for label, s in labelled if s.judge is not None]
     judge: dict[str, object] = {}
     for category in (*JUDGE_CATEGORIES, "any_J"):
-        positives = [(label, s) for label, s in judged if _labelled_as(label, category)]
-        negatives = [(label, s) for label, s in judged if not _labelled_as(label, category)]
         judge[category] = {
-            "sensitivity": interval(sum(_has(s, category) for _, s in positives), len(positives)),
-            "specificity": interval(
-                sum(not _has(s, category) for _, s in negatives), len(negatives)
+            "sensitivity": _weighted(
+                [(_has(s, category), w) for label, s, w in weighted
+                 if _labelled_as(label, category)]
+            ),
+            "specificity": _weighted(
+                [(not _has(s, category), w) for label, s, w in weighted
+                 if not _labelled_as(label, category)]
             ),
         }
     graders: dict[str, object] = {}
     for category in DETERMINISTIC_CATEGORIES:
-        flagged = [label for label, s in labelled if _has(s, category)]
-        misread = sum(_labelled_as(label, category) for label in flagged)
-        graders[category] = {"precision": interval(misread, len(flagged))}
+        graders[category] = {
+            "precision": _weighted(
+                [(_labelled_as(label, category), w) for label, s, w in weighted
+                 if _has(s, category)]
+            )
+        }
     return {"labelled": len(labelled), "judge": judge, "graders": graders}
 
 
@@ -328,7 +366,8 @@ def _interval_text(interval: Mapping[str, Any] | None) -> str:
         return "-"
     return (
         f"{_percent(interval['estimate'])} "
-        f"[{_percent(interval['lower'])}, {_percent(interval['upper'])}], n={interval['n']}"
+        f"[{_percent(interval['lower'])}, {_percent(interval['upper'])}], "
+        f"{interval['labelled']} labelled, n_eff {interval['n_eff']:.1f}"
     )
 
 
@@ -425,7 +464,10 @@ def render_markdown(report: Mapping[str, Any]) -> str:
     )
 
     lines += ["", "## The graders against the labels", ""]
-    lines += [f"{validation['labelled']} labelled statements.", ""]
+    lines += [
+        f"{validation['labelled']} labelled statements. {WEIGHTING_NOTE}",
+        "",
+    ]
     lines += _table(
         ("Grader", "Precision"),
         ((c, _interval_text(m["precision"])) for c, m in validation["graders"].items()),

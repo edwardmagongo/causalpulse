@@ -2,14 +2,15 @@ import json
 
 import pytest
 from cp_llm_eval.deterministic import Flag
-from cp_llm_eval.graded import GradedNarrative, grade_records
-from cp_llm_eval.judge import VERDICTS
+from cp_llm_eval.graded import GradedNarrative, GradedStatement, grade_records
+from cp_llm_eval.judge import VERDICTS, Finding
 from cp_llm_eval.labels import Label
 from cp_llm_eval.report import (
     PRIMARY_ENDPOINT,
     _comparison,
     _difference_text,
     _rate_text,
+    _validation,
     build_report,
     render_markdown,
     write_report,
@@ -89,8 +90,8 @@ def test_the_judge_is_measured_against_the_labels(report):
     judge = report["validation"]["judge"]["J1"]
 
     assert report["validation"]["labelled"] == 2
-    assert (judge["sensitivity"]["estimate"], judge["sensitivity"]["n"]) == (1.0, 1)
-    assert (judge["specificity"]["estimate"], judge["specificity"]["n"]) == (1.0, 1)
+    assert (judge["sensitivity"]["estimate"], judge["sensitivity"]["labelled"]) == (1.0, 1)
+    assert (judge["specificity"]["estimate"], judge["specificity"]["labelled"]) == (1.0, 1)
     assert report["validation"]["judge"]["J2"]["sensitivity"] is None
 
 
@@ -219,7 +220,7 @@ def _d4_precision(entry, stored, graded, category):
         [entry], graded, labels, stored.records(INTERPRETATIONS), stored.records(VERDICTS)
     )
     precision = report["validation"]["graders"]["D4"]["precision"]
-    return precision["estimate"], precision["n"]
+    return precision["estimate"], precision["labelled"]
 
 
 def test_a_grader_is_credited_only_for_a_misreading_of_its_own_category(entry, stored, graded):
@@ -233,3 +234,72 @@ def test_a_variant_run_under_two_models_is_refused(entry, stored, graded):
 
     with pytest.raises(ValueError, match=records[0]["key"]["variant"]):
         build_report([entry], graded, [], records, stored.records(VERDICTS))
+
+
+def _statement(position, judge=(), d4=False):
+    return GradedStatement(
+        statement_id=f"s{position}",
+        interpretation="i",
+        case_id="a",
+        section="caveats",
+        position=position,
+        raw="r",
+        rendered="r",
+        deterministic=(Flag("D4", "summary", "true"),) if d4 else (),
+        judge=judge,
+    )
+
+
+def test_the_judge_and_graders_are_weighted_by_stratum():
+    # Population: 2 judge-flagged (stratum 0), 4 grader-only (1), 10 unflagged (2).
+    # Labelled: both of stratum 0 (weight 2/2 = 1), two of stratum 1 (4/2 = 2),
+    # two of stratum 2 (10/2 = 5).
+    j1 = (Finding(category="J1", reason="r"),)
+    statements = (
+        _statement(0, j1, d4=True), _statement(1, j1),
+        *(_statement(p, d4=True) for p in range(2, 6)),
+        *(_statement(p) for p in range(6, 16)),
+    )
+    narrative = GradedNarrative(
+        interpretation="i", case_id="a", design="cross_section", variant="baseline",
+        replicate=1, outcome="verified", attempts=1, statements=statements,
+        first_attempt=((),) * 16, judge_error=False,
+    )
+    labels = [
+        Label("s0", "misreading", "J1", ""),  # flagged by the judge, w 1
+        Label("s1", "ok", "", ""),  # flagged by the judge, w 1
+        Label("s2", "misreading", "D4", ""),  # grader only, w 2
+        Label("s3", "ok", "", ""),  # grader only, w 2
+        Label("s6", "misreading", "J1", ""),  # missed by the judge, w 5
+        Label("s7", "ok", "", ""),  # passed by the judge, w 5
+    ]
+
+    validation = _validation([narrative], labels)
+
+    j1_figures = validation["judge"]["J1"]
+    # Sensitivity: positives s0 (hit, w 1) and s6 (miss, w 5): 1/6, unweighted 1/2.
+    # n_eff = (1 + 5)^2 / (1 + 25) = 36/26.
+    sensitivity = j1_figures["sensitivity"]
+    assert sensitivity["estimate"] == pytest.approx(1 / 6)
+    assert sensitivity["n_eff"] == pytest.approx(36 / 26)
+    assert sensitivity["labelled"] == 2
+    # Specificity: negatives s1 (flagged, w 1), s2 and s3 (not, w 2 each),
+    # s7 (not, w 5): (2 + 2 + 5) / 10 = 0.9, unweighted 3/4.
+    specificity = j1_figures["specificity"]
+    assert specificity["estimate"] == pytest.approx(0.9)
+    assert specificity["n_eff"] == pytest.approx(100 / 34)
+    assert specificity["labelled"] == 4
+    # D4 precision: flagged s0 (J1, not D4: w 1), s2 (D4: w 2), s3 (ok: w 2):
+    # 2/5, unweighted 1/3.
+    precision = validation["graders"]["D4"]["precision"]
+    assert precision["estimate"] == pytest.approx(0.4)
+    assert precision["n_eff"] == pytest.approx(25 / 9)
+    assert precision["labelled"] == 3
+    assert validation["labelled"] == 6
+
+
+def test_the_markdown_says_the_validation_is_weighted_by_stratum(report):
+    text = render_markdown(report)
+
+    assert "weighted by stratum" in text
+    assert "n_eff" in text

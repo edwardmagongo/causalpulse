@@ -3,7 +3,7 @@
 import math
 
 import pytest
-from cp_llm_eval.stats import clustered_rate, paired_difference, wilson
+from cp_llm_eval.stats import clustered_rate, paired_difference, wilson, wilson_weighted
 
 
 def test_a_clustered_rate_matches_the_hand_computed_cr1_form():
@@ -112,3 +112,29 @@ def test_a_paired_difference_needs_two_pairs():
 
 def test_the_rule_of_three_never_bounds_a_proportion_above_one():
     assert clustered_rate([(0, 2)]).upper_bound == 1.0
+
+
+def test_the_weighted_wilson_interval_at_equal_weights_is_the_wilson_interval():
+    # Kish n_eff of n equal weights is n, so p = 2/4 at n_eff 4 is wilson(2, 4):
+    # the published [0.150, 0.850].
+    weighted = wilson_weighted(0.5, 4.0)
+
+    assert weighted.estimate == 0.5
+    assert weighted.lower == pytest.approx(wilson(2, 4).lower)
+    assert weighted.upper == pytest.approx(wilson(2, 4).upper)
+    assert (weighted.lower, weighted.upper) == pytest.approx((0.150, 0.850), abs=5e-4)
+    assert weighted.n == 4.0
+
+
+def test_a_smaller_effective_sample_widens_the_weighted_interval():
+    # p = 1/6 at n_eff 36/26 (weights 1 and 5) against the same p at n = 6.
+    narrow, wide = wilson_weighted(1 / 6, 6.0), wilson_weighted(1 / 6, 36 / 26)
+
+    assert wide.lower <= narrow.lower and wide.upper > narrow.upper
+
+
+def test_a_weighted_proportion_needs_a_positive_effective_sample_and_a_proportion():
+    with pytest.raises(ValueError):
+        wilson_weighted(0.5, 0.0)
+    with pytest.raises(ValueError):
+        wilson_weighted(1.5, 4.0)

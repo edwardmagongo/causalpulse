@@ -4,8 +4,9 @@ The four replies to one fact table are not independent draws, so a rate's
 standard error is clustered by case. A rate of zero has no useful standard
 error (it is zero), so it carries the rule-of-three upper bound instead, and
 a unanimous rate carries the mirrored lower bound. A
-judge's sensitivity and specificity are proportions of a small labelled
-sample and carry Wilson intervals. The prompt comparison is paired by case.
+judge's sensitivity and specificity are proportions of a small labelled,
+stratified sample, weighted back to the population, and carry Wilson
+intervals at the effective sample size. The prompt comparison is paired by case.
 """
 
 from __future__ import annotations
@@ -72,10 +73,12 @@ def clustered_rate(groups: Sequence[tuple[int, int]]) -> Rate:
 
 @dataclass(frozen=True)
 class Interval:
+    """`n` is the number of trials, or the effective sample size of a weighted one."""
+
     estimate: float
     lower: float
     upper: float
-    n: int
+    n: float
 
 
 def wilson(successes: int, n: int, z: float = Z_95) -> Interval:
@@ -84,10 +87,22 @@ def wilson(successes: int, n: int, z: float = Z_95) -> Interval:
         raise ValueError("a proportion needs at least one trial")
     if not 0 <= successes <= n:
         raise ValueError(f"{successes} successes of {n} trials")
-    p = successes / n
-    centre = (p + z**2 / (2 * n)) / (1 + z**2 / n)
-    half = z * math.sqrt(p * (1 - p) / n + z**2 / (4 * n**2)) / (1 + z**2 / n)
-    return Interval(p, max(0.0, centre - half), min(1.0, centre + half), n)
+    return wilson_weighted(successes / n, n, z)
+
+
+def wilson_weighted(p: float, n_eff: float, z: float = Z_95) -> Interval:
+    """The Wilson score interval for a weighted proportion `p`, at effective size `n_eff`.
+
+    `n_eff` is Kish's `(sum w)^2 / sum w^2`; at equal weights it is the count,
+    and this is `wilson`.
+    """
+    if not n_eff > 0:
+        raise ValueError(f"an effective sample size must be positive, got {n_eff}")
+    if not 0.0 <= p <= 1.0:
+        raise ValueError(f"a proportion must lie in [0, 1], got {p}")
+    centre = (p + z**2 / (2 * n_eff)) / (1 + z**2 / n_eff)
+    half = z * math.sqrt(p * (1 - p) / n_eff + z**2 / (4 * n_eff**2)) / (1 + z**2 / n_eff)
+    return Interval(p, max(0.0, centre - half), min(1.0, centre + half), n_eff)
 
 
 @dataclass(frozen=True)
