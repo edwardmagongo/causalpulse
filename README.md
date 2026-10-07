@@ -1739,15 +1739,17 @@ uv run causalpulse llm-eval restore --bundle out/llm-eval/report --store out/llm
   repeated run skips what is already stored. `--variant`, `--replicates` (default 4), `--case` and
   `--workers` select the work. It exits 1 if the budget stopped it before every job ran, or if a
   call failed in transport.
-- `grade` sends each stored narrative to the judge and exits 1 under the same two conditions.
+- `grade` sends each verified interpretation to the judge (a refused one has no final narrative) and exits 1 under the same two conditions.
 - `label export` writes a seeded sample of final statements (`--size`, default 150; `--seed`) to
   a CSV without the judge's verdict or any grader's flag, so that the labelling is blind. It also
   writes `sample.json` into the store. `label import` reads that file and refuses a CSV that does
   not label exactly the exported sample, or that uses a value outside the allowed verdicts and
   categories.
 - `report` writes `report.md` and `report.json`, and the stored interpretations and verdicts as
-  two gzipped JSON-lines files beside them. `restore` loads such a directory into a store, so the
-  report can be rebuilt without another model call.
+  two gzipped JSON-lines files beside them. `restore` loads those two files back into a store,
+  so no model call is needed to rebuild the report. It does not bring the labels back: `report`
+  also needs `--corpus` and reads `labels.json` from the store (an absent file counts as no labels), so
+  copy the committed `labels.json` into the store before running `report` on a restored store.
 
 `run` and `grade` send each fact table to the Anthropic API, as `interpret` does, and need
 `ANTHROPIC_API_KEY` (or an `ant auth login` profile). They are billed.
