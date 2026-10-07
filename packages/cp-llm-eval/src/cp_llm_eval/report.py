@@ -106,13 +106,18 @@ def _comparison(
     """`variant` minus baseline, paired by case: the primary endpoint, then the rest."""
     base = _by_case(n for n in narratives if n.variant == BASELINE_VARIANT)
     other = _by_case(n for n in narratives if n.variant == variant)
+    shared = sorted(set(base) & set(other))
+    paired_cases: dict[str, int] = {}
 
-    def paired(score: Callable[[list[GradedNarrative]], float | None]) -> dict[str, object] | None:
+    def paired(
+        name: str, score: Callable[[list[GradedNarrative]], float | None]
+    ) -> dict[str, object] | None:
         pairs = []
-        for case_id in sorted(set(base) & set(other)):
+        for case_id in shared:
             before, after = score(base[case_id]), score(other[case_id])
             if before is not None and after is not None:
                 pairs.append((before, after))
+        paired_cases[name] = len(pairs)
         return asdict(paired_difference(pairs)) if len(pairs) >= 2 else None
 
     def first_attempt_d4(group: list[GradedNarrative]) -> float | None:
@@ -130,14 +135,20 @@ def _comparison(
 
         return score
 
+    primary = paired("primary", first_attempt_d4)
+    exploratory = {
+        category: paired(category, final(category))
+        for category in (*DETERMINISTIC_CATEGORIES, *JUDGE_CATEGORIES, "any_D", "any_J")
+    }
     return {
         "variant": variant,
         "primary_endpoint": PRIMARY_ENDPOINT,
-        "primary": paired(first_attempt_d4),
-        "exploratory": {
-            category: paired(final(category))
-            for category in (*DETERMINISTIC_CATEGORIES, *JUDGE_CATEGORIES, "any_D", "any_J")
-        },
+        "primary": primary,
+        "exploratory": exploratory,
+        # Cases with narratives under both prompts, and how many of them each
+        # figure could pair (both sides had something to score).
+        "shared_cases": len(shared),
+        "paired_cases": paired_cases,
     }
 
 
@@ -327,6 +338,11 @@ def build_report(
             v: {c: _first_attempt_rate(by_variant[v], c) for c in DETERMINISTIC_CATEGORIES}
             for v in variants
         },
+        # Narratives whose model gave no narrative at all on the first call:
+        # left out of every first-attempt figure.
+        "first_attempt_missing": {
+            v: sum(n.first_attempt is None for n in by_variant[v]) for v in variants
+        },
         "d4_truth": {v: _d4_truth(by_variant[v]) for v in variants},
         "d1_unparsed": {v: _unparsed(by_variant[v]) for v in variants},
         # The judge and its prompt are the same for every variant, so every
@@ -462,6 +478,8 @@ def render_markdown(report: Mapping[str, Any]) -> str:
             for variant, rates in report["first_attempt"].items()
         ),
     )
+    missing = ", ".join(f"{v} {n}" for v, n in report["first_attempt_missing"].items())
+    lines += ["", f"Narratives with no first attempt, excluded from these figures: {missing}."]
 
     lines += ["", "## The graders against the labels", ""]
     lines += [
@@ -474,19 +492,22 @@ def render_markdown(report: Mapping[str, Any]) -> str:
     )
 
     for comparison in report["comparison"]:
+        shared, paired = comparison["shared_cases"], comparison["paired_cases"]
+        over = {name: f"{n} of {shared} shared cases" for name, n in paired.items()}
         lines += [
             "",
             f"## Comparison: {comparison['variant']} minus baseline",
             "",
             f"Primary endpoint, fixed before any paid call ({comparison['primary_endpoint']}): "
-            f"{_difference_text(comparison['primary'])}. Normal 95% interval, paired by case.",
+            f"{_difference_text(comparison['primary'])}. Normal 95% interval, paired by case "
+            f"over {over['primary']}.",
             "",
             "Exploratory, final narratives, per narrative:",
             "",
         ]
         lines += _table(
-            ("Category", "Difference"),
-            ((c, _difference_text(d)) for c, d in comparison["exploratory"].items()),
+            ("Category", "Difference", "Paired"),
+            ((c, _difference_text(d), over[c]) for c, d in comparison["exploratory"].items()),
         )
     return "\n".join(lines) + "\n"
 

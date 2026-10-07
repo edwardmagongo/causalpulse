@@ -170,6 +170,21 @@ def test_judge_jobs_reads_the_facts_of_the_records_case(verified, entry):
     assert (job.interpretation, job.facts) == (key, entry.facts)
 
 
+def test_a_reply_numbering_a_statement_twice_is_a_judge_error(verified, entry, tmp_path):
+    job = _job(verified, entry)
+    assert len(job.statements) >= 3
+    numbers = [1, 1, 3] + list(range(4, len(job.statements) + 1))
+
+    def reply(n):
+        return JudgeReply(statements=[StatementVerdict(number=i, findings=[]) for i in numbers])
+
+    store = Store(tmp_path)
+    judge_all([job], lambda: ReplyJudge(reply), store, CallBudget(5))
+
+    (record,) = store.records(VERDICTS)
+    assert record["outcome"] == "judge_error"
+
+
 def _response(text, stop_reason="end_turn"):
     return SimpleNamespace(
         stop_reason=stop_reason,

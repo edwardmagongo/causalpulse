@@ -122,6 +122,23 @@ def test_a_paid_step_without_a_ceiling_is_refused(tmp_path):
         cli.main(["llm-eval", "run", "--corpus", "c", "--store", "s"])
 
 
+def test_grade_without_a_ceiling_is_refused(tmp_path):
+    with pytest.raises(SystemExit):
+        cli.main(["llm-eval", "grade", "--corpus", "c", "--store", "s"])
+
+
+def test_a_grade_the_budget_cuts_short_exits_non_zero(tmp_path, scripted, monkeypatch):
+    monkeypatch.chdir(cli.__file__.rsplit("/packages/", 1)[0])
+    corpus = tmp_path / "corpus"
+    cli.main(["llm-eval", "build", "--out", str(corpus), "--case", "awkward-single"])
+    common = ["--corpus", str(corpus), "--store", str(tmp_path / "store")]
+    assert cli.main(["llm-eval", "run", *common, "--max-calls", "4", "--replicates", "2"]) == 0
+
+    # Two verified narratives to judge, room for one call.
+    assert cli.main(["llm-eval", "grade", *common, "--max-calls", "1"]) == 1
+    assert scripted[1].calls == 1
+
+
 def test_an_unknown_case_is_refused(tmp_path, capsys):
     assert cli.main(["llm-eval", "build", "--out", str(tmp_path), "--case", "nope"]) == 1
     assert "unknown case" in capsys.readouterr().err

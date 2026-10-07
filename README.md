@@ -1743,8 +1743,9 @@ lists can still reach the narrative as the model's own free text.
 
 ### Testing it
 
-`make check` never calls the model: every test but one runs against a scripted model or a mock of
-the SDK's transport. `make check-llm` runs that one test against the real API.
+`make check` never calls the model: every test but two runs against a scripted model or a mock of
+the SDK's transport. `make check-llm` runs those two against the real API: this interpretation, and
+`cp-llm-eval`'s judge (below).
 
 ## Measuring misreadings (sub-project 4, phase 2)
 
@@ -1754,9 +1755,11 @@ failed, or state a conclusion the facts do not support. `cp-llm-eval` measures h
 happens. It builds a corpus of real fits, has the model interpret each fact table several times
 within a call budget, grades every final statement with five deterministic graders (D1 to D5) and
 with a judge model, and compares both against statements you label by hand. The report gives each
-misreading rate with an interval clustered by case.
+misreading rate with a standard error clustered by case, not an interval.
 
 The commands, in order. Every `--max-calls` is required: a paid step does not run without a ceiling.
+It counts model calls as the code makes them; the SDK may retry a failed request within one counted
+call, so the requests the API bills can exceed it.
 
 ```bash
 uv run causalpulse llm-eval build --out out/llm-eval/corpus
@@ -1791,7 +1794,8 @@ uv run causalpulse llm-eval restore --bundle out/llm-eval/report --store out/llm
   copy the committed `labels.json` into the store before running `report` on a restored store.
 
 `run` and `grade` send each fact table to the Anthropic API, as `interpret` does, and need
-`ANTHROPIC_API_KEY` (or an `ant auth login` profile). They are billed.
+`ANTHROPIC_API_KEY` (or an `ant auth login` profile). They are billed. Two live tests run under
+`make check-llm`: phase 1's interpretation and one real judge call.
 
 What it does not establish:
 

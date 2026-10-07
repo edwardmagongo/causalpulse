@@ -303,3 +303,40 @@ def test_the_markdown_says_the_validation_is_weighted_by_stratum(report):
 
     assert "weighted by stratum" in text
     assert "n_eff" in text
+
+
+def _first_attempt_narratives():
+    # Cases a and b paired as in the primary-endpoint test; case c is baseline
+    # only (not shared); in case d the variant has no first attempt (shared,
+    # but not paired for the primary endpoint).
+    narratives = [
+        _narrative("a", "baseline", 1, True),
+        _narrative("a", "v", 1, False),
+        _narrative("b", "baseline", 1, True),
+        _narrative("b", "v", 1, True),
+        _narrative("c", "baseline", 1, True),
+        _narrative("d", "baseline", 1, False),
+    ]
+    missing = _narrative("d", "v", 1, False)
+    return narratives + [GradedNarrative(**{**missing.__dict__, "first_attempt": None})]
+
+
+def test_the_report_counts_narratives_with_no_first_attempt(entry):
+    report = build_report([entry], _first_attempt_narratives(), [], [], [])
+
+    assert report["first_attempt_missing"] == {"baseline": 0, "v": 1}
+    assert "with no first attempt, excluded from these figures: baseline 0, v 1" in (
+        render_markdown(report)
+    )
+
+
+def test_each_comparison_states_how_many_shared_cases_it_paired(entry):
+    report = build_report([entry], _first_attempt_narratives(), [], [], [])
+
+    (comparison,) = report["comparison"]
+    assert comparison["shared_cases"] == 3
+    assert comparison["paired_cases"]["primary"] == 2
+    assert comparison["paired_cases"]["D4"] == 0
+    text = render_markdown(report)
+    assert "2 of 3 shared cases" in text
+    assert "| D4 | - | 0 of 3 shared cases |" in text

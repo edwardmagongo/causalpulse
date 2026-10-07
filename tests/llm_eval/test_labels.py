@@ -14,6 +14,7 @@ from cp_llm_eval.labels import (
     sample,
     save,
     save_sample,
+    stratum,
 )
 from cp_llm_eval.runner import INTERPRETATIONS
 
@@ -51,6 +52,14 @@ def test_a_small_stratum_gives_all_it_has_and_the_rest_is_filled(graded):
     assert len(deterministic_only) < 10
     assert {s.statement_id for s in deterministic_only} <= {s.statement_id for s in chosen}
     assert len(chosen) == min(30, sum(len(n.statements) for n in graded if n.judged))
+
+
+def test_the_samples_row_order_does_not_group_the_strata(graded):
+    strata = [stratum(s) for s in sample(graded, size=12, seed=0)]
+
+    assert len(set(strata)) == 3
+    assert strata != sorted(strata)
+    assert strata != sorted(strata, reverse=True)
 
 
 def test_the_sample_is_the_same_for_the_same_seed(graded):

@@ -62,7 +62,8 @@ class Store:
 
         The bytes depend on the records alone: the order is by key and the
         gzip header carries no timestamp, so an unchanged store exports to an
-        unchanged file.
+        unchanged file. It is written beside `path` and renamed into place, so
+        an export that fails part way leaves the previous file whole.
         """
         records = self.records(kind)
         lines = "".join(json.dumps(r, sort_keys=True) + "\n" for r in records)
@@ -70,7 +71,12 @@ class Store:
         with gzip.GzipFile(fileobj=buffer, mode="wb", mtime=0) as stream:
             stream.write(lines.encode("utf-8"))
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(buffer.getvalue())
+        partial = path.with_name(f"{path.name}.{os.getpid()}.partial")
+        try:
+            partial.write_bytes(buffer.getvalue())
+            os.replace(partial, path)
+        finally:
+            partial.unlink(missing_ok=True)
         return len(records)
 
     def restore(self, kind: str, path: Path, key: Callable[[dict[str, object]], str]) -> int:

@@ -66,3 +66,38 @@ def test_a_restored_export_is_stored_again_under_its_own_keys(tmp_path):
 
     assert restored == 1
     assert target.records("things") == source.records("things")
+
+
+def test_an_export_that_fails_part_way_leaves_the_previous_file_whole(tmp_path, monkeypatch):
+    import pathlib
+
+    import pytest
+
+    store = Store(tmp_path / "store")
+    store.put("things", "a", {"n": 1})
+    target = tmp_path / "out" / "things.jsonl.gz"
+    store.export("things", target)
+    before = target.read_bytes()
+    store.put("things", "b", {"n": 2})
+    real = pathlib.Path.write_bytes
+
+    def crash(self, data):
+        real(self, data[: len(data) // 2])
+        raise OSError("disk full")
+
+    monkeypatch.setattr(pathlib.Path, "write_bytes", crash)
+    with pytest.raises(OSError, match="disk full"):
+        store.export("things", target)
+
+    assert target.read_bytes() == before
+    assert sorted(p.name for p in target.parent.iterdir()) == ["things.jsonl.gz"]
+
+
+def test_an_export_leaves_nothing_beside_the_target(tmp_path):
+    store = Store(tmp_path / "store")
+    store.put("things", "a", {"n": 1})
+    target = tmp_path / "out" / "things.jsonl.gz"
+
+    store.export("things", target)
+
+    assert [p.name for p in target.parent.iterdir()] == ["things.jsonl.gz"]

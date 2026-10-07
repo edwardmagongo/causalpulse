@@ -129,6 +129,25 @@ def test_a_number_compared_with_a_band_is_unparsed(known):
     assert _categories(statement, known) == {D1_UNPARSED}
 
 
+def test_a_comparative_is_read_between_its_nearest_values(known):
+    # Three comparable values: ci_upper of difference_in_means (about 0.26) >
+    # its point (about 0.17) > the ipw point (about 0.07). Only the nearest
+    # pairing, ipw point against difference_in_means point, reads each right;
+    # pairing the first value with the last would invert both verdicts.
+    upper = _value(known, "est.difference_in_means.ci_upper")
+    dim = _value(known, "est.difference_in_means.point")
+    ipw = _value(known, "est.ipw.point")
+    assert upper > dim > ipw
+    larger = (
+        "Beside {est.difference_in_means.ci_upper}, {est.ipw.point} is larger than "
+        "{est.difference_in_means.point}."
+    )
+    smaller = larger.replace("larger", "smaller")
+
+    assert _categories(larger, known) == {"D1"}
+    assert _categories(smaller, known) == set()
+
+
 # D2 ------------------------------------------------------------------------
 
 
@@ -148,6 +167,25 @@ def test_a_negation_further_back_than_three_words_is_not_counted(known):
         "{est.ipw.method} is {score.ipw.band}."
     )
     assert _categories(statement, known) == set()
+
+
+def test_an_exempt_label_stays_exempt_with_a_negation_in_its_window(known):
+    # "not" sits two words before {route.bsts.eligible} ("not eligible"), with no
+    # placeholder between; the label's own negation exempts it all the same.
+    exempt = "{route.bsts.estimator} is not {route.bsts.eligible} here."
+    control = "The design is not {analysis.assignment_provenance} here."
+    assert _value(known, "analysis.assignment_provenance") == "observational"
+
+    assert "D2" not in _categories(exempt, known)
+    assert "D2" in _categories(control, known)
+
+
+def test_the_negation_window_is_three_words_with_no_placeholder_between(known):
+    three_back = "For ipw the band is not quite exactly {score.ipw.band}."
+    four_back = "For ipw the band is not, as it happens, {score.ipw.band}."
+
+    assert "D2" in _categories(three_back, known)
+    assert "D2" not in _categories(four_back, known)
 
 
 # D3 ------------------------------------------------------------------------
@@ -290,3 +328,11 @@ def test_a_negated_band_comparison_that_is_false_is_flagged(known):
         "For {est.ipw.method} the band {score.ipw.band} is no lower than {score.ipw.ceiling}."
     )
     assert _categories(statement, known) == {"D1"}
+
+
+def test_a_method_named_in_no_sentence_is_not_misattributed(known):
+    statement = (
+        "Its estimand is {est.difference_in_means.estimand}. "
+        "Its band is {score.difference_in_means.band}."
+    )
+    assert "D5" not in _categories(statement, known)
