@@ -18,10 +18,35 @@ def test_a_clustered_rate_matches_the_hand_computed_cr1_form():
     assert rate.upper_bound is None
 
 
-def test_identical_clusters_have_a_standard_error_of_zero():
+def test_identical_clusters_have_no_standard_error():
+    # Every cluster at 1/4: each residual is 0, so the CR1 se is exactly 0,
+    # which would read as certainty; it is reported as None instead.
     rate = clustered_rate([(1, 4), (1, 4), (1, 4)])
 
-    assert rate.se == pytest.approx(0.0)
+    assert rate.rate == pytest.approx(0.25)
+    assert (rate.se, rate.upper_bound, rate.lower_bound) == (None, None, None)
+
+
+def test_clusters_with_one_proportion_have_no_standard_error():
+    # (1, 2) and (2, 4) are both 1/2: residuals 1 - 0.5*2 = 0 and 2 - 0.5*4 = 0.
+    assert clustered_rate([(1, 2), (2, 4)]).se is None
+
+
+def test_a_unanimous_rate_carries_the_mirrored_rule_of_three_and_no_standard_error():
+    # 50 of 50 over 25 cases: lower bound 1 - 3/50 = 0.94.
+    rate = clustered_rate([(2, 2)] * 25)
+
+    assert (rate.numerator, rate.denominator, rate.clusters) == (50, 50, 25)
+    assert (rate.rate, rate.se, rate.upper_bound) == (1.0, None, None)
+    assert rate.lower_bound == pytest.approx(0.94)
+
+
+def test_the_mirrored_rule_of_three_never_bounds_a_proportion_below_zero():
+    assert clustered_rate([(2, 2)]).lower_bound == 0.0
+
+
+def test_a_rate_that_is_neither_zero_nor_unanimous_has_no_lower_bound():
+    assert clustered_rate([(1, 4), (3, 4)]).lower_bound is None
 
 
 def test_a_zero_rate_carries_the_rule_of_three_and_no_standard_error():
@@ -69,6 +94,15 @@ def test_a_paired_difference_matches_the_hand_computed_mean_and_se():
     assert difference.se == pytest.approx(math.sqrt(42 / 288 / 3))
     assert difference.lower < difference.mean < difference.upper
     assert difference.pairs == 3
+    assert difference.degenerate is False
+
+
+def test_a_paired_difference_with_one_difference_everywhere_is_degenerate():
+    # Every case moves by 0.1: no spread, so se 0 and no interval to speak of.
+    difference = paired_difference([(0.0, 0.1), (0.2, 0.3), (0.5, 0.6)])
+
+    assert difference.se == 0.0
+    assert difference.degenerate is True
 
 
 def test_a_paired_difference_needs_two_pairs():

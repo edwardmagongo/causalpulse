@@ -2,7 +2,8 @@
 
 The four replies to one fact table are not independent draws, so a rate's
 standard error is clustered by case. A rate of zero has no useful standard
-error (it is zero), so it carries the rule-of-three upper bound instead. A
+error (it is zero), so it carries the rule-of-three upper bound instead, and
+a unanimous rate carries the mirrored lower bound. A
 judge's sensitivity and specificity are proportions of a small labelled
 sample and carry Wilson intervals. The prompt comparison is paired by case.
 """
@@ -14,16 +15,22 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 Z_95 = 1.959963984540054
+_SAME_DIFFERENCE = 1e-12
 
 
 @dataclass(frozen=True)
 class Rate:
     """`numerator` of `denominator` units, over `clusters` cases.
 
-    `se` is the cluster-robust standard error, or None when the numerator is
-    zero or there is one cluster. `upper_bound` is the rule-of-three 95% upper
-    bound, 3 / denominator capped at 1, given only when the numerator is zero;
-    it treats the units as independent, so with clustering it is optimistic.
+    `se` is the cluster-robust standard error, or None when it would say
+    nothing: the numerator is zero or equals the denominator, there is one
+    cluster, or every cluster has the same proportion (the CR1 form is then
+    exactly 0, which would read as certainty). `upper_bound` is the
+    rule-of-three 95% upper bound, 3 / denominator capped at 1, given only
+    when the numerator is zero; `lower_bound` is its mirror, 1 - 3 /
+    denominator floored at 0, given only when the numerator equals the
+    denominator. Both treat the units as independent, so with clustering they
+    are optimistic.
     """
 
     numerator: int
@@ -32,6 +39,7 @@ class Rate:
     rate: float
     se: float | None
     upper_bound: float | None
+    lower_bound: float | None = None
 
 
 def clustered_rate(groups: Sequence[tuple[int, int]]) -> Rate:
@@ -50,7 +58,12 @@ def clustered_rate(groups: Sequence[tuple[int, int]]) -> Rate:
     clusters = len(groups)
     if numerator == 0:
         return Rate(numerator, denominator, clusters, 0.0, None, min(1.0, 3 / denominator))
-    if clusters < 2:
+    if numerator == denominator:
+        lower = max(0.0, 1 - 3 / denominator)
+        return Rate(numerator, denominator, clusters, 1.0, None, None, lower)
+    # Every residual n - rate * d is zero exactly when n * D == N * d, checked
+    # in integers so float rounding cannot hide it.
+    if clusters < 2 or all(n * denominator == numerator * d for n, d in groups):
         return Rate(numerator, denominator, clusters, rate, None, None)
     squares = sum((n - rate * d) ** 2 for n, d in groups)
     variance = clusters / (clusters - 1) * squares / denominator**2
@@ -79,13 +92,18 @@ def wilson(successes: int, n: int, z: float = Z_95) -> Interval:
 
 @dataclass(frozen=True)
 class Difference:
-    """The mean of `after - before` over paired cases, with a normal 95% interval."""
+    """The mean of `after - before` over paired cases, with a normal 95% interval.
+
+    `degenerate` is true when every case has the same difference: `se` is then
+    0 and the interval is a point, which says no spread, not certainty.
+    """
 
     mean: float
     se: float
     lower: float
     upper: float
     pairs: int
+    degenerate: bool = False
 
 
 def paired_difference(pairs: Sequence[tuple[float, float]]) -> Difference:
@@ -98,6 +116,11 @@ def paired_difference(pairs: Sequence[tuple[float, float]]) -> Difference:
         raise ValueError("a paired difference needs at least two pairs")
     differences = [after - before for before, after in pairs]
     mean = sum(differences) / len(differences)
+    # Equal differences can come out of float subtraction a rounding apart
+    # (0.1 - 0.0 and 0.3 - 0.2); distinct shares of a few replies differ by far
+    # more than this tolerance.
+    if max(differences) - min(differences) <= _SAME_DIFFERENCE:
+        return Difference(mean, 0.0, mean, mean, len(differences), degenerate=True)
     variance = sum((d - mean) ** 2 for d in differences) / (len(differences) - 1)
     se = math.sqrt(variance / len(differences))
     return Difference(mean, se, mean - Z_95 * se, mean + Z_95 * se, len(differences))

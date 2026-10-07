@@ -8,6 +8,7 @@ from cp_llm_eval.labels import Label
 from cp_llm_eval.report import (
     PRIMARY_ENDPOINT,
     _comparison,
+    _difference_text,
     _rate_text,
     build_report,
     render_markdown,
@@ -180,6 +181,7 @@ def _rate(**changes):
         "rate": 0.123,
         "se": 0.021,
         "upper_bound": None,
+        "lower_bound": None,
     }
     return rate | changes
 
@@ -190,6 +192,19 @@ def test_every_rate_states_how_many_cases_it_spans():
     zero = _rate(numerator=0, rate=0.0, se=0.0, upper_bound=0.011)
     assert _rate_text(zero) == "0% (at most 1.1%, 0/276, 25 cases)"
     assert _rate_text(zero | {"clusters": 1}) == "0% (at most 1.1%, 0/276, 1 case)"
+
+
+def test_a_unanimous_rate_states_its_lower_bound_not_a_standard_error():
+    unanimous = _rate(numerator=50, denominator=50, rate=1.0, se=None, lower_bound=0.94)
+
+    assert _rate_text(unanimous) == "100% (at least 94.0%, 50/50, 25 cases)"
+
+
+def test_a_difference_with_no_spread_states_it_has_no_interval():
+    difference = {"mean": 0.0, "se": 0.0, "lower": 0.0, "upper": 0.0, "pairs": 7,
+                  "degenerate": True}
+
+    assert _difference_text(difference) == "+0.0 points (no spread across 7 cases; no interval)"
 
 
 def _d4_precision(entry, stored, graded, category):

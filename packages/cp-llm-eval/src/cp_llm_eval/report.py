@@ -312,6 +312,11 @@ def _rate_text(rate: Mapping[str, Any] | None) -> str:
         return (
             f"0% (at most {_percent(rate['upper_bound'])}, 0/{rate['denominator']}, {cases})"
         )
+    if rate.get("lower_bound") is not None:
+        return (
+            f"100% (at least {_percent(rate['lower_bound'])}, "
+            f"{rate['numerator']}/{rate['denominator']}, {cases})"
+        )
     spread = f", SE {_percent(rate['se'])}" if rate["se"] is not None else ""
     return (
         f"{_percent(rate['rate'])} ({rate['numerator']}/{rate['denominator']}{spread}, {cases})"
@@ -330,6 +335,11 @@ def _interval_text(interval: Mapping[str, Any] | None) -> str:
 def _difference_text(difference: Mapping[str, Any] | None) -> str:
     if difference is None:
         return "-"
+    if difference.get("degenerate"):
+        return (
+            f"{100 * difference['mean']:+.1f} points "
+            f"(no spread across {difference['pairs']} cases; no interval)"
+        )
     return (
         f"{100 * difference['mean']:+.1f} points "
         f"[{100 * difference['lower']:+.1f}, {100 * difference['upper']:+.1f}], "
