@@ -1942,7 +1942,8 @@ on a laptop and on a runner.
 The repository is private, so its Actions minutes are counted against a monthly allowance, and
 the shape above is what fits it. The five quick jobs cost about ten billed minutes together (each
 job is rounded up to a whole minute).
-The fast suite costs about half an hour, so on a pull request it runs only when the packages, the
+The fast suite costs about 45 minutes on the two-CPU runners a private repository is given, so on
+a pull request it runs only when the packages, the
 tests, the dependency pins or a committed file the tests check has changed
 (`.github/workflows/fast.yml` lists the paths); a pull request that touches only the dashboard or
 the documentation does not pay for it. Every push to `main` runs it regardless.
@@ -1954,8 +1955,9 @@ the platform applies: a direct push is accepted. A branch has no run until it ha
 The slow tier is the tests marked `slow` that need no services and no model API. It is split by
 test file (`pytest --shard I/N`, a hook in `tests/conftest.py`), each shard keeps its JUnit report
 as an artifact, and a scheduled run in which any shard does not succeed opens an issue naming it.
-Start it by hand with `gh workflow run slow.yml`. One run takes about two hours and about 170
-runner-minutes, set by one file, `tests/causal/test_hierarchical_did_recovery.py`; the other seven
+Start it by hand with `gh workflow run slow.yml`. On four-core runners one run took about two
+hours and about 170 runner-minutes (it has not been run on the smaller runners of a private
+repository, where it will cost more), set by one file, `tests/causal/test_hierarchical_did_recovery.py`; the other seven
 shards finish in under 20 minutes. GitHub stops scheduled workflows in a repository with no
 activity for 60 days.
 
@@ -1968,5 +1970,5 @@ and Browser jobs test run 3.12.
 
 Each `pytest-xdist` worker is given one numerical thread (`ONE_THREAD` in the Makefile). Without
 it, four workers on a four-core Linux runner each open a full set of BLAS and OpenMP threads: the
-fast suite reached 22% in an hour there, and with the cap it finishes in about half an hour. macOS
+fast suite reached 22% in an hour there, and with the cap it finished in about half an hour. macOS
 does not show the problem; the likely reason, not tested, is that numpy uses Accelerate there.
