@@ -1755,7 +1755,13 @@ failed, or state a conclusion the facts do not support. `cp-llm-eval` measures h
 happens. It builds a corpus of real fits, has the model interpret each fact table several times
 within a call budget, grades every final statement with five deterministic graders (D1 to D5) and
 with a judge model, and compares both against statements you label by hand. The report gives each
-misreading rate with a standard error clustered by case, not an interval.
+misreading rate with a standard error clustered by case. A rate of zero carries the rule-of-three
+upper bound instead, and a unanimous rate the mirrored lower bound; a rate whose cases all have the
+same proportion carries no standard error, and the report says there is no spread across cases.
+The judge's sensitivity and specificity and each grader's precision are weighted by label stratum
+(judge-flagged, grader-only, unflagged, sampled about a third each) back to all judged statements,
+with Wilson intervals at the effective sample size n_eff, `(sum of weights)^2 / sum of squared
+weights`: the number of equally weighted labels that would be as informative.
 
 The commands, in order. Every `--max-calls` is required: a paid step does not run without a ceiling.
 It counts model calls as the code makes them; the SDK may retry a failed request within one counted
@@ -1786,7 +1792,8 @@ uv run causalpulse llm-eval restore --bundle out/llm-eval/report --store out/llm
   a CSV without the judge's verdict or any grader's flag, so that the labelling is blind. It also
   writes `sample.json` into the store. `label import` reads that file and refuses a CSV that does
   not label exactly the exported sample, or that uses a value outside the allowed verdicts and
-  categories.
+  categories. Export only after `grade` has finished, and do not run `grade` again afterwards: the
+  weights assume the judged population as it stood at export.
 - `report` writes `report.md` and `report.json`, and the stored interpretations and verdicts as
   two gzipped JSON-lines files beside them. `restore` loads those two files back into a store,
   so no model call is needed to rebuild the report. It does not bring the labels back: `report`
