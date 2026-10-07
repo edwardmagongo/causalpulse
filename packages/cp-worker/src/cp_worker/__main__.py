@@ -9,12 +9,15 @@ from __future__ import annotations
 import logging
 import os
 
+from cp_api.settings import require_production_settings
 from redis import Redis
 
 from cp_worker.worker import make_worker
 
 
 def main() -> None:
+    # First, before Redis is contacted or a job can be taken.
+    require_production_settings()
     # A root handler, so `cp_worker.jobs`' tracebacks reach the container log
     # with a time and a name; RQ then adds no handler of its own.
     logging.basicConfig(

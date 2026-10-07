@@ -45,6 +45,7 @@ from cp_api.db import (
 )
 from cp_api.deps import SessionDep
 from cp_api.pagination import DEFAULT_LIMIT, MAX_LIMIT, decode_cursor, encode_cursor
+from cp_api.settings import require_production_settings
 from cp_api.validation import RequestError, check_analysis_request, check_upload, csv_header
 
 WORKER_LOST = "worker lost: the job ended without recording a result"
@@ -88,8 +89,14 @@ def _job_lost(redis: Redis, analysis_id: uuid.UUID) -> bool:
 def create_app(
     sessions: sessionmaker[Session] | None = None, redis: Redis | None = None
 ) -> FastAPI:
+    if sessions is None:
+        # The server's own start: uvicorn calls this factory before it listens.
+        # The check sits on the path that reads `DATABASE_URL`, so an app given
+        # its sessions (the tests, `cp-api-openapi`) is not asked for one.
+        require_production_settings()
+        sessions = make_sessionmaker(make_engine())
     app = FastAPI(title="CausalPulse")
-    app.state.sessions = sessions if sessions is not None else make_sessionmaker(make_engine())
+    app.state.sessions = sessions
     queue_redis = redis if redis is not None else Redis.from_url(os.environ["REDIS_URL"])
 
     @app.exception_handler(RequestError)

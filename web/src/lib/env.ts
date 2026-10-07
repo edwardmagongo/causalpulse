@@ -12,3 +12,21 @@ export function apiUrl(): string {
   if (!url) throw new Error("CP_API_URL must be set to the cp-api base URL");
   return url.replace(/\/$/, "");
 }
+
+/**
+ * `CP_ENV=production` is set by the production compose file and by nothing
+ * else. Everything it switches on is off without it.
+ */
+export function isProduction(): boolean {
+  return process.env.CP_ENV === "production";
+}
+
+/**
+ * Every session secret that appears in this repository. Anyone can read them,
+ * so a production server does not start with one. `startup.test.ts` reads the
+ * demo compose file, the Makefile and this directory, and fails if any of them
+ * sets a secret that is missing here.
+ */
+export const DEMO_SESSION_SECRETS: ReadonlySet<string> = new Set([
+  "local-demo-only-session-secret-not-for-deployment",
+]);

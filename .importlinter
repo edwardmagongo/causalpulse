@@ -56,7 +56,7 @@ forbidden_modules =
     cp_simulation
 
 [importlinter:contract:worker-sees-only-the-db]
-name = The worker imports cp_api.db and nothing else from cp_api
+name = The worker imports cp_api.db and cp_api.settings and nothing else from cp_api
 type = forbidden
 source_modules =
     cp_worker
