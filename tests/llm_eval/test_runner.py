@@ -170,3 +170,32 @@ def test_jobs_need_at_least_one_replicate(entry):
 
 def test_cost_prices_input_and_output_tokens():
     assert cost([Call(1_000_000, 0, "end_turn", "m"), Call(0, 1_000_000, "end_turn", "m")]) == 24.0
+
+
+class _BrokenModel:
+    """A model whose every call raises an error the runner does not handle."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def complete(self, system, turns):
+        self.calls += 1
+        raise RuntimeError("unexpected")
+
+
+def test_an_unexpected_error_stops_the_pool_and_is_raised(entry, tmp_path):
+    model = _BrokenModel()
+    budget = CallBudget(100)
+
+    with pytest.raises(RuntimeError, match="unexpected"):
+        run(_jobs(entry, replicates=10), lambda: model, Store(tmp_path), budget, workers=1)
+
+    assert (model.calls, budget.used) == (1, 1)
+
+
+def test_a_variant_listed_twice_is_planned_once(entry):
+    jobs = _jobs(entry, replicates=2, variants=(BASELINE, BASELINE))
+
+    assert len(jobs) == 2
+    assert len({job.key() for job in jobs}) == 2
+

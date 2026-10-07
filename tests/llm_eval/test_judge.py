@@ -129,6 +129,30 @@ def test_the_judge_stops_at_its_budget(verified, entry, tmp_path):
     assert (summary.stored, summary.not_started) == (2, 1)
 
 
+def test_an_unexpected_judge_error_stops_the_pool_and_is_raised(verified, entry, tmp_path):
+    job = _job(verified, entry)
+    jobs = [JudgeJob(f"k{i}", job.statements, job.facts, job.model) for i in range(10)]
+    budget = CallBudget(100)
+
+    def broken(n):
+        raise RuntimeError("unexpected")
+
+    judge = ReplyJudge(broken)
+    with pytest.raises(RuntimeError, match="unexpected"):
+        judge_all(jobs, lambda: judge, Store(tmp_path), budget, workers=1)
+
+    assert (judge.calls, budget.used) == (1, 1)
+
+
+def test_a_duplicated_judge_job_is_judged_once(verified, entry, tmp_path):
+    job = _job(verified, entry)
+    judge = ReplyJudge(_clean)
+
+    summary = judge_all([job, job], lambda: judge, Store(tmp_path), CallBudget(5), workers=2)
+
+    assert (judge.calls, summary.stored) == (1, 1)
+
+
 def _response(text, stop_reason="end_turn"):
     return SimpleNamespace(
         stop_reason=stop_reason,

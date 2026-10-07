@@ -197,15 +197,48 @@ def plan_jobs(
     model: str,
     effort: str,
 ) -> list[Job]:
-    """Every job, in report order: variant, then case, then replicate."""
+    """Every job, in report order: variant, then case, then replicate.
+
+    A job listed twice (a variant or case given twice) is kept once, at its
+    first place, so it is never run twice.
+    """
     if replicates < 1:
         raise ValueError(f"replicates must be at least 1, got {replicates}")
-    return [
-        Job(entry, variant, replicate, model, effort)
-        for variant in variants
-        for entry in entries
-        for replicate in range(1, replicates + 1)
-    ]
+    jobs: dict[str, Job] = {}
+    for variant in variants:
+        for entry in entries:
+            for replicate in range(1, replicates + 1):
+                job = Job(entry, variant, replicate, model, effort)
+                jobs.setdefault(job.key(), job)
+    return list(jobs.values())
+
+
+class StopOnError:
+    """Stops a pool after a worker's first unexpected error, then raises it.
+
+    A job checks `stopped` before it reserves any calls, so once an error is
+    noted no new call starts; calls already in flight may finish.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._error: Exception | None = None
+
+    @property
+    def stopped(self) -> bool:
+        with self._lock:
+            return self._error is not None
+
+    def note(self, error: Exception) -> None:
+        with self._lock:
+            if self._error is None:
+                self._error = error
+
+    def raise_if_stopped(self) -> None:
+        with self._lock:
+            error = self._error
+        if error is not None:
+            raise error
 
 
 def run(
@@ -223,7 +256,17 @@ def run(
     lock = threading.Lock()
     model = model_factory()
 
+    stop = StopOnError()
+
     def work(job: Job) -> None:
+        if stop.stopped:
+            return
+        try:
+            attempt(job)
+        except Exception as exc:  # anything a transport failure is not
+            stop.note(exc)
+
+    def attempt(job: Job) -> None:
         if not budget.reserve(MAX_ATTEMPTS):
             with lock:
                 summary.not_started += 1
@@ -251,4 +294,5 @@ def run(
     with ThreadPoolExecutor(max_workers=workers) as pool:
         for future in [pool.submit(work, job) for job in pending]:
             future.result()
+    stop.raise_if_stopped()
     return summary

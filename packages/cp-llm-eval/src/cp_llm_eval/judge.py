@@ -26,7 +26,7 @@ from cp_llm.model import DEFAULT_EFFORT, DEFAULT_MODEL, MAX_TOKENS, Effort, Mode
 from cp_llm.render import format_fact
 from pydantic import BaseModel, ConfigDict
 
-from cp_llm_eval.runner import Call, CallBudget, cost, interpretation_key
+from cp_llm_eval.runner import Call, CallBudget, StopOnError, cost, interpretation_key
 from cp_llm_eval.store import Store, digest
 
 if TYPE_CHECKING:
@@ -291,16 +291,33 @@ def judge_all(
     workers: int = 4,
     progress: Callable[[str], None] = lambda _message: None,
 ) -> JudgeSummary:
-    """Judge every narrative not already judged, within `budget`, `workers` at a time."""
+    """Judge every narrative not already judged, within `budget`, `workers` at a time.
+
+    A job listed twice is judged once. An error other than a transport failure
+    stops the pool from starting any new call and is raised once it drains.
+    """
     if workers < 1:
         raise ValueError(f"workers must be at least 1, got {workers}")
+    unique: dict[str, JudgeJob] = {}
+    for job in jobs:
+        unique.setdefault(job.key(), job)
+    jobs = list(unique.values())
     summary = JudgeSummary(planned=len(jobs))
     pending = [job for job in jobs if not store.has(VERDICTS, job.key())]
     summary.skipped = len(jobs) - len(pending)
     lock = threading.Lock()
     model = judge_factory()
+    stop = StopOnError()
 
     def work(job: JudgeJob) -> None:
+        if stop.stopped:
+            return
+        try:
+            attempt(job)
+        except Exception as exc:  # anything a transport failure is not
+            stop.note(exc)
+
+    def attempt(job: JudgeJob) -> None:
         if not budget.reserve(1):
             with lock:
                 summary.not_started += 1
@@ -326,4 +343,5 @@ def judge_all(
     with ThreadPoolExecutor(max_workers=workers) as pool:
         for future in [pool.submit(work, job) for job in pending]:
             future.result()
+    stop.raise_if_stopped()
     return summary
