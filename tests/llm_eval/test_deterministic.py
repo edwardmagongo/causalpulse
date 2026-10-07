@@ -358,6 +358,14 @@ _D4_NOT_FLAGGED = [
         "Every check result is listed with its status in the table above.",
         marks=pytest.mark.xfail(reason=_KNOWN_FALSE_POSITIVE, strict=True),
     ),
+    pytest.param(
+        f"No check can remove all doubt about unmeasured confounding for {_IPW}.",
+        marks=pytest.mark.xfail(reason=_KNOWN_FALSE_POSITIVE, strict=True),
+    ),
+    pytest.param(
+        f"None of the checks can settle every doubt about {_IPW}.",
+        marks=pytest.mark.xfail(reason=_KNOWN_FALSE_POSITIVE, strict=True),
+    ),
 ]
 
 
@@ -379,6 +387,32 @@ def test_a_later_quantifier_is_read_when_the_first_has_no_status_word(known):
         "a concern."
     )
     assert _d4(statement, known) == "false"
+
+
+def test_the_preceding_not_is_read_from_the_quantifier_that_is_graded(known):
+    # The first quantifier ("Not every check") is negated, the graded one
+    # ("none of the checks") is not: its truth is read from the table.
+    statement = (
+        "Not every check examines overlap; none of the checks for {est.ipw.method} raised "
+        "a concern."
+    )
+    assert _d4(statement, known) == "false"
+
+
+def test_a_negative_quantifier_that_also_says_untested_is_undetermined(known):
+    # "None ... can be tested" denies testability, but "untested" asserts it
+    # for every check: the sentence contradicts itself, so no status makes it
+    # true or false. Without the guard it would read as the denial alone and
+    # be graded "true" for a method whose checks are all not testable.
+    statement = (
+        "None of the checks for {est.difference_in_means.method} can be tested "
+        "and so remain untested."
+    )
+    assert _d4(statement, known) == "undetermined"
+    # The sentence as first sketched ("... could not be tested from the data")
+    # never reaches the guard: "could not be tested" is not a testable phrase.
+    plain = "None of the checks for {est.difference_in_means.method} could not be tested."
+    assert _d4(plain, known) == "undetermined"
 
 
 @pytest.mark.parametrize(
