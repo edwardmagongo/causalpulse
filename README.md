@@ -1756,10 +1756,14 @@ happens. It builds a corpus of real fits, has the model interpret each fact tabl
 within a call budget, grades every final statement with five deterministic graders (D1 to D5) and
 with a judge model, and compares both against statements you label by hand. The report gives each
 misreading rate with a standard error clustered by case. A rate of zero carries the rule-of-three
-upper bound instead, and a unanimous rate the mirrored lower bound when it has more than three
-units (at three or fewer that bound is 0 and the report leaves it out); a rate whose cases all have the
-same proportion carries no standard error, and the report says there is no spread across cases; a
-rate over a single case carries none either, and the report says so.
+upper bound, 3 / units capped at 100%, instead. A unanimous rate carries the mirrored lower bound,
+1 - 3 / units, which the report leaves out whenever it is 0 or less (three units or fewer). Any
+other rate whose cases all have the same proportion carries no standard error, and the report says
+there is no spread across cases; any other rate over a single case carries none either, and the
+report says so (a 0% or 100% rate over one case shows its bound instead). D4, the uncited status
+summary behind the primary endpoint, reads a status word only in the clause that holds its
+quantifier ("no check", "every diagnostic"), so a status word after ", and" or ", but" does not
+count: "every check examines one assumption, and a problem in one may recur" is not a summary.
 The judge's sensitivity and specificity and each grader's precision are weighted by label stratum
 (judge-flagged, grader-only, unflagged, sampled about a third each) back to all judged statements,
 with Wilson intervals at the effective sample size n_eff, `(sum of weights)^2 / sum of squared
