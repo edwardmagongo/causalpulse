@@ -66,10 +66,12 @@ class ModelDidNotAnswerError(Exception):
 
     `stop_reason` says why: a refusal, a reply cut off at the token limit, or
     `invalid_reply`, a reply that ended normally but did not fit the schema.
+    `attempts` holds the replies made before it, each rejected by the verifier.
     """
 
-    def __init__(self, stop_reason: str) -> None:
+    def __init__(self, stop_reason: str, attempts: tuple[Attempt, ...] = ()) -> None:
         self.stop_reason = stop_reason
+        self.attempts = attempts
         super().__init__(f"the model returned no narrative (stop reason: {stop_reason})")
 
 
@@ -168,7 +170,7 @@ def interpret(
     for _ in range(max_attempts):
         reply = model.complete(system, turns)
         if reply.narrative is None:
-            raise ModelDidNotAnswerError(reply.stop_reason)
+            raise ModelDidNotAnswerError(reply.stop_reason, tuple(attempts))
         violations = verify(reply.narrative, facts)
         attempts.append(Attempt(reply.narrative, violations, reply.usage))
         if not violations:

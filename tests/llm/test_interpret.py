@@ -86,6 +86,25 @@ def test_a_reply_with_no_narrative_is_raised_and_never_retried(stop_reason, fact
     assert len(model.calls) == 1
 
 
+def test_a_no_answer_after_a_rejected_reply_carries_the_attempt_before_it(facts):
+    model = ScriptedModel([BARE, "max_tokens"])
+
+    with pytest.raises(ModelDidNotAnswerError, match="max_tokens") as excinfo:
+        interpret(facts, model)
+
+    assert len(model.calls) == 2
+    (attempt,) = excinfo.value.attempts
+    assert attempt.narrative == BARE
+    assert attempt.violations
+
+
+def test_a_no_answer_on_the_first_call_carries_no_attempt(facts):
+    with pytest.raises(ModelDidNotAnswerError) as excinfo:
+        interpret(facts, ScriptedModel(["refusal"]))
+
+    assert excinfo.value.attempts == ()
+
+
 def test_render_verified_refuses_a_narrative_with_violations(facts):
     with pytest.raises(NarrativeNotVerifiedError, match="1 violation") as excinfo:
         render_verified(BARE, facts)

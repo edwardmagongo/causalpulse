@@ -66,6 +66,23 @@ def test_a_reply_with_no_narrative_is_stored_as_no_answer(entry, tmp_path):
     assert record["calls"][0]["stop_reason"] == "refusal"
 
 
+def test_a_no_answer_after_a_rejected_reply_keeps_the_first_attempt(entry, tmp_path):
+    from cp_llm_eval.graded import grade_records
+
+    store = Store(tmp_path)
+    model = ReplyModel([BARE, "max_tokens"])
+
+    run(_jobs(entry), lambda: model, store, CallBudget(10), workers=1)
+
+    (record,) = store.records(INTERPRETATIONS)
+    assert (record["outcome"], record["stop_reason"]) == ("no_answer", "max_tokens")
+    assert len(record["attempts"]) == 1
+    assert record["attempts"][0]["violations"][0]["rule"] == "bare_value"
+    assert model.calls == 2
+    (graded,) = grade_records([entry], store.records(INTERPRETATIONS), [], "claude-opus-5-5")
+    assert graded.first_attempt is not None
+
+
 def test_a_transport_failure_stores_nothing_and_still_counts(entry, tmp_path):
     store = Store(tmp_path)
     budget = CallBudget(10)

@@ -163,7 +163,11 @@ def interpretation_record(
     except InterpretationRefusedError as exc:
         record |= {"outcome": "refused", "attempts": [a.to_dict() for a in exc.attempts]}
     except ModelDidNotAnswerError as exc:
-        record |= {"outcome": "no_answer", "stop_reason": exc.stop_reason, "attempts": []}
+        record |= {
+            "outcome": "no_answer",
+            "stop_reason": exc.stop_reason,
+            "attempts": [a.to_dict() for a in exc.attempts],
+        }
     else:
         interpretation = result.to_dict()
         record |= {
