@@ -3,8 +3,9 @@
 `export_csv` writes a seeded, stratified sample of final statements for a
 person to label blind: the file holds the statement, what it cites and the
 part of the table around it, and never the judge's verdict or a grader's
-flag. `import_csv` reads the labelled file back and refuses it unless every
-row is labelled from the allowed sets.
+flag. `save_sample` records which statements were exported. `import_csv`
+reads the labelled file back and refuses it unless it labels exactly that
+exported sample, every row from the allowed sets.
 """
 
 from __future__ import annotations
@@ -147,8 +148,20 @@ def export_csv(
             )
 
 
-def import_csv(path: Path, known: set[str]) -> list[Label]:
-    """Every row's label, or a `LabelError` naming each unusable row."""
+def save_sample(statements: Sequence[GradedStatement], path: Path) -> None:
+    """The exported statement ids, in export order, for `import_csv` to check against."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    ids = [statement.statement_id for statement in statements]
+    path.write_text(json.dumps(ids, indent=1) + "\n", encoding="utf-8")
+
+
+def load_sample(path: Path) -> list[str]:
+    return [str(statement_id) for statement_id in json.loads(path.read_text(encoding="utf-8"))]
+
+
+def import_csv(path: Path, sample: Sequence[str]) -> list[Label]:
+    """Every row's label, or a `LabelError` naming each unusable row or missing statement."""
+    known = set(sample)
     problems = []
     labels = []
     with path.open(newline="", encoding="utf-8") as stream:
@@ -173,6 +186,9 @@ def import_csv(path: Path, known: set[str]) -> list[Label]:
             if verdict == "ok" and category:
                 problems.append(f"line {line}: a statement labelled ok has category {category!r}")
             labels.append(Label(statement_id, verdict, category, (row["note"] or "").strip()))
+    absent = [statement_id for statement_id in sample if statement_id not in seen]
+    if absent:
+        problems.append(f"{len(absent)} sampled statement(s) not labelled: {absent}")
     if problems:
         raise LabelError("; ".join(problems))
     return labels

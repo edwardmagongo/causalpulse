@@ -189,3 +189,9 @@ def test_a_verdict_records_key_is_its_jobs_key(verified, entry, tmp_path):
 
     (record,) = store.records(VERDICTS)
     assert verdict_key(record) == job.key()
+
+
+def test_the_judge_prompt_does_not_mention_the_study_and_defines_every_category():
+    assert "study" not in JUDGE_SYSTEM
+    for number in range(1, 7):
+        assert f"- J{number}:" in JUDGE_SYSTEM

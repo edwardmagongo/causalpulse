@@ -10,8 +10,10 @@ from cp_llm_eval.labels import (
     export_csv,
     import_csv,
     load,
+    load_sample,
     sample,
     save,
+    save_sample,
 )
 from cp_llm_eval.runner import INTERPRETATIONS
 
@@ -93,7 +95,7 @@ def test_a_fully_labelled_file_is_imported(tmp_path):
         ],
     )
 
-    assert import_csv(path, {"a", "b"}) == [
+    assert import_csv(path, ["a", "b"]) == [
         Label("a", "ok", "", ""),
         Label("b", "misreading", "J1", "n"),
     ]
@@ -113,11 +115,29 @@ def test_every_unusable_row_is_reported_at_once(tmp_path):
     )
 
     with pytest.raises(LabelError) as caught:
-        import_csv(path, {"a", "b", "c"})
+        import_csv(path, ["a", "b", "c"])
     message = str(caught.value)
     expected = ("line 2: unknown", "line 3: verdict", "line 4: a misreading", "line 5", "line 6")
     for fragment in expected:
         assert fragment in message
+
+
+def test_a_file_missing_a_sampled_statement_is_refused(tmp_path):
+    path = tmp_path / "l.csv"
+    _write(path, [{"statement_id": "a", "verdict": "ok"}])
+
+    with pytest.raises(LabelError) as caught:
+        import_csv(path, ["a", "b"])
+    assert "1 sampled statement(s) not labelled" in str(caught.value)
+    assert "'b'" in str(caught.value)
+
+
+def test_the_sample_ids_round_trip_in_order(graded, tmp_path):
+    chosen = sample(graded, size=9, seed=0)
+
+    save_sample(chosen, tmp_path / "sub" / "sample.json")
+
+    assert load_sample(tmp_path / "sub" / "sample.json") == [s.statement_id for s in chosen]
 
 
 def test_saved_labels_load_back_and_none_saved_is_none(tmp_path):
