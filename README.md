@@ -1253,11 +1253,11 @@ differs from pandas' defaults in three ways.
 
 - **A row with more fields than the header names is refused, naming the line,** whether or not
   the extra field holds anything. pandas reads such a file in more than one way; when the first
-  data row is the wide one it takes the first column as an index and moves every other column
-  along by one. A file whose every line ends in a comma is refused too: it reads the same as a
-  stray comma inside a value before an empty last column (`3,5,` is `3` then `5`, or the decimal
-  `3,5` then nothing), and nothing in the file says which was meant. The line is pandas' count,
-  in which a quoted value that runs over several lines is one line.
+  data row is the wide one it takes as many leading columns as there are extra fields for an
+  index and moves the rest along. A file whose every line ends in a comma is refused too: it
+  reads the same as a stray comma inside a value before an empty last column (`3,5,` is `3` then
+  `5`, or the decimal `3,5` then nothing), and nothing in the file says which was meant. The line
+  is pandas' count, in which a quoted value that runs over several lines is one line.
 - **A large file is read whole,** not in pieces whose types are settled separately, which left a
   column that was numbers in one piece and text in another holding both.
 - **The bytes are read as they are.** Given a path pandas decides from the file's name whether to

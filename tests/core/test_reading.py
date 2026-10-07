@@ -114,10 +114,15 @@ def test_nrows_zero_gives_the_header_alone_and_refuses_no_row():
     assert frame.empty
 
 
-def test_nrows_looks_only_at_the_rows_it_reads():
-    assert read("a,b\n1,2\n3,4,5\n", nrows=1).to_numpy().tolist() == [[1, 2]]
-    with pytest.raises(ValueError, match="line 3 of the CSV has 3 fields"):
-        read("a,b\n1,2\n3,4,5\n", nrows=2)
+@pytest.mark.parametrize("wide_row", [1, 2, 3])
+@pytest.mark.parametrize("nrows", [1, 2, 3, None])
+def test_nrows_refuses_a_wide_row_it_reads_and_no_other(nrows, wide_row):
+    text = table(2, 4, {wide_row: "1,1,1"})
+    if nrows is None or wide_row <= nrows:
+        with pytest.raises(ValueError, match=f"line {wide_row + 1} of the CSV has 3 fields"):
+            read(text, nrows=nrows)
+    else:
+        assert read(text, nrows=nrows).shape == (nrows, 2)
 
 
 def test_the_bytes_are_read_as_they_are_whatever_the_file_was_called(tmp_path):
@@ -140,28 +145,60 @@ def test_a_large_column_of_numbers_and_text_is_read_as_text_throughout():
     assert {type(v) for v in read(text)["unit"]} == {str}
 
 
-@pytest.mark.parametrize("extra", [",", ",3"], ids=["an empty field", "a field of data"])
-@pytest.mark.parametrize(
-    "data_row",
-    [1, 2, 199_999, 200_000, 200_001, 400_000, 450_000],
-    ids=["first", "second", "last of a piece", "first of the second piece", "after it",
-         "first of the third piece", "last"],
-)
-def test_a_wide_row_is_refused_wherever_it_falls_among_the_pieces(data_row, extra):
-    # Neither read refuses every wide row. The count of fields is made in
-    # pieces of 200,000 rows and lets through the first row of each piece
-    # after the first; the read with a header lets through the first data
-    # row. Each catches what the other lets through.
-    rows = ["1,2"] * 450_000
-    rows[data_row - 1] += extra
-    text = "a,b\n" + "\n".join(rows) + "\n"
+def table(width: int, rows: int, changed: dict[int, str]) -> str:
+    """A CSV of `width` columns and `rows` data rows of ones, some rows replaced."""
+    header = ",".join(f"c{i}" for i in range(width))
+    plain = ",".join(["1"] * width)
+    body = [changed.get(row, plain) for row in range(1, rows + 1)]
+    return header + "\n" + "\n".join(body) + "\n"
 
+
+# Where pandas, reading in pieces, starts a new piece: every 2**20 // width
+# rows (rounded down to a power of two) when left to choose, and wherever a
+# caller's `chunksize` puts it. A reader that read in pieces let the first row
+# of each through at any width, and took a short one for the new width.
+SHAPES = [(2, 450_000), (5, 300_000), (10, 150_000), (100, 20_000)]
+ROWS = [1, 2, 3, 8_192, 8_193, 65_536, 65_537, 131_072, 131_073, 200_000, 200_001, 400_000]
+PLACES = [(width, rows, row) for width, rows in SHAPES for row in (*ROWS, rows) if row <= rows]
+
+
+@pytest.mark.parametrize("extra", [",", ",9", ",,"], ids=["empty", "data", "two empty"])
+@pytest.mark.parametrize(("width", "rows", "row"), PLACES)
+def test_a_wide_row_is_refused_wherever_it_falls(width, rows, row, extra):
+    wide = ",".join(["1"] * width) + extra
+    with pytest.raises(ValueError) as refusal:
+        read(table(width, rows, {row: wide}))
+    assert str(refusal.value).startswith(
+        f"line {row + 1} of the CSV has {width + extra.count(',')} fields "
+        f"and its header names {width}, "
+    )
+
+
+@pytest.mark.parametrize(("width", "rows", "row"), PLACES)
+def test_a_short_row_is_filled_and_not_refused_wherever_it_falls(width, rows, row):
+    short = ",".join(["1"] * (width - 1))
+    frame = read(table(width, rows, {row: short}))
+    assert frame.shape == (rows, width)
+    assert frame.isna().to_numpy().sum() == 1
+    assert pd.isna(frame.iloc[row - 1, width - 1])
+
+
+def test_the_first_of_two_wide_rows_is_the_one_named_and_against_the_header():
+    # The tokeniser compares a row with the one before it, so a reader that
+    # let a wide row through named the next one, "against" the wide one.
+    text = table(2, 200_010, {200_000: "1,1,1", 200_001: "1,1,1,1"})
     with pytest.raises(ValueError) as refusal:
         read(text)
-
     assert str(refusal.value).startswith(
-        f"line {data_row + 1} of the CSV has 3 fields and its header names 2, "
+        "line 200001 of the CSV has 3 fields and its header names 2, "
     )
+
+
+def test_a_wide_first_row_is_refused_under_a_header_too_wide_to_read_in_one_piece():
+    # At this width pandas, left to choose, reads one row to a piece.
+    width = 400_000
+    with pytest.raises(ValueError, match=f"line 2 of the CSV has {width + 1} fields"):
+        read(table(width, 2, {1: ",".join(["1"] * width) + ","}))
 
 
 def test_the_line_named_is_pandas_count_in_which_a_quoted_line_break_is_no_new_line():

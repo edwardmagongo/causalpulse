@@ -17,9 +17,8 @@ import re
 
 import pandas as pd
 
-# What pandas says when a row is wider than it expects.
+# What pandas says when a row has more fields than the row before it.
 _TOO_WIDE = re.compile(r"Expected (\d+) fields in line (\d+), saw (\d+)")
-_ROWS_PER_PIECE = 200_000
 
 
 def _refusal_of_a_wide_row(exc: pd.errors.ParserError) -> ValueError | None:
@@ -35,60 +34,49 @@ def _refusal_of_a_wide_row(exc: pd.errors.ParserError) -> ValueError | None:
     )
 
 
-def _count_fields(content: bytes, nrows: int | None) -> None:
-    """Read the file with no header, in pieces that are thrown away.
-
-    With no header the file's first line sets the number of fields, and
-    pandas' own tokeniser refuses a wider row. That catches the first data
-    row, which the read with a header lets through. It does not catch the
-    first row of each later piece, which this read lets through in its turn;
-    the read with a header refuses those. `read_csv` needs both.
-
-    In pieces, because only the count matters and the whole file as text
-    would be several times its size.
-    """
-    limit = None if nrows is None else nrows + 1
-    pieces = pd.read_csv(
-        io.BytesIO(content),
-        header=None,
-        dtype=str,
-        na_filter=False,
-        nrows=limit,
-        chunksize=_ROWS_PER_PIECE,
-    )
-    with pieces:
-        for _ in pieces:
-            pass
-
-
 def read_csv(content: bytes, *, nrows: int | None = None) -> pd.DataFrame:
     """Read a CSV the way every reader of a dataset must.
 
     A row with more fields than the header names is refused, whether or not
-    the extra field holds anything. pandas left to itself reads such a file
-    in more than one way: when the first data row is the wide one it takes
-    the first column as an index and moves every other column along by one.
-    Told not to (`index_col=False`), it keeps the columns in place and drops
-    the extra field, with a warning in some cases and none in others. A comma
-    at the end of every line reads the same to it as a stray comma inside a
-    value followed by an empty last column, and nothing in the file says
-    which was meant, so neither is accepted.
+    the extra field holds anything. A comma at the end of every line reads
+    the same as a stray comma inside a value followed by an empty last
+    column, and nothing in the file says which was meant, so neither is
+    accepted.
 
-    The file is read twice, because neither read refuses every wide row by
-    itself: see `_count_fields`. The line in the refusal is pandas' count,
-    in which a quoted value that runs over several lines is one line.
+    pandas' tokeniser compares each row with the one before it, except the
+    first row after the header, which it lets through at any width; what
+    pandas then makes of a wide first row depends on its options (an index
+    taken from the leading columns, or the extra fields dropped). So the
+    first two rows are read by themselves with no header, where the header
+    is the row before and the first data row is compared with it; and then
+    the whole file is read, where every later row is compared with a row
+    already known to be no wider than the header. Both reads are made in one
+    piece (`low_memory=False`): read in pieces, the first row of each piece
+    is let through as well.
 
-    `low_memory=False`: pandas otherwise reads a large file in pieces and
-    settles each piece's types separately, so a column that is numbers in one
-    piece and text in another holds both.
+    That option also keeps a column's type from being settled piece by
+    piece, which left a column that was numbers in one piece and text in
+    another holding both.
+
+    The line in the refusal is pandas' count, in which a quoted value that
+    runs over several lines is one line. With `nrows=0` no row is looked at.
 
     A row with fewer fields than the header is filled with missing values, as
     pandas does. A file pandas cannot read at all raises what pandas raises,
     for example `EmptyDataError`, `ParserError` or `UnicodeDecodeError`. The
-    bytes are not decompressed, so a compressed file is one of those.
+    bytes are not decompressed, and the compressed files tried were among
+    those.
     """
     try:
-        _count_fields(content, nrows)
+        if nrows != 0:
+            pd.read_csv(
+                io.BytesIO(content),
+                header=None,
+                nrows=2,
+                dtype=str,
+                na_filter=False,
+                low_memory=False,
+            )
         return pd.read_csv(io.BytesIO(content), nrows=nrows, index_col=False, low_memory=False)
     except pd.errors.ParserError as exc:
         refusal = _refusal_of_a_wide_row(exc)
