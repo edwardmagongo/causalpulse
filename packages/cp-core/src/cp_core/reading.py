@@ -17,7 +17,7 @@ import re
 
 import pandas as pd
 
-# What pandas says when a row has more fields than the row before it.
+# What pandas says when a row has more fields than it expects.
 _TOO_WIDE = re.compile(r"Expected (\d+) fields in line (\d+), saw (\d+)")
 
 
@@ -43,23 +43,26 @@ def read_csv(content: bytes, *, nrows: int | None = None) -> pd.DataFrame:
     column, and nothing in the file says which was meant, so neither is
     accepted.
 
-    pandas' tokeniser compares each row with the one before it, except the
-    first row after the header, which it lets through at any width; what
-    pandas then makes of a wide first row depends on its options (an index
-    taken from the leading columns, or the extra fields dropped). So the
-    first two rows are read by themselves with no header, where the header
-    is the row before and the first data row is compared with it; and then
-    the whole file is read, where every later row is compared with a row
-    already known to be no wider than the header. Both reads are made in one
-    piece (`low_memory=False`): read in pieces, the first row of each piece
-    is let through as well.
+    How, as measured (pandas' tokeniser is compiled and was not read). The
+    tokeniser refuses a row with more fields than it expects. What it expects
+    starts as the header's width and a short row does not lower it: a short
+    row is filled out first. The exception is the first row after the header,
+    which it lets through at any width, and which then sets what is expected
+    of the rows after it; what pandas makes of that row depends on its options
+    (an index taken from the leading columns, or the extra fields dropped). So
+    the first two rows are read by themselves with no header, where the first
+    data row is an ordinary row after the header's; and then the file is read,
+    where every later row is held to the header's width. Both reads are made
+    in one piece (`low_memory=False`): read in pieces, the first row of each
+    piece is let through as well.
 
     That option also keeps a column's type from being settled piece by
     piece, which left a column that was numbers in one piece and text in
     another holding both.
 
-    The line in the refusal is pandas' count, in which a quoted value that
-    runs over several lines is one line. With `nrows=0` no row is looked at.
+    The first data row is looked at whatever `nrows` is, zero included; no
+    row after the first `nrows` is. The line in the refusal is pandas' count,
+    in which a quoted value that runs over several lines is one line.
 
     A row with fewer fields than the header is filled with missing values, as
     pandas does. A file pandas cannot read at all raises what pandas raises,
@@ -68,16 +71,16 @@ def read_csv(content: bytes, *, nrows: int | None = None) -> pd.DataFrame:
     those.
     """
     try:
-        if nrows != 0:
-            pd.read_csv(
-                io.BytesIO(content),
-                header=None,
-                nrows=2,
-                dtype=str,
-                na_filter=False,
-                low_memory=False,
-            )
-        return pd.read_csv(io.BytesIO(content), nrows=nrows, index_col=False, low_memory=False)
+        # Text and nothing inferred: only the count of fields is wanted.
+        pd.read_csv(
+            io.BytesIO(content),
+            header=None,
+            nrows=2,
+            dtype=str,
+            na_filter=False,
+            low_memory=False,
+        )
+        return pd.read_csv(io.BytesIO(content), nrows=nrows, low_memory=False)
     except pd.errors.ParserError as exc:
         refusal = _refusal_of_a_wide_row(exc)
         if refusal is None:

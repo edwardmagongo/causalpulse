@@ -92,7 +92,7 @@ def test_the_two_readings_of_a_stray_comma_cannot_be_told_apart_which_is_why_bot
     # decimal 3,5 and `comment` is empty. pandas, told to keep the columns in
     # place, takes the first reading and says nothing.
     text = "unit,treat,y,comment\n1,0,3,5,\n"
-    assumed = pd.read_csv(io.StringIO(text), index_col=False)
+    assumed = pd.read_csv(io.StringIO(text), index_col=False)  # no warning: nothing held
     assert assumed[["y", "comment"]].to_numpy().tolist() == [[3, 5]]
     with pytest.raises(ValueError, match="line 2 of the CSV has 5 fields"):
         read(text)
@@ -108,17 +108,26 @@ def test_a_file_pandas_cannot_tokenise_is_still_pandas_own_error():
         read('a,b\n"1,2\n')
 
 
-def test_nrows_zero_gives_the_header_alone_and_refuses_no_row():
-    frame = read("a,b\n1,2,3\n", nrows=0)
+def test_nrows_zero_gives_the_header_alone():
+    frame = read("a,b\n1,2\n3,4,5\n", nrows=0)
     assert list(frame.columns) == ["a", "b"]
     assert frame.empty
 
 
+@pytest.mark.parametrize("extra", [",3", ",3,4", ",3,4,5,6,7,8,9"], ids=["one", "two", "many"])
+def test_the_first_data_row_is_looked_at_even_for_the_header_alone(extra):
+    # pandas reads the first data row whatever `nrows` is, to decide what the
+    # columns are. One extra field it drops in silence there; two or more it
+    # warns about, and a warning is not a refusal.
+    with pytest.raises(ValueError, match="line 2 of the CSV has"):
+        read(f"a,b\n1,2{extra}\n", nrows=0)
+
+
 @pytest.mark.parametrize("wide_row", [1, 2, 3])
-@pytest.mark.parametrize("nrows", [1, 2, 3, None])
-def test_nrows_refuses_a_wide_row_it_reads_and_no_other(nrows, wide_row):
+@pytest.mark.parametrize("nrows", [0, 1, 2, 3, None])
+def test_nrows_refuses_a_wide_row_it_reads_or_the_first_and_no_other(nrows, wide_row):
     text = table(2, 4, {wide_row: "1,1,1"})
-    if nrows is None or wide_row <= nrows:
+    if nrows is None or wide_row <= max(nrows, 1):
         with pytest.raises(ValueError, match=f"line {wide_row + 1} of the CSV has 3 fields"):
             read(text, nrows=nrows)
     else:
@@ -153,10 +162,11 @@ def table(width: int, rows: int, changed: dict[int, str]) -> str:
     return header + "\n" + "\n".join(body) + "\n"
 
 
-# Where pandas, reading in pieces, starts a new piece: every 2**20 // width
-# rows (rounded down to a power of two) when left to choose, and wherever a
-# caller's `chunksize` puts it. A reader that read in pieces let the first row
-# of each through at any width, and took a short one for the new width.
+# Where pandas, left to read in pieces, was measured to start a new piece:
+# every 262,144 rows at 2 or 3 columns, 131,072 at 4 to 7, 65,536 at 8 to 15,
+# 8,192 at 100. Read that way the first row of each piece is let through at
+# any width. An earlier reader of ours read in pieces of 200,000 rows by its
+# own choice, and took a short row starting one for the new width.
 SHAPES = [(2, 450_000), (5, 300_000), (10, 150_000), (100, 20_000)]
 ROWS = [1, 2, 3, 8_192, 8_193, 65_536, 65_537, 131_072, 131_073, 200_000, 200_001, 400_000]
 PLACES = [(width, rows, row) for width, rows in SHAPES for row in (*ROWS, rows) if row <= rows]
