@@ -11,13 +11,15 @@ from __future__ import annotations
 import hashlib
 import os
 import uuid
+from collections.abc import AsyncIterator
 from datetime import datetime
 from typing import Annotated, Any
 
 from cp_core.catalogue import catalogue
-from fastapi import FastAPI, File, HTTPException, Query, Request, Response, UploadFile
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, UploadFile
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 from redis import Redis
 from redis.exceptions import RedisError
 from rq import Queue
@@ -26,6 +28,9 @@ from rq.job import Job, JobStatus
 from sqlalchemy import func, select, text, tuple_
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
+from starlette.datastructures import FormData
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.types import Message
 
 from cp_api import models, validation
 from cp_api.auth import CurrentUser
@@ -93,6 +98,122 @@ def _job_lost(redis: Redis, analysis_id: uuid.UUID) -> bool:
     return job.get_status() in _LOST
 
 
+# `POST /v1/datasets` reads its own form (see `uploaded_file`), so FastAPI does
+# not know the route has a body. This is what it wrote in the OpenAPI document
+# while the route declared `file: UploadFile`, under the name it gave it; the
+# dashboard's types are generated from the document.
+UPLOAD_BODY_NAME = "Body_upload_dataset_v1_datasets_post"
+UPLOAD_BODY_SCHEMA: dict[str, Any] = {
+    "properties": {
+        "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string",
+        }
+    },
+    "required": ["file"],
+    "title": UPLOAD_BODY_NAME,
+    "type": "object",
+}
+UPLOAD_REQUEST_BODY: dict[str, Any] = {
+    "content": {
+        "multipart/form-data": {"schema": {"$ref": f"#/components/schemas/{UPLOAD_BODY_NAME}"}}
+    },
+    "required": True,
+}
+# What a request body may hold besides the file itself: the multipart
+# boundaries and the part's headers, generously.
+FORM_OVERHEAD_BYTES = 1024 * 1024
+_UPLOAD_FIELD = TypeAdapter(UploadFile)
+
+
+def upload_allowance(request: Request, user: CurrentUser, session: SessionDep) -> User:
+    """The caller, once the key and the day's upload limit have let the upload in.
+
+    Taken before the upload is read and kept whatever becomes of it: what the
+    allowance bounds is the reading and parsing, which a refused or repeated
+    upload costs as well.
+    """
+    state = request.app.state
+    state.limit_window.require(f"uploads:{user.id}", state.uploads_per_day)
+    # Checking the key left a transaction open, and with it a pooled connection.
+    # The body is read next and a slow client can take minutes over it, so the
+    # connection goes back first; the route's own queries take one again.
+    session.commit()
+    return user
+
+
+UploadingUser = Annotated[User, Depends(upload_allowance)]
+
+
+async def _form(request: Request) -> FormData:
+    """The request's form, read from a body that is refused if it is too long.
+
+    Starlette's parser keeps a file part of any length in a temporary file,
+    so the length is counted here as the body arrives. A body over the bound
+    is read to its end and thrown away, so the client gets its 413 after
+    sending the whole request, as it does for a file just over the limit.
+    """
+    bound = validation.MAX_UPLOAD_BYTES + FORM_OVERHEAD_BYTES
+    seen = 0
+
+    async def receive() -> Message:
+        nonlocal seen
+        message = await request.receive()
+        if message["type"] == "http.request":
+            seen += len(message.get("body", b""))
+            if seen > bound:
+                while message["type"] == "http.request" and message.get("more_body", False):
+                    message = await request.receive()
+                raise validation.too_large()
+        return message
+
+    try:
+        return await Request(request.scope, receive).form()
+    except (StarletteHTTPException, RequestError):
+        raise
+    except Exception as exc:
+        # What FastAPI answers when it reads a declared body and cannot.
+        raise HTTPException(400, "There was an error parsing the body") from exc
+
+
+def _file_field(form: FormData) -> UploadFile:
+    """The form's `file`, or the 422 FastAPI gave when the route declared the field."""
+    value = form.get("file")
+    if value is None or value == "":
+        raise RequestValidationError(
+            [{"type": "missing", "loc": ("body", "file"), "msg": "Field required", "input": None}]
+        )
+    try:
+        return _UPLOAD_FIELD.validate_python(value)
+    except ValidationError as exc:
+        raise RequestValidationError(
+            [
+                {**error, "loc": ("body", "file", *error["loc"])}
+                for error in exc.errors(include_url=False)
+            ]
+        ) from exc
+
+
+async def uploaded_file(request: Request, user: UploadingUser) -> AsyncIterator[UploadFile]:
+    """The uploaded file. Nothing of the body is read until `user` is resolved.
+
+    FastAPI reads a body the route declares before it runs the route's
+    dependencies, so a route declaring `file: UploadFile` would read up to
+    50 MB before looking at the key. This reads the form itself, and depends
+    on the key and the upload limit so that both come first.
+    """
+    form = await _form(request)
+    try:
+        yield _file_field(form)
+    finally:
+        await form.close()
+
+
+# Module scope, like SessionDep: a local alias breaks under postponed annotations.
+UploadedFile = Annotated[UploadFile, Depends(uploaded_file)]
+
+
 def create_app(
     sessions: sessionmaker[Session] | None = None,
     redis: Redis | None = None,
@@ -113,7 +234,9 @@ def create_app(
     window = FixedWindow(queue_redis)
     if limits.signin_failures is not None:
         app.add_middleware(SigninFailures, window=window, limit=limits.signin_failures)
-    uploads_per_day = limits.uploads_per_day
+    # Read by `upload_allowance`, which is at module scope as `get_session` is.
+    app.state.limit_window = window
+    app.state.uploads_per_day = limits.uploads_per_day
     analyses_per_day = limits.analyses_per_day
     analyses_active = limits.analyses_active
 
@@ -240,17 +363,19 @@ def create_app(
             "columns": list(csv_header(dataset.csv)),
         }
 
-    @app.post("/v1/datasets", status_code=201, response_model=models.DatasetUploaded)
+    @app.post(
+        "/v1/datasets",
+        status_code=201,
+        response_model=models.DatasetUploaded,
+        openapi_extra={"requestBody": UPLOAD_REQUEST_BODY},
+    )
     def upload_dataset(
         user: CurrentUser,
         response: Response,
-        file: Annotated[UploadFile, File()],
+        # Not a declared body: the key and the limits are checked before it is read.
+        file: UploadedFile,
         session: SessionDep,
     ) -> dict[str, Any]:
-        # Taken before the upload is looked at and kept whatever becomes of it:
-        # what the allowance bounds is the reading and parsing, which a refused
-        # or repeated upload costs as well.
-        window.require(f"uploads:{user.id}", uploads_per_day)
         content = file.file.read(validation.MAX_UPLOAD_BYTES + 1)
         columns = check_upload(content)
         sha256 = hashlib.sha256(content).hexdigest()
@@ -476,4 +601,13 @@ def create_app(
         queue_redis.ping()
         return {"postgres": "ok", "redis": "ok"}
 
+    generated = app.openapi
+
+    def openapi() -> dict[str, Any]:
+        # FastAPI builds the document once and returns the same one afterwards.
+        document = generated()
+        document["components"]["schemas"].setdefault(UPLOAD_BODY_NAME, UPLOAD_BODY_SCHEMA)
+        return document
+
+    app.openapi = openapi  # type: ignore[method-assign]
     return app
