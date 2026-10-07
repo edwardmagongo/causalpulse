@@ -256,15 +256,22 @@ _UNTESTED = re.compile(
     r"|could not be (?:tested|checked))\b"
 )
 _PASSED = re.compile(r"\b(pass(?:ed|es|ing)?|cleared|satisfied)\b")
+_STATUS_WORD = re.compile(r"\bstatus(?:es)?\b")
+# A quantified check is a status summary only when the statement says
+# something about status: "each of the checks is listed below" is not one.
+_STATUS_PREDICATES = (_PROBLEM, _PASSED, _UNTESTED, _STATUS_WORD)
+# The quantifiers that claim no check has the property ("no check failed").
+_NEGATIVE_QUANTIFIERS = frozenset({"no", "none of the", "not a single", "not one of the"})
 _STATUS_FACT = re.compile(r"check\.([a-z0-9_]+)\.[a-z0-9_]+\.status")
 
 
 def _summary_truth(quantifier: str, text: str, statuses: list[str]) -> Truth:
     if not statuses:
         return "undetermined"
-    if quantifier.startswith("no") and _PROBLEM.search(text):
+    negative = quantifier in _NEGATIVE_QUANTIFIERS
+    if negative and _PROBLEM.search(text):
         return "true" if not {"FAIL", "WARN"} & set(statuses) else "false"
-    if not quantifier.startswith("no"):
+    if not negative:
         if _UNTESTED.search(text):
             return "true" if set(statuses) == {"NOT_TESTABLE"} else "false"
         if _PASSED.search(text):
@@ -273,7 +280,11 @@ def _summary_truth(quantifier: str, text: str, statuses: list[str]) -> Truth:
 
 
 def _status_summary(statement: str, facts: FactTable) -> Iterator[Flag]:
-    """A claim about all or none of the checks that cites no status.
+    """A claim about all or none of the checks' statuses that cites no status.
+
+    The statement must carry a status predicate (a problem, a pass, untested,
+    or the word status); a quantified check without one says nothing a status
+    could contradict.
 
     Its truth is read from the table: the checks of the one method the
     statement names, or every check when it names none or several.
@@ -283,7 +294,7 @@ def _status_summary(statement: str, facts: FactTable) -> Iterator[Flag]:
         return
     text = _masked(statement).lower()
     match = _QUANTIFIER.search(text)
-    if match is None:
+    if match is None or not any(p.search(text) for p in _STATUS_PREDICATES):
         return
     methods = {c.fact.id.split(".")[1] for c in cited if c.fact.id.startswith("est.")}
     statuses = [

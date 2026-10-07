@@ -240,9 +240,15 @@ def test_a_universal_untested_summary_is_read_against_the_statuses(known):
     assert _d4(ipw, known) == "false"
 
 
-def test_a_summary_with_no_recognised_predicate_is_undetermined(known):
-    statement = "Every recorded check for {est.ipw.method} reads the same way."
+def test_a_status_summary_with_no_readable_verdict_is_undetermined(known):
+    # It speaks of status, so it is a summary, but says nothing the statuses
+    # could make true or false. ("... reads the same way", with no status word
+    # at all, is no longer a summary.)
+    statement = "Every recorded check for {est.ipw.method} reports its status the same way."
     assert _d4(statement, known) == "undetermined"
+    assert "D4" not in _categories(
+        "Every recorded check for {est.ipw.method} reads the same way.", known
+    )
 
 
 def test_a_summary_that_cites_a_status_is_not_flagged(known):
@@ -270,6 +276,32 @@ def test_a_quantifier_with_words_before_its_noun_or_read_as_no_is_graded(
     statement, truth, known
 ):
     assert _d4(statement, known) == truth
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "Each of the checks is listed below.",
+        "Every one of the checks for {est.ipw.method} is described below.",
+        "No single robustness check is decisive on its own.",
+    ],
+)
+def test_a_quantified_check_with_no_status_predicate_is_not_a_summary(statement, known):
+    assert "D4" not in _categories(statement, known)
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        # Written by the model during phase 1's calibration.
+        "For {est.difference_in_means.method}, every recorded check carries a status that "
+        "reflects untested assumptions rather than a flagged problem.",
+        "For {est.difference_in_means.method}, every recorded check marks it as not checkable "
+        "from data rather than flagged by a diagnostic.",
+    ],
+)
+def test_the_calibration_summaries_are_still_flagged(statement, known):
+    assert "D4" in _categories(statement, known)
 
 
 # D5 ------------------------------------------------------------------------
