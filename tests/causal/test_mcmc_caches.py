@@ -5,13 +5,14 @@ that fits model after model (the API's worker, a benchmark worker, a test
 session) grew until it was killed: see the comment in `cp_causal._mcmc`.
 Measuring memory here would be slow and would depend on the machine, so these
 tests pin the mechanism instead: the caches are emptied once per run, after
-sampling, and the samples outlive it.
+sampling or after a run that raised, and the samples outlive it.
 """
 
 import jax
 import numpy as np
 import numpyro
 import numpyro.distributions as dist
+import pytest
 from cp_causal import _mcmc
 from cp_causal._mcmc import MCMCConfig, run_nuts
 
@@ -50,3 +51,18 @@ def test_the_samples_survive_the_clearing_and_a_seed_still_fixes_them():
     assert first.shape == (40,)
     assert np.isfinite(first).all()
     np.testing.assert_array_equal(first, second)
+
+
+def test_a_run_that_raises_still_empties_the_caches(monkeypatch):
+    cleared: list[str] = []
+
+    def failing_run(self, *args, **kwargs):
+        raise TimeoutError("the job ran out of time")
+
+    monkeypatch.setattr(_mcmc.MCMC, "run", failing_run)
+    monkeypatch.setattr(_mcmc.jax, "clear_caches", lambda: cleared.append("cleared"))
+
+    with pytest.raises(TimeoutError, match="ran out of time"):
+        run_nuts(_model, _CONFIG, 0, y=np.array([0.5, 1.5, 1.0]))
+
+    assert cleared == ["cleared"]

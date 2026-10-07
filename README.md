@@ -1,7 +1,5 @@
 # CausalPulse
 
-[![CI](https://github.com/edwardmagongo/causalpulse/actions/workflows/ci.yml/badge.svg)](https://github.com/edwardmagongo/causalpulse/actions/workflows/ci.yml)
-
 A causal inference and experimentation platform. Given an intervention and an outcome,
 CausalPulse estimates what would have happened without the intervention, how large the effect
 was, for whom it differed, and how much the conclusion should be trusted.
@@ -1933,22 +1931,33 @@ on a laptop and on a runner.
 | When | Job | Runs |
 |---|---|---|
 | Every pull request, and every push to `main` | Static | `make lint types imports` |
-| | Fast suite | `make test-fast WORKERS=4` |
 | | Services | `make check-services` |
 | | Web | `make check-web` |
 | | Browser | `make smoke-web` |
 | | Stack | `make smoke` |
-| Weekly (Sunday 03:00 UTC), and by hand | Slow tier | `make test-slow SHARD=I/8`, eight shards in parallel |
+| A pull request that changes what it tests, and every push to `main` | Fast suite | `make test-fast WORKERS=4` |
+| Monthly (the 1st, 03:00 UTC), and by hand | Slow tier | `make test-slow SHARD=I/8`, eight shards in parallel |
 | By hand only | Live model call | `make check-llm` |
 
-`main` takes changes by pull request, and the six jobs of the first group must pass before one can
-merge. A branch has no run until it has a pull request.
+The repository is private, so its Actions minutes are counted against a monthly allowance, and
+the shape above is what fits it. The five quick jobs cost about ten billed minutes together (each
+job is rounded up to a whole minute).
+The fast suite costs about half an hour, so on a pull request it runs only when the packages, the
+tests, the dependency pins or a committed file the tests check has changed
+(`.github/workflows/fast.yml` lists the paths); a pull request that touches only the dashboard or
+the documentation does not pay for it. Every push to `main` runs it regardless.
+
+GitHub does not enforce branch protection on a private repository under the free plan. Changes
+to `main` go by pull request, merged when its checks are green, by convention and not by a rule
+the platform applies: a direct push is accepted. A branch has no run until it has a pull request.
 
 The slow tier is the tests marked `slow` that need no services and no model API. It is split by
 test file (`pytest --shard I/N`, a hook in `tests/conftest.py`), each shard keeps its JUnit report
-as an artifact, and a weekly run in which any shard does not succeed opens an issue naming it.
-Start it by hand with `gh workflow run slow.yml`. GitHub stops scheduled workflows in a repository
-with no activity for 60 days.
+as an artifact, and a scheduled run in which any shard does not succeed opens an issue naming it.
+Start it by hand with `gh workflow run slow.yml`. One run takes about two hours and about 170
+runner-minutes, set by one file, `tests/causal/test_hierarchical_did_recovery.py`; the other seven
+shards finish in under 20 minutes. GitHub stops scheduled workflows in a repository with no
+activity for 60 days.
 
 The live model call is billed, so it never runs on a schedule or for a pull request. It needs the
 repository secret `ANTHROPIC_API_KEY` and is started with `gh workflow run llm-live.yml`.
@@ -1960,4 +1969,4 @@ and Browser jobs test run 3.12.
 Each `pytest-xdist` worker is given one numerical thread (`ONE_THREAD` in the Makefile). Without
 it, four workers on a four-core Linux runner each open a full set of BLAS and OpenMP threads: the
 fast suite reached 22% in an hour there, and with the cap it finishes in about half an hour. macOS
-does not show the problem, because numpy uses Accelerate there.
+does not show the problem; the likely reason, not tested, is that numpy uses Accelerate there.
