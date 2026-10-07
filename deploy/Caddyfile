@@ -1,0 +1,28 @@
+# The production stack's reverse proxy: the one service with a port on the host
+# (`docker-compose.prod.yml`). Stock Caddy; it obtains and renews the site's
+# certificate by itself and redirects HTTP to HTTPS without being told to.
+#
+# Both settings come from the compose file, which never leaves either empty:
+# an empty `CP_HTTPS_PORT` is a parse error here, not the default.
+{
+	# Nothing reloads this configuration while it runs, so nothing needs the
+	# endpoint that would.
+	admin off
+	# 443 on a server. The gate listens elsewhere, so it can run beside
+	# whatever already holds 443 on the machine.
+	https_port {$CP_HTTPS_PORT:443}
+}
+
+# A public name gets a public certificate. `localhost` gets one from Caddy's
+# own local authority, which is what `make smoke-prod` uses.
+{$CP_SITE_ADDRESS} {
+	# Without `includeSubDomains` and without `preload`: preload is slow to
+	# undo, and the domain is its owner's to use for other things.
+	header Strict-Transport-Security "max-age=31536000"
+	# On every response, the relayed downloads included.
+	header X-Content-Type-Options "nosniff"
+	# Caddy sets `X-Forwarded-For` to the peer it accepted the connection from
+	# and drops whatever the client sent under that name. The dashboard passes
+	# its last entry to the API, which counts failed sign-ins against it.
+	reverse_proxy web:3000
+}

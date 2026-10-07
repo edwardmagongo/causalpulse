@@ -3,6 +3,11 @@
  *
  * `docker compose up -d` returns once the containers have started, which is
  * before the API and the web server accept requests.
+ *
+ * This is Node's `fetch`, which Playwright's `ignoreHTTPSErrors` does not
+ * reach. Against the production stack's own certificate authority,
+ * `make smoke-prod` names the authority's root certificate in
+ * `NODE_EXTRA_CA_CERTS`, which Node reads by itself.
  */
 const WEB = process.env.CP_WEB_URL ?? "http://localhost:3000";
 const API_HEALTH = process.env.CP_E2E_API_HEALTH ?? "";
