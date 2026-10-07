@@ -122,11 +122,12 @@ const PIECE = String.raw`\$\{[^}]*\}|\$\$?\([^)]*\)`;
 //   "CP_SESSION_SECRET": "value"         JSON
 //   - CP_SESSION_SECRET=value            a compose list, a script, an env file
 //   process.env.CP_SESSION_SECRET = "v"  and `??=`, `||=`, `env["..."] = "v"`
+//   process.env.CP_SESSION_SECRET ?? "v" and `||`: what it is when it is not set
 //   stubEnv("CP_SESSION_SECRET", "v")    and any other `name, value` pair
 // but not a comparison (`===`), nor the name inside `${CP_SESSION_SECRET:-v}`,
 // which is read as the value of whatever it is assigned to.
 const ASSIGNMENT = new RegExp(
-  String.raw`(?<![$\{\w])CP_SESSION_SECRET["'\`]?\]?[ \t]*(\?\?=|\|\|=|:|=(?!=)|,)[ \t]*` +
+  String.raw`(?<![$\{\w])CP_SESSION_SECRET["'\`]?\]?[ \t]*(\?\?=?|\|\|=?|:|=(?!=)|,)[ \t]*` +
     String.raw`("[^"\n]*"|'[^'\n]*'|\`[^\`\n]*\`|(?:${PIECE}|[^\s"'\`,;)#])*)`,
   "g",
 );
@@ -136,6 +137,9 @@ function makeVariables(text: string): Map<string, string> {
   return new Map(found.map((match) => [match[1], match[2]]));
 }
 
+/** Why a value could not be read, without the value: `literal` adds that. */
+class Unreadable extends Error {}
+
 /**
  * The literal a value holds, or null if it holds none.
  *
@@ -143,45 +147,139 @@ function makeVariables(text: string): Map<string, string> {
  * `$NAME`, a command's output. `${NAME:-x}` and `${NAME-x}` hold `x`: that is
  * what the stack runs with when nobody sets `NAME`, which is how a new demo
  * value would arrive. Anything else with a `$` in it is an error: the scanner
- * cannot tell, and says so.
+ * cannot tell, and says so, quoting the whole value.
+ *
+ * `variables` is a Makefile's own, and its presence says the value came from
+ * a Makefile. There `$(NAME)` and `${NAME}` are the Makefile's variables, and
+ * `$$` is a `$` the recipe hands to its shell: one `$` is taken off and what
+ * is left is read as a compose file's value is.
  */
 function literal(token: string, variables?: Map<string, string>): string | null {
-  if (!token.includes("$")) return token;
-  if (variables) {
-    if (token.startsWith("$$")) return null; // the recipe's shell fills it in
-    const reference = /^\$[({](\w+)[)}]$/.exec(token);
-    if (reference) {
-      const value = variables.get(reference[1]);
-      if (value === undefined || value.includes("$")) {
-        throw new Error(`cannot tell: ${token} is not defined as a plain NAME := value`);
-      }
-      return value;
-    }
-    if (/^\$\(\w+\s[^)]*\)$/.test(token)) return null; // `$(shell ...)`: its output
-    throw new Error(`cannot tell what ${token} holds`);
+  try {
+    return read(token, variables);
+  } catch (error) {
+    if (!(error instanceof Unreadable)) throw error;
+    const why = error.message ? ` (${error.message})` : "";
+    throw new Error(`cannot tell what ${token} holds${why}`);
   }
-  const braced = /^\$\{(\w+)(?:(:?[-?+])([\s\S]*))?\}$/.exec(token);
+}
+
+function read(token: string, variables?: Map<string, string>): string | null {
+  if (!token.includes("$")) return token;
+  let shell = token;
+  if (variables) {
+    if (token.startsWith("$$")) {
+      shell = token.slice(1);
+    } else {
+      const reference = /^\$[({](\w+)[)}]$/.exec(token);
+      if (reference) {
+        const value = variables.get(reference[1]);
+        if (value === undefined || value.includes("$")) {
+          throw new Unreadable(`${token} is not defined as a plain NAME := value`);
+        }
+        return value;
+      }
+      if (/^\$\(\w+\s[^)]*\)$/.test(token)) return null; // `$(shell ...)`: its output
+      throw new Unreadable();
+    }
+  }
+  const braced = /^\$\{(\w+)(?:(:?[-?+])([\s\S]*))?\}$/.exec(shell);
   if (braced) {
     const [, , operator, rest] = braced;
     if (operator === undefined || operator === "?" || operator === ":?") return null;
-    if (operator === "-" || operator === ":-") return literal(rest);
-    throw new Error(`cannot tell what ${token} holds`);
+    if (operator === "-" || operator === ":-") return read(rest, variables);
+    throw new Unreadable();
   }
-  if (/^\$\w+$/.test(token) || /^\$\$?\([^)]*\)$/.test(token)) return null;
-  throw new Error(`cannot tell what ${token} holds`);
+  if (/^\$\w+$/.test(shell) || /^\$\$?\([^)]*\)$/.test(shell)) return null;
+  throw new Unreadable();
+}
+
+/**
+ * The expression in `text` that starts at `start`: its strings, and its
+ * `shape`, which is the expression with a `"` where each string was. It ends
+ * at a `,` or `;`, at a bracket it did not open, or at the end of its line
+ * unless the line breaks at an operator or before anything has been read.
+ */
+function expressionAt(text: string, start: number) {
+  const strings: { quote: string; inner: string; before: string; after: string }[] = [];
+  let shape = "";
+  let depth = 0;
+  let at = start;
+  while (at < text.length) {
+    const char = text[at];
+    if (char === "/" && text[at + 1] === "/") {
+      while (at < text.length && text[at] !== "\n") at += 1;
+      continue;
+    }
+    if (char === "\n" && depth === 0) {
+      const breaksAtAnOperator =
+        /(?:^|[?:|&+=(])\s*$/.test(shape) || /^\s*[?:|&+.]/.test(text.slice(at));
+      if (!breaksAtAnOperator) break;
+    }
+    if ("\"'`".includes(char)) {
+      let end = at + 1;
+      while (end < text.length && text[end] !== char && (char === "`" || text[end] !== "\n")) {
+        end += text[end] === "\\" ? 2 : 1;
+      }
+      if (text[end] !== char) {
+        throw new Error(`cannot tell where the string in ${text.slice(start, end)} ends`);
+      }
+      strings.push({
+        quote: char,
+        inner: text.slice(at + 1, end),
+        before: shape.trimEnd(),
+        after: "",
+      });
+      shape += '"';
+      at = end + 1;
+      continue;
+    }
+    if (")]}".includes(char) && depth === 0) break;
+    if (depth === 0 && (char === "," || char === ";")) break;
+    if ("([{".includes(char)) depth += 1;
+    if (")]}".includes(char)) depth -= 1;
+    const last = strings.at(-1);
+    if (last && last.after === "" && shape.trimEnd().endsWith('"') && char.trim() !== "") {
+      last.after = char;
+    }
+    shape += char;
+    at += 1;
+  }
+  return { source: text.slice(start, at).trim(), shape: shape.trim(), strings };
+}
+
+/**
+ * The literals an expression in code can come to. A string on its own is one.
+ * In anything longer, a string after `??` or `||` is what the expression is
+ * when the thing before it is missing: a default, and so a literal. An
+ * expression with no string in it is a reference, a call or a type, and holds
+ * none. Any other string (one that is joined to something, a branch of a
+ * conditional, a template with `${` in it) is an error: the scanner cannot
+ * tell, and says so.
+ */
+function codeLiterals(text: string, start: number): string[] {
+  const { source, shape, strings } = expressionAt(text, start);
+  return strings.map(({ quote, inner, before, after }) => {
+    const alone = shape === '"';
+    const aDefault = /(?:\?\?|\|\|)$/.test(before) && (after === "" || "?|)".includes(after));
+    if (!(alone || aDefault) || (quote === "`" && inner.includes("${"))) {
+      throw new Error(`cannot tell what ${source} holds`);
+    }
+    return inner;
+  });
 }
 
 /** Every literal session secret `text` sets, in the order it sets them. */
 function sessionSecrets(text: string, kind: Kind): string[] {
   const variables = kind === "makefile" ? makeVariables(text) : undefined;
   const found: string[] = [];
-  for (const [, operator, raw] of text.matchAll(ASSIGNMENT)) {
+  for (const match of text.matchAll(ASSIGNMENT)) {
+    const [whole, operator, raw] = match;
     const quoted = raw.length >= 2 && "\"'`".includes(raw[0]) && raw.endsWith(raw[0]);
     const inner = quoted ? raw.slice(1, -1) : raw;
     if (kind === "code") {
-      // In code only a string is a literal: a bare value is an expression or
-      // a type, and a template with `${` in it is computed.
-      if (quoted && !(raw[0] === "`" && inner.includes("${"))) found.push(inner);
+      // In code the value is an expression, read from where it starts.
+      found.push(...codeLiterals(text, match.index + whole.length - raw.length));
       continue;
     }
     // Outside code, `NAME, something` is a list in prose or a comment.
@@ -223,6 +321,15 @@ describe("the scanner for session secrets", () => {
     expect(() => sessionSecrets(line, "compose")).toThrow(/cannot tell/);
   });
 
+  it("names the whole of a value it cannot read, not a piece of it", () => {
+    expect(() => sessionSecrets(`      ${S}: \${A:-x}\${B:-y}`, "compose")).toThrow(
+      "cannot tell what ${A:-x}${B:-y} holds",
+    );
+    expect(() => sessionSecrets(`\t${S}=$\${A:-x}$\${B:-y} docker compose up`, "makefile")).toThrow(
+      "cannot tell what $${A:-x}$${B:-y} holds",
+    );
+  });
+
   it.each<[string, string[]]>([
     [`\t${S}=plain-value pnpm run e2e`, ["plain-value"]],
     [`SECRET := followed\nSTACK = ${S}=$(SECRET) docker compose`, ["followed"]],
@@ -230,7 +337,18 @@ describe("the scanner for session secrets", () => {
     // The recipe's shell fills these in when the gate runs.
     [`\t${S}=$$(openssl rand -hex 32) docker compose up`, []],
     [`\t${S}=$$SECRET docker compose up`, []],
+    [`\t${S}=$\${SECRET} docker compose up`, []],
+    [`\t${S}=$\${SECRET:?set a session secret first} docker compose up`, []],
+    [`\t${S}=$\${SECRET?set a session secret first} docker compose up`, []],
     [`STACK = ${S}=$(shell openssl rand -hex 32) docker compose`, []],
+    // `$$` is the shell's `$`, and the shell's default is a value the file holds.
+    [`\t${S}=$\${SECRET:-recipe-default} docker compose up`, ["recipe-default"]],
+    [`\t${S}=$\${SECRET-recipe-default} docker compose up`, ["recipe-default"]],
+    [`\t${S}="$\${SECRET:-recipe-default}" docker compose up`, ["recipe-default"]],
+    [`STACK = ${S}=$\${SECRET:-recipe-default} docker compose`, ["recipe-default"]],
+    [`\t${S}=$\${OUTER:-$\${INNER:-nested}} docker compose up`, ["nested"]],
+    [`\t${S}=$\${SECRET:-$$(openssl rand -hex 32)} docker compose up`, []],
+    [`SECRET := followed\n\t${S}=$\${OVERRIDE:-$(SECRET)} docker compose up`, ["followed"]],
   ])("reads the Makefile text %s", (text, expected) => {
     expect(sessionSecrets(text, "makefile")).toEqual(expected);
   });
@@ -238,6 +356,8 @@ describe("the scanner for session secrets", () => {
   it.each([
     `STACK = ${S}=$(SECRET) docker compose`, // defined nowhere
     `SECRET := $(shell openssl rand -hex 32)\nSTACK = ${S}=$(SECRET) docker compose`,
+    `\t${S}=$\${SECRET:+alternative} docker compose up`,
+    `\t${S}=$\${SECRET:-$(UNDEFINED)} docker compose up`,
   ])("fails on the Makefile variable in %s, which it cannot follow", (text) => {
     expect(() => sessionSecrets(text, "makefile")).toThrow(/cannot tell/);
   });
@@ -253,16 +373,49 @@ describe("the scanner for session secrets", () => {
     [`  env: { "${S}": 'object-value' },`, ["object-value"]],
     [`  "${S}": "json-value"`, ["json-value"]],
     ["  " + S + ": `template-value`,", ["template-value"]],
-    // Not literals: an expression, a type, a computed template, a comparison.
+    // A default in an expression is a literal: it is the value when the other is missing.
+    [`  env: { ${S}: process.env.X ?? "fallback-value", CP_API_URL: url },`, ["fallback-value"]],
+    [`  env: { ${S}: process.env.X || "fallback-value" },`, ["fallback-value"]],
+    [`  ${S}: process.env.X ?? process.env.Y ?? 'last-fallback',`, ["last-fallback"]],
+    [`  ${S}: process.env.X || "first" || "second",`, ["first", "second"]],
+    [`  ${S}: (process.env.X ?? "in-brackets"),`, ["in-brackets"]],
+    [`  ${S}:\n    process.env.X ??\n    "on-the-next-line",`, ["on-the-next-line"]],
+    [`  ${S}: process.env.X\n    ?? "after-the-break",`, ["after-the-break"]],
+    [`vi.stubEnv("${S}", process.env.X ?? "stubbed-fallback");`, ["stubbed-fallback"]],
+    [`const secret = process.env.${S} ?? "read-with-a-fallback";`, ["read-with-a-fallback"]],
+    [`const secret = process.env.${S} || "read-with-a-fallback";`, ["read-with-a-fallback"]],
+    // Not literals: a reference, a call, a type, a comparison, a test.
     [`vi.stubEnv("${S}", STRONG);`, []],
     [`  env: { ${S}: secret },`, []],
+    [`  env: { ${S}: process.env.X },`, []],
+    [`  env: { ${S}: process.env.X ?? other },`, []],
+    [`  env: { ${S}: randomBytes(32).toString(encoding) },`, []],
     [`  ${S}: string;`, []],
-    ["  " + S + ": `${prefix}-computed`,", []],
     [`if (process.env.${S} === "compared-value") {}`, []],
+    [`if (!process.env.${S} || process.env.${S}.length < 32) {}`, []],
     [`const secret = process.env.${S};`, []],
     [`throw new Error("${S} must be set to at least 32 characters");`, []],
   ])("reads the line of code %s", (line, expected) => {
     expect(sessionSecrets(line, "code")).toEqual(expected);
+  });
+
+  it.each([
+    // A string the expression is built from, or may or may not come to.
+    "  " + S + ": `${prefix}-computed`,",
+    "  " + S + ": process.env.X ?? `${prefix}-computed`,",
+    `  ${S}: "joined-" + suffix,`,
+    `  ${S}: process.env.X ?? "joined-" + suffix,`,
+    `  ${S}: strong ? process.env.X : "the-other-branch",`,
+    `  ${S}: process.env["X"] ?? "after-an-index",`,
+    `  ${S}: "never closed,`,
+  ])("fails on the expression in %s, which it cannot classify", (line) => {
+    expect(() => sessionSecrets(line, "code")).toThrow(/cannot tell/);
+  });
+
+  it("names the whole of an expression it cannot classify", () => {
+    expect(() => sessionSecrets(`  ${S}: process.env.X ?? "joined-" + suffix,`, "code")).toThrow(
+      'cannot tell what process.env.X ?? "joined-" + suffix holds',
+    );
   });
 
   it.each<[string, string[]]>([

@@ -291,39 +291,57 @@ def make_variables(text: str) -> dict[str, str]:
 def literal(token: str, variables: dict[str, str] | None = None) -> str | None:
     """The literal a value holds, or None if it holds none.
 
-    `variables` is a Makefile's own, and its presence says the value came from
-    a Makefile; without it the value came from a compose file.
-
     None is a reference the file does not fill in: `${NAME}`, `${NAME:?why}`,
     `$NAME`, a command's output. `${NAME:-x}` and `${NAME-x}` hold `x`: that is
     what the stack runs with when nobody sets `NAME`, which is how a new demo
-    value would arrive. Anything else with a `$` in it raises `CannotTellError`.
+    value would arrive. Anything else with a `$` in it raises `CannotTellError`,
+    which quotes the whole value.
+
+    `variables` is a Makefile's own, and its presence says the value came from
+    a Makefile; without it the value came from a compose file. In a Makefile
+    `$(NAME)` and `${NAME}` are the Makefile's variables, and `$$` is a `$` the
+    recipe hands to its shell: one `$` is taken off and what is left is read as
+    a compose file's value is.
     """
+    try:
+        return _read(token, variables)
+    except _UnreadableError as unreadable:
+        why = f" ({unreadable})" if str(unreadable) else ""
+        raise CannotTellError(f"cannot tell what {token} holds{why}") from None
+
+
+class _UnreadableError(Exception):
+    """Why a value could not be read, without the value: `literal` adds that."""
+
+
+def _read(token: str, variables: dict[str, str] | None) -> str | None:
     if "$" not in token:
         return token
+    shell = token
     if variables is not None:
         if token.startswith("$$"):
-            return None  # the recipe's shell fills it in when the gate runs
-        reference = re.fullmatch(r"\$[({](\w+)[)}]", token)
-        if reference:
-            value = variables.get(reference.group(1))
-            if value is None or "$" in value:
-                raise CannotTellError(f"{token} is not defined as a plain `NAME := value`")
-            return value
-        if re.fullmatch(r"\$\(\w+\s[^)]*\)", token):
-            return None  # a function call, `$(shell ...)`: its output, not a literal
-        raise CannotTellError(token)
-    braced = _BRACED.fullmatch(token)
+            shell = token[1:]
+        else:
+            reference = re.fullmatch(r"\$[({](\w+)[)}]", token)
+            if reference:
+                value = variables.get(reference.group(1))
+                if value is None or "$" in value:
+                    raise _UnreadableError(f"{token} is not defined as a plain `NAME := value`")
+                return value
+            if re.fullmatch(r"\$\(\w+\s[^)]*\)", token):
+                return None  # a function call, `$(shell ...)`: its output, not a literal
+            raise _UnreadableError
+    braced = _BRACED.fullmatch(shell)
     if braced:
         _, operator, rest = braced.groups()
         if operator is None or operator in ("?", ":?"):
             return None
         if operator in ("-", ":-"):
-            return literal(rest)
-        raise CannotTellError(token)
-    if re.fullmatch(r"\$\w+", token) or re.fullmatch(r"\$\$?\([^)]*\)", token):
+            return _read(rest, variables)
+        raise _UnreadableError
+    if re.fullmatch(r"\$\w+", shell) or re.fullmatch(r"\$\$?\([^)]*\)", shell):
         return None
-    raise CannotTellError(token)
+    raise _UnreadableError
 
 
 def database_passwords(text: str, *, makefile: bool = False) -> list[str]:
@@ -410,6 +428,21 @@ def test_the_scanner_fails_on_a_compose_value_it_cannot_read(line):
 
 
 @pytest.mark.parametrize(
+    ("text", "makefile", "value"),
+    [
+        ("      POSTGRES_PASSWORD: ${A:-x}${B:-y}", False, "${A:-x}${B:-y}"),
+        ("    DATABASE_URL: postgresql://u:${A:-x}${B:-y}@postgres/db", False, "${A:-x}${B:-y}"),
+        ("\tX=postgresql://u:$${A:-x}$${B:-y}@localhost/db", True, "$${A:-x}$${B:-y}"),
+    ],
+)
+def test_the_scanner_names_the_whole_of_a_value_it_cannot_read(text, makefile, value):
+    with pytest.raises(CannotTellError) as cannot_tell:
+        database_passwords(text, makefile=makefile)
+
+    assert str(cannot_tell.value) == f"cannot tell what {value} holds"
+
+
+@pytest.mark.parametrize(
     ("text", "expected"),
     [
         ("ENV = TEST_DATABASE_URL=postgresql+psycopg://u:plain@localhost:5434/db", ["plain"]),
@@ -419,8 +452,24 @@ def test_the_scanner_fails_on_a_compose_value_it_cannot_read(line):
         ("PW ?= followed\nENV = X=postgresql://u:$(PW)@localhost/db", ["followed"]),
         # The recipe's shell fills these in when the gate runs.
         ("\tX=postgresql://u:$$PW@localhost/db uv run pytest", []),
+        ("\tX=postgresql://u:$${PW}@localhost/db uv run pytest", []),
+        ("\tX=postgresql://u:$${PW:?set a password first}@localhost/db uv run pytest", []),
+        ("\tX=postgresql://u:$${PW?set a password first}@localhost/db uv run pytest", []),
         ("\tX=postgresql://u:$$(openssl rand -hex 16)@localhost/db uv run pytest", []),
         ("ENV = X=postgresql://u:$(shell openssl rand -hex 16)@localhost/db", []),
+        ("\tPOSTGRES_PASSWORD=$$PW docker compose up", []),
+        ("\tPOSTGRES_PASSWORD=$${PW:?set a password first} docker compose up", []),
+        # `$$` is the shell's `$`, and the shell's default is a value the file holds.
+        ("\tX=postgresql://u:$${PW:-demo}@localhost/db uv run pytest", ["demo"]),
+        ("\tX=postgresql://u:$${PW-demo}@localhost/db uv run pytest", ["demo"]),
+        ("ENV = X=postgresql://u:$${PW:-demo}@localhost/db", ["demo"]),
+        ("\tX=postgresql://u:$${PW}@localhost/db?password=$${PW:-inquery} uv run", ["inquery"]),
+        ("\tPOSTGRES_PASSWORD=$${PW:-demo} docker compose up", ["demo"]),
+        ("\tPOSTGRES_PASSWORD=$${PW-demo} docker compose up", ["demo"]),
+        ('\tPOSTGRES_PASSWORD="$${PW:-demo}" docker compose up', ["demo"]),
+        ("\tPOSTGRES_PASSWORD=$${OUTER:-$${INNER:-nested}} docker compose up", ["nested"]),
+        ("\tPOSTGRES_PASSWORD=$${PW:-$$(openssl rand -hex 16)} docker compose up", []),
+        ("PW := followed\n\tPOSTGRES_PASSWORD=$${OVERRIDE:-$(PW)} docker compose up", ["followed"]),
     ],
 )
 def test_the_scanner_reads_a_makefile(text, expected):
@@ -433,6 +482,8 @@ def test_the_scanner_reads_a_makefile(text, expected):
         "ENV = X=postgresql://u:$(PW)@localhost/db",  # defined nowhere
         "PW := $(shell openssl rand -hex 16)\nENV = X=postgresql://u:$(PW)@localhost/db",
         "PW := $(OTHER)\nOTHER := x\nENV = X=postgresql://u:$(PW)@localhost/db",
+        "\tPOSTGRES_PASSWORD=$${PW:+alternative} docker compose up",
+        "\tPOSTGRES_PASSWORD=$${PW:-$(UNDEFINED)} docker compose up",
     ],
 )
 def test_the_scanner_fails_on_a_makefile_variable_it_cannot_follow(text):
