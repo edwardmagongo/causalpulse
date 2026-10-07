@@ -1821,7 +1821,14 @@ What it does not establish:
 - D1 to D5 detect patterns. A misreading phrased outside a grader's patterns is left to the judge,
   or missed; the labelled sample estimates how much.
 
-Results: see Task 16
+**Status (2026-10-07): built and gated; the paid study is paused.** The harness passed `make check`
+(2,995 passed). The live judge call confirmed the API accepts the judge's reply schema. A pilot of
+five interpretations measured about $0.21 per interpretation, with 40% needing a retry. The full run
+was then stopped when the API account's credit ran low: 41 baseline interpretations over 12 cases are
+stored, all verified, for about $7.26 in all. The variant prompt has not run, nothing has been judged
+or labelled, and so there are no results yet. The stored records are not in the repository; resuming
+is the same `run` command, which skips every stored record. The remaining interpretations and the judge
+are estimated at about $35 and $10 to $20.
 
 ## Web dashboard (sub-project 5)
 
