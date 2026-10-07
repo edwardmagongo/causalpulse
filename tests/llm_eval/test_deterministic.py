@@ -373,6 +373,52 @@ def test_the_probe_tables_other_sentences_are_not_flagged(statement, known):
     assert "D4" not in _categories(statement, known)
 
 
+def test_a_later_quantifier_is_read_when_the_first_has_no_status_word(known):
+    statement = (
+        "Each check targets one assumption; none of the checks for {est.ipw.method} raised "
+        "a concern."
+    )
+    assert _d4(statement, known) == "false"
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "Every check examines one assumption; a flagged problem is discussed below.",
+        "Every check examines one assumption: a flagged problem is discussed below.",
+        "Every check examines one assumption \u2014 a flagged problem is discussed below.",
+        "Every check examines one assumption \u2013 a flagged problem is discussed below.",
+        "Every check examines one assumption -- a flagged problem is discussed below.",
+        "Every check examines one assumption, but a problem in one may recur.",
+        "Every check examines one assumption, and a problem in one may recur.",
+    ],
+    ids=["semicolon", "colon", "em-dash", "en-dash", "double-hyphen", "but", "and"],
+)
+def test_a_status_word_past_a_clause_break_does_not_count(statement, known):
+    assert "D4" not in _categories(statement, known)
+
+
+@pytest.mark.parametrize(
+    ("statement", "truth"),
+    [
+        (f"No check for {_IPW} gave reason for doubt.", "false"),
+        (f"None of the diagnostics for {_IPW} leaves any doubts.", "false"),
+        (f"No check for {_DIM} showed any trouble.", "true"),
+        (f"None of the checks for {_IPW} found anything worrying.", "false"),
+        (f"Every check for {_IPW} was reassuring.", "false"),
+        (f"All the checks for {_IPW} came back okay.", "false"),
+        (f"Every check for {_IPW} did succeed.", "false"),
+        (f"Each check for {_IPW} succeeds.", "false"),
+        (f"Every check for {_IPW} passes.", "false"),
+        (f"Each check for {_DIM} was not checked against the data.", "true"),
+        (f"None of the checks for {_DIM} can be tested from the data.", "true"),
+        (f"None of the checks for {_IPW} can be tested from the data.", "false"),
+    ],
+)
+def test_each_paraphrase_is_read_with_its_polarity(statement, truth, known):
+    assert _d4(statement, known) == truth
+
+
 # D5 ------------------------------------------------------------------------
 
 

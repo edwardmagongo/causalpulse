@@ -260,7 +260,7 @@ def _phrases(*phrases: str) -> re.Pattern[str]:
 # What a negative quantifier denies: "no check raised a concern".
 _PROBLEM = _phrases(
     r"fail\w*", r"warn\w*", r"flag\w*", "problems?", "concerns?", "issues?",
-    "violations?", "alarms?", "cause for doubt",
+    "violations?", "alarms?", "doubts?", r"troubl\w*", r"worr\w*",
 )
 # Untested, as a universal claims it: "every check could not be tested".
 _UNTESTED = _phrases(
@@ -270,14 +270,22 @@ _UNTESTED = _phrases(
 # Passed, as a universal claims it: "every check came back clean".
 _PASSED = _phrases(
     "pass", "passes", "passed", "passing", "cleared", "satisfied", "satisfactory",
-    "clean", "fine", "ok", "okay", "succeed", "succeeds", "succeeded",
+    "clean", "fine", "ok", "okay", "succeed", "succeeds", "succeeded", "reassuring",
+)
+# Testable, as a negative quantifier denies it: "none of the checks can be tested".
+_TESTABLE = _phrases(
+    "testable", "checkable", "can be tested", "can be checked", "could be tested",
+    "could be checked",
 )
 _STATUS_WORD = _phrases("status", "statuses")
 # A quantified check is a status summary only when its own clause says
 # something about status: "each of the checks is listed below" is not one,
 # and neither is "no check can detect confounding, which is the main concern".
-_STATUS_PREDICATES = (_PROBLEM, _PASSED, _UNTESTED, _STATUS_WORD)
-_CLAUSE_BREAK = re.compile(r"[;:\u2014]|,\s+(?:which|but|so|and)\b")
+# A status word after ", and" or ", but" is in the next clause and does not
+# count: the price of not reading "..., and a problem in one may recur" as one.
+_STATUS_PREDICATES = (_PROBLEM, _PASSED, _UNTESTED, _TESTABLE, _STATUS_WORD)
+# Breaks: ";", ":", an em or en dash or "--", and ", which/but/so/and".
+_CLAUSE_BREAK = re.compile(r"[;:\u2014\u2013]|--|,\s+(?:which|but|so|and)\b")
 # The quantifiers that claim no check has the property ("no check failed").
 _NEGATIVE_QUANTIFIERS = frozenset({"no", "none of the", "not a single", "not one of the"})
 _STATUS_FACT = re.compile(r"check\.([a-z0-9_]+)\.[a-z0-9_]+\.status")
@@ -289,6 +297,8 @@ def _summary_truth(quantifier: str, text: str, statuses: list[str]) -> Truth:
     negative = quantifier in _NEGATIVE_QUANTIFIERS
     if negative and _PROBLEM.search(text):
         return "true" if not {"FAIL", "WARN"} & set(statuses) else "false"
+    if negative and _TESTABLE.search(text) and not _UNTESTED.search(text):
+        return "true" if set(statuses) == {"NOT_TESTABLE"} else "false"
     if not negative:
         if _UNTESTED.search(text):
             return "true" if set(statuses) == {"NOT_TESTABLE"} else "false"
@@ -318,11 +328,12 @@ def _status_summary(statement: str, facts: FactTable) -> Iterator[Flag]:
     if any(_STATUS_FACT.fullmatch(c.fact.id) for c in cited):
         return
     text = _masked(statement).lower()
-    match = _QUANTIFIER.search(text)
-    if match is None:
-        return
-    clause = _clause(text, match.start(), match.end())
-    if not any(p.search(clause) for p in _STATUS_PREDICATES):
+    # The first quantifier whose own clause carries a status word.
+    for match in _QUANTIFIER.finditer(text):
+        clause = _clause(text, match.start(), match.end())
+        if any(p.search(clause) for p in _STATUS_PREDICATES):
+            break
+    else:
         return
     methods = {c.fact.id.split(".")[1] for c in cited if c.fact.id.startswith("est.")}
     statuses = [
