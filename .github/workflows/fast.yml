@@ -45,12 +45,17 @@ jobs:
   fast:
     name: Fast suite
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # Hosted runners differ by more than a factor of two on this suite: the same
+    # tree has taken 17 and 35 minutes, and a later one ran past 60 at 93% with
+    # nothing failing. The limit leaves room for a slow one.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
+      # Which machine this is, so that a slow run can be told from a slow suite.
+      - run: lscpu | grep -E 'Model name|^CPU\(s\)|Thread' ; nproc
       - run: uv sync --frozen
       - run: make test-fast WORKERS=4
