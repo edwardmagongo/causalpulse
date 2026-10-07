@@ -238,3 +238,36 @@ def test_a_negation_that_belongs_to_a_comparative_is_not_a_negated_value(known):
     # "can go no higher than" was written by the model during phase 1's calibration.
     statement = "For {est.ipw.method} the band can go no higher than {score.ipw.ceiling}."
     assert "D2" not in _categories(statement, known)
+
+
+_CONTRACTIONS = ("don't", "can't", "won't", "couldn't", "wouldn't", "shouldn't", "hasn't")
+_CONTRACTIONS += ("haven't", "isn't", "wasn't", "aren't", "weren't", "doesn't", "didn't")
+
+
+@pytest.mark.parametrize("apostrophe", ["'", "’"], ids=["straight", "curly"])
+@pytest.mark.parametrize("contraction", _CONTRACTIONS)
+def test_every_contraction_negates_a_cited_value(known, contraction, apostrophe):
+    word = contraction.replace("'", apostrophe)
+    statement = f"The band for {{est.ipw.method}} {word} {{score.ipw.band}}."
+    assert _categories(statement, known) == {"D2"}
+
+
+def test_a_negated_universal_is_flagged_but_undetermined(known):
+    statement = "Not every check for {est.ipw.method} passed."
+    assert _d4(statement, known) == "undetermined"
+
+
+def test_all_is_read_against_the_statuses(known):
+    statement = "All checks for {est.difference_in_means.method} are untested from the data."
+    assert _d4(statement, known) == "true"
+
+
+def test_each_is_read_against_the_statuses(known):
+    assert _d4("Each check for {est.ipw.method} passed.", known) == "false"
+
+
+def test_a_negated_band_comparison_that_is_false_is_flagged(known):
+    statement = (
+        "For {est.ipw.method} the band {score.ipw.band} is no lower than {score.ipw.ceiling}."
+    )
+    assert _categories(statement, known) == {"D1"}

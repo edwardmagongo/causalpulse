@@ -151,8 +151,10 @@ def _comparative(statement: str, facts: FactTable) -> Iterator[Flag]:
 
 _NEGATIONS = frozenset(
     {"not", "no", "never", "neither", "nor", "cannot"}
-    | {"isn't", "wasn't", "aren't", "weren't", "doesn't", "didn't", "don't"}
-    | {"isn’t", "wasn’t", "aren’t", "weren’t", "doesn’t", "didn’t"}
+    | {"isn't", "wasn't", "aren't", "weren't", "doesn't", "didn't", "don't",
+      "can't", "won't", "couldn't", "wouldn't", "shouldn't", "hasn't", "haven't"}
+    | {"isn’t", "wasn’t", "aren’t", "weren’t", "doesn’t", "didn’t", "don’t",
+      "can’t", "won’t", "couldn’t", "wouldn’t", "shouldn’t", "hasn’t", "haven’t"}
 )
 # A value the analysis computed. A name fact is excluded: "no estimate from
 # {route.aipw.estimator}" negates nothing the table states.
@@ -285,7 +287,10 @@ def _status_summary(statement: str, facts: FactTable) -> Iterator[Flag]:
         for f in facts
         if (m := _STATUS_FACT.fullmatch(f.id)) and (len(methods) != 1 or m.group(1) in methods)
     ]
-    truth = _summary_truth(match.group(1), text, statuses)
+    # "not every check passed" is true when any check did not: the flag
+    # stands, but the table cannot call the sentence false.
+    negated = _WORD.findall(text[: match.start()])[-1:] == ["not"]
+    truth = "undetermined" if negated else _summary_truth(match.group(1), text, statuses)
     yield Flag("D4", f"{match.group(0)!r} summarises check statuses without citing one", truth)
 
 
