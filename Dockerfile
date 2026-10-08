@@ -23,6 +23,16 @@ COPY packages ./packages
 RUN uv sync --frozen --no-dev \
     && /app/.venv/bin/python -m compileall -q packages
 
+# What a server needs to run this commit: the production compose file, the
+# override that names the registry's images, the proxy's configuration and
+# the deploy script, laid out as in the repository because the compose file
+# mounts `./deploy/Caddyfile` relative to itself. Nothing in the application
+# reads this directory. A deploy copies it out of the image it has just
+# pulled, so the server needs no access to the repository and a rollback
+# brings back the files along with the code.
+COPY docker-compose.prod.yml /deploy/
+COPY deploy/compose.server.yml deploy/Caddyfile deploy/deploy.sh /deploy/deploy/
+
 # The services run as `app`, uid and gid 10001: a fixed number, so the owner of
 # a mounted volume's files is known in advance. It has no home directory and
 # owns nothing under /app, which it can read and not write.

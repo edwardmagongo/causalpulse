@@ -1,0 +1,12 @@
+# On the server the two images come from the registry, by the commit's SHA,
+# and are never built there. Used with `docker-compose.prod.yml`, after it:
+# `deploy/deploy.sh` is what does that.
+x-app-image: &app-image
+  image: ${CP_IMAGE_REGISTRY:?the registry the images are pulled from}/causalpulse-app:${CP_IMAGE_TAG:?the commit SHA to run}
+
+services:
+  migrate: *app-image
+  api: *app-image
+  worker: *app-image
+  web:
+    image: ${CP_IMAGE_REGISTRY:?the registry the images are pulled from}/causalpulse-web:${CP_IMAGE_TAG:?the commit SHA to run}
