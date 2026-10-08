@@ -47,6 +47,10 @@ dev = [
     # anyway because `anthropic` depends on it; named here because the tests
     # import it directly.
     "httpx2>=2",
+    # tests/test_deploy_files.py reads the server's compose override with it.
+    # It is installed anyway because MLflow, which `cp-cli[tracking]` brings,
+    # depends on it; named here because the test imports it directly.
+    "pyyaml>=6",
 ]
 
 [tool.pytest.ini_options]

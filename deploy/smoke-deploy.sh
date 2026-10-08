@@ -6,22 +6,36 @@
 # it deploys, runs against the local Docker. Five cases, in order:
 #
 #   1. a first deploy, from nothing, brings the stack up healthy;
-#   2. a deploy of a second tag replaces the first;
-#   3. a deploy of the first tag again works, and creates no image;
-#   4. a deploy of a tag whose image is broken fails with status 30, says
-#      which service, and leaves the recorded SHA alone;
-#   5. a deploy whose migration fails ends with status 20 and leaves every
-#      running container the one it was.
+#   2. a deploy of a second tag, whose Caddyfile has one more response
+#      header, replaces the first: the header is served, and the proxy's
+#      container is a new one while Postgres's and Redis's are not;
+#   3. a deploy of the first tag again works, creates no image, and the
+#      header is gone;
+#   4. a deploy of a tag whose worker ends eight seconds after each start,
+#      long enough for Docker to call it healthy in between, fails with
+#      status 30, says which service, leaves the recorded SHA alone, and
+#      leaves the proxy's container, whose Caddyfile did not change, the one
+#      it was;
+#   5. a deploy of the SHA already recorded keeps the images of the SHA
+#      recorded before it and leaves the proxy's container the one it was;
+#      and a deploy whose migration fails ends with status 20 and leaves
+#      every running container the one it was, not restarted.
+#
+# What is not run here: a pull that fails. The script's status 10 and its
+# look for each image after the pull are tested against a stand-in for
+# Docker only (`tests/test_deploy_files.py`), so what the real Compose does
+# when an image cannot be pulled is not established by this gate.
 #
 # Its own compose project and its own image names. The proxy is on 8091 and
 # 8444, the ports `make smoke-prod` uses, so the two do not run together.
+# Nor do two runs of this gate, which share every name: it stops at the
+# start if it finds its containers running, and there is no lock beyond
+# that, so two runs started in the same few seconds are not kept apart.
 # Whatever happens, the project, its volumes, the registry's container, the
 # temporary directory and every image name made here are removed at the end,
-# and nothing else on the machine is named. Two things outlast it or reach
-# past it: the public images it pulled if they were not here (`registry:2`,
-# and the stack's Postgres, Redis and Caddy) stay; and after a deploy that
-# succeeds, `deploy/deploy.sh` removes the machine's images that have no tag
-# at all (`docker image prune -f`), whoever made them.
+# and nothing else on the machine is named. What outlasts it is the public
+# images it pulled if they were not here: `registry:2`, and the stack's
+# Postgres, Redis and Caddy.
 #
 # Not run in CI: it creates the two images, and the minutes are counted.
 set -eu
@@ -36,6 +50,8 @@ local_app=$project-app
 local_web=$project-web
 # Marks the containers made here that belong to no compose project.
 label=causalpulse.gate=deploy-smoke
+# The response header that the second tag's Caddyfile adds.
+header=X-Smoke-Deploy
 
 say() {
     echo "smoke-deploy: $*" >&2
@@ -83,7 +99,9 @@ remove_everything() {
 
 finish() {
     status=$?
-    trap - EXIT INT TERM
+    # A second interrupt does not stop the removal half way.
+    trap - EXIT
+    trap '' INT TERM HUP
     set +e
     say "removing the project, its volumes, the registry and the images made here"
     remove_everything
@@ -95,7 +113,21 @@ finish() {
     fi
     exit "$status"
 }
+
+# Before anything is removed, and before the trap that removes: the names
+# are shared with every other run of this gate, so a run that is going
+# elsewhere would be destroyed by this one's first step and by its last.
+if [ -n "$(docker ps -q --filter "label=com.docker.compose.project=$project")" ] ||
+    [ -n "$(docker ps -q --filter "label=$label")" ]; then
+    say "containers of this gate are running: another run of it is going, or one was killed"
+    say "if none is going, remove them and run this again:"
+    say "  docker rm -f -v \$(docker ps -q --filter label=com.docker.compose.project=$project)"
+    say "  docker rm -f -v \$(docker ps -q --filter label=$label)"
+    exit 1
+fi
+
 trap finish EXIT
+trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
@@ -132,14 +164,29 @@ image_of() {
     docker inspect -f '{{.Config.Image}}' "$id"
 }
 
+# When a service's running container was last started, as Docker gives it.
+started() {
+    id=$(container "$1")
+    [ -n "$id" ] || return 0
+    docker inspect -f '{{.State.StartedAt}}' "$id"
+}
+
+# What a record under the root holds: `current-sha` unless another is named.
 recorded() {
-    [ ! -f "$root/current-sha" ] || cat "$root/current-sha"
+    [ ! -f "$root/${1:-current-sha}" ] || cat "$root/${1:-current-sha}"
 }
 
 # The benchmark study's page, which needs no session: through the proxy,
 # over HTTPS, with the certificate of Caddy's own authority accepted.
 site_status() {
     curl -sk -o /dev/null -w '%{http_code}' --max-time 10 "https://localhost:$https_port/study" || true
+}
+
+# What the site sends in the header the second tag's Caddyfile adds, or
+# nothing. Over HTTP/2 the name arrives in lowercase.
+header_served() {
+    curl -sk -o /dev/null -D - --max-time 10 "https://localhost:$https_port/study" |
+        tr -d '\r' | grep -i "^$header:" | sed 's/^[^:]*: *//' || true
 }
 
 # The site answers 200, now or within a minute.
@@ -224,8 +271,9 @@ mkdir "$root"
     } >"$root/.env"
 )
 
-# Four made-up SHAs. A and B are the working tree's images under two names;
-# C and D are broken on purpose, each in one place.
+# Four made-up SHAs. A is the working tree's images; B is the same with one
+# line more in the Caddyfile its app image carries; C and D are broken on
+# purpose, each in one place.
 sha_a=$(openssl rand -hex 20)
 sha_b=$(openssl rand -hex 20)
 sha_c=$(openssl rand -hex 20)
@@ -244,9 +292,23 @@ say "creating the app and web images from the working tree"
 docker build -t "$local_app:working" .
 docker build -t "$local_web:working" web
 
-# C: the migration and the API work and the worker's process ends as soon as
-# it starts, so the stack comes up and one service is never healthy.
+# B: the Caddyfile the image carries, with one response header added after
+# the line that sets another. The second command fails the build if the
+# first added nothing.
+docker build -q -t "$local_app:caddyfile-changed" - <<EOF >/dev/null
+FROM $local_app:working
+USER root
+RUN sed -i '/X-Content-Type-Options/a header $header "changed"' /deploy/deploy/Caddyfile \\
+    && grep -q '$header' /deploy/deploy/Caddyfile
+USER app
+EOF
+# C: the migration and the API work, and the worker's process ends eight
+# seconds after it starts, each time Docker starts it again. Its health
+# check, which does not look at the process, is first run five seconds in
+# and passes, so the container reads healthy for the seconds in between: a
+# deploy that looked at its health once would take it for well.
 variant "$local_app:worker-broken" /app/packages/cp-worker/src/cp_worker/__main__.py \
+    'import time' 'time.sleep(8)' \
     'raise SystemExit("smoke-deploy: this worker is broken on purpose")'
 # D: the migration's command, in the image's virtual environment, replaced by
 # one that fails.
@@ -255,7 +317,7 @@ variant "$local_app:migration-broken" /app/.venv/bin/cp-api-migrate \
 
 say "pushing four tags of each image, and removing them here so that each deploy pulls"
 publish "$local_app:working" "$registry/causalpulse-app:$sha_a"
-publish "$local_app:working" "$registry/causalpulse-app:$sha_b"
+publish "$local_app:caddyfile-changed" "$registry/causalpulse-app:$sha_b"
 publish "$local_app:worker-broken" "$registry/causalpulse-app:$sha_c"
 publish "$local_app:migration-broken" "$registry/causalpulse-app:$sha_d"
 for sha in "$sha_a" "$sha_b" "$sha_c" "$sha_d"; do
@@ -278,19 +340,44 @@ done
 [ "$(image_of web)" = "$registry/causalpulse-web:$sha_a" ] ||
     failed "web runs '$(image_of web)', not the web image for A"
 site_answers || failed "https://localhost:$https_port/study answered $(site_status), not 200"
+[ -z "$(header_served)" ] || failed "the site sends $header on A, whose Caddyfile does not set it"
+proxy_first=$(container proxy)
+postgres_first=$(container postgres)
+redis_first=$(container redis)
+[ -n "$proxy_first" ] && [ -n "$postgres_first" ] && [ -n "$redis_first" ] ||
+    failed "the proxy, Postgres or Redis has no running container after the first deploy"
 passed "a first deploy from nothing is healthy, on files taken out of the image, and records A"
 
-# ---- 2. A second tag replaces the first ----
+# ---- 2. A second tag, with a changed Caddyfile, replaces the first ----
 number=2
 deploy "$sha_b"
 [ "$deploy_status" -eq 0 ] || failed "the deploy of B ended with status $deploy_status, not 0"
+if [ "$(grep -c "$header" "$root/release/deploy/Caddyfile")" -ne 1 ] ||
+    ! grep -v "$header" "$root/release/deploy/Caddyfile" | cmp -s - deploy/Caddyfile; then
+    failed "B's Caddyfile is not the working tree's with one line more"
+fi
+for file in docker-compose.prod.yml deploy/compose.server.yml deploy/deploy.sh; do
+    cmp -s "$file" "$root/release/$file" || failed "$file out of B's image is not the working tree's"
+done
 [ "$(recorded)" = "$sha_b" ] || failed "current-sha holds '$(recorded)', not B ($sha_b)"
+[ "$(recorded previous-sha)" = "$sha_a" ] ||
+    failed "previous-sha holds '$(recorded previous-sha)', not A ($sha_a)"
 [ "$(image_of api)" = "$registry/causalpulse-app:$sha_b" ] ||
     failed "api runs '$(image_of api)', not the app image for B"
 [ "$(image_of web)" = "$registry/causalpulse-web:$sha_b" ] ||
     failed "web runs '$(image_of web)', not the web image for B"
 site_answers || failed "the site answered $(site_status), not 200, after the deploy of B"
-passed "a deploy of a second tag replaces the first and records B"
+[ "$(header_served)" = changed ] ||
+    failed "the site sends '$(header_served)' in $header, not 'changed': B's Caddyfile is not in use"
+proxy_second=$(container proxy)
+[ -n "$proxy_second" ] && [ "$proxy_second" != "$proxy_first" ] ||
+    failed "the proxy's container is '$proxy_second', and was '$proxy_first' before the Caddyfile changed"
+# Their images and settings are the same in B, so nothing replaces them.
+[ "$(container postgres)" = "$postgres_first" ] ||
+    failed "Postgres's container was replaced by a deploy that changed nothing of its own"
+[ "$(container redis)" = "$redis_first" ] ||
+    failed "Redis's container was replaced by a deploy that changed nothing of its own"
+passed "a deploy of a second tag replaces the first, records B, and serves B's Caddyfile from a new proxy"
 
 # ---- 3. The first tag again: a rollback, and no image is created ----
 number=3
@@ -302,10 +389,17 @@ fi
 [ "$(recorded)" = "$sha_a" ] || failed "current-sha holds '$(recorded)', not A ($sha_a)"
 [ "$(image_of api)" = "$registry/causalpulse-app:$sha_a" ] ||
     failed "api runs '$(image_of api)', not the app image for A"
+[ "$(recorded previous-sha)" = "$sha_b" ] ||
+    failed "previous-sha holds '$(recorded previous-sha)', not B ($sha_b)"
 site_answers || failed "the site answered $(site_status), not 200, after going back to A"
-passed "a deploy of the first tag again works, creates no image and records A"
+[ -z "$(header_served)" ] ||
+    failed "the site still sends $header after going back to A: A's Caddyfile is not in use"
+proxy_third=$(container proxy)
+[ -n "$proxy_third" ] && [ "$proxy_third" != "$proxy_second" ] ||
+    failed "the proxy's container is '$proxy_third', and was '$proxy_second' before the Caddyfile changed back"
+passed "a deploy of the first tag again works, creates no image, records A and serves A's Caddyfile"
 
-# ---- 4. A broken image: fails at the health wait, the record is left alone ----
+# ---- 4. A worker that does not stay up: fails at the health wait ----
 number=4
 deploy "$sha_c" 60
 [ "$deploy_status" -eq 30 ] || failed "the deploy of the broken C ended with status $deploy_status, not 30"
@@ -313,27 +407,48 @@ grep -q '^deploy: not healthy after 60 seconds:.* worker=' "$log" ||
     failed "the deploy did not say that the worker was not healthy"
 [ "$(recorded)" = "$sha_a" ] || failed "current-sha holds '$(recorded)' after a failed deploy, not A ($sha_a)"
 site_answers || failed "the site answered $(site_status), not 200, after the failed deploy"
-passed "a deploy of a broken image ends with status 30, names the worker, and leaves A recorded"
+# C's images are new and its Caddyfile is A's.
+[ "$(container proxy)" = "$proxy_third" ] ||
+    failed "the proxy's container was replaced by a deploy whose Caddyfile did not change"
+# What makes this case the one it claims to be: between two of its ends the
+# worker does read running and healthy, and the deploy refused it all the
+# same. Docker waits longer before each new start, up to a minute.
+tries=0
+until [ "$(docker inspect -f '{{.State.Status}} {{.State.Health.Status}}' "$(container worker)" 2>/dev/null)" = 'running healthy' ]; do
+    tries=$((tries + 1))
+    [ "$tries" -lt 150 ] ||
+        failed "the broken worker never read healthy in 150 seconds, so this case did not test a worker that is healthy and does not stay up"
+    sleep 1
+done
+passed "a deploy whose worker reads healthy and does not stay up ends with status 30, names the worker, and leaves A recorded"
 
-# ---- 5. A failed migration leaves the running containers alone ----
+# ---- 5. The recorded SHA again keeps the previous images; a failed migration changes nothing ----
 number=5
 # First back to a healthy stack, as a person would after case 4. `current-sha`
-# is A already, so this is also the deploy after which only A's images stay.
+# is A already and `previous-sha` is B, so this is a deploy of the SHA
+# already recorded: A's images and B's stay, and C's go.
 deploy "$sha_a"
 [ "$deploy_status" -eq 0 ] || failed "the deploy of A after the broken C ended with status $deploy_status, not 0"
 site_answers || failed "the site answered $(site_status), not 200, before the failing migration"
-for sha in "$sha_b" "$sha_c"; do
-    if docker image inspect "$registry/causalpulse-app:$sha" >/dev/null 2>&1; then
-        failed "the app image for $sha is still here after a deploy that should have removed it"
+[ "$(recorded)" = "$sha_a" ] || failed "current-sha holds '$(recorded)', not A ($sha_a)"
+[ "$(recorded previous-sha)" = "$sha_b" ] ||
+    failed "previous-sha holds '$(recorded previous-sha)' after a deploy of the SHA already recorded, not B ($sha_b)"
+for repository in "$registry/causalpulse-app" "$registry/causalpulse-web"; do
+    if docker image inspect "$repository:$sha_c" >/dev/null 2>&1; then
+        failed "$repository for C is still here after a deploy that should have removed it"
     fi
+    docker image inspect "$repository:$sha_a" >/dev/null 2>&1 ||
+        failed "$repository for A, which is running, was removed"
+    docker image inspect "$repository:$sha_b" >/dev/null 2>&1 ||
+        failed "$repository for B, the SHA recorded before A, was removed"
 done
-docker image inspect "$registry/causalpulse-app:$sha_a" >/dev/null 2>&1 ||
-    failed "the app image for A, which is running, was removed"
+[ "$(container proxy)" = "$proxy_third" ] ||
+    failed "the proxy's container was replaced by a deploy whose Caddyfile did not change"
 before=
 for service in postgres redis api worker web proxy; do
     id=$(container "$service")
     [ -n "$id" ] || failed "$service has no running container before the failing migration"
-    before="$before $service=$id"
+    before="$before $service=$id@$(started "$service")"
 done
 deploy "$sha_d"
 [ "$deploy_status" -eq 20 ] || failed "the deploy of D ended with status $deploy_status, not 20"
@@ -341,10 +456,10 @@ grep -q 'smoke-deploy: this migration fails on purpose' "$log" ||
     failed "the deploy failed before the migration's own command ran"
 after=
 for service in postgres redis api worker web proxy; do
-    after="$after $service=$(container "$service")"
+    after="$after $service=$(container "$service")@$(started "$service")"
 done
 [ "$after" = "$before" ] ||
-    failed "the running containers changed: before:$before after:$after"
+    failed "the running containers changed or were restarted: before:$before after:$after"
 [ "$(recorded)" = "$sha_a" ] || failed "current-sha holds '$(recorded)' after a failed migration, not A ($sha_a)"
 site_answers || failed "the site answered $(site_status), not 200, after the failed migration"
-passed "a failed migration ends with status 20 and leaves every running container the one it was"
+passed "a deploy of the recorded SHA keeps the previous one's images, and a failed migration ends with status 20 and leaves every running container the one it was"

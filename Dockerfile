@@ -28,8 +28,11 @@ RUN uv sync --frozen --no-dev \
 # the deploy script, laid out as in the repository because the compose file
 # mounts `./deploy/Caddyfile` relative to itself. Nothing in the application
 # reads this directory. A deploy copies it out of the image it has just
-# pulled, so the server needs no access to the repository and a rollback
-# brings back the files along with the code.
+# pulled, so the server needs no access to the repository, and a deploy of an
+# older commit runs that commit's script against that commit's compose files.
+# Copying a Caddyfile out does not by itself put it into use: the proxy goes
+# on with the one it started with until its container is replaced, which
+# `deploy/deploy.sh` has Compose do when the file's content has changed.
 COPY docker-compose.prod.yml /deploy/
 COPY deploy/compose.server.yml deploy/Caddyfile deploy/deploy.sh /deploy/deploy/
 
