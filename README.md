@@ -1246,10 +1246,12 @@ An upload is read, checked and analysed in different places, and a file that one
 differently from another is analysed as something its owner did not send. So there is one reader,
 and the dataset built from what it reads refuses, by name, whatever the estimators cannot use.
 
-**The reader** (`cp_core.reading.read_csv`) is the only function that turns the bytes of a CSV
-dataset into a frame. The API's check of an upload, the worker, `causalpulse analyze --data` and
-the replay of a manifest all hand it the file's bytes and pass pandas nothing of their own. It
-differs from pandas' defaults in three ways.
+**The reader** (`cp_core.reading.read_csv`) is the one function that turns the bytes of a dataset
+someone supplies into a frame. The API's check of an upload, the worker, `causalpulse analyze
+--data` and the replay of a manifest all hand it the file's bytes and pass pandas nothing of their
+own. (The evaluation corpus reads this repository's own two fixtures with pandas directly; a test
+holds those two files to read the same either way.) It differs from pandas' defaults in three
+ways.
 
 - **A row with more fields than the header names is refused, naming the line,** whether or not
   the extra field holds anything. pandas reads such a file in more than one way; when the first
