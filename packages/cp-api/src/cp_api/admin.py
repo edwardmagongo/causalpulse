@@ -16,6 +16,7 @@ from collections.abc import Sequence
 
 from cp_api.accounts import AccountError, create_user, issue_key, revoke_key
 from cp_api.db import make_engine, make_sessionmaker
+from cp_api.settings import require_production_settings
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -34,6 +35,7 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    require_production_settings()
     engine = make_engine()
     try:
         with make_sessionmaker(engine)() as session:

@@ -51,9 +51,14 @@ def _parse(content: bytes, nrows: int | None = None) -> pd.DataFrame:
         raise RequestError(422, f"the upload could not be read as CSV: {exc}") from exc
 
 
+def too_large() -> RequestError:
+    """The one refusal of an upload over the limit, whoever notices that it is."""
+    return RequestError(413, f"the upload exceeds the {MAX_UPLOAD_BYTES}-byte limit")
+
+
 def check_upload(content: bytes) -> tuple[str, ...]:
     if len(content) > MAX_UPLOAD_BYTES:
-        raise RequestError(413, f"the upload exceeds the {MAX_UPLOAD_BYTES}-byte limit")
+        raise too_large()
     if not content.strip():
         raise RequestError(422, "the upload is empty")
     frame = _parse(content)

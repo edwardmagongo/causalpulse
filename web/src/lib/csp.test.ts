@@ -16,7 +16,7 @@ function directives(policy: string): Map<string, string[]> {
 
 describe("the Content-Security-Policy", () => {
   it("holds each directive of the design exactly once", () => {
-    expect(contentSecurityPolicy(NONCE, false)).toBe(
+    expect(contentSecurityPolicy(NONCE, false, false)).toBe(
       [
         "default-src 'self'",
         `script-src 'self' 'nonce-${NONCE}' 'strict-dynamic'`,
@@ -30,7 +30,7 @@ describe("the Content-Security-Policy", () => {
         "frame-ancestors 'none'",
       ].join("; "),
     );
-    expect([...directives(contentSecurityPolicy(NONCE, false)).keys()]).toEqual([
+    expect([...directives(contentSecurityPolicy(NONCE, false, false)).keys()]).toEqual([
       "default-src",
       "script-src",
       "style-src",
@@ -46,30 +46,48 @@ describe("the Content-Security-Policy", () => {
 
   it("puts the nonce in script-src and nowhere else", () => {
     for (const development of [false, true]) {
-      const policy = contentSecurityPolicy(NONCE, development);
-      expect(policy.split(NONCE)).toHaveLength(2);
-      for (const [name, sources] of directives(policy)) {
-        expect(sources.includes(`'nonce-${NONCE}'`), name).toBe(name === "script-src");
+      for (const production of [false, true]) {
+        const policy = contentSecurityPolicy(NONCE, development, production);
+        expect(policy.split(NONCE)).toHaveLength(2);
+        for (const [name, sources] of directives(policy)) {
+          expect(sources.includes(`'nonce-${NONCE}'`), name).toBe(name === "script-src");
+        }
       }
     }
   });
 
   it("allows eval only in development", () => {
-    expect(contentSecurityPolicy(NONCE, false)).not.toContain("'unsafe-eval'");
-    for (const [name, sources] of directives(contentSecurityPolicy(NONCE, true))) {
+    expect(contentSecurityPolicy(NONCE, false, false)).not.toContain("'unsafe-eval'");
+    for (const [name, sources] of directives(contentSecurityPolicy(NONCE, true, false))) {
       expect(sources.includes("'unsafe-eval'"), name).toBe(name === "script-src");
+    }
+  });
+
+  it("upgrades insecure requests only in production, once, and changes nothing else", () => {
+    for (const development of [false, true]) {
+      const without = contentSecurityPolicy(NONCE, development, false);
+      const withIt = contentSecurityPolicy(NONCE, development, true);
+      expect(directives(without).has("upgrade-insecure-requests")).toBe(false);
+      // `directives` fails on a name that appears twice; the directive takes no value.
+      expect(directives(withIt).get("upgrade-insecure-requests")).toEqual([]);
+      expect(withIt).toBe(`${without}; upgrade-insecure-requests`);
+      expect(withIt.split("upgrade-insecure-requests")).toHaveLength(2);
     }
   });
 
   it("never allows inline scripts", () => {
     for (const development of [false, true]) {
-      expect(directives(contentSecurityPolicy(NONCE, development)).get("script-src")).not.toContain("'unsafe-inline'");
+      for (const production of [false, true]) {
+        expect(directives(contentSecurityPolicy(NONCE, development, production)).get("script-src")).not.toContain(
+          "'unsafe-inline'",
+        );
+      }
     }
   });
 
   it("gives two policies for two nonces", () => {
-    const one = contentSecurityPolicy("b25l", false);
-    const other = contentSecurityPolicy("dHdv", false);
+    const one = contentSecurityPolicy("b25l", false, false);
+    const other = contentSecurityPolicy("dHdv", false, false);
     expect(one).not.toBe(other);
     expect(one.replace("b25l", "dHdv")).toBe(other);
   });

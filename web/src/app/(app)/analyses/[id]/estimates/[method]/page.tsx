@@ -25,7 +25,7 @@ export default async function ReportPage({
       throw error;
     }
   });
-  if (!loaded.ok) return <Unavailable />;
+  if (!loaded.ok) return <Unavailable failure={loaded} />;
   const { html, reason } = loaded.data;
   return (
     <>

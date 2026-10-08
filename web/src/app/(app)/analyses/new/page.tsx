@@ -8,7 +8,7 @@ export default async function NewAnalysisPage() {
     const [datasets, estimators] = await Promise.all([listDatasets(), listEstimators()]);
     return { datasets: datasets.items, estimators };
   });
-  if (!loaded.ok) return <Unavailable />;
+  if (!loaded.ok) return <Unavailable failure={loaded} />;
   return (
     <>
       <h1 className="title-page">New analysis</h1>

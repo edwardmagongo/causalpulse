@@ -1491,7 +1491,7 @@ All routes are under `/v1`. Every route except `GET /healthz` needs an `Authoriz
 
 | Route | Behaviour |
 |---|---|
-| `POST /datasets` | Multipart CSV, ≤ 50 MB (413 above). Your own copy of the same bytes, uploaded twice, returns the existing row by sha256; another user's identical upload is a separate row. |
+| `POST /datasets` | Multipart CSV, ≤ 50 MB (413 above). The key is checked before any of the body is read (see "Users and API keys"). Your own copy of the same bytes, uploaded twice, returns the existing row by sha256; another user's identical upload is a separate row. |
 | `POST /analyses` | `{dataset_id, schema, estimators?, random_seed}`. Validates the schema via `CausalSchema` and its columns against the CSV header; enqueues; 202 with the id. |
 | `GET /me` | `{name}`: whose key this is. |
 | `GET /estimators` | The estimator catalogue: each name with its family (`cross_sectional`, `panel`, `donor_pool`). A family is a grouping, not a statement about eligibility. |
@@ -1512,6 +1512,31 @@ Every route except `/v1/healthz` needs a key, and every dataset and analysis bel
 whose key created it. Another user's resource answers 404, exactly like one that does not exist.
 A request without a valid key answers 401; the one exception is a request whose body is malformed
 JSON, which answers 422 even with no key, because FastAPI decodes the JSON before it checks the key.
+
+The upload is the other way round. `POST /v1/datasets` checks the key, and then the day's upload
+limit when one is set ("Production stack" below), before it reads any of the body. A missing,
+malformed or revoked key is answered 401, and a user over the limit 429, with the body unsent:
+`tests/services/test_upload_order.py` sends the headers of a 12 MB upload and none of its body,
+over a real socket, and gets the answer. Until this was changed the route read the whole
+multipart body, up to 50 MB, before it looked at the key.
+
+The route also counts the request body as it arrives, which it did not do before: a file part of
+any length used to be written to a temporary file in full before the 413. The bound is on the
+whole body, the 50 MiB limit plus 1 MiB for the form's own framing, 53,477,376 bytes. Past it
+nothing more is kept and the answer is 413 `the upload exceeds the 52428800-byte limit`. The rest
+of the body is read and thrown away for at most a further 50 MiB, so that a client sending a file
+a little too large gets the answer after its request and not in the middle of it; past that the
+API answers anyway. Because the bound is on the body and not on the file, two requests are
+answered differently than before:
+
+| Request | Before | Now |
+|---|---|---|
+| A file within the limit beside other form fields, each field within the parser's own 1 MB, the whole body over the bound | 201, the file stored | 413 `the upload exceeds the 52428800-byte limit` |
+| A body that is not multipart (URL-encoded), with no `file` field, over the bound | 422, FastAPI's `Field required` for `file` | 413, the same message |
+
+The message names the file's limit although the file itself may be small.
+`test_a_body_over_the_bound_is_413_whatever_it_holds` pins both rows. A single field over 1 MB is
+still Starlette's own 400, as before.
 
 ```bash
 docker compose exec api cp-api-admin create-user alice
@@ -1595,13 +1620,15 @@ layer over the core rather than a second implementation of it.
 make check-services  # postgres + redis only, project causalpulse-test, ports 5434/6381
 make smoke           # api and worker built and run, project causalpulse-smoke, ports 5435/6382/8001
 make smoke-web       # whole stack + browser, project causalpulse-web-smoke, 5436/6383/8002/3001
+make smoke-prod      # production stack + browser over HTTPS, project causalpulse-prod-smoke, 8091/8444
 ```
 
-Four separate compose projects exist so none can step on another: the demo stack above
+Five separate compose projects exist so none can step on another: the demo stack above
 (`causalpulse`, ports 8000/5433/6380/3000), `check-services` (`causalpulse-test`, 5434/6381, no
 image build — only `postgres` and `redis`), `smoke` (`causalpulse-smoke`, 5435/6382/8001, `api` and
-`worker` with what they depend on), and `smoke-web` (`causalpulse-web-smoke`, 5436/6383/8002/3001,
-the full stack with the dashboard). `make smoke` names `api` and `worker`, so it neither builds nor
+`worker` with what they depend on), `smoke-web` (`causalpulse-web-smoke`, 5436/6383/8002/3001,
+the full stack with the dashboard), and `smoke-prod` (`causalpulse-prod-smoke`, the production
+compose file, with only its proxy on the host, at 8091 and 8444; see "Production stack"). `make smoke` names `api` and `worker`, so it neither builds nor
 starts `web`. The services tests read `TEST_DATABASE_URL` and `TEST_REDIS_URL`
 exclusively — never the app's own `DATABASE_URL`/`REDIS_URL` — precisely so a developer's local
 `DATABASE_URL` export can never point a test run at the demo stack's database by accident.
@@ -1851,16 +1878,24 @@ because the browser never calls it. The dashboard does not decide whether a key 
 API does, on every call. After a key is revoked, the next page that calls the API gets a 401, clears
 the cookie, and lands on sign-in. The server exits at start-up without `CP_SESSION_SECRET` (at least
 32 characters) and `CP_API_URL`; the compose file sets both, the secret to a local-only value.
+With `CP_ENV=production`, which only the production compose file sets, it also exits on that
+local-only secret and unless `CP_COOKIE_SECURE` is `true` ("Production stack" below).
 
 ### The session gate and the Content-Security-Policy
 
 `web/src/proxy.ts`, the Next.js middleware, runs on every page request. It looks only for the
-session cookie: a request without one is redirected to `/sign-in`. That one path is let through
-without a session; a sub-path of it is gated like any other page. The middleware's matcher leaves
+session cookie: a request without one is redirected to `/sign-in`. Two paths are let through
+without a session, each as that exact path: `/sign-in`, and `/study`, the benchmark explorer,
+whose page calls no API and reads no session. A sub-path of either is gated like any other page.
+The middleware's matcher leaves
 out `/api` and `/sign-out`, each as that path and its sub-paths, and the static files, and nothing
-else, so `/sign-in` is matched. `/api` has to stay out: when the middleware runs on a request,
+else, so `/sign-in` and `/study` are matched and served under the policy. `/api` has to stay out: when the middleware runs on a request,
 Next.js buffers its body and truncates it at 10 MB, which would cut an upload short. The relay
 handlers under `/api` answer 401 themselves when there is no session.
+
+The header goes by the session's key. Signed in, it shows "Analyses", "Benchmark study", "New
+analysis", the user's name and a "Sign out" button. A visitor, who can only be on `/study`, sees
+the "Benchmark study" link and a "Sign in" link to `/sign-in`, and nothing else.
 
 The middleware also sets a Content-Security-Policy on every response it answers, the redirect to
 sign-in included, built in `web/src/lib/csp.ts`:
@@ -1879,9 +1914,10 @@ frame is still granted nothing: no scripts, no forms, no same-origin access. In 
 `script-src` also has `'unsafe-eval'`, which React's development build needs. Because the nonce is
 per request, no page of the dashboard's is prerendered: the root layout waits for the request, so every page is
 rendered per request, sign-in and the 404 page included. The policy is enforced, not report-only,
-and the browser suite fails on any violation of it. `upgrade-insecure-requests` and
-`Strict-Transport-Security` are not set: the stack is served over plain HTTP locally, and both
-belong to hosting (sub-project 6).
+and the browser suite fails on any violation of it. With `CP_ENV=production` the policy ends with
+one more directive, `upgrade-insecure-requests`; without it the policy is the one above, because
+the demo stack is served over plain HTTP. `Strict-Transport-Security` is not the dashboard's to
+set: the production stack's proxy sets it ("Production stack" below).
 
 ### When the API does not answer, and when a page fails
 
@@ -1895,6 +1931,13 @@ response body arrives. A call that outlives it is treated as a refused connectio
 shows its "service is unavailable" state, and a relay handler answers 503 with
 `the service is unavailable`. A relayed download that stalls after its headers were sent is cut
 off at the deadline.
+
+A read the API refuses with 429 is not the service being down, and the page says what the API
+said: the refusal's own sentence, in place of the data, with a "Try again" button. The poll for a
+running analysis shows the sentence followed by "Still checking." and keeps polling at its usual
+lengthening pace. A 429 whose body holds no sentence is shown as "Too many requests. Try again
+later." This matters when rate limits are set: an address over the limit on failed sign-ins is
+answered 429 on every route until its window ends.
 
 A signed-in page that throws anything else shows an error page inside the header: "Something went
 wrong on this page.", "Nothing was changed by this. You can try again.", and a "Try again" button.
@@ -1920,7 +1963,8 @@ refusal is shown verbatim.
 ### The benchmark explorer
 
 `/study`, linked from the header as "Benchmark study", is the published benchmark report
-(`docs/reports/2026-09-26-benchmark-study/`) made explorable, for a signed-in user. It shows the
+(`docs/reports/2026-09-26-benchmark-study/`) made explorable. It is open to visitors: it is the
+one page besides sign-in that needs no session. It shows the
 report's sections in order (overview, findings, methods, CATE, scenario P7, limitations), and in
 Methods an estimator-by-scenario matrix of any headline metric: the six metric families, by
 scenario or by scenario and size, filtered by scenario shape and estimator family, as a heatmap or
@@ -1982,7 +2026,9 @@ make smoke-web   # whole stack + browser; project causalpulse-web-smoke, ports 5
 `pnpm`. `make smoke-web` builds both images, issues two keys of one user inside the container,
 installs Playwright's Chromium, and runs thirteen browser tests: sign-in and a signed-in page each
 served under the policy, with different nonces; a path that is no page, which redirects to sign-in
-without a session and is a 404 under the policy with one; a wrong key and then the issued one;
+without a session, while `/study` alone opens for a visitor, under the policy, with a "Sign in"
+link and no "Sign out", and a sub-path of it redirects, and which is a 404 under the policy with a
+session; a wrong key and then the issued one;
 LaLonde from upload through two estimators to an opened evidence report; Proposition 99 with
 `synthetic_control` through to the end of its analysis; a 12 MB upload; an upload one byte over the
 API's 50 MB limit and one of exactly that size; an upload posted from another origin, which is
@@ -1991,6 +2037,10 @@ it and no sideways scroll; the benchmark study opened from the header, with a fi
 published report found at its estimator and scenario at both levels; the header's "Sign out"
 button; and a revoked key. After every test the suite asserts that the browser's console logged no
 violation of the policy. It tears the stack down afterwards.
+
+`make smoke-prod` runs the same thirteen tests through the production stack's proxy over HTTPS,
+and then eleven more in `web/e2e/production.spec.ts` that only that stack can pass ("Production
+stack" below). `make smoke-web` leaves that file out.
 
 ## On scikit-learn
 
@@ -2020,18 +2070,30 @@ on a laptop and on a runner.
 | | Web | `make check-web` |
 | | Browser | `make smoke-web` |
 | | Stack | `make smoke` |
-| A pull request that changes what it tests, and every push to `main` | Fast suite | `make test-fast WORKERS=4` |
-| Monthly (the 1st, 03:00 UTC), and by hand | Slow tier | `make test-slow SHARD=I/8`, eight shards in parallel |
+| Every push to `main`, and no pull request | Production | `make smoke-prod` |
+| A pull request that changes what it tests, and every push to `main` | Fast suite | `make test-fast WORKERS="$(nproc)"` |
+| Monthly (the 1st, 03:00 UTC), and by hand | Slow tier | `make test-slow SHARD=I/8 SLOW_WORKERS="$(nproc)"`, eight shards in parallel |
 | By hand only | Live model call | `make check-llm` |
 
 The repository is private, so its Actions minutes are counted against a monthly allowance, and
-the shape above is what fits it. The five quick jobs cost about ten billed minutes together (each
-job is rounded up to a whole minute).
-The fast suite costs about 45 minutes on the two-CPU runners a private repository is given, so on
+the shape above is what fits it. The five quick jobs, which are all a pull request runs besides
+the fast suite, cost about ten billed minutes together (each job is rounded up to a whole minute).
+A push to `main` runs a sixth, Production, which builds the images the Browser job has already
+built and runs that job's browser tests a second time before its own, so it is kept off pull
+requests; what it costs has not been measured on a runner. A pull request that changes the
+production stack is checked with `make smoke-prod` on a developer's machine before it is merged,
+by convention, and by that job once it is.
+The fast suite cost about 45 minutes on the two-CPU runners a private repository is given, so on
 a pull request it runs only when the packages, the
-tests, the dependency pins or a committed file the tests check has changed
+tests, the dependency pins or a committed file the tests check or read has changed: the OpenAPI
+document, the study bundle, the published reports, the import contracts, the `Dockerfile`, the
+compose files at the root and the Makefile
 (`.github/workflows/fast.yml` lists the paths); a pull request that touches only the dashboard or
-the documentation does not pay for it. Every push to `main` runs it regardless.
+the documentation does not pay for it. Every push to `main` runs it regardless. The 45 minutes
+were measured with four test workers on two CPUs. The workflows now ask for one worker for each
+CPU the runner reports (`nproc`), for the fast suite and for each slow shard, and neither has
+been timed that way yet. Locally the defaults are unchanged: `auto` for the fast suite and four
+for the slow tier.
 
 GitHub does not enforce branch protection on a private repository under the free plan. Changes
 to `main` go by pull request, merged when its checks are green, by convention and not by a rule
@@ -2041,8 +2103,8 @@ The slow tier is the tests marked `slow` that need no services and no model API.
 test file (`pytest --shard I/N`, a hook in `tests/conftest.py`), each shard keeps its JUnit report
 as an artifact, and a scheduled run in which any shard does not succeed opens an issue naming it.
 Start it by hand with `gh workflow run slow.yml`. On four-core runners one run took about two
-hours and about 170 runner-minutes (it has not been run on the smaller runners of a private
-repository, where it will cost more), set by one file, `tests/causal/test_hierarchical_did_recovery.py`; the other seven
+hours and about 170 runner-minutes, with four workers a shard (it has not been run on the smaller
+runners of a private repository, or with a worker for each CPU, where it will differ), set by one file, `tests/causal/test_hierarchical_did_recovery.py`; the other seven
 shards finish in under 20 minutes. GitHub stops scheduled workflows in a repository with no
 activity for 60 days.
 
@@ -2050,10 +2112,249 @@ The live model call is billed, so it never runs on a schedule or for a pull requ
 repository secret `ANTHROPIC_API_KEY` and is started with `gh workflow run llm-live.yml`.
 
 The interpreter is the one `.python-version` names, 3.13, which is what the suite's thresholds
-were measured on. The Docker image is built from `python:3.12-slim`, so the containers the Stack
-and Browser jobs test run 3.12.
+were measured on. The Docker image is built from `python:3.13-slim`, so the containers the Stack,
+Browser and Production jobs test run 3.13 too, and `tests/test_image.py` fails if the image and
+`.python-version` come to name different versions. Its processes run as a user that is not root
+(`app`, uid 10001), which can read `/app` and cannot write to it; what they write while running
+goes under `/tmp`.
 
 Each `pytest-xdist` worker is given one numerical thread (`ONE_THREAD` in the Makefile). Without
 it, four workers on a four-core Linux runner each open a full set of BLAS and OpenMP threads: the
 fast suite reached 22% in an hour there, and with the cap it finished in about half an hour. macOS
 does not show the problem; the likely reason, not tested, is that numpy uses Accelerate there.
+That was four workers because the workflow then asked for four; it now asks for as many as the
+runner has CPUs, and the cap stays.
+
+## Production stack
+
+`docker-compose.prod.yml` is a second compose file, beside the demo one, for putting the stack on
+one small server on the open internet. It is built and it is tested on a developer's machine
+(`make smoke-prod`, below). It is not deployed: there is no server, no domain and no deploy
+pipeline yet. Those, with backups and a runbook, are the next phase of hosting.
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+The demo file (`docker-compose.yml`) is unchanged, and so is every gate that uses it. The
+production file runs the same services from the same two images and differs in this:
+
+- **One more service, `proxy`, and it is the only one with a port on the host.** The demo file
+  publishes the API, Postgres, Redis and the dashboard; here each is reached over the stack's own
+  network and from nowhere else.
+- **No secret has a default.** Without `POSTGRES_PASSWORD`, `CP_SESSION_SECRET` or
+  `CP_SITE_ADDRESS`, compose stops and names the one that is missing.
+- **`CP_ENV=production`** is set on the API, the worker, the migration and the dashboard, here and
+  nowhere else. Everything it switches on is off without it.
+- **The session cookie is `Secure`** (`CP_COOKIE_SECURE=true`).
+- **The four rate limits are set**, each to a default.
+- **Every long-running service** restarts unless stopped and has a health check; the dashboard
+  waits for the API to be healthy and the proxy for the dashboard. Each service's log is kept to
+  three files of 10 MB.
+- **The worker has 2 GB**, memory and swap together. A fit that grows past it is killed and the
+  worker restarted, and the analysis it held is then treated as any analysis whose worker died
+  ("Backend" above). The
+  figure is twice the largest peak measured for one analysis (1,013 MB, `synthetic_control` with
+  `bsts` on Proposition 99).
+- **Postgres's data and the proxy's certificates are on named volumes.** Redis has none.
+
+### Settings
+
+They come from the environment, which on a server is a file named `.env` beside the compose file.
+`.env.example` lists every name with a comment and no value, and says how to generate the two
+secrets; `.env` itself is ignored by git.
+
+| Name | What it is |
+|---|---|
+| `CP_SITE_ADDRESS` | The site's address, as Caddy reads it. A public name gets a public certificate; `localhost` gets one from Caddy's own local authority. Required. |
+| `POSTGRES_PASSWORD` | The database's password, placed in `DATABASE_URL` as it is, so letters and digits only. Required. |
+| `CP_SESSION_SECRET` | What the dashboard seals its session cookie with, at least 32 characters. Required. |
+| `CP_LIMIT_SIGNIN_FAILURES`, `CP_LIMIT_UPLOADS_PER_DAY`, `CP_LIMIT_ANALYSES_PER_DAY`, `CP_LIMIT_ANALYSES_ACTIVE` | The rate limits, below. Optional. |
+| `CP_HTTP_PORT`, `CP_HTTPS_PORT` | The host ports the proxy listens on. Empty on a server (80 and 443); `make smoke-prod` sets them. |
+
+`DATABASE_URL` and `REDIS_URL` are assembled in the compose file. Redis has no password: it is on
+the stack's network only.
+
+### What the services refuse to start with
+
+With `CP_ENV=production`:
+
+- The API, the worker, the migration and `cp-api-admin` exit before they contact anything if
+  `DATABASE_URL` is unset or cannot be read as a URL, has no password, has a password this
+  repository publishes (the demo stack's, or an empty one), or carries a `password` query
+  parameter, whatever that holds: the driver would use it in preference to the one before the
+  `@`.
+- The dashboard exits if `CP_SESSION_SECRET` is the demo stack's, or if `CP_COOKIE_SECURE` is not
+  `true`.
+
+Each prints one line that names the setting and never its value, and exits non-zero. Compose then
+shows the service restarting, and nothing is served with it. The lists of published values sit
+beside the code that reads each setting, and two tests (`tests/api/test_settings.py`,
+`web/src/lib/startup.test.ts`) read the compose files at the root and the Makefile, and the second
+`web/` too, and fail if a password or session secret written there is missing from its list.
+Without `CP_ENV=production` none of this runs.
+
+The API also stops at start-up, in any environment, on a rate limit whose setting is not a whole
+number greater than zero.
+
+### Rate limits
+
+Counters in Redis, in fixed windows, kept by the API.
+
+| Setting | In the production file | Counts | Per |
+|---|---|---|---|
+| `CP_LIMIT_SIGNIN_FAILURES` | 10 in 15 minutes | requests answered 401 | client address |
+| `CP_LIMIT_UPLOADS_PER_DAY` | 20 | uploads received | user |
+| `CP_LIMIT_ANALYSES_PER_DAY` | 30 | analyses accepted | user |
+| `CP_LIMIT_ANALYSES_ACTIVE` | 3 | the user's analyses queued or running | user |
+
+- **Uploads are counted when received**, after the key is checked and before any of the body is
+  read, and the count is kept whatever becomes of the upload: one refused as too large or as not
+  a CSV, and one that repeats an earlier file, each used one. What the allowance bounds is the
+  reading, and only a count taken first can refuse without it.
+- **Analyses are counted when accepted.** A submission answered 404 or 422, or refused by the
+  active limit, is not one of the day's.
+- **A day is 24 hours from the first request counted**, not a calendar day, and the 15 minutes
+  likewise. A refused request does not push the window's end back.
+- **Failed sign-ins** are every 401 on a `/v1` route, the upload route included, counted against
+  the client's address. An address that has reached the limit is answered 429 on every `/v1`
+  route but the health check, before its key is looked at, for the rest of its 15 minutes: a good
+  key from that address is refused too, and a request that succeeds earlier does not reset the
+  count. The count is read on the way in and added to after the answer, so requests made at the
+  same moment can all be answered before any is counted. That is accepted: a key's secret is 256
+  bits.
+- **The active limit is a count of rows** read when an analysis is submitted, not a counter, so
+  it cannot drift. Before it refuses, the API checks whether any of the user's queued or running
+  analyses has lost its job, marks those failed and counts again; it does not judge one
+  submitted in the last 30 seconds.
+- **A counted submission that then fails keeps its place in the count.** If the insert or the
+  enqueue fails after the analysis was counted, the day's count is not given back.
+- **Per user, not per key.** Two keys of one user share one allowance.
+- **If Redis cannot be reached, or does not answer within half a second, every limit allows the
+  request**, and the API logs that once.
+
+Each limit is off unless its setting is present: the API treats an absent or empty setting as no
+limit, so the demo stack and the other gates have none. The production file sets all four, and
+there an empty value takes the default, so a name left blank in `.env` does not switch a limit
+off. To change one, set its number in `.env` and recreate the API
+(`docker compose -f docker-compose.prod.yml up -d api`).
+
+A refused request is answered 429 with `{"detail": "<sentence>"}` and a `Retry-After` header in
+seconds: the time left in the window, or 60 for the active limit. The sentences:
+
+```
+Too many failed sign-ins from this address. Try again in 12 minutes.
+Too many uploads today for this account. Try again in 3 hours.
+Too many analyses today for this account. Try again in 3 hours.
+This account already has 3 analyses waiting or running. Try again when one has finished.
+```
+
+The wait is in its largest whole unit, rounded up. The dashboard shows the sentence wherever the
+refusal lands (sign-in, the upload, the submission, a page's read, the poll); its upload relay
+passes the status and the body on and not the `Retry-After` header.
+
+### The proxy
+
+Stock Caddy (`caddy:2`, configured by `deploy/Caddyfile`). It obtains and renews the site's
+certificate by itself, redirects HTTP to HTTPS, and passes everything else to the dashboard. It
+adds two headers to every response, relayed downloads included:
+`Strict-Transport-Security: max-age=31536000`, without `includeSubDomains` and without `preload`,
+and `X-Content-Type-Options: nosniff`. It serves HTTP/1.1 and HTTP/2 and not HTTP/3, has its admin
+endpoint off, and writes no access log. Caddy's error log does record the client's address for a request
+that fails with a 5xx; it is kept within the container log's size limit.
+
+- **Published on IPv4 only** (`0.0.0.0:80` and `0.0.0.0:443`). On a Linux server Docker's
+  userland proxy hands an IPv6 connection to the container from the bridge gateway's IPv4
+  address, so every IPv6 visitor would reach Caddy as one client, and the limit on failed
+  sign-ins would lock them all out together. **The site's name must therefore have an A record
+  and no AAAA record.**
+- **It runs as root inside its container**, because the stock image does: it binds 80 and 443 and
+  owns its certificate volume. Every capability is dropped but `NET_BIND_SERVICE`, and it cannot
+  gain a privilege through a setuid binary. One consequence: root without the capability to read
+  past a file's permissions reads `deploy/Caddyfile`, which is mounted from the checkout, only if
+  the file is readable by everyone. **On the server `deploy/Caddyfile` must be world-readable**
+  (mode 644); checked out under a restrictive umask, Caddy could not read its configuration. The other long-running processes
+  of the two application images are not root: the Python image runs as `app` (uid 10001) and the
+  dashboard's as `node`.
+
+### How the client's address reaches the API
+
+Failed sign-ins are counted by address, and the API never sees the browser's connection. Caddy
+sets `X-Forwarded-For` to the peer it accepted the connection from. The dashboard takes the last
+entry of that header and sends it to the API as `X-CP-Client-Address` on every call it makes,
+after removing any header of that name a caller supplied. The API believes the header only with
+`CP_ENV=production`, where nothing but the dashboard can reach it, and only if it parses as an
+address; otherwise, and in every other environment, it uses the connection's own peer.
+
+This assumes exactly one proxy in front of the dashboard. A second one (a CDN, a load balancer)
+would make the last entry that proxy's address: every user would then be one address, and ten
+failed sign-ins by anyone would refuse everyone.
+
+### Upload size
+
+Two bounds, and a user meets the first. The API refuses a file over 50 MiB, and a request body
+over 50 MiB plus 1 MiB, with a 413 and its own sentence
+(`the upload exceeds the 52428800-byte limit`), which the dashboard shows. The proxy refuses a
+body over 64 MB (64,000,000 bytes, above the API's 53,477,376). That is the backstop for a body
+that never ends, which the API alone would go on receiving for as long as the client kept the
+connection open. Caddy's 413 has no body, so if it is ever the one that answers, the dashboard
+shows "the API answered 413".
+
+### What `down -v` and a restart cost
+
+- `docker compose -f docker-compose.prod.yml down` stops the stack and keeps its volumes.
+  **`down -v` removes them, which destroys the database and the certificates.** There is no
+  backup yet.
+- **Redis has no volume, on purpose.** What it holds is lost when its container is restarted: the
+  queue and the limits' counters. An analysis that was queued is then marked failed, with the
+  worker-lost error, the next time it is read, and has to be submitted again; and every limit
+  starts counting again from nothing.
+
+### `/study` is public
+
+The benchmark explorer opens without a session, in this stack and in the demo one. It calls no
+API. Every other page still redirects a visitor to sign-in.
+
+### Testing it
+
+```bash
+make smoke-prod   # production stack + browser over HTTPS; project causalpulse-prod-smoke, ports 8091/8444
+```
+
+It needs Docker, `openssl`, `curl`, Node.js 24 and `pnpm`. It generates both secrets in the
+recipe's shell and writes neither to a file. It brings the stack up three times, each torn down
+with `down -v` whatever happened; a step that fails stops the gate there:
+
+1. **The whole stack**, with `CP_SITE_ADDRESS=localhost:8444` and the limits set low. Then:
+   - `deploy/only-the-proxy-publishes.sh` reads the containers as Docker created them and fails
+     unless `proxy` is the only service with a port on the host and none is on the host's
+     network;
+   - the thirteen tests of `workflow.spec.ts` run through the proxy over HTTPS, with Node
+     trusting the root certificate copied out of the proxy and the browser told to accept it;
+   - the eleven tests of `production.spec.ts` run, whether or not the first run passed: the
+     redirect from HTTP, to the same path and query; the two headers and
+     `upgrade-insecure-requests` on sign-in and on `/study`, and the two headers on a signed-in
+     page and a relayed download; `/study` open to a visitor while another page redirects; the
+     cookie `Secure` and `HttpOnly`; the three limits kept per user each driven to its refusal as
+     a second user, with the API's sentence on the page; a 12 MB upload from a user over the limit, shown
+     that sentence; a 12 MB upload with a revoked key, which lands on sign-in; and failed
+     sign-ins until the address is refused, after which a good key is refused too.
+2. **The dashboard alone, with the demo stack's session secret.** Its log must say so, Docker
+   must have restarted it, and the proxy, started in front of it, must answer with a 5xx.
+3. **The API alone, with the demo stack's database password.** Its log must say so and Docker
+   must have restarted it.
+
+The two browser runs write their traces to separate directories under `web/test-results/`. A
+stack that `production.spec.ts` has run against has spent its limits, so the file cannot be run
+twice against one stack. In CI the gate runs on pushes to `main` only ("Continuous integration"
+above).
+
+### What is not there yet
+
+- A server, a domain, a real certificate, a deploy pipeline, backups and a runbook.
+- A registry for the images: the compose file builds them where it runs.
+- IPv6.
+- Monitoring beyond the health checks.
+
+`docs/specs/2026-10-07-hosting-phase2-production-stack-design.md` section 13 records what changed
+while building it, and what is left open.

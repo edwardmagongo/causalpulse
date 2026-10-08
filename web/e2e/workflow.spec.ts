@@ -136,8 +136,26 @@ test("sign-in and a signed-in page each carry the policy, with a nonce of their 
   expect(second).not.toBe(first);
 });
 
-test("a path that is no page redirects signed out, and is a 404 under the policy signed in", async ({ page }) => {
+test("a path that is no page redirects signed out, the study alone opens, and signed in it is a 404 under the policy", async ({ page }) => {
   await page.goto("/sign-in/nope");
+  await expect(page).toHaveURL(/\/sign-in$/);
+
+  // The benchmark study is the one page a visitor is let into, under the policy like any other.
+  const study = await page.goto("/study");
+  await expect(page).toHaveURL(/\/study$/);
+  expect(study?.status()).toBe(200);
+  expect(scriptNonce(study?.headers() ?? {})).not.toBe("");
+  await expect(page.getByRole("heading", { name: "Findings", exact: true })).toBeVisible();
+  const header = page.getByRole("banner");
+  await expect(header.getByRole("link", { name: "Benchmark study", exact: true })).toBeVisible();
+  await expect(header.getByRole("link", { name: "Sign in", exact: true })).toHaveAttribute("href", "/sign-in");
+  // Counted, not looked for by text: the visitor's header has no button at all, and two links.
+  await expect(header.getByRole("button")).toHaveCount(0);
+  await expect(header.getByRole("link")).toHaveCount(2);
+  await expect(page.getByText("Sign out")).toHaveCount(0);
+  await page.waitForLoadState("networkidle");
+  // A sub-path of it is gated like any other page.
+  await page.goto("/study/nope");
   await expect(page).toHaveURL(/\/sign-in$/);
 
   await signIn(page, KEY);

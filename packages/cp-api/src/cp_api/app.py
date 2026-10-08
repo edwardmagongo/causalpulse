@@ -8,24 +8,30 @@ the API can refuse with `cp_core` alone it refuses here (see
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
 import uuid
-from datetime import datetime
+from collections.abc import AsyncIterator
+from datetime import datetime, timedelta
 from typing import Annotated, Any
 
 from cp_core.catalogue import catalogue
-from fastapi import FastAPI, File, HTTPException, Query, Request, Response, UploadFile
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, UploadFile
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 from redis import Redis
 from redis.exceptions import RedisError
 from rq import Queue
 from rq.exceptions import NoSuchJobError
 from rq.job import Job, JobStatus
-from sqlalchemy import select, text, tuple_
+from sqlalchemy import func, select, text, tuple_
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
+from starlette.datastructures import FormData
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.types import Message
 
 from cp_api import models, validation
 from cp_api.auth import CurrentUser
@@ -44,7 +50,16 @@ from cp_api.db import (
     utcnow,
 )
 from cp_api.deps import SessionDep
+from cp_api.limits import (
+    FixedWindow,
+    LimitExceededError,
+    Limits,
+    SigninFailures,
+    limiter_redis,
+    limits_from_environment,
+)
 from cp_api.pagination import DEFAULT_LIMIT, MAX_LIMIT, decode_cursor, encode_cursor
+from cp_api.settings import require_production_settings
 from cp_api.validation import RequestError, check_analysis_request, check_upload, csv_header
 
 WORKER_LOST = "worker lost: the job ended without recording a result"
@@ -55,6 +70,21 @@ QUEUE_DOWN = (
     "queued; submit it again"
 )
 _LOST = {JobStatus.FAILED, JobStatus.STOPPED, JobStatus.CANCELED}
+# How old an analysis must be before a submission's lost-job check will judge
+# it (`create_analysis`). An analysis has a row before it has a job: the row is
+# committed and then the job is enqueued, and in between it looks exactly like
+# one whose job is lost. `created_at` is PostgreSQL's `now()`, which is when
+# the submitting request's transaction began, so the span to cover is longer
+# than commit to enqueue. It runs from just after that request's key was
+# checked: reading the dataset (up to 50 MB), checking the request, the day's
+# count (the limiter gives up on a Redis that hangs after about a second), the
+# insert, the commit and the enqueue. None of these waits on a person, and
+# half a minute allows for a loaded machine and for any difference between
+# the database's clock and this process's, which `utcnow` reads. It costs
+# little: a job that really is lost holds its place this long at most (give or take
+# the difference between the API's clock and the database's), and a
+# refused client is told to wait longer than that (`ACTIVE_RETRY_SECONDS`).
+SUBMISSION_GRACE = timedelta(seconds=30)
 
 
 class AnalysisRequest(BaseModel):
@@ -85,16 +115,184 @@ def _job_lost(redis: Redis, analysis_id: uuid.UUID) -> bool:
     return job.get_status() in _LOST
 
 
+# `POST /v1/datasets` reads its own form (see `uploaded_file`), so FastAPI does
+# not know the route has a body. This is what it wrote in the OpenAPI document
+# while the route declared `file: UploadFile`, under the name it gave it; the
+# dashboard's types are generated from the document.
+UPLOAD_BODY_NAME = "Body_upload_dataset_v1_datasets_post"
+UPLOAD_BODY_SCHEMA: dict[str, Any] = {
+    "properties": {
+        "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string",
+        }
+    },
+    "required": ["file"],
+    "title": UPLOAD_BODY_NAME,
+    "type": "object",
+}
+UPLOAD_REQUEST_BODY: dict[str, Any] = {
+    "content": {
+        "multipart/form-data": {"schema": {"$ref": f"#/components/schemas/{UPLOAD_BODY_NAME}"}}
+    },
+    "required": True,
+}
+# What a request body may hold besides the file itself: the multipart
+# boundaries and the part's headers, generously.
+FORM_OVERHEAD_BYTES = 1024 * 1024
+_UPLOAD_FIELD = TypeAdapter(UploadFile)
+
+
+def upload_allowance(request: Request, user: CurrentUser, session: SessionDep) -> User:
+    """The caller, once the key and the day's upload limit have let the upload in.
+
+    Taken before the upload is read and kept whatever becomes of it: what the
+    allowance bounds is the reading and parsing, which a refused or repeated
+    upload costs as well.
+    """
+    state = request.app.state
+    # Deliberately before the body, and so before the file is known to be valid:
+    # what an upload costs is the read, and only a count taken first can refuse
+    # without it. An analysis is counted when it is accepted (`create_analysis`).
+    state.limit_window.require(f"uploads:{user.id}", state.uploads_per_day)
+    # Checking the key left a transaction open, and with it a pooled connection.
+    # The body is read next and a slow client can take minutes over it, so the
+    # connection goes back first; the route's own queries take one again.
+    session.commit()
+    return user
+
+
+UploadingUser = Annotated[User, Depends(upload_allowance)]
+
+
+async def _form(request: Request) -> FormData:
+    """The request's form, read from a body that is refused if it is too long.
+
+    Starlette's parser keeps a file part of any length in a temporary file,
+    so the length is counted here as the body arrives. A body over the bound
+    is read on and thrown away, so the client gets its 413 after sending the
+    whole request, as it does for a file just over the limit; but only for a
+    further `MAX_UPLOAD_BYTES`. Past that this stops reading, after at most one
+    message more, and the 413 is answered to a client that is still sending.
+    That ends the request: no task, temporary file or database connection is
+    left with it. It does not
+    close the connection. uvicorn goes on taking what such a client sends,
+    discarding it, for as long as the client keeps the connection open.
+
+    In size the bound is the API's own: of any body the app reads the bound
+    and as much again as a file may be, and keeps none of what is over the
+    bound. In time the API has no bound: a body that arrives slowly is waited
+    for as long as it keeps arriving, and a connection answered early is held
+    as long as its client holds it. That bound is the deployment's. In
+    production only the dashboard reaches the API, behind the proxy, and it
+    gives an upload 600 seconds (`UPLOAD_DEADLINE_MS` in `web/`).
+    """
+    bound = validation.MAX_UPLOAD_BYTES + FORM_OVERHEAD_BYTES
+    drained = bound + validation.MAX_UPLOAD_BYTES
+    seen = 0
+
+    async def receive() -> Message:
+        nonlocal seen
+        message = await request.receive()
+        if message["type"] == "http.request":
+            seen += len(message.get("body", b""))
+            if seen > bound:
+                while (
+                    message["type"] == "http.request"
+                    and message.get("more_body", False)
+                    and seen <= drained
+                ):
+                    message = await request.receive()
+                    seen += len(message.get("body", b""))
+                raise validation.too_large()
+        return message
+
+    try:
+        return await Request(request.scope, receive).form()
+    except (StarletteHTTPException, RequestError):
+        raise
+    except Exception as exc:
+        # What FastAPI answers when it reads a declared body and cannot.
+        raise HTTPException(400, "There was an error parsing the body") from exc
+
+
+def _file_field(form: FormData) -> UploadFile:
+    """The form's `file`, or the 422 FastAPI gave when the route declared the field."""
+    value = form.get("file")
+    if value is None or value == "":
+        raise RequestValidationError(
+            [{"type": "missing", "loc": ("body", "file"), "msg": "Field required", "input": None}]
+        )
+    try:
+        return _UPLOAD_FIELD.validate_python(value)
+    except ValidationError as exc:
+        raise RequestValidationError(
+            [
+                {**error, "loc": ("body", "file", *error["loc"])}
+                for error in exc.errors(include_url=False)
+            ]
+        ) from exc
+
+
+async def uploaded_file(request: Request, user: UploadingUser) -> AsyncIterator[UploadFile]:
+    """The uploaded file. Nothing of the body is read until `user` is resolved.
+
+    FastAPI reads a body the route declares before it runs the route's
+    dependencies, so a route declaring `file: UploadFile` would read up to
+    50 MB before looking at the key. This reads the form itself, and depends
+    on the key and the upload limit so that both come first.
+    """
+    form = await _form(request)
+    try:
+        yield _file_field(form)
+    finally:
+        await form.close()
+
+
+# Module scope, like SessionDep: a local alias breaks under postponed annotations.
+UploadedFile = Annotated[UploadFile, Depends(uploaded_file)]
+
+
 def create_app(
-    sessions: sessionmaker[Session] | None = None, redis: Redis | None = None
+    sessions: sessionmaker[Session] | None = None,
+    redis: Redis | None = None,
+    limits: Limits | None = None,
 ) -> FastAPI:
+    if sessions is None:
+        # The server's own start: uvicorn calls this factory before it listens.
+        # The check sits on the path that reads `DATABASE_URL`, so an app given
+        # its sessions (the tests, `cp-api-openapi`) is not asked for one.
+        require_production_settings()
+        sessions = make_sessionmaker(make_engine())
     app = FastAPI(title="CausalPulse")
-    app.state.sessions = sessions if sessions is not None else make_sessionmaker(make_engine())
-    queue_redis = redis if redis is not None else Redis.from_url(os.environ["REDIS_URL"])
+    app.state.sessions = sessions
+    if redis is None:
+        queue_redis = Redis.from_url(os.environ["REDIS_URL"])
+        # The limiter's own client, with short timeouts the queue's is not held to.
+        limit_redis = limiter_redis(os.environ["REDIS_URL"])
+    else:
+        # A client handed in (the tests) serves both, with whatever timeouts it has.
+        queue_redis = limit_redis = redis
+    # Every limit is off unless its setting is present (see `cp_api.limits`).
+    if limits is None:
+        limits = limits_from_environment()
+    window = FixedWindow(limit_redis)
+    if limits.signin_failures is not None:
+        app.add_middleware(SigninFailures, window=window, limit=limits.signin_failures)
+    # Read by `upload_allowance`, which is at module scope as `get_session` is.
+    app.state.limit_window = window
+    app.state.uploads_per_day = limits.uploads_per_day
+    analyses_per_day = limits.analyses_per_day
+    analyses_active = limits.analyses_active
 
     @app.exception_handler(RequestError)
     async def _refused(request: Request, exc: RequestError) -> JSONResponse:
         return JSONResponse(status_code=exc.status_code, content={"detail": exc.message})
+
+    @app.exception_handler(LimitExceededError)
+    async def _limited(request: Request, exc: LimitExceededError) -> JSONResponse:
+        return exc.response()
 
     async def _unavailable(request: Request, exc: Exception) -> JSONResponse:
         return JSONResponse(
@@ -142,13 +340,33 @@ def create_app(
         """Mark an in-flight analysis `failed` when its job is gone (spec §11.4).
 
         Shared by the single read and the list, so a dead job never shows as
-        `running` in one and `failed` in the other.
+        `running` in one and `failed` in the other; and by a submission the
+        active limit is about to refuse, so a dead job does not hold a place.
         """
         if analysis.status in ("queued", "running") and _job_lost(queue_redis, analysis.id):
             analysis.status = "failed"
             analysis.error = WORKER_LOST
             analysis.finished_at = utcnow()
             session.commit()
+
+    active_statuses = ("queued", "running")
+
+    def _active_count(session: Session, user: User) -> int:
+        count = session.scalar(
+            select(func.count())
+            .select_from(Analysis)
+            .where(Analysis.owner_id == user.id, Analysis.status.in_(active_statuses))
+        )
+        return count or 0
+
+    def _active_rows(session: Session, user: User) -> list[Analysis]:
+        return list(
+            session.scalars(
+                select(Analysis).where(
+                    Analysis.owner_id == user.id, Analysis.status.in_(active_statuses)
+                )
+            )
+        )
 
     @app.get("/v1/me", response_model=models.Me)
     def read_me(user: CurrentUser) -> dict[str, Any]:
@@ -211,11 +429,17 @@ def create_app(
             "columns": list(csv_header(dataset.csv)),
         }
 
-    @app.post("/v1/datasets", status_code=201, response_model=models.DatasetUploaded)
+    @app.post(
+        "/v1/datasets",
+        status_code=201,
+        response_model=models.DatasetUploaded,
+        openapi_extra={"requestBody": UPLOAD_REQUEST_BODY},
+    )
     def upload_dataset(
         user: CurrentUser,
         response: Response,
-        file: Annotated[UploadFile, File()],
+        # Not a declared body: the key and the limits are checked before it is read.
+        file: UploadedFile,
         session: SessionDep,
     ) -> dict[str, Any]:
         content = file.file.read(validation.MAX_UPLOAD_BYTES + 1)
@@ -297,12 +521,42 @@ def create_app(
     def create_analysis(
         user: CurrentUser, body: AnalysisRequest, session: SessionDep
     ) -> dict[str, Any]:
+        # A count of rows, not a counter, so it cannot drift: an analysis stops
+        # counting when its status changes, however that happens.
+        if (
+            analyses_active is not None
+            and _active_count(session, user) >= analyses_active.count
+        ):
+            # A job that died with its worker still counts until something
+            # reads it. A client that only submits never does, so before
+            # refusing, the caller's active rows are checked as a read would
+            # check them, and counted again. If Redis cannot say whether the
+            # jobs are lost, the rows stand. So does a row too new to judge:
+            # another submission of the caller's, made at the same time, has
+            # its row before it has its job (see `SUBMISSION_GRACE`). The
+            # reads have no such exception.
+            with contextlib.suppress(RedisError):
+                settled = utcnow() - SUBMISSION_GRACE
+                for active in _active_rows(session, user):
+                    if active.created_at <= settled:
+                        _fail_if_lost(session, active)
+            if _active_count(session, user) >= analyses_active.count:
+                raise LimitExceededError(analyses_active, analyses_active.window_seconds)
         dataset = session.scalars(
             select(Dataset).where(Dataset.id == body.dataset_id, Dataset.owner_id == user.id)
         ).one_or_none()
         if dataset is None:
             raise HTTPException(404, f"no dataset {body.dataset_id}")
         check_analysis_request(body.causal_schema, csv_header(dataset.csv), body.estimators)
+        # Counted here, when nothing is left that can refuse the request, so a
+        # submission answered 404, 422 or 429 above is not one of the day's.
+        # Refuse, not fail: an insert or an enqueue that then fails keeps its
+        # place in the day's count. That is rare (and a Redis that is down
+        # fails the count open as well), and the place is neither given back
+        # nor needs to be.
+        # Counted and judged in one step (`FixedWindow.hit`), before the row
+        # exists: one refused here leaves no row and no job.
+        window.require(f"analyses:{user.id}", analyses_per_day)
         analysis = Analysis(
             owner_id=user.id,
             dataset_id=dataset.id,
@@ -428,4 +682,13 @@ def create_app(
         queue_redis.ping()
         return {"postgres": "ok", "redis": "ok"}
 
+    generated = app.openapi
+
+    def openapi() -> dict[str, Any]:
+        # FastAPI builds the document once and returns the same one afterwards.
+        document = generated()
+        document["components"]["schemas"].setdefault(UPLOAD_BODY_NAME, UPLOAD_BODY_SCHEMA)
+        return document
+
+    app.openapi = openapi  # type: ignore[method-assign]
     return app

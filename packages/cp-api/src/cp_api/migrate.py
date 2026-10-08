@@ -8,6 +8,7 @@ from alembic import command
 from alembic.config import Config
 
 from cp_api.db import database_url
+from cp_api.settings import require_production_settings
 
 
 def alembic_config(url: str) -> Config:
@@ -27,4 +28,5 @@ def downgrade(url: str, revision: str = "base") -> None:
 
 
 def main() -> None:
+    require_production_settings()
     upgrade(database_url())

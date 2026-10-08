@@ -1,0 +1,203 @@
+# The production stack: the demo file's services behind a TLS reverse proxy,
+# for one small server on the open internet.
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Its settings come from the environment, which on a server is a `.env` file
+# beside this one; `.env.example` lists every name. Neither secret has a
+# default here: without one, compose stops and names it.
+#
+# Only `proxy` has a port on the host. Every other service is reached over
+# the stack's own network and from nowhere else, which is what lets the API
+# believe the client address the dashboard passes it.
+#
+# `CP_ENV: production` is set here and nowhere else. With it the API, the
+# worker, the migration and the dashboard exit at start-up on a secret this
+# repository publishes, and the dashboard on a cookie that is not `Secure`.
+#
+# WARNING: `down -v` removes the volumes, which destroys the database and the
+# certificates. `down` alone stops the stack and keeps both.
+name: causalpulse-prod
+
+x-app-environment: &app-environment
+  CP_ENV: production
+  # The password is placed in a URL as it is, so it must need no escaping
+  # there: `.env.example` says how to generate one that does not.
+  DATABASE_URL: "postgresql+psycopg://causalpulse:${POSTGRES_PASSWORD:?set it in the environment file, see .env.example}@postgres:5432/causalpulse"
+  # No password: Redis is on the stack's network only, with no port on the host.
+  REDIS_URL: redis://redis:6379/0
+
+# Every service's log is kept to three files of 10 MB, so that a small disk
+# is not filled by logs.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
+x-app: &app
+  build: .
+  image: ${COMPOSE_PROJECT_NAME:-causalpulse-prod}-app
+  environment: *app-environment
+  logging: *logging
+
+# How often each long-running service is asked whether it is well. A failure
+# in the first half minute is a service still starting and is not counted.
+x-check: &check
+  interval: 5s
+  timeout: 5s
+  retries: 12
+  start_period: 30s
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: causalpulse
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set it in the environment file, see .env.example}
+      POSTGRES_DB: causalpulse
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    logging: *logging
+    healthcheck:
+      <<: *check
+      # Over TCP to 127.0.0.1 inside the container, as the configured user and
+      # database (the flags below). While the image's entrypoint
+      # initialises a new volume it runs a temporary server that listens on
+      # the unix socket only and is then stopped; asked over the socket, the
+      # check would pass during that, and the migration would start against a
+      # server about to go away.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U causalpulse -d causalpulse"]
+
+  # Redis 7 and no older: the limiter's counters use `EXPIRE ... NX`.
+  #
+  # No volume, on purpose: what Redis holds is lost when its container is
+  # restarted. That is the queue and the day's counters. An analysis that was
+  # queued is then marked failed, with the worker-lost error, the next time it
+  # is read, and has to be submitted again; and every limit starts counting
+  # again from nothing.
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    logging: *logging
+    healthcheck:
+      <<: *check
+      test: ["CMD", "redis-cli", "ping"]
+
+  # Runs once and exits. The API and the worker start only if it succeeded.
+  migrate:
+    <<: *app
+    command: ["cp-api-migrate"]
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  api:
+    <<: *app
+    command: ["uvicorn", "--factory", "cp_api.app:create_app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      <<: *app-environment
+      # The rate limits, which only the API reads. An empty value takes the
+      # default as an absent one does, so a name left blank in the
+      # environment file does not switch a limit off.
+      CP_LIMIT_SIGNIN_FAILURES: ${CP_LIMIT_SIGNIN_FAILURES:-10}
+      CP_LIMIT_UPLOADS_PER_DAY: ${CP_LIMIT_UPLOADS_PER_DAY:-20}
+      CP_LIMIT_ANALYSES_PER_DAY: ${CP_LIMIT_ANALYSES_PER_DAY:-30}
+      CP_LIMIT_ANALYSES_ACTIVE: ${CP_LIMIT_ANALYSES_ACTIVE:-3}
+    restart: unless-stopped
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+    healthcheck:
+      <<: *check
+      # The image has no curl. The route asks Postgres and Redis, and
+      # `urlopen` raises on its 503.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/v1/healthz', timeout=3)"]
+
+  worker:
+    <<: *app
+    command: ["python", "-m", "cp_worker"]
+    # RQ moves a dead worker's job to FAILED only when a live worker cleans
+    # its registries, so a worker that dies must come back.
+    restart: unless-stopped
+    # A fit that grows without bound is killed and the worker restarted, and
+    # the machine is not taken with it. Twice the largest peak measured for
+    # one analysis (1,013 MB, `synthetic_control` with `bsts` on Proposition
+    # 99); it leaves the whole stack at about 2.6 GB of a 4 GB machine.
+    mem_limit: 2g
+    # The same figure: memory and swap together. Without it the container may
+    # use as much swap again, and the limit is in effect doubled.
+    memswap_limit: 2g
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+    healthcheck:
+      <<: *check
+      # The worker listens on nothing, and when its process ends the
+      # container stops, which `restart` answers. What this adds is whether
+      # the container can still reach Redis, without which it takes no job.
+      test: ["CMD", "python", "-c", "import os, redis; redis.Redis.from_url(os.environ['REDIS_URL'], socket_timeout=3).ping()"]
+
+  web:
+    build: ./web
+    image: ${COMPOSE_PROJECT_NAME:-causalpulse-prod}-web
+    environment:
+      CP_ENV: production
+      CP_API_URL: http://api:8000
+      CP_SESSION_SECRET: ${CP_SESSION_SECRET:?set it in the environment file, see .env.example}
+      CP_COOKIE_SECURE: "true"
+    restart: unless-stopped
+    logging: *logging
+    depends_on:
+      api: {condition: service_healthy}
+    healthcheck:
+      <<: *check
+      # The image has no curl. The sign-in page is served without a session
+      # and calls no API.
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/sign-in').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+
+  proxy:
+    image: caddy:2
+    environment:
+      CP_SITE_ADDRESS: ${CP_SITE_ADDRESS:?set it in the environment file, see .env.example}
+      CP_HTTPS_PORT: ${CP_HTTPS_PORT:-443}
+    # 80 and 443 on a server. The gate moves both, to run beside whatever
+    # holds them on the machine; the HTTPS port is the same number inside and
+    # outside, because it is also the port the site's address names.
+    #
+    # On IPv4 only. On a Linux server Docker's userland proxy hands an IPv6
+    # connection to the container from the bridge gateway's IPv4 address, so
+    # every IPv6 visitor would reach Caddy as one client, and the limit on
+    # failed sign-ins would lock them all out together. The site's name must
+    # therefore have no AAAA record (`.env.example`).
+    ports:
+      - "0.0.0.0:${CP_HTTP_PORT:-80}:80"
+      - "0.0.0.0:${CP_HTTPS_PORT:-443}:${CP_HTTPS_PORT:-443}"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # The certificates and the account they were issued to. Losing this
+      # volume means asking for every certificate again.
+      - caddy-data:/data
+    restart: unless-stopped
+    logging: *logging
+    # Root inside its container: this is the stock image, which runs as root,
+    # binds 80 and 443 and owns its certificate volume. What root is left
+    # able to do is cut down to one capability, binding a port below 1024;
+    # it cannot change a file's owner, read past a file's permissions, change
+    # user, or gain a privilege through a setuid binary. Its own files it can
+    # still write, being their owner: a named volume is created root-owned.
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      web: {condition: service_healthy}
+    healthcheck:
+      <<: *check
+      # That Caddy is listening for HTTPS, and not that it holds a
+      # certificate: its admin endpoint is off, and a request by name would
+      # need the site's name to resolve from inside the container.
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 $$CP_HTTPS_PORT"]
+
+volumes:
+  postgres-data:
+  caddy-data:

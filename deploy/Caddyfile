@@ -1,0 +1,46 @@
+# The production stack's reverse proxy: the one service with a port on the host
+# (`docker-compose.prod.yml`). Stock Caddy; it obtains and renews the site's
+# certificate by itself and redirects HTTP to HTTPS without being told to.
+#
+# Both settings come from the compose file, which never leaves either empty:
+# an empty `CP_HTTPS_PORT` is a parse error here, not the default.
+{
+	# Nothing reloads this configuration while it runs, so nothing needs the
+	# endpoint that would.
+	admin off
+	# 443 on a server. The gate listens elsewhere, so it can run beside
+	# whatever already holds 443 on the machine.
+	https_port {$CP_HTTPS_PORT:443}
+	# HTTP/1.1 and HTTP/2, and no HTTP/3: the compose file publishes TCP
+	# only, so a QUIC listener could never be reached.
+	servers {
+		protocols h1 h2
+	}
+}
+
+# A public name gets a public certificate. `localhost` gets one from Caddy's
+# own local authority, which is what `make smoke-prod` uses.
+#
+# No access log, by decision: the dashboard and the API log what they do. Caddy's
+# error log does record the client's address for a request that fails with a 5xx;
+# it is kept within the container log's size limit.
+{$CP_SITE_ADDRESS} {
+	# The backstop for a body that never ends. The API refuses a body over
+	# 50 MiB + 1 MiB with a 413 and its own sentence, which is the one shown
+	# for a file a little too large; a file far over that meets this limit
+	# instead, and gets Caddy's bare 413 with no sentence. This is above the
+	# API's: Caddy's `MB` is a million bytes, so 64,000,000
+	# against the API's 53,477,376.
+	request_body {
+		max_size 64MB
+	}
+	# Without `includeSubDomains` and without `preload`: preload is slow to
+	# undo, and the domain is its owner's to use for other things.
+	header Strict-Transport-Security "max-age=31536000"
+	# On every response, the relayed downloads included.
+	header X-Content-Type-Options "nosniff"
+	# Caddy sets `X-Forwarded-For` to the peer it accepted the connection from
+	# and drops whatever the client sent under that name. The dashboard passes
+	# its last entry to the API, which counts failed sign-ins against it.
+	reverse_proxy web:3000
+}

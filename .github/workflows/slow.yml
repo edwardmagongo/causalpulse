@@ -31,7 +31,9 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
       - run: uv sync --frozen
-      - run: make test-slow SHARD=${{ matrix.shard }}/8
+      # One test worker for each CPU the runner has: two, on the runners a
+      # private repository is given. The Makefile's own default is four.
+      - run: make test-slow SHARD=${{ matrix.shard }}/8 SLOW_WORKERS="$(nproc)"
       # Kept whether the shard passed or failed: its per-test durations are how
       # the slow tier's cost is known.
       - if: always()

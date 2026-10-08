@@ -26,6 +26,14 @@ describe("detailOf", () => {
     expect(detailOf({ detail: [] }, 422)).toBe("the API answered 422");
     expect(detailOf("<html>", 502)).toBe("the API answered 502");
   });
+
+  it("says a 429 with nothing usable in its body is too many requests", () => {
+    expect(detailOf(null, 429)).toBe("Too many requests. Try again later.");
+    expect(detailOf("<html>", 429)).toBe("Too many requests. Try again later.");
+    expect(detailOf({ detail: "Too many uploads today for this account. Try again in 3 hours." }, 429)).toBe(
+      "Too many uploads today for this account. Try again in 3 hours.",
+    );
+  });
 });
 
 describe("errorFor", () => {

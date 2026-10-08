@@ -82,6 +82,59 @@ describe("Poller", () => {
     expect(router.refresh).toHaveBeenCalledTimes(1);
   });
 
+  it("shows the API's sentence for a poll answered 429, and keeps polling at the same pace", async () => {
+    const sentence = "Too many failed sign-ins from this address. Try again in 14 minutes.";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(respond(429, { detail: sentence }))
+      .mockResolvedValueOnce(respond(429, { detail: sentence }))
+      .mockResolvedValueOnce(respond(200, { status: "running" }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<Poller analysisId="a1" />);
+
+    await elapse(2000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("status").textContent).toBe(`${sentence} Still checking.`);
+    expect(screen.getByRole("status").textContent).not.toContain("unavailable");
+
+    // No sooner than after any other answer: 3000 ms, then 4500 ms.
+    await elapse(2999);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await elapse(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("status").textContent).toBe(`${sentence} Still checking.`);
+    await elapse(4499);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await elapse(1);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(screen.getByRole("status").textContent).toBe(IN_PROGRESS);
+    expect(vi.getTimerCount()).toBe(1);
+    expect(leaveForSignOut).not.toHaveBeenCalled();
+    expect(router.refresh).not.toHaveBeenCalled();
+  });
+
+  it("says too many requests for a 429 whose body cannot be parsed, and keeps polling", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("<html>", { status: 429 }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<Poller analysisId="a1" />);
+
+    await elapse(2000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("status").textContent).toBe("Too many requests. Try again later. Still checking.");
+    expect(vi.getTimerCount()).toBe(1);
+  });
+
+  it("says the service is unavailable for a 500, as before, and keeps polling", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(respond(500, { detail: "Internal Server Error" }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<Poller analysisId="a1" />);
+
+    await elapse(2000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("status").textContent).toBe(UNAVAILABLE);
+    expect(vi.getTimerCount()).toBe(1);
+  });
+
   it("leaves for sign-out on a 401 and polls no more", async () => {
     const fetchMock = vi.fn().mockResolvedValue(respond(401, { detail: "missing or invalid API key" }));
     vi.stubGlobal("fetch", fetchMock);

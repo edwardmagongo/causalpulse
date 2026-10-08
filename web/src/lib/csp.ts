@@ -7,8 +7,13 @@
  * and the plot set custom properties in `style` attributes, and an evidence
  * report is shown in a sandboxed `srcdoc` frame, which inherits this policy
  * and carries its own `<style>` and `data:` images.
+ *
+ * In production the site is served over HTTPS only, and the browser is told
+ * to fetch over HTTPS anything the page names with `http:`. The demo stack is
+ * plain HTTP on localhost, where that directive would break it, so it is
+ * added for `production` alone.
  */
-export function contentSecurityPolicy(nonce: string, development: boolean): string {
+export function contentSecurityPolicy(nonce: string, development: boolean, production: boolean): string {
   return [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${development ? " 'unsafe-eval'" : ""}`,
@@ -20,5 +25,6 @@ export function contentSecurityPolicy(nonce: string, development: boolean): stri
     "base-uri 'self'",
     "form-action 'self'",
     "frame-ancestors 'none'",
+    ...(production ? ["upgrade-insecure-requests"] : []),
   ].join("; ");
 }

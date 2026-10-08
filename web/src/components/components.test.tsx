@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import AppError from "@/app/(app)/error";
 import AnalysesPage from "@/app/(app)/page";
 import { listAnalyses } from "@/lib/api/client";
+import { ApiError, ApiUnavailable } from "@/lib/api/errors";
 import type { AnalysisDetail, AnalysisPage, Estimate } from "@/lib/api/types";
 import { formatInterval, formatLevel } from "@/lib/format";
 import { panels } from "@/lib/plot";
@@ -25,6 +26,11 @@ import { StatusHeader } from "./StatusHeader";
 // The list is a page that reads through the API client; only that read is replaced.
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/api/client", () => ({ listAnalyses: vi.fn() }));
+// What stands in for a page that could not load asks for the router, which only a running app has.
+vi.mock("next/navigation", async (original) => ({
+  ...(await original<typeof import("next/navigation")>()),
+  useRouter: () => ({ refresh: vi.fn() }),
+}));
 
 afterEach(cleanup);
 
@@ -272,6 +278,34 @@ describe("the analyses list", () => {
       "succeeded",
     ]);
     expect(analyses.items[0].id).toBe(partial.id);
+  });
+});
+
+describe("a page whose read the API refused", () => {
+  it("shows the API's own sentence for a 429, and does not say the service is unavailable", async () => {
+    const sentence = "Too many failed sign-ins from this address. Try again in 14 minutes.";
+    vi.mocked(listAnalyses).mockRejectedValue(new ApiError(429, sentence));
+    render(await AnalysesPage({ searchParams: Promise.resolve({}) }));
+    const shown = screen.getByRole("status");
+    expect(within(shown).getByText(sentence)).toBeTruthy();
+    expect(shown.textContent).not.toContain("unavailable");
+    expect(within(shown).getByRole("button", { name: "Try again" })).toBeTruthy();
+  });
+
+  it("says the service is unavailable when it is, as before", async () => {
+    vi.mocked(listAnalyses).mockRejectedValue(new ApiUnavailable());
+    render(await AnalysesPage({ searchParams: Promise.resolve({}) }));
+    expect(
+      within(screen.getByRole("status")).getByText(
+        "The service is unavailable, so this page has nothing current to show.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("leaves a 500 to the error boundary, as before", async () => {
+    const error = new ApiError(500, "boom");
+    vi.mocked(listAnalyses).mockRejectedValue(error);
+    await expect(AnalysesPage({ searchParams: Promise.resolve({}) })).rejects.toBe(error);
   });
 });
 

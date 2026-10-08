@@ -59,7 +59,7 @@ forbidden_modules =
     cp_simulation
 
 [importlinter:contract:worker-sees-only-the-db]
-name = The worker imports cp_api.db and nothing else from cp_api
+name = The worker imports cp_api.db and cp_api.settings and nothing else from cp_api
 type = forbidden
 source_modules =
     cp_worker
@@ -74,6 +74,8 @@ forbidden_modules =
     cp_api.pagination
     cp_api.models
     cp_api.openapi
+    cp_api.limits
+    cp_api.migrations
 
 [importlinter:contract:tracking-stays-offline]
 name = The API and the worker never import the tracking package

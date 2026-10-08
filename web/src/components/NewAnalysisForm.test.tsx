@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { datasetColumns } from "@/app/(app)/analyses/new/actions";
+import { datasetColumns, submitAnalysis } from "@/app/(app)/analyses/new/actions";
 import type { DatasetItem, EstimatorEntry } from "@/lib/api/types";
 import { leaveForSignOut } from "@/lib/sign-out";
 
@@ -72,6 +72,7 @@ function jsonResponse(body: unknown, status: number) {
 
 beforeEach(() => {
   columnsOf.mockReset();
+  vi.mocked(submitAnalysis).mockReset();
   vi.mocked(leaveForSignOut).mockReset();
 });
 
@@ -254,6 +255,42 @@ describe("the earlier-upload select", () => {
     expect(screen.getByText("b.csv: 2 columns")).toBeTruthy();
     expect(screen.queryByText("new.csv: 3 columns")).toBeNull();
     expect(existing.value).toBe(B.id);
+  });
+});
+
+describe("a refusal by a limit", () => {
+  it("shows the API's sentence for an upload answered 429, and chooses no dataset", async () => {
+    const sentence = "20 uploads in a day is the limit; try again in 3 hours";
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ detail: sentence }, 429)));
+    const { file } = renderForm();
+    fireEvent.change(file, { target: { files: [new File(["p,q\n1,2\n"], "new.csv")] } });
+    const alert = await screen.findByText(sentence);
+    expect(alert.getAttribute("role")).toBe("alert");
+    expect(leaveForSignOut).not.toHaveBeenCalled();
+    expect(document.querySelector("[data-dataset]")).toBeNull();
+  });
+
+  it("shows the API's sentence for a submission the action answers with one", async () => {
+    const sentence = "3 analyses are already queued or running; wait for one to finish";
+    columnsOf.mockResolvedValue({ columns: ["u", "t", "y"] });
+    vi.mocked(submitAnalysis).mockResolvedValue({ error: sentence });
+    const { existing } = renderForm();
+    pick(existing, A.id);
+    await screen.findByText("a.csv: 3 columns");
+    for (const [label, value] of [
+      ["Unit", "u"],
+      ["Treatment", "t"],
+      ["Outcome", "y"],
+      ["Outcome type", "continuous"],
+    ]) {
+      fireEvent.change(screen.getByLabelText(label), { target: { value } });
+    }
+    const run = screen.getByRole("button", { name: "Run the analysis" }) as HTMLButtonElement;
+    await waitFor(() => expect(run.disabled).toBe(false));
+    fireEvent.click(run);
+    const alert = await screen.findByText(sentence);
+    expect(alert.getAttribute("role")).toBe("alert");
+    expect(submitAnalysis).toHaveBeenCalledTimes(1);
   });
 });
 

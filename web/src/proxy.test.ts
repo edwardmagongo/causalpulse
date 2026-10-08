@@ -16,11 +16,11 @@ function request(path: string, signedIn: boolean): NextRequest {
 }
 
 /** The response's policy and the nonce in its `script-src`, checked to be the whole policy for that nonce. */
-function policyOf(response: Response, development = false): { policy: string; nonce: string } {
+function policyOf(response: Response, development = false, production = false): { policy: string; nonce: string } {
   const policy = response.headers.get("content-security-policy") ?? "";
   const nonce = /script-src [^;]*'nonce-([^']+)'/.exec(policy)?.[1] ?? "";
   expect(nonce).not.toBe("");
-  expect(policy).toBe(contentSecurityPolicy(nonce, development));
+  expect(policy).toBe(contentSecurityPolicy(nonce, development, production));
   return { policy, nonce };
 }
 
@@ -66,7 +66,16 @@ describe("the proxy", () => {
   });
 
   it("redirects a page without a session cookie to sign-in, under the policy", () => {
-    for (const path of ["/", "/analyses/new", "/study", "/no-such-page", "/sign-in/again", "/sign-insider"]) {
+    for (const path of [
+      "/",
+      "/analyses/new",
+      "/study/x",
+      "/study/",
+      "/studying",
+      "/no-such-page",
+      "/sign-in/again",
+      "/sign-insider",
+    ]) {
       const response = proxy(request(path, false));
       expect(response.status, path).toBe(307);
       expect(response.headers.get("location"), path).toBe(`${ORIGIN}/sign-in`);
@@ -78,6 +87,21 @@ describe("the proxy", () => {
     const response = proxy(request("/sign-in", false));
     expect(response.status).toBe(200);
     expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    policyOf(response);
+  });
+
+  it("lets the study through without a session cookie, under the policy", () => {
+    const response = proxy(request("/study", false));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    policyOf(response);
+  });
+
+  it("lets the study through without a session cookie whatever its query", () => {
+    const response = proxy(request("/study?family=coverage&level=scenario_by_size", false));
+    expect(response.status).toBe(200);
     expect(response.headers.get("x-middleware-next")).toBe("1");
     policyOf(response);
   });
@@ -119,5 +143,21 @@ describe("the proxy", () => {
     vi.stubEnv("NODE_ENV", "development");
     expect(policyOf(proxy(request("/", true)), true).policy).toContain("'unsafe-eval'");
     expect(policyOf(proxy(request("/", false)), true).policy).toContain("'unsafe-eval'");
+  });
+
+  it("upgrades insecure requests in the policy only when CP_ENV is production", () => {
+    const directive = "upgrade-insecure-requests";
+    for (const path of ["/", "/study", "/sign-in"]) {
+      for (const signedIn of [true, false]) {
+        expect(policyOf(proxy(request(path, signedIn))).policy, path).not.toContain(directive);
+      }
+    }
+
+    vi.stubEnv("CP_ENV", "production");
+    for (const path of ["/", "/study", "/sign-in"]) {
+      for (const signedIn of [true, false]) {
+        expect(policyOf(proxy(request(path, signedIn)), false, true).policy, path).toContain(directive);
+      }
+    }
   });
 });
