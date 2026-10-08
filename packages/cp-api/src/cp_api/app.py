@@ -174,8 +174,9 @@ async def _form(request: Request) -> FormData:
     is read on and thrown away, so the client gets its 413 after sending the
     whole request, as it does for a file just over the limit; but only for a
     further `MAX_UPLOAD_BYTES`. Past that this stops reading, after at most one
-    message more, and the 413 is answered to a client that is still sending. That ends the request: no
-    task, temporary file or database connection is left with it. It does not
+    message more, and the 413 is answered to a client that is still sending.
+    That ends the request: no task, temporary file or database connection is
+    left with it. It does not
     close the connection. uvicorn goes on taking what such a client sends,
     discarding it, for as long as the client keeps the connection open.
 
