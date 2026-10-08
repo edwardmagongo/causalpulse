@@ -9,8 +9,9 @@ name: Fast suite
 # The paths are what the suite reads: the packages and tests, the dependency
 # and tool pins, and the committed files some tests check against (the
 # OpenAPI document, the study bundle, the published reports) or parse (the
-# import contracts). GitHub looks at the first 300 changed files only; the
-# push to `main` is the net under that too.
+# import contracts, the `Dockerfile`, every compose file at the root, the
+# Makefile). GitHub looks at the first 300 changed files only; the push to
+# `main` is the net under that too.
 #
 # If branch protection is ever enforced again, "Fast suite" must not be a
 # required check as it stands: a pull request this filter skips would wait
@@ -26,6 +27,10 @@ on:
       - "uv.lock"
       - ".python-version"
       - "Makefile"
+      - "Dockerfile"
+      # Both spellings: `tests/api/test_settings.py` reads both.
+      - "docker-compose*.yml"
+      - "docker-compose*.yaml"
       - ".importlinter"
       - "web/openapi.json"
       - "web/src/data/**"
@@ -58,4 +63,6 @@ jobs:
       # Which machine this is, so that a slow run can be told from a slow suite.
       - run: lscpu | grep -E 'Model name|^CPU\(s\)|Thread' ; nproc
       - run: uv sync --frozen
-      - run: make test-fast WORKERS=4
+      # One test worker for each CPU the runner has: two, on the runners a
+      # private repository is given. More workers than CPUs only contend.
+      - run: make test-fast WORKERS="$(nproc)"

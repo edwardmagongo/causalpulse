@@ -27,7 +27,8 @@ test:
 	$(ONE_THREAD) uv run pytest -v -n auto
 
 # WORKERS is the number of pytest-xdist workers. `auto` locally; CI passes
-# `WORKERS=4`, the project's cap and a hosted runner's core count.
+# the number of CPUs its runner has (`nproc` there), which is two on the
+# runners a private repository is given.
 WORKERS ?= auto
 
 test-fast:
@@ -37,10 +38,14 @@ test-fast:
 # shard of the slow test files per job (`make test-slow SHARD=3/8`), each
 # writing its own JUnit report, `slow-3-of-8.xml`. With SHARD unset it runs
 # every slow test and writes `slow-all.xml`.
+#
+# SLOW_WORKERS is the number of pytest-xdist workers: four locally, the
+# project's cap; CI passes the number of CPUs its runner has, as for WORKERS.
 SHARD ?=
+SLOW_WORKERS ?= 4
 
 test-slow:
-	$(ONE_THREAD) uv run pytest -v -m "slow and not services and not live" -n 4 --durations=25 $(if $(SHARD),--shard $(SHARD) --junitxml=slow-$(subst /,-of-,$(SHARD)).xml,--junitxml=slow-all.xml)
+	$(ONE_THREAD) uv run pytest -v -m "slow and not services and not live" -n $(SLOW_WORKERS) --durations=25 $(if $(SHARD),--shard $(SHARD) --junitxml=slow-$(subst /,-of-,$(SHARD)).xml,--junitxml=slow-all.xml)
 
 cov:
 	uv run pytest --cov=packages --cov-report=term-missing
