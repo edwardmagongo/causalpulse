@@ -41,7 +41,7 @@ afterEach(() => {
 // The real client runs under the action: only `fetch` is replaced.
 describe("signing in", () => {
   it("shows the API's own sentence when the address is over the limit, and starts no session", async () => {
-    const sentence = "too many failed sign-ins from this address; try again in 14 minutes";
+    const sentence = "Too many failed sign-ins from this address. Try again in 14 minutes.";
     const stub = answers(429, { detail: sentence }, { "retry-after": "840" });
     expect(await signIn({ error: null }, form("cpk_AAAAAAAAAAAA_right"))).toEqual({ error: sentence });
     expect(stub).toHaveBeenCalledTimes(1);

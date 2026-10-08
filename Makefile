@@ -159,8 +159,8 @@ PROD_SMOKE_SH = retry() { n=0; until "$$@"; do n=$$((n + 1)); [ $$n -lt 30 ] || 
 #    dashboard to be healthy, which waits for the API. Then: no
 #    service but the proxy has a port on the host; the proxy's root
 #    certificate, for Node (the browser is told to accept it), copied
-#    `quietly`: it is not there until Caddy has made it, and only `retry`'s
-#    giving up is worth a line; two users and
+#    `quietly`: it is not there until Caddy has made it; if `retry` gives up,
+#    the copy is run once more without `quietly`, so the failure is shown; two users and
 #    two keys each, in shell variables; `workflow.spec.ts`, and then
 #    `production.spec.ts` whether or not the first passed, so one run reports
 #    both, each with its own directory under `web/test-results/`, because
@@ -177,7 +177,8 @@ smoke-prod:
 	$(PROD_SMOKE_STACK) down -v >/dev/null 2>&1; \
 	( $(PROD_SMOKE_STACK) up -d --build \
 	&& sh deploy/only-the-proxy-publishes.sh $(PROD_SMOKE_PROJECT) \
-	&& retry quietly $(PROD_SMOKE_STACK) cp proxy:/data/caddy/pki/authorities/local/root.crt "$$ca/root.crt" \
+	&& { retry quietly $(PROD_SMOKE_STACK) cp proxy:/data/caddy/pki/authorities/local/root.crt "$$ca/root.crt" \
+	    || $(PROD_SMOKE_STACK) cp proxy:/data/caddy/pki/authorities/local/root.crt "$$ca/root.crt"; } \
 	&& $(PROD_SMOKE_STACK) exec -T api cp-api-admin create-user smoke \
 	&& $(PROD_SMOKE_STACK) exec -T api cp-api-admin create-user limits \
 	&& KEY=$$($(PROD_SMOKE_STACK) exec -T api cp-api-admin issue-key smoke) \

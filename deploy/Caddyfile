@@ -21,13 +21,15 @@
 # A public name gets a public certificate. `localhost` gets one from Caddy's
 # own local authority, which is what `make smoke-prod` uses.
 #
-# No access log, by decision: the dashboard and the API log what they do, and
-# clients' addresses are not kept.
+# No access log, by decision: the dashboard and the API log what they do. Caddy's
+# error log does record the client's address for a request that fails with a 5xx;
+# it is kept within the container log's size limit.
 {$CP_SITE_ADDRESS} {
-	# The backstop for a body that never ends, and not the limit a user
-	# meets: the API refuses a body over 50 MiB + 1 MiB with a 413 and its
-	# own sentence, which is the one shown for a file a little too large.
-	# This is above that: Caddy's `MB` is a million bytes, so 64,000,000
+	# The backstop for a body that never ends. The API refuses a body over
+	# 50 MiB + 1 MiB with a 413 and its own sentence, which is the one shown
+	# for a file a little too large; a file far over that meets this limit
+	# instead, and gets Caddy's bare 413 with no sentence. This is above the
+	# API's: Caddy's `MB` is a million bytes, so 64,000,000
 	# against the API's 53,477,376.
 	request_body {
 		max_size 64MB

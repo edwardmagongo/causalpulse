@@ -62,7 +62,8 @@ services:
     logging: *logging
     healthcheck:
       <<: *check
-      # Over TCP, and for the database by name. While the image's entrypoint
+      # Over TCP to 127.0.0.1 inside the container, as the configured user and
+      # database (the flags below). While the image's entrypoint
       # initialises a new volume it runs a temporary server that listens on
       # the unix socket only and is then stopped; asked over the socket, the
       # check would pass during that, and the migration would start against a

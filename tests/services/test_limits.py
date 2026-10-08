@@ -348,6 +348,9 @@ def test_an_analysis_just_submitted_is_not_judged_lost_by_another_submission(
             return analysis.status, analysis.error
 
     # Made just now, so it is not judged: it keeps its place and is not marked.
+    # Its `created_at` is the database's clock; set it from this process's, which
+    # the judgement reads, so the test does not depend on the two agreeing.
+    _submitted(sessions, timedelta(0))
     assert submit().status_code == 429
     assert row() == ("queued", None)
     _submitted(sessions, SUBMISSION_GRACE - timedelta(seconds=10))

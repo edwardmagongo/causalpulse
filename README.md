@@ -2227,6 +2227,8 @@ Counters in Redis, in fixed windows, kept by the API.
   it cannot drift. Before it refuses, the API checks whether any of the user's queued or running
   analyses has lost its job, marks those failed and counts again; it does not judge one
   submitted in the last 30 seconds.
+- **A counted submission that then fails keeps its place in the count.** If the insert or the
+  enqueue fails after the analysis was counted, the day's count is not given back.
 - **Per user, not per key.** Two keys of one user share one allowance.
 - **If Redis cannot be reached, or does not answer within half a second, every limit allows the
   request**, and the API logs that once.
@@ -2258,7 +2260,8 @@ certificate by itself, redirects HTTP to HTTPS, and passes everything else to th
 adds two headers to every response, relayed downloads included:
 `Strict-Transport-Security: max-age=31536000`, without `includeSubDomains` and without `preload`,
 and `X-Content-Type-Options: nosniff`. It serves HTTP/1.1 and HTTP/2 and not HTTP/3, has its admin
-endpoint off, and writes no access log, so the proxy keeps no record of clients' addresses.
+endpoint off, and writes no access log. Caddy's error log does record the client's address for a request
+that fails with a 5xx; it is kept within the container log's size limit.
 
 - **Published on IPv4 only** (`0.0.0.0:80` and `0.0.0.0:443`). On a Linux server Docker's
   userland proxy hands an IPv6 connection to the container from the bridge gateway's IPv4
