@@ -297,6 +297,10 @@ def literal(token: str, variables: dict[str, str] | None = None) -> str | None:
     value would arrive. Anything else with a `$` in it raises `CannotTellError`,
     which quotes the whole value.
 
+    Not read: `${NAME:=x}` and `${NAME=x}`, the shell's default that also
+    assigns. A stack would run with `x` there too, but this does not take `x`
+    from it; it is one of the values that raise.
+
     `variables` is a Makefile's own, and its presence says the value came from
     a Makefile; without it the value came from a compose file. In a Makefile
     `$(NAME)` and `${NAME}` are the Makefile's variables, and `$$` is a `$` the

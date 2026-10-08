@@ -180,13 +180,17 @@ def _allow_through_outage(exc: RedisError) -> Decision:
     global _outage_logged, _refusal_logged
     if isinstance(exc, ResponseError):
         # Redis was reached and answered: it would not run the command. That is
-        # a fault in the deployment (see `FixedWindow.hit`), not an outage.
+        # a fault in the deployment, not an outage. One known cause is a Redis
+        # older than 7, which has no `EXPIRE ... NX` (see `FixedWindow.hit`).
+        # Others are a server out of memory that evicts nothing, a read-only
+        # replica, and a key holding something that is not a count. The
+        # message does not guess: it carries the server's own words, which
+        # say which it is.
         if not _refusal_logged:
             _refusal_logged = True
             logger.error(
                 "Redis refused the rate limiter's command (%s: %s), so the rate limits "
-                "are counting nothing and allowing every request. The limiter needs "
-                "Redis 7 or later. This is logged once.",
+                "are counting nothing and allowing every request. This is logged once.",
                 type(exc).__name__,
                 exc,
             )

@@ -25,7 +25,7 @@ from cp_api.limits import (
     limits_from_environment,
 )
 from redis.exceptions import ConnectionError as RedisConnectionError
-from redis.exceptions import ExecAbortError
+from redis.exceptions import ExecAbortError, OutOfMemoryError, ReadOnlyError
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -217,17 +217,35 @@ def test_a_redis_that_cannot_be_reached_allows(monkeypatch, caplog):
     assert "ConnectionError" in caplog.records[0].getMessage()
 
 
+# What a Redis older than 7 answers, which will not run `EXPIRE ... NX` or the
+# transaction it is in.
+TOO_OLD = ExecAbortError("Transaction discarded because of previous errors.")
+
+
 class RefusingRedis:
-    """A Redis older than 7, which will not run `EXPIRE ... NX` or the transaction it is in."""
+    """A Redis that is reached and will not run the limiter's command."""
+
+    def __init__(self, error=TOO_OLD):
+        self._error = error
 
     def pipeline(self, transaction=True):
-        raise ExecAbortError("Transaction discarded because of previous errors.")
+        raise self._error
 
 
-def test_a_redis_that_refuses_the_command_allows_and_says_so_as_an_error(monkeypatch, caplog):
+@pytest.mark.parametrize(
+    "error",
+    [
+        TOO_OLD,
+        OutOfMemoryError("command not allowed when used memory > 'maxmemory'."),
+        ReadOnlyError("You can't write against a read only replica."),
+    ],
+)
+def test_a_redis_that_refuses_the_command_allows_and_says_so_as_an_error(
+    monkeypatch, caplog, error
+):
     monkeypatch.setattr(limits, "_outage_logged", False)
     monkeypatch.setattr(limits, "_refusal_logged", False)
-    window = FixedWindow(RefusingRedis())
+    window = FixedWindow(RefusingRedis(error))
 
     with caplog.at_level(logging.WARNING, logger="cp_api.limits"):
         hits = [window.hit("uploads:alice", THREE_A_MINUTE) for _ in range(5)]
@@ -238,8 +256,9 @@ def test_a_redis_that_refuses_the_command_allows_and_says_so_as_an_error(monkeyp
     assert caplog.records[0].levelno == logging.ERROR
     message = caplog.records[0].getMessage()
     assert "Redis refused the rate limiter's command" in message
-    assert "Transaction discarded" in message
-    assert "Redis 7" in message
+    # The server's own words, and no guess at the cause: an old Redis is one of several.
+    assert f"{type(error).__name__}: {error}" in message
+    assert "Redis 7" not in message
     # Not the outage's message: Redis was reached.
     assert "could not be reached" not in message
 

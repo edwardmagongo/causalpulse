@@ -13,7 +13,7 @@ import hashlib
 import os
 import uuid
 from collections.abc import AsyncIterator
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Annotated, Any
 
 from cp_core.catalogue import catalogue
@@ -70,6 +70,20 @@ QUEUE_DOWN = (
     "queued; submit it again"
 )
 _LOST = {JobStatus.FAILED, JobStatus.STOPPED, JobStatus.CANCELED}
+# How old an analysis must be before a submission's lost-job check will judge
+# it (`create_analysis`). An analysis has a row before it has a job: the row is
+# committed and then the job is enqueued, and in between it looks exactly like
+# one whose job is lost. `created_at` is PostgreSQL's `now()`, which is when
+# the submitting request's transaction began, so the span to cover is longer
+# than commit to enqueue. It runs from just after that request's key was
+# checked: reading the dataset (up to 50 MB), checking the request, the day's
+# count (the limiter gives up on a Redis that hangs after about a second), the
+# insert, the commit and the enqueue. None of these waits on a person, and
+# half a minute allows for a loaded machine and for any difference between
+# the database's clock and this process's, which `utcnow` reads. It costs
+# little: a job that really is lost holds its place this long at most, and a
+# refused client is told to wait longer than that (`ACTIVE_RETRY_SECONDS`).
+SUBMISSION_GRACE = timedelta(seconds=30)
 
 
 class AnalysisRequest(BaseModel):
@@ -156,10 +170,24 @@ async def _form(request: Request) -> FormData:
 
     Starlette's parser keeps a file part of any length in a temporary file,
     so the length is counted here as the body arrives. A body over the bound
-    is read to its end and thrown away, so the client gets its 413 after
-    sending the whole request, as it does for a file just over the limit.
+    is read on and thrown away, so the client gets its 413 after sending the
+    whole request, as it does for a file just over the limit; but only for a
+    further `MAX_UPLOAD_BYTES`. Past that this stops reading, and the 413 is
+    answered to a client that is still sending. That ends the request: no
+    task, temporary file or database connection is left with it. It does not
+    close the connection. uvicorn goes on taking what such a client sends,
+    discarding it, for as long as the client keeps the connection open.
+
+    In size the bound is the API's own: of any body the app reads the bound
+    and as much again as a file may be, and keeps none of what is over the
+    bound. In time the API has no bound: a body that arrives slowly is waited
+    for as long as it keeps arriving, and a connection answered early is held
+    as long as its client holds it. That bound is the deployment's. In
+    production only the dashboard reaches the API, behind the proxy, and it
+    gives an upload 600 seconds (`UPLOAD_DEADLINE_MS` in `web/`).
     """
     bound = validation.MAX_UPLOAD_BYTES + FORM_OVERHEAD_BYTES
+    drained = bound + validation.MAX_UPLOAD_BYTES
     seen = 0
 
     async def receive() -> Message:
@@ -168,8 +196,13 @@ async def _form(request: Request) -> FormData:
         if message["type"] == "http.request":
             seen += len(message.get("body", b""))
             if seen > bound:
-                while message["type"] == "http.request" and message.get("more_body", False):
+                while (
+                    message["type"] == "http.request"
+                    and message.get("more_body", False)
+                    and seen <= drained
+                ):
                     message = await request.receive()
+                    seen += len(message.get("body", b""))
                 raise validation.too_large()
         return message
 
@@ -496,10 +529,15 @@ def create_app(
             # reads it. A client that only submits never does, so before
             # refusing, the caller's active rows are checked as a read would
             # check them, and counted again. If Redis cannot say whether the
-            # jobs are lost, the rows stand.
+            # jobs are lost, the rows stand. So does a row too new to judge:
+            # another submission of the caller's, made at the same time, has
+            # its row before it has its job (see `SUBMISSION_GRACE`). The
+            # reads have no such exception.
             with contextlib.suppress(RedisError):
+                settled = utcnow() - SUBMISSION_GRACE
                 for active in _active_rows(session, user):
-                    _fail_if_lost(session, active)
+                    if active.created_at <= settled:
+                        _fail_if_lost(session, active)
             if _active_count(session, user) >= analyses_active.count:
                 raise LimitExceededError(analyses_active, analyses_active.window_seconds)
         dataset = session.scalars(
@@ -510,6 +548,10 @@ def create_app(
         check_analysis_request(body.causal_schema, csv_header(dataset.csv), body.estimators)
         # Counted here, when nothing is left that can refuse the request, so a
         # submission answered 404, 422 or 429 above is not one of the day's.
+        # Refuse, not fail: an insert or an enqueue that then fails keeps its
+        # place in the day's count. That is rare (and a Redis that is down
+        # fails the count open as well), and the place is neither given back
+        # nor needs to be.
         # Counted and judged in one step (`FixedWindow.hit`), before the row
         # exists: one refused here leaves no row and no job.
         window.require(f"analyses:{user.id}", analyses_per_day)

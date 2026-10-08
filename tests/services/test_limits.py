@@ -13,12 +13,13 @@ import socket
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 
 import pytest
 from cp_api.accounts import revoke_key
-from cp_api.app import WORKER_LOST, create_app
+from cp_api.app import SUBMISSION_GRACE, WORKER_LOST, create_app
 from cp_api.auth import parse_key
-from cp_api.db import QUEUE_NAME, Analysis, ApiKey, User
+from cp_api.db import QUEUE_NAME, Analysis, ApiKey, User, utcnow
 from cp_api.limits import LIMITER_TIMEOUT_SECONDS, FixedWindow, Limit, Limits
 from fastapi.testclient import TestClient
 from redis import Redis
@@ -246,6 +247,16 @@ def _finish(sessions, analysis_id, status="succeeded"):
         session.commit()
 
 
+def _submitted(sessions, ago):
+    """Make every analysis one that was submitted `ago` before now."""
+    with sessions() as session:
+        session.execute(update(Analysis).values(created_at=utcnow() - ago))
+        session.commit()
+
+
+LONG_AGO = SUBMISSION_GRACE + timedelta(minutes=1)
+
+
 def test_the_active_limit_follows_the_analyses_status(
     sessions, redis_conn, api_key_for, scenario
 ):
@@ -290,6 +301,7 @@ def test_analyses_whose_jobs_are_lost_do_not_hold_the_active_limit(
     queued = [submit().json()["id"] for _ in range(3)]
     # The worker died and took its jobs with it; nothing has read the analyses since.
     redis_conn.flushdb()
+    _submitted(sessions, LONG_AGO)
 
     fourth = submit()
 
@@ -311,6 +323,7 @@ def test_analyses_whose_jobs_are_alive_still_hold_the_active_limit(
     queued = [submit().json()["id"] for _ in range(3)]
     # One of the three is lost, so one place comes free and no more.
     Job.fetch(queued[0], connection=redis_conn).delete()
+    _submitted(sessions, LONG_AGO)
 
     codes = [submit().status_code, submit().status_code]
 
@@ -318,6 +331,32 @@ def test_analyses_whose_jobs_are_alive_still_hold_the_active_limit(
     with sessions() as session:
         statuses = {str(row.id): row.status for row in session.scalars(select(Analysis))}
     assert [statuses[id_] for id_ in queued] == ["failed", "queued", "queued"]
+
+
+def test_an_analysis_just_submitted_is_not_judged_lost_by_another_submission(
+    sessions, redis_conn, api_key_for, scenario
+):
+    alice = _client(create_app(sessions, redis_conn, active(1)), api_key_for("alice"))
+    submit = _submitter(alice, scenario)
+    first = submit().json()["id"]
+    # A submission between its commit and its enqueue: a row, and no job yet.
+    Job.fetch(first, connection=redis_conn).delete()
+
+    def row():
+        with sessions() as session:
+            analysis = session.get(Analysis, first)
+            return analysis.status, analysis.error
+
+    # Made just now, so it is not judged: it keeps its place and is not marked.
+    assert submit().status_code == 429
+    assert row() == ("queued", None)
+    _submitted(sessions, SUBMISSION_GRACE - timedelta(seconds=10))
+    assert submit().status_code == 429
+    assert row() == ("queued", None)
+    # Older than any submission takes to enqueue its job: this one has lost it.
+    _submitted(sessions, SUBMISSION_GRACE + timedelta(seconds=1))
+    assert submit().status_code == 202
+    assert row() == ("failed", WORKER_LOST)
 
 
 def test_a_submission_refused_as_active_is_not_one_of_the_days(

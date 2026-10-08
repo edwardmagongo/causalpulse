@@ -12,11 +12,13 @@ The second half pins what the route answers for a request that is not a
 well-formed upload, which FastAPI wrote before the route read the form itself.
 """
 
+import errno
 import http.client
 import json
 import socket
 import threading
 import time
+from typing import Annotated
 
 import pytest
 import uvicorn
@@ -27,6 +29,7 @@ from cp_api.app import create_app
 from cp_api.auth import UNAUTHORIZED, parse_key
 from cp_api.db import Dataset, make_sessionmaker
 from cp_api.limits import Limit, Limits
+from fastapi import FastAPI, File, UploadFile
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, func, select
 from starlette import formparsers
@@ -46,12 +49,33 @@ MISSING_FILE = {
 }
 
 
-def _multipart(content, name="d.csv"):
+def _file_part(name="d.csv"):
     return (
         f"--{BOUNDARY}\r\n"
         f'Content-Disposition: form-data; name="file"; filename="{name}"\r\n'
         "Content-Type: text/csv\r\n\r\n"
-    ).encode() + content + f"\r\n--{BOUNDARY}--\r\n".encode()
+    ).encode()
+
+
+def _multipart(content, name="d.csv"):
+    return _file_part(name) + content + f"\r\n--{BOUNDARY}--\r\n".encode()
+
+
+class Received:
+    """The app, and a count of the body bytes the server has handed it."""
+
+    def __init__(self, app):
+        self._app = app
+        self.body = 0
+
+    async def __call__(self, scope, receive, send):
+        async def counted():
+            message = await receive()
+            if message["type"] == "http.request":
+                self.body += len(message.get("body", b""))
+            return message
+
+        await self._app(scope, counted, send)
 
 
 class Served:
@@ -107,6 +131,29 @@ class Served:
         connection.sendall(body)
         return _answer(connection)
 
+    def stream(self, key, pieces):
+        """Send an upload a piece at a time until the server answers or the pieces run out.
+
+        The body is chunked, so its headers promise no length. Returns the
+        body bytes sent and the answer.
+        """
+        connection = socket.create_connection(("127.0.0.1", self.port), timeout=ANSWER_SECONDS)
+        self._open.append(connection)
+        connection.sendall(
+            f"POST /v1/datasets HTTP/1.1\r\nHost: 127.0.0.1:{self.port}\r\n"
+            f"Content-Type: {CONTENT_TYPE}\r\nTransfer-Encoding: chunked\r\n"
+            f"Authorization: Bearer {key}\r\n\r\n".encode()
+        )
+        sent = 0
+        for piece in pieces:
+            if _has_answered(connection):
+                break
+            connection.sendall(f"{len(piece):x}\r\n".encode() + piece + b"\r\n")
+            sent += len(piece)
+        else:
+            connection.sendall(b"0\r\n\r\n")
+        return sent, _answer(connection)
+
     def get(self, key, path):
         connection = socket.create_connection(("127.0.0.1", self.port), timeout=ANSWER_SECONDS)
         self._open.append(connection)
@@ -127,6 +174,17 @@ def _answer(connection, within=ANSWER_SECONDS):
         return response.status, headers, json.loads(response.read())
     finally:
         response.close()
+
+
+def _has_answered(connection):
+    """Whether anything has arrived on the connection, without waiting for it."""
+    connection.settimeout(0)
+    try:
+        return bool(connection.recv(1, socket.MSG_PEEK))
+    except BlockingIOError:
+        return False
+    finally:
+        connection.settimeout(ANSWER_SECONDS)
 
 
 def _is_silent(connection):
@@ -293,6 +351,35 @@ def test_a_file_one_byte_over_the_limit_is_413_and_one_at_it_is_stored(
     assert (at[0], at[2]["n_bytes"]) == (201, 100_000)
 
 
+def test_a_body_that_goes_on_is_413_before_its_end_and_is_not_read_to_it(
+    sessions, redis_conn, api_key_for, serve, monkeypatch
+):
+    monkeypatch.setattr(validation, "MAX_UPLOAD_BYTES", 100_000)
+    received = Received(create_app(sessions, redis_conn))
+    served = serve(received)
+    piece = b"a" * 65_536
+    pieces = 512
+    # What the route reads of any body: the bound, and as much again as a file may be.
+    read = 100_000 + app_module.FORM_OVERHEAD_BYTES + 100_000
+    # The server hands the app what has arrived, a few of these pieces at once.
+    one_message = 1024 * 1024
+
+    def body():
+        yield _file_part()
+        for _ in range(pieces):
+            yield piece
+
+    sent, (status, _, payload) = served.stream(api_key_for("alice"), body())
+
+    assert (status, payload) == (413, {"detail": "the upload exceeds the 100000-byte limit"})
+    # Drained past the bound, and no further than the drain goes. A route that
+    # read to the end would have been handed all 32 MB before it answered.
+    assert read < received.body <= read + one_message < pieces * len(piece) / 10
+    # Answered while the client was still sending.
+    assert sent < pieces * len(piece)
+    assert _stored(sessions) == 0
+
+
 @pytest.fixture
 def alice(sessions, redis_conn, api_key_for):
     return TestClient(
@@ -363,6 +450,58 @@ def test_a_form_that_cannot_be_parsed_is_400(alice):
         files={"file": ("d.csv", b"a,b\n1,2\n")},
     )
     assert _answered(oversized_field) == (400, {"detail": "Part exceeded maximum size of 1024KB."})
+
+
+def declared():
+    """A route that declares the file, as this one did: what FastAPI itself answers."""
+    app = FastAPI()
+
+    @app.post("/v1/datasets", status_code=201)
+    def upload_dataset(file: Annotated[UploadFile, File()]) -> None:
+        return None
+
+    return TestClient(app)
+
+
+def test_a_form_whose_file_cannot_be_kept_is_the_400_fastapi_gave(alice, monkeypatch):
+    # Whatever the form parser rejects it answers itself, with a 400 of its
+    # own (the test above). What is left for the route is an error that is not
+    # the parser's, and a disk with no room for the file is one that a
+    # request can be made to meet.
+    class Full(formparsers.SpooledTemporaryFile):
+        def write(self, data):
+            raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(formparsers, "SpooledTemporaryFile", Full)
+    upload = {"file": ("d.csv", b"a,b\n1,2\n", "text/csv")}
+
+    before = _answered(declared().post("/v1/datasets", files=upload))
+    now = _answered(alice.post("/v1/datasets", files=upload))
+
+    assert before == (400, {"detail": "There was an error parsing the body"})
+    assert now == before
+
+
+def test_a_body_over_the_bound_is_413_whatever_it_holds(alice, monkeypatch):
+    # The bound is on the whole body, so it also refuses what the limit on the
+    # file alone let through: a small file beside other fields, and a form
+    # that is not multipart. Each field here is within the parser's own 1 MB.
+    monkeypatch.setattr(validation, "MAX_UPLOAD_BYTES", 100_000)
+    fields = {f"note{n}": "x" * 600_000 for n in range(2)}
+    assert sum(map(len, fields.values())) > 100_000 + app_module.FORM_OVERHEAD_BYTES
+    too_large = (413, {"detail": "the upload exceeds the 100000-byte limit"})
+
+    beside_a_file = alice.post(
+        "/v1/datasets", data=fields, files={"file": ("d.csv", b"a,b\n1,2\n", "text/csv")}
+    )
+    urlencoded = alice.post("/v1/datasets", data=fields)
+
+    assert _answered(beside_a_file) == too_large
+    assert _answered(urlencoded) == too_large
+    # What FastAPI answered for the same two while the route declared the file.
+    with_a_file = declared().post("/v1/datasets", data=fields, files={"file": ("d.csv", b"a")})
+    assert with_a_file.status_code == 201
+    assert _answered(declared().post("/v1/datasets", data=fields)) == (422, MISSING_FILE)
 
 
 def test_the_last_of_two_file_fields_is_the_upload(alice):
