@@ -1,4 +1,4 @@
-.PHONY: install fmt lint types imports test test-fast test-slow cov check check-services check-llm check-web smoke smoke-web smoke-prod smoke-deploy openapi
+.PHONY: install fmt lint types imports test test-fast test-slow cov check check-services check-llm check-web smoke smoke-web smoke-prod smoke-deploy check-infra openapi
 
 install:
 	uv sync
@@ -217,3 +217,31 @@ smoke-prod:
 # CI does not run this: it creates both images, and the minutes are counted.
 smoke-deploy:
 	sh deploy/smoke-deploy.sh
+
+# The infrastructure, checked without an account: Terraform's formatting, its
+# validation, and its tests against a mocked provider (`infra/tests/`), then
+# the first-boot script as Terraform renders it, the deploy scripts and the
+# workflows. Nothing is planned against AWS and nothing is created.
+#
+# Terraform is run with every source of AWS credentials taken away, so a
+# developer who is signed in reaches nothing through this target. `init`
+# downloads the provider, which needs the network and no account, and refuses
+# to change the lock file.
+TERRAFORM_NO_AWS = env -u AWS_PROFILE -u AWS_DEFAULT_PROFILE -u AWS_ACCESS_KEY_ID \
+	-u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN -u AWS_ROLE_ARN \
+	-u AWS_WEB_IDENTITY_TOKEN_FILE -u AWS_CONTAINER_CREDENTIALS_RELATIVE_URI \
+	-u AWS_CONTAINER_CREDENTIALS_FULL_URI AWS_EC2_METADATA_DISABLED=true \
+	AWS_SHARED_CREDENTIALS_FILE=/dev/null AWS_CONFIG_FILE=/dev/null terraform
+
+check-infra:
+	$(TERRAFORM_NO_AWS) -chdir=infra fmt -check -recursive
+	$(TERRAFORM_NO_AWS) -chdir=infra init -backend=false -input=false -lockfile=readonly
+	$(TERRAFORM_NO_AWS) -chdir=infra validate
+	$(TERRAFORM_NO_AWS) -chdir=infra test
+	$(TERRAFORM_NO_AWS) -chdir=infra/bootstrap init -backend=false -input=false -lockfile=readonly
+	$(TERRAFORM_NO_AWS) -chdir=infra/bootstrap validate
+	rendered=$$(mktemp -d) && trap 'rm -rf "$$rendered"' EXIT && \
+	sh infra/tests/render-first-boot.sh >"$$rendered/first-boot.sh" && \
+	bash -n "$$rendered/first-boot.sh" && shellcheck "$$rendered/first-boot.sh"
+	shellcheck deploy/*.sh infra/tests/*.sh
+	actionlint

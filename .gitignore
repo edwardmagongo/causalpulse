@@ -47,6 +47,15 @@ out/
 *.key
 credentials.json
 
+# ---- Terraform ----
+# The providers Terraform downloads, the state, and the values that are real.
+# `.terraform.lock.hcl` is tracked: it pins the provider.
+infra/**/.terraform/
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+*.auto.tfvars
+
 # ---- Benchmark & analysis artifacts ----
 # Raw simulation output is large and reproducible from a seed + grid config.
 # Committed summary tables and figures live under benchmarks/results/ and

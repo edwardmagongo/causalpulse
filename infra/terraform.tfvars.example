@@ -1,0 +1,21 @@
+# Copy to `terraform.tfvars`, which git ignores, and put the real values
+# there. This file holds placeholders only.
+
+# The site's public name. Its A record is added by hand, to the address
+# `terraform output site_address` prints.
+site_name = "causalpulse.example"
+
+# The GitHub repository whose main branch may deploy.
+repository = "owner/name"
+
+# Where the budget's warnings go.
+budget_email = "you@example.com"
+
+# The current Ubuntu 24.04 LTS image for x86, which this prints:
+#
+#   aws ssm get-parameter --region eu-west-1 --query Parameter.Value --output text \
+#     --name /aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id
+#
+# It is written here and not looked up at each apply, so that a newer image
+# never replaces the machine by itself.
+ami_id = "ami-00000000000000000"
