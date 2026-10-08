@@ -86,6 +86,25 @@ def test_a_reply_with_no_narrative_is_raised_and_never_retried(stop_reason, fact
     assert len(model.calls) == 1
 
 
+def test_a_no_answer_after_a_rejected_reply_carries_the_attempt_before_it(facts):
+    model = ScriptedModel([BARE, "max_tokens"])
+
+    with pytest.raises(ModelDidNotAnswerError, match="max_tokens") as excinfo:
+        interpret(facts, model)
+
+    assert len(model.calls) == 2
+    (attempt,) = excinfo.value.attempts
+    assert attempt.narrative == BARE
+    assert attempt.violations
+
+
+def test_a_no_answer_on_the_first_call_carries_no_attempt(facts):
+    with pytest.raises(ModelDidNotAnswerError) as excinfo:
+        interpret(facts, ScriptedModel(["refusal"]))
+
+    assert excinfo.value.attempts == ()
+
+
 def test_render_verified_refuses_a_narrative_with_violations(facts):
     with pytest.raises(NarrativeNotVerifiedError, match="1 violation") as excinfo:
         render_verified(BARE, facts)
@@ -155,3 +174,29 @@ def test_every_statement_of_a_section_is_its_own_bullet_under_that_sections_head
     ]
     assert bullets_under_summary == ["- first summary.", "- second summary."]
     assert "- only caveat." not in lines[summary:caveats]
+
+
+def test_a_system_prompt_given_is_the_one_sent_and_the_one_versioned(good, facts):
+    variant = system_prompt() + "\nOne more rule."
+    model = ScriptedModel([good])
+
+    result = interpret(facts, model, system=variant)
+
+    assert model.calls[0][0] == variant
+    assert result.prompt_version == prompt_version(variant)
+    assert result.prompt_version != prompt_version()
+
+
+def test_a_retry_keeps_the_given_system_prompt(good, facts):
+    variant = system_prompt() + "\nOne more rule."
+    model = ScriptedModel([BARE, good])
+
+    interpret(facts, model, system=variant)
+
+    assert [system for system, _ in model.calls] == [variant, variant]
+
+
+def test_an_attempt_serialises_as_the_record_does(good, facts):
+    result = interpret(facts, ScriptedModel([BARE, good]))
+
+    assert [attempt.to_dict() for attempt in result.attempts] == result.to_dict()["attempts"]

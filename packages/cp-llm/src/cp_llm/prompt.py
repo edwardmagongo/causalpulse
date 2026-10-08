@@ -84,14 +84,17 @@ def system_prompt() -> str:
     return _TASK + vocabulary + _STRUCTURE
 
 
-def prompt_version() -> str:
+def prompt_version(system: str | None = None) -> str:
     """A short hash of the system prompt and the reply schema.
 
-    Not everything that shapes a reply: the effort, the token limit and the
-    retry message are not in it (the first two are recorded beside it).
+    `system` is the prompt actually sent, `system_prompt()` when omitted, so a
+    variant prompt records a version of its own. Not everything that shapes a
+    reply: the effort, the token limit and the retry message are not in it
+    (the first two are recorded beside it).
     """
+    sent = system_prompt() if system is None else system
     schema = json.dumps(Narrative.model_json_schema(), sort_keys=True)
-    return hashlib.sha256((system_prompt() + schema).encode("utf-8")).hexdigest()[:12]
+    return hashlib.sha256((sent + schema).encode("utf-8")).hexdigest()[:12]
 
 
 def facts_message(facts: FactTable) -> str:

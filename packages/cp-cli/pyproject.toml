@@ -10,6 +10,7 @@ dependencies = [
     "cp-evaluation",
     "cp-report",
     "cp-llm",
+    "cp-llm-eval",
     "numpy>=2.0",
     "pandas>=2.2",
     "pyarrow>=17.0",
@@ -38,3 +39,4 @@ cp-evaluation = { workspace = true }
 cp-report = { workspace = true }
 cp-tracking = { workspace = true }
 cp-llm = { workspace = true }
+cp-llm-eval = { workspace = true }

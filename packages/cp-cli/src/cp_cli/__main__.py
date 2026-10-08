@@ -11,7 +11,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 
-from cp_cli.commands import analyze, bench, interpret, replay, simulate, study
+from cp_cli.commands import analyze, bench, interpret, llm_eval, replay, simulate, study
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -35,6 +35,33 @@ def build_parser() -> argparse.ArgumentParser:
     )
     interpret.add_arguments(interpret_parser)
     interpret_parser.set_defaults(handler=interpret.run)
+
+    llm_eval_parser = subcommands.add_parser(
+        "llm-eval", help="Measure how often a verified interpretation misreads its analysis."
+    )
+    llm_eval_commands = llm_eval_parser.add_subparsers(dest="llm_eval_command", required=True)
+    for name, help_text, add, handler in (
+        ("build", "Fit the corpus and write its fact tables.", llm_eval.add_build_arguments,
+         llm_eval.run_build),
+        ("run", "Interpret the corpus (billed).", llm_eval.add_run_arguments, llm_eval.run_run),
+        ("grade", "Judge the verified narratives (billed).", llm_eval.add_grade_arguments,
+         llm_eval.run_grade),
+        ("report", "Write the report and the bundle of records.", llm_eval.add_report_arguments,
+         llm_eval.run_report),
+        ("restore", "Load a committed bundle into a store.", llm_eval.add_restore_arguments,
+         llm_eval.run_restore),
+    ):
+        command = llm_eval_commands.add_parser(name, help=help_text)
+        add(command)
+        command.set_defaults(handler=handler)
+    label_parser = llm_eval_commands.add_parser("label", help="Export or import the labels.")
+    label_commands = label_parser.add_subparsers(dest="label_command", required=True)
+    label_export = label_commands.add_parser("export", help="Write a sample to label, as CSV.")
+    llm_eval.add_label_export_arguments(label_export)
+    label_export.set_defaults(handler=llm_eval.run_label_export)
+    label_import = label_commands.add_parser("import", help="Validate and store a labelled CSV.")
+    llm_eval.add_label_import_arguments(label_import)
+    label_import.set_defaults(handler=llm_eval.run_label_import)
 
     replay_parser = subcommands.add_parser("replay", help="Refit from a manifest and compare.")
     replay.add_arguments(replay_parser)

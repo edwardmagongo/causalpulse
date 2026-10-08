@@ -1,0 +1,1127 @@
+{
+  "facts": [
+    {
+      "id": "analysis.assignment_provenance",
+      "kind": "label",
+      "subject": null,
+      "value": "observational"
+    },
+    {
+      "id": "analysis.n_estimates",
+      "kind": "count",
+      "subject": null,
+      "value": 3
+    },
+    {
+      "id": "analysis.n_failed",
+      "kind": "count",
+      "subject": null,
+      "value": 0
+    },
+    {
+      "id": "est.bsts.method",
+      "kind": "name",
+      "subject": null,
+      "value": "bsts"
+    },
+    {
+      "id": "est.bsts.estimand",
+      "kind": "label",
+      "subject": "est.bsts.method",
+      "value": "ATT"
+    },
+    {
+      "id": "est.bsts.scale",
+      "kind": "label",
+      "subject": "est.bsts.method",
+      "value": "absolute"
+    },
+    {
+      "id": "est.bsts.ci_basis",
+      "kind": "label",
+      "subject": "est.bsts.method",
+      "value": "posterior"
+    },
+    {
+      "id": "est.bsts.point",
+      "kind": "number",
+      "subject": "est.bsts.method",
+      "value": -8.862072684997228
+    },
+    {
+      "id": "est.bsts.ci_lower",
+      "kind": "number",
+      "subject": "est.bsts.method",
+      "value": -22.291554209194487
+    },
+    {
+      "id": "est.bsts.ci_upper",
+      "kind": "number",
+      "subject": "est.bsts.method",
+      "value": 10.877688033048688
+    },
+    {
+      "id": "est.bsts.ci_level",
+      "kind": "level",
+      "subject": "est.bsts.method",
+      "value": 0.95
+    },
+    {
+      "id": "est.bsts.n_treated",
+      "kind": "count",
+      "subject": "est.bsts.method",
+      "value": 1
+    },
+    {
+      "id": "est.bsts.n_control",
+      "kind": "count",
+      "subject": "est.bsts.method",
+      "value": 38
+    },
+    {
+      "id": "est.bsts.direction",
+      "kind": "label",
+      "subject": "est.bsts.method",
+      "value": "negative"
+    },
+    {
+      "id": "est.bsts.interval_excludes_zero",
+      "kind": "label",
+      "subject": "est.bsts.method",
+      "value": "includes zero"
+    },
+    {
+      "id": "score.bsts.band",
+      "kind": "label",
+      "subject": "est.bsts.method",
+      "value": "INSUFFICIENT"
+    },
+    {
+      "id": "score.bsts.ceiling",
+      "kind": "label",
+      "subject": "est.bsts.method",
+      "value": "MODERATE"
+    },
+    {
+      "id": "score.bsts.rationale.0",
+      "kind": "text",
+      "subject": "est.bsts.method",
+      "value": "Design provenance is observational, so the band cannot exceed MODERATE."
+    },
+    {
+      "id": "score.bsts.rationale.1",
+      "kind": "text",
+      "subject": "est.bsts.method",
+      "value": "Estimation checks failed (divergent_transitions, effective_sample_size, r_hat), so the computation did not succeed and the estimate is not usable at any band."
+    },
+    {
+      "id": "check.bsts.r_hat.name",
+      "kind": "name",
+      "subject": "est.bsts.method",
+      "value": "r_hat"
+    },
+    {
+      "id": "check.bsts.r_hat.kind",
+      "kind": "label",
+      "subject": "est.bsts.method",
+      "value": "estimation"
+    },
+    {
+      "id": "check.bsts.r_hat.status",
+      "kind": "label",
+      "subject": "est.bsts.method",
+      "value": "FAIL"
+    },
+    {
+      "id": "check.bsts.r_hat.statistic",
+      "kind": "number",
+      "subject": "est.bsts.method",
+      "value": 1.022862434387207
+    },
+    {
+      "id": "check.bsts.r_hat.threshold",
+      "kind": "number",
+      "subject": "est.bsts.method",
+      "value": 1.01
+    },
+    {
+      "id": "check.bsts.r_hat.interpretation",
+      "kind": "text",
+      "subject": "est.bsts.method",
+      "value": "The worst R-hat across all sampled parameters is 1.0229 (sigma_obs). At least one parameter's chains have not converged."
+    },
+    {
+      "id": "check.bsts.r_hat.remedy",
+      "kind": "text",
+      "subject": "est.bsts.method",
+      "value": "Increase warmup/samples, or reparameterise the offending site; do not trust this fit's point estimate or interval."
+    },
+    {
+      "id": "check.bsts.effective_sample_size.name",
+      "kind": "name",
+      "subject": "est.bsts.method",
+      "value": "effective_sample_size"
+    },
+    {
+      "id": "check.bsts.effective_sample_size.kind",
+      "kind": "label",
+      "subject": "est.bsts.method",
+      "value": "estimation"
+    },
+    {
+      "id": "check.bsts.effective_sample_size.status",
+      "kind": "label",
+      "subject": "est.bsts.method",
+      "value": "FAIL"
+    },
+    {
+      "id": "check.bsts.effective_sample_size.statistic",
+      "kind": "number",
+      "subject": "est.bsts.method",
+      "value": 117.31254059917393
+    },
+    {
+      "id": "check.bsts.effective_sample_size.threshold",
+      "kind": "number",
+      "subject": "est.bsts.method",
+      "value": 200.0
+    },
+    {
+      "id": "check.bsts.effective_sample_size.interpretation",
+      "kind": "text",
+      "subject": "est.bsts.method",
+      "value": "The smallest effective sample size across all sampled parameters is 117.3 (sigma_obs). Too few independent draws behind at least one parameter's summary."
+    },
+    {
+      "id": "check.bsts.effective_sample_size.remedy",
+      "kind": "text",
+      "subject": "est.bsts.method",
+      "value": "Increase num_samples, or investigate the poorly-mixing site."
+    },
+    {
+      "id": "check.bsts.divergent_transitions.name",
+      "kind": "name",
+      "subject": "est.bsts.method",
+      "value": "divergent_transitions"
+    },
+    {
+      "id": "check.bsts.divergent_transitions.kind",
+      "kind": "label",
+      "subject": "est.bsts.method",
+      "value": "estimation"
+    },
+    {
+      "id": "check.bsts.divergent_transitions.status",
+      "kind": "label",
+      "subject": "est.bsts.method",
+      "value": "FAIL"
+    },
+    {
+      "id": "check.bsts.divergent_transitions.statistic",
+      "kind": "number",
+      "subject": "est.bsts.method",
+      "value": 0.1145
+    },
+    {
+      "id": "check.bsts.divergent_transitions.threshold",
+      "kind": "number",
+      "subject": "est.bsts.method",
+      "value": 0.1
+    },
+    {
+      "id": "check.bsts.divergent_transitions.interpretation",
+      "kind": "text",
+      "subject": "est.bsts.method",
+      "value": "229 of 2000 post-warmup draws (11.5%) were divergent transitions. The sampler could not traverse the posterior reliably here."
+    },
+    {
+      "id": "check.bsts.divergent_transitions.remedy",
+      "kind": "text",
+      "subject": "est.bsts.method",
+      "value": "Do not trust this fit's point estimate or interval; increase target_accept_prob, or treat this fit as unreliable."
+    },
+    {
+      "id": "check.bsts.sufficient_pre_periods.name",
+      "kind": "name",
+      "subject": "est.bsts.method",
+      "value": "sufficient_pre_periods"
+    },
+    {
+      "id": "check.bsts.sufficient_pre_periods.kind",
+      "kind": "label",
+      "subject": "est.bsts.method",
+      "value": "data_adequacy"
+    },
+    {
+      "id": "check.bsts.sufficient_pre_periods.status",
+      "kind": "label",
+      "subject": "est.bsts.method",
+      "value": "PASS"
+    },
+    {
+      "id": "check.bsts.sufficient_pre_periods.statistic",
+      "kind": "number",
+      "subject": "est.bsts.method",
+      "value": 19.0
+    },
+    {
+      "id": "check.bsts.sufficient_pre_periods.threshold",
+      "kind": "number",
+      "subject": "est.bsts.method",
+      "value": 10.0
+    },
+    {
+      "id": "check.bsts.sufficient_pre_periods.interpretation",
+      "kind": "text",
+      "subject": "est.bsts.method",
+      "value": "19 pre-treatment period(s) are observed before the earliest adoption at period 1989; this estimator declares a minimum of 10."
+    },
+    {
+      "id": "est.hierarchical_did.method",
+      "kind": "name",
+      "subject": null,
+      "value": "hierarchical_did"
+    },
+    {
+      "id": "est.hierarchical_did.estimand",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "ATT"
+    },
+    {
+      "id": "est.hierarchical_did.scale",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "absolute"
+    },
+    {
+      "id": "est.hierarchical_did.ci_basis",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "posterior"
+    },
+    {
+      "id": "est.hierarchical_did.point",
+      "kind": "number",
+      "subject": "est.hierarchical_did.method",
+      "value": -27.932206701739236
+    },
+    {
+      "id": "est.hierarchical_did.se",
+      "kind": "number",
+      "subject": "est.hierarchical_did.method",
+      "value": 4.427873873738184
+    },
+    {
+      "id": "est.hierarchical_did.ci_lower",
+      "kind": "number",
+      "subject": "est.hierarchical_did.method",
+      "value": -36.42992079902711
+    },
+    {
+      "id": "est.hierarchical_did.ci_upper",
+      "kind": "number",
+      "subject": "est.hierarchical_did.method",
+      "value": -19.303266957084436
+    },
+    {
+      "id": "est.hierarchical_did.ci_level",
+      "kind": "level",
+      "subject": "est.hierarchical_did.method",
+      "value": 0.95
+    },
+    {
+      "id": "est.hierarchical_did.n_treated",
+      "kind": "count",
+      "subject": "est.hierarchical_did.method",
+      "value": 1
+    },
+    {
+      "id": "est.hierarchical_did.n_control",
+      "kind": "count",
+      "subject": "est.hierarchical_did.method",
+      "value": 38
+    },
+    {
+      "id": "est.hierarchical_did.direction",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "negative"
+    },
+    {
+      "id": "est.hierarchical_did.interval_excludes_zero",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "excludes zero"
+    },
+    {
+      "id": "score.hierarchical_did.band",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "INSUFFICIENT"
+    },
+    {
+      "id": "score.hierarchical_did.ceiling",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "MODERATE"
+    },
+    {
+      "id": "score.hierarchical_did.rationale.0",
+      "kind": "text",
+      "subject": "est.hierarchical_did.method",
+      "value": "Design provenance is observational, so the band cannot exceed MODERATE."
+    },
+    {
+      "id": "score.hierarchical_did.rationale.1",
+      "kind": "text",
+      "subject": "est.hierarchical_did.method",
+      "value": "Estimation checks failed (effective_sample_size, r_hat), so the computation did not succeed and the estimate is not usable at any band."
+    },
+    {
+      "id": "check.hierarchical_did.r_hat.name",
+      "kind": "name",
+      "subject": "est.hierarchical_did.method",
+      "value": "r_hat"
+    },
+    {
+      "id": "check.hierarchical_did.r_hat.kind",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "estimation"
+    },
+    {
+      "id": "check.hierarchical_did.r_hat.status",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "FAIL"
+    },
+    {
+      "id": "check.hierarchical_did.r_hat.statistic",
+      "kind": "number",
+      "subject": "est.hierarchical_did.method",
+      "value": 1.0286452770233154
+    },
+    {
+      "id": "check.hierarchical_did.r_hat.threshold",
+      "kind": "number",
+      "subject": "est.hierarchical_did.method",
+      "value": 1.01
+    },
+    {
+      "id": "check.hierarchical_did.r_hat.interpretation",
+      "kind": "text",
+      "subject": "est.hierarchical_did.method",
+      "value": "The worst R-hat across all sampled parameters is 1.0286 (z_alpha). At least one parameter's chains have not converged."
+    },
+    {
+      "id": "check.hierarchical_did.r_hat.remedy",
+      "kind": "text",
+      "subject": "est.hierarchical_did.method",
+      "value": "Increase warmup/samples, or reparameterise the offending site; do not trust this fit's point estimate or interval."
+    },
+    {
+      "id": "check.hierarchical_did.effective_sample_size.name",
+      "kind": "name",
+      "subject": "est.hierarchical_did.method",
+      "value": "effective_sample_size"
+    },
+    {
+      "id": "check.hierarchical_did.effective_sample_size.kind",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "estimation"
+    },
+    {
+      "id": "check.hierarchical_did.effective_sample_size.status",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "FAIL"
+    },
+    {
+      "id": "check.hierarchical_did.effective_sample_size.statistic",
+      "kind": "number",
+      "subject": "est.hierarchical_did.method",
+      "value": 91.58373852379115
+    },
+    {
+      "id": "check.hierarchical_did.effective_sample_size.threshold",
+      "kind": "number",
+      "subject": "est.hierarchical_did.method",
+      "value": 200.0
+    },
+    {
+      "id": "check.hierarchical_did.effective_sample_size.interpretation",
+      "kind": "text",
+      "subject": "est.hierarchical_did.method",
+      "value": "The smallest effective sample size across all sampled parameters is 91.6 (z_alpha). Too few independent draws behind at least one parameter's summary."
+    },
+    {
+      "id": "check.hierarchical_did.effective_sample_size.remedy",
+      "kind": "text",
+      "subject": "est.hierarchical_did.method",
+      "value": "Increase num_samples, or investigate the poorly-mixing site."
+    },
+    {
+      "id": "check.hierarchical_did.divergent_transitions.name",
+      "kind": "name",
+      "subject": "est.hierarchical_did.method",
+      "value": "divergent_transitions"
+    },
+    {
+      "id": "check.hierarchical_did.divergent_transitions.kind",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "estimation"
+    },
+    {
+      "id": "check.hierarchical_did.divergent_transitions.status",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "PASS"
+    },
+    {
+      "id": "check.hierarchical_did.divergent_transitions.statistic",
+      "kind": "number",
+      "subject": "est.hierarchical_did.method",
+      "value": 0.0
+    },
+    {
+      "id": "check.hierarchical_did.divergent_transitions.threshold",
+      "kind": "number",
+      "subject": "est.hierarchical_did.method",
+      "value": 0.1
+    },
+    {
+      "id": "check.hierarchical_did.divergent_transitions.interpretation",
+      "kind": "text",
+      "subject": "est.hierarchical_did.method",
+      "value": "0 of 4000 post-warmup draws (0.0%) were divergent transitions. Within tolerance."
+    },
+    {
+      "id": "check.hierarchical_did.parallel_trends.name",
+      "kind": "name",
+      "subject": "est.hierarchical_did.method",
+      "value": "parallel_trends"
+    },
+    {
+      "id": "check.hierarchical_did.parallel_trends.kind",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "identification"
+    },
+    {
+      "id": "check.hierarchical_did.parallel_trends.status",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "NOT_TESTABLE"
+    },
+    {
+      "id": "check.hierarchical_did.parallel_trends.interpretation",
+      "kind": "text",
+      "subject": "est.hierarchical_did.method",
+      "value": "There are no pre-treatment leads to test: the design has a single pre-period, so no differential trend can be measured. This is not evidence that trends are parallel."
+    },
+    {
+      "id": "check.hierarchical_did.parallel_trends.remedy",
+      "kind": "text",
+      "subject": "est.hierarchical_did.method",
+      "value": "Extend the panel backwards so at least two pre-treatment periods are observed."
+    },
+    {
+      "id": "check.hierarchical_did.no_anticipation.name",
+      "kind": "name",
+      "subject": "est.hierarchical_did.method",
+      "value": "no_anticipation"
+    },
+    {
+      "id": "check.hierarchical_did.no_anticipation.kind",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "identification"
+    },
+    {
+      "id": "check.hierarchical_did.no_anticipation.status",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "NOT_TESTABLE"
+    },
+    {
+      "id": "check.hierarchical_did.no_anticipation.interpretation",
+      "kind": "text",
+      "subject": "est.hierarchical_did.method",
+      "value": "No cohort has two pre-treatment periods to compare, so there is no placebo lead to test. This is not evidence that there was no anticipation."
+    },
+    {
+      "id": "check.hierarchical_did.no_anticipation.remedy",
+      "kind": "text",
+      "subject": "est.hierarchical_did.method",
+      "value": "Extend the panel backwards so at least one cohort has two pre-treatment periods observed."
+    },
+    {
+      "id": "check.hierarchical_did.absorbing_treatment.name",
+      "kind": "name",
+      "subject": "est.hierarchical_did.method",
+      "value": "absorbing_treatment"
+    },
+    {
+      "id": "check.hierarchical_did.absorbing_treatment.kind",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "data_adequacy"
+    },
+    {
+      "id": "check.hierarchical_did.absorbing_treatment.status",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "PASS"
+    },
+    {
+      "id": "check.hierarchical_did.absorbing_treatment.interpretation",
+      "kind": "text",
+      "subject": "est.hierarchical_did.method",
+      "value": "Treatment is absorbing: no unit returns to untreated once treated."
+    },
+    {
+      "id": "est.synthetic_control.method",
+      "kind": "name",
+      "subject": null,
+      "value": "synthetic_control"
+    },
+    {
+      "id": "est.synthetic_control.estimand",
+      "kind": "label",
+      "subject": "est.synthetic_control.method",
+      "value": "ATT"
+    },
+    {
+      "id": "est.synthetic_control.scale",
+      "kind": "label",
+      "subject": "est.synthetic_control.method",
+      "value": "absolute"
+    },
+    {
+      "id": "est.synthetic_control.ci_basis",
+      "kind": "label",
+      "subject": "est.synthetic_control.method",
+      "value": "permutation"
+    },
+    {
+      "id": "est.synthetic_control.point",
+      "kind": "number",
+      "subject": "est.synthetic_control.method",
+      "value": -19.513619362123034
+    },
+    {
+      "id": "est.synthetic_control.ci_lower",
+      "kind": "number",
+      "subject": "est.synthetic_control.method",
+      "value": -45.331153186808564
+    },
+    {
+      "id": "est.synthetic_control.ci_upper",
+      "kind": "number",
+      "subject": "est.synthetic_control.method",
+      "value": 6.303914462562496
+    },
+    {
+      "id": "est.synthetic_control.ci_level",
+      "kind": "level",
+      "subject": "est.synthetic_control.method",
+      "value": 0.95
+    },
+    {
+      "id": "est.synthetic_control.p_value",
+      "kind": "p_value",
+      "subject": "est.synthetic_control.method",
+      "value": 0.07692307692307693
+    },
+    {
+      "id": "est.synthetic_control.n_treated",
+      "kind": "count",
+      "subject": "est.synthetic_control.method",
+      "value": 1
+    },
+    {
+      "id": "est.synthetic_control.n_control",
+      "kind": "count",
+      "subject": "est.synthetic_control.method",
+      "value": 38
+    },
+    {
+      "id": "est.synthetic_control.direction",
+      "kind": "label",
+      "subject": "est.synthetic_control.method",
+      "value": "negative"
+    },
+    {
+      "id": "est.synthetic_control.interval_excludes_zero",
+      "kind": "label",
+      "subject": "est.synthetic_control.method",
+      "value": "includes zero"
+    },
+    {
+      "id": "score.synthetic_control.band",
+      "kind": "label",
+      "subject": "est.synthetic_control.method",
+      "value": "WEAK"
+    },
+    {
+      "id": "score.synthetic_control.ceiling",
+      "kind": "label",
+      "subject": "est.synthetic_control.method",
+      "value": "MODERATE"
+    },
+    {
+      "id": "score.synthetic_control.rationale.0",
+      "kind": "text",
+      "subject": "est.synthetic_control.method",
+      "value": "Design provenance is observational, so the band cannot exceed MODERATE."
+    },
+    {
+      "id": "score.synthetic_control.rationale.1",
+      "kind": "text",
+      "subject": "est.synthetic_control.method",
+      "value": "Identification or data-adequacy checks failed (donor_contamination), which caps the band at WEAK."
+    },
+    {
+      "id": "check.synthetic_control.pre_treatment_fit.name",
+      "kind": "name",
+      "subject": "est.synthetic_control.method",
+      "value": "pre_treatment_fit"
+    },
+    {
+      "id": "check.synthetic_control.pre_treatment_fit.kind",
+      "kind": "label",
+      "subject": "est.synthetic_control.method",
+      "value": "data_adequacy"
+    },
+    {
+      "id": "check.synthetic_control.pre_treatment_fit.status",
+      "kind": "label",
+      "subject": "est.synthetic_control.method",
+      "value": "PASS"
+    },
+    {
+      "id": "check.synthetic_control.pre_treatment_fit.statistic",
+      "kind": "number",
+      "subject": "est.synthetic_control.method",
+      "value": 0.14177829535673406
+    },
+    {
+      "id": "check.synthetic_control.pre_treatment_fit.threshold",
+      "kind": "number",
+      "subject": "est.synthetic_control.method",
+      "value": 1.75
+    },
+    {
+      "id": "check.synthetic_control.pre_treatment_fit.interpretation",
+      "kind": "text",
+      "subject": "est.synthetic_control.method",
+      "value": "Pre-treatment RMSPE is 0.14x the outcome's own pre-period standard deviation (a good fit)."
+    },
+    {
+      "id": "check.synthetic_control.convex_hull.name",
+      "kind": "name",
+      "subject": "est.synthetic_control.method",
+      "value": "convex_hull"
+    },
+    {
+      "id": "check.synthetic_control.convex_hull.kind",
+      "kind": "label",
+      "subject": "est.synthetic_control.method",
+      "value": "identification"
+    },
+    {
+      "id": "check.synthetic_control.convex_hull.status",
+      "kind": "label",
+      "subject": "est.synthetic_control.method",
+      "value": "PASS"
+    },
+    {
+      "id": "check.synthetic_control.convex_hull.statistic",
+      "kind": "number",
+      "subject": "est.synthetic_control.method",
+      "value": 116.21052631578948
+    },
+    {
+      "id": "check.synthetic_control.convex_hull.interpretation",
+      "kind": "text",
+      "subject": "est.synthetic_control.method",
+      "value": "The treated unit's pre-period mean (116.211) lies within the donor pool's range [71.479, 247.621]."
+    },
+    {
+      "id": "check.synthetic_control.donor_contamination.name",
+      "kind": "name",
+      "subject": "est.synthetic_control.method",
+      "value": "donor_contamination"
+    },
+    {
+      "id": "check.synthetic_control.donor_contamination.kind",
+      "kind": "label",
+      "subject": "est.synthetic_control.method",
+      "value": "identification"
+    },
+    {
+      "id": "check.synthetic_control.donor_contamination.status",
+      "kind": "label",
+      "subject": "est.synthetic_control.method",
+      "value": "FAIL"
+    },
+    {
+      "id": "check.synthetic_control.donor_contamination.statistic",
+      "kind": "number",
+      "subject": "est.synthetic_control.method",
+      "value": 135.327272606163
+    },
+    {
+      "id": "check.synthetic_control.donor_contamination.threshold",
+      "kind": "number",
+      "subject": "est.synthetic_control.method",
+      "value": 7.0
+    },
+    {
+      "id": "check.synthetic_control.donor_contamination.interpretation",
+      "kind": "text",
+      "subject": "est.synthetic_control.method",
+      "value": "The most extreme donor's own placebo ratio is 135.33 robust standard deviations from the rest of the pool's median. At least one donor's post-period behaviour looks unlike what its own donor pool would have predicted, which is what a hidden shock to that donor looks like from this test's point of view."
+    },
+    {
+      "id": "check.synthetic_control.donor_contamination.remedy",
+      "kind": "text",
+      "subject": "est.synthetic_control.method",
+      "value": "Inspect the flagged donor's own series for an unrelated shock or intervention around the treatment date, and consider excluding it from the donor pool."
+    },
+    {
+      "id": "check.synthetic_control.sufficient_pre_periods.name",
+      "kind": "name",
+      "subject": "est.synthetic_control.method",
+      "value": "sufficient_pre_periods"
+    },
+    {
+      "id": "check.synthetic_control.sufficient_pre_periods.kind",
+      "kind": "label",
+      "subject": "est.synthetic_control.method",
+      "value": "data_adequacy"
+    },
+    {
+      "id": "check.synthetic_control.sufficient_pre_periods.status",
+      "kind": "label",
+      "subject": "est.synthetic_control.method",
+      "value": "PASS"
+    },
+    {
+      "id": "check.synthetic_control.sufficient_pre_periods.statistic",
+      "kind": "number",
+      "subject": "est.synthetic_control.method",
+      "value": 19.0
+    },
+    {
+      "id": "check.synthetic_control.sufficient_pre_periods.threshold",
+      "kind": "number",
+      "subject": "est.synthetic_control.method",
+      "value": 10.0
+    },
+    {
+      "id": "check.synthetic_control.sufficient_pre_periods.interpretation",
+      "kind": "text",
+      "subject": "est.synthetic_control.method",
+      "value": "19 pre-treatment period(s) are observed before the earliest adoption at period 1989; this estimator declares a minimum of 10."
+    },
+    {
+      "id": "cmp.att.absolute.n_methods",
+      "kind": "count",
+      "subject": null,
+      "value": 3
+    },
+    {
+      "id": "cmp.att.absolute.agreement",
+      "kind": "label",
+      "subject": null,
+      "value": "not_assessable"
+    },
+    {
+      "id": "cmp.att.absolute.verdict",
+      "kind": "text",
+      "subject": null,
+      "value": "Fewer than two methods scored WEAK or better, so agreement cannot be assessed. Excluded as INSUFFICIENT and not counted toward agreement: bsts, hierarchical_did."
+    },
+    {
+      "id": "cmp.att.absolute.point_low",
+      "kind": "number",
+      "subject": null,
+      "value": -27.932206701739236
+    },
+    {
+      "id": "cmp.att.absolute.point_high",
+      "kind": "number",
+      "subject": null,
+      "value": -8.862072684997228
+    },
+    {
+      "id": "cmp.att.absolute.dispersion",
+      "kind": "number",
+      "subject": null,
+      "value": 9.55683063595734
+    },
+    {
+      "id": "route.aipw.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "aipw"
+    },
+    {
+      "id": "route.aipw.eligible",
+      "kind": "label",
+      "subject": "route.aipw.estimator",
+      "value": "not eligible"
+    },
+    {
+      "id": "route.aipw.reasons.0",
+      "kind": "text",
+      "subject": "route.aipw.estimator",
+      "value": "requires a cross-section; dataset is a panel and this estimator has no unit/period structure to exploit or protect"
+    },
+    {
+      "id": "route.aipw.reasons.1",
+      "kind": "text",
+      "subject": "route.aipw.estimator",
+      "value": "requires covariates; dataset declares none"
+    },
+    {
+      "id": "route.aipw.reasons.2",
+      "kind": "text",
+      "subject": "route.aipw.estimator",
+      "value": "requires at least 25 treated units; dataset has 1"
+    },
+    {
+      "id": "route.bsts.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "bsts"
+    },
+    {
+      "id": "route.bsts.eligible",
+      "kind": "label",
+      "subject": "route.bsts.estimator",
+      "value": "eligible"
+    },
+    {
+      "id": "route.callaway_santanna.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "callaway_santanna"
+    },
+    {
+      "id": "route.callaway_santanna.eligible",
+      "kind": "label",
+      "subject": "route.callaway_santanna.estimator",
+      "value": "not eligible"
+    },
+    {
+      "id": "route.callaway_santanna.reasons.0",
+      "kind": "text",
+      "subject": "route.callaway_santanna.estimator",
+      "value": "requires at least 10 treated units; dataset has 1"
+    },
+    {
+      "id": "route.causal_forest.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "causal_forest"
+    },
+    {
+      "id": "route.causal_forest.eligible",
+      "kind": "label",
+      "subject": "route.causal_forest.estimator",
+      "value": "not eligible"
+    },
+    {
+      "id": "route.causal_forest.reasons.0",
+      "kind": "text",
+      "subject": "route.causal_forest.estimator",
+      "value": "requires a cross-section; dataset is a panel and this estimator has no unit/period structure to exploit or protect"
+    },
+    {
+      "id": "route.causal_forest.reasons.1",
+      "kind": "text",
+      "subject": "route.causal_forest.estimator",
+      "value": "requires covariates; dataset declares none"
+    },
+    {
+      "id": "route.causal_forest.reasons.2",
+      "kind": "text",
+      "subject": "route.causal_forest.estimator",
+      "value": "requires at least 50 treated units; dataset has 1"
+    },
+    {
+      "id": "route.causal_forest.reasons.3",
+      "kind": "text",
+      "subject": "route.causal_forest.estimator",
+      "value": "requires at least 50 control units; dataset has 38"
+    },
+    {
+      "id": "route.did_2x2.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "did_2x2"
+    },
+    {
+      "id": "route.did_2x2.eligible",
+      "kind": "label",
+      "subject": "route.did_2x2.estimator",
+      "value": "not eligible"
+    },
+    {
+      "id": "route.did_2x2.reasons.0",
+      "kind": "text",
+      "subject": "route.did_2x2.estimator",
+      "value": "requires at least 10 treated units; dataset has 1"
+    },
+    {
+      "id": "route.difference_in_means.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "difference_in_means"
+    },
+    {
+      "id": "route.difference_in_means.eligible",
+      "kind": "label",
+      "subject": "route.difference_in_means.estimator",
+      "value": "not eligible"
+    },
+    {
+      "id": "route.difference_in_means.reasons.0",
+      "kind": "text",
+      "subject": "route.difference_in_means.estimator",
+      "value": "requires a cross-section; dataset is a panel and this estimator has no unit/period structure to exploit or protect"
+    },
+    {
+      "id": "route.difference_in_means.reasons.1",
+      "kind": "text",
+      "subject": "route.difference_in_means.estimator",
+      "value": "requires at least 2 treated units; dataset has 1"
+    },
+    {
+      "id": "route.event_study.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "event_study"
+    },
+    {
+      "id": "route.event_study.eligible",
+      "kind": "label",
+      "subject": "route.event_study.estimator",
+      "value": "not eligible"
+    },
+    {
+      "id": "route.event_study.reasons.0",
+      "kind": "text",
+      "subject": "route.event_study.estimator",
+      "value": "requires at least 10 treated units; dataset has 1"
+    },
+    {
+      "id": "route.hierarchical_did.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "hierarchical_did"
+    },
+    {
+      "id": "route.hierarchical_did.eligible",
+      "kind": "label",
+      "subject": "route.hierarchical_did.estimator",
+      "value": "eligible"
+    },
+    {
+      "id": "route.ipw.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "ipw"
+    },
+    {
+      "id": "route.ipw.eligible",
+      "kind": "label",
+      "subject": "route.ipw.estimator",
+      "value": "not eligible"
+    },
+    {
+      "id": "route.ipw.reasons.0",
+      "kind": "text",
+      "subject": "route.ipw.estimator",
+      "value": "requires a cross-section; dataset is a panel and this estimator has no unit/period structure to exploit or protect"
+    },
+    {
+      "id": "route.ipw.reasons.1",
+      "kind": "text",
+      "subject": "route.ipw.estimator",
+      "value": "requires covariates; dataset declares none"
+    },
+    {
+      "id": "route.ipw.reasons.2",
+      "kind": "text",
+      "subject": "route.ipw.estimator",
+      "value": "requires at least 10 treated units; dataset has 1"
+    },
+    {
+      "id": "route.lin_regression.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "lin_regression"
+    },
+    {
+      "id": "route.lin_regression.eligible",
+      "kind": "label",
+      "subject": "route.lin_regression.estimator",
+      "value": "not eligible"
+    },
+    {
+      "id": "route.lin_regression.reasons.0",
+      "kind": "text",
+      "subject": "route.lin_regression.estimator",
+      "value": "requires a cross-section; dataset is a panel and this estimator has no unit/period structure to exploit or protect"
+    },
+    {
+      "id": "route.lin_regression.reasons.1",
+      "kind": "text",
+      "subject": "route.lin_regression.estimator",
+      "value": "requires covariates; dataset declares none"
+    },
+    {
+      "id": "route.lin_regression.reasons.2",
+      "kind": "text",
+      "subject": "route.lin_regression.estimator",
+      "value": "requires at least 5 treated units; dataset has 1"
+    },
+    {
+      "id": "route.synthetic_control.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "synthetic_control"
+    },
+    {
+      "id": "route.synthetic_control.eligible",
+      "kind": "label",
+      "subject": "route.synthetic_control.estimator",
+      "value": "eligible"
+    },
+    {
+      "id": "route.twfe.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "twfe"
+    },
+    {
+      "id": "route.twfe.eligible",
+      "kind": "label",
+      "subject": "route.twfe.estimator",
+      "value": "not eligible"
+    },
+    {
+      "id": "route.twfe.reasons.0",
+      "kind": "text",
+      "subject": "route.twfe.estimator",
+      "value": "requires at least 10 treated units; dataset has 1"
+    }
+  ],
+  "schema_version": 1
+}

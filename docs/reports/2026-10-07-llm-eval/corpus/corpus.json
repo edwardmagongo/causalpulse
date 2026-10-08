@@ -1,0 +1,239 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "case_id": "cross-A",
+      "design": "cross_section",
+      "group": "scenario",
+      "reason": "cross-sectional scenario A",
+      "estimators": null,
+      "requirements": [],
+      "facts_sha256": "003c8717e9cfcb753b2905378d9889074c8142a4a9763122d795ef07ec8a03b1"
+    },
+    {
+      "case_id": "cross-B",
+      "design": "cross_section",
+      "group": "scenario",
+      "reason": "cross-sectional scenario B",
+      "estimators": null,
+      "requirements": [],
+      "facts_sha256": "8ebdcacffcb45d02908c7546c44dd0b5419972e43498edfd8c076f429e4ed920"
+    },
+    {
+      "case_id": "cross-C",
+      "design": "cross_section",
+      "group": "scenario",
+      "reason": "cross-sectional scenario C",
+      "estimators": null,
+      "requirements": [],
+      "facts_sha256": "7940f3b12760dc69c0d853628f5a6d7239749705d22904d52ba430edea5bb306"
+    },
+    {
+      "case_id": "cross-D",
+      "design": "cross_section",
+      "group": "scenario",
+      "reason": "cross-sectional scenario D",
+      "estimators": null,
+      "requirements": [],
+      "facts_sha256": "f2ec685da52808d3de16a8acc1f8712b165dde3d3532fdd20716b594c1fc8d05"
+    },
+    {
+      "case_id": "cross-F",
+      "design": "cross_section",
+      "group": "scenario",
+      "reason": "cross-sectional scenario F",
+      "estimators": null,
+      "requirements": [],
+      "facts_sha256": "958a4bdabc437f6361d19fbc3edb782213a980054f2ef51d1b6383137915b7db"
+    },
+    {
+      "case_id": "cross-G",
+      "design": "cross_section",
+      "group": "scenario",
+      "reason": "cross-sectional scenario G",
+      "estimators": null,
+      "requirements": [],
+      "facts_sha256": "a21d6fddb21ad7b30bc9dbfac4605aa52207851374e5feb8645d88bdc59cd681"
+    },
+    {
+      "case_id": "cross-H-complete",
+      "design": "cross_section",
+      "group": "scenario",
+      "reason": "scenario H reduced to complete cases; as generated it is refused",
+      "estimators": null,
+      "requirements": [],
+      "facts_sha256": "6e85f2227800292cfae96fedaf84635ec52760c69e84a741588afb736f76a06d"
+    },
+    {
+      "case_id": "panel-P1",
+      "design": "panel",
+      "group": "scenario",
+      "reason": "panel scenario P1",
+      "estimators": null,
+      "requirements": [],
+      "facts_sha256": "b369b8de55e4db1e7098b1dc7a268d7018f9fa4ad20b32e9af267c63a971697e"
+    },
+    {
+      "case_id": "panel-P2",
+      "design": "panel",
+      "group": "scenario",
+      "reason": "panel scenario P2",
+      "estimators": null,
+      "requirements": [],
+      "facts_sha256": "89dc764bfbcce8c36ff8bf95d862f834425f9e054f7790debaeaa25fd2600693"
+    },
+    {
+      "case_id": "panel-P3",
+      "design": "panel",
+      "group": "scenario",
+      "reason": "panel scenario P3",
+      "estimators": null,
+      "requirements": [],
+      "facts_sha256": "439c74a4afa3db08b43b5bfa6e6c96807deaa5a9a427aaaaa8c8fcd7b8606830"
+    },
+    {
+      "case_id": "panel-P4",
+      "design": "panel",
+      "group": "scenario",
+      "reason": "panel scenario P4",
+      "estimators": null,
+      "requirements": [],
+      "facts_sha256": "089fbf0541ed633db777ef332da849bd9285df3155db3fe597fb781766602c0f"
+    },
+    {
+      "case_id": "panel-P5",
+      "design": "panel",
+      "group": "scenario",
+      "reason": "panel scenario P5",
+      "estimators": null,
+      "requirements": [],
+      "facts_sha256": "8bd9a83905a66e7414440cdd61f115f189a4f2421bca54fcb00cb20e0ed4e724"
+    },
+    {
+      "case_id": "panel-P6",
+      "design": "panel",
+      "group": "scenario",
+      "reason": "panel scenario P6",
+      "estimators": null,
+      "requirements": [],
+      "facts_sha256": "4a1ee93cb8ee420fa4a3daf2f0e50f8dd898c94a2f38f98d153bed104f22637c"
+    },
+    {
+      "case_id": "panel-P7",
+      "design": "panel",
+      "group": "scenario",
+      "reason": "panel scenario P7",
+      "estimators": null,
+      "requirements": [],
+      "facts_sha256": "c7b223f49a89735826bdf843c6dc3f133fac33741e6b278ce2d7b7ff3dd72f49"
+    },
+    {
+      "case_id": "donor-S0",
+      "design": "donor_pool",
+      "group": "scenario",
+      "reason": "donor-pool scenario S0",
+      "estimators": null,
+      "requirements": [],
+      "facts_sha256": "ee407d185e0ea0c6d97cd620b55e299a3924ffa23d09112734c369936d564400"
+    },
+    {
+      "case_id": "donor-S1",
+      "design": "donor_pool",
+      "group": "scenario",
+      "reason": "donor-pool scenario S1",
+      "estimators": null,
+      "requirements": [],
+      "facts_sha256": "5532d15cbeac5f95cee56adff1d726ab653dc28b8dfae6c4ec773f54c1be304e"
+    },
+    {
+      "case_id": "donor-S2",
+      "design": "donor_pool",
+      "group": "scenario",
+      "reason": "donor-pool scenario S2",
+      "estimators": null,
+      "requirements": [],
+      "facts_sha256": "2f947cfe46cf6bd00f8fb7030f2c6e1d592c5afc8042d066e5c87445ef3e8672"
+    },
+    {
+      "case_id": "donor-S3",
+      "design": "donor_pool",
+      "group": "scenario",
+      "reason": "donor-pool scenario S3",
+      "estimators": null,
+      "requirements": [],
+      "facts_sha256": "be216c371eb84f86dd173125a572fa5f6e6796a6c0b7a15b610f40ae3cbba0a3"
+    },
+    {
+      "case_id": "donor-S4",
+      "design": "donor_pool",
+      "group": "scenario",
+      "reason": "donor-pool scenario S4",
+      "estimators": null,
+      "requirements": [],
+      "facts_sha256": "a89957a98d90030653cc8752d32dbf7d48d7d411b806dc07f3bace03aa2e00af"
+    },
+    {
+      "case_id": "donor-S5",
+      "design": "donor_pool",
+      "group": "scenario",
+      "reason": "donor-pool scenario S5",
+      "estimators": null,
+      "requirements": [],
+      "facts_sha256": "5bff0f5a858de56dfc64a57f79e33eb8c11102230b6f6ca1e8b16001b7cfab29"
+    },
+    {
+      "case_id": "real-lalonde",
+      "design": "cross_section",
+      "group": "real_data",
+      "reason": "LaLonde (NSW and PSID)",
+      "estimators": null,
+      "requirements": [],
+      "facts_sha256": "82f30db3052d4fc21cf98c0a7a5fa2ca95b6ae596debe2bb55d42e85a1e7f606"
+    },
+    {
+      "case_id": "real-prop99",
+      "design": "donor_pool",
+      "group": "real_data",
+      "reason": "California Proposition 99",
+      "estimators": null,
+      "requirements": [],
+      "facts_sha256": "5d49c4f148a1183f659136232fdd596567314cb7965851b10d21799ee6f1116f"
+    },
+    {
+      "case_id": "awkward-fail-divergent",
+      "design": "cross_section",
+      "group": "awkward",
+      "reason": "strong confounding: a failed check and methods that diverge",
+      "estimators": null,
+      "requirements": [
+        "at least one check with status FAIL",
+        "a comparison whose verdict is divergent"
+      ],
+      "facts_sha256": "896507c5a212e42516b9cf28f3464b8ab324c2b8d10d3eacd014a3c5094f8e59"
+    },
+    {
+      "case_id": "awkward-divergent",
+      "design": "cross_section",
+      "group": "awkward",
+      "reason": "selection on untreated outcomes: methods that diverge",
+      "estimators": null,
+      "requirements": [
+        "a comparison whose verdict is divergent"
+      ],
+      "facts_sha256": "c8ca317edba2d3c33b6faea61ed51f01ba895b1f958806514ce4a13ca71ef0e1"
+    },
+    {
+      "case_id": "awkward-single",
+      "design": "cross_section",
+      "group": "awkward",
+      "reason": "one method, so no comparison",
+      "estimators": [
+        "difference_in_means"
+      ],
+      "requirements": [
+        "exactly one estimate"
+      ],
+      "facts_sha256": "e52297ba95289c4e9ed188fe0ed0c027ce52b7421f219abb77029d43aea5bec4"
+    }
+  ]
+}
