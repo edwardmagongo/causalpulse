@@ -1,0 +1,377 @@
+{
+  "facts": [
+    {
+      "id": "analysis.assignment_provenance",
+      "kind": "label",
+      "subject": null,
+      "value": "observational"
+    },
+    {
+      "id": "analysis.n_estimates",
+      "kind": "count",
+      "subject": null,
+      "value": 1
+    },
+    {
+      "id": "analysis.n_failed",
+      "kind": "count",
+      "subject": null,
+      "value": 0
+    },
+    {
+      "id": "est.difference_in_means.method",
+      "kind": "name",
+      "subject": null,
+      "value": "difference_in_means"
+    },
+    {
+      "id": "est.difference_in_means.estimand",
+      "kind": "label",
+      "subject": "est.difference_in_means.method",
+      "value": "ATE"
+    },
+    {
+      "id": "est.difference_in_means.scale",
+      "kind": "label",
+      "subject": "est.difference_in_means.method",
+      "value": "percentage_point"
+    },
+    {
+      "id": "est.difference_in_means.ci_basis",
+      "kind": "label",
+      "subject": "est.difference_in_means.method",
+      "value": "analytic"
+    },
+    {
+      "id": "est.difference_in_means.point",
+      "kind": "number",
+      "subject": "est.difference_in_means.method",
+      "value": 0.16932150418388953
+    },
+    {
+      "id": "est.difference_in_means.se",
+      "kind": "number",
+      "subject": "est.difference_in_means.method",
+      "value": 0.0473638374160514
+    },
+    {
+      "id": "est.difference_in_means.ci_lower",
+      "kind": "number",
+      "subject": "est.difference_in_means.method",
+      "value": 0.07460775150361076
+    },
+    {
+      "id": "est.difference_in_means.ci_upper",
+      "kind": "number",
+      "subject": "est.difference_in_means.method",
+      "value": 0.2588940759527113
+    },
+    {
+      "id": "est.difference_in_means.ci_level",
+      "kind": "level",
+      "subject": "est.difference_in_means.method",
+      "value": 0.95
+    },
+    {
+      "id": "est.difference_in_means.p_value",
+      "kind": "p_value",
+      "subject": "est.difference_in_means.method",
+      "value": 0.00035034703100600417
+    },
+    {
+      "id": "est.difference_in_means.n_treated",
+      "kind": "count",
+      "subject": "est.difference_in_means.method",
+      "value": 218
+    },
+    {
+      "id": "est.difference_in_means.n_control",
+      "kind": "count",
+      "subject": "est.difference_in_means.method",
+      "value": 182
+    },
+    {
+      "id": "est.difference_in_means.direction",
+      "kind": "label",
+      "subject": "est.difference_in_means.method",
+      "value": "positive"
+    },
+    {
+      "id": "est.difference_in_means.interval_excludes_zero",
+      "kind": "label",
+      "subject": "est.difference_in_means.method",
+      "value": "excludes zero"
+    },
+    {
+      "id": "score.difference_in_means.band",
+      "kind": "label",
+      "subject": "est.difference_in_means.method",
+      "value": "MODERATE"
+    },
+    {
+      "id": "score.difference_in_means.ceiling",
+      "kind": "label",
+      "subject": "est.difference_in_means.method",
+      "value": "MODERATE"
+    },
+    {
+      "id": "score.difference_in_means.rationale.0",
+      "kind": "text",
+      "subject": "est.difference_in_means.method",
+      "value": "Design provenance is observational, so the band cannot exceed MODERATE."
+    },
+    {
+      "id": "score.difference_in_means.rationale.1",
+      "kind": "text",
+      "subject": "est.difference_in_means.method",
+      "value": "Not testable from data (randomised_assignment); recorded here and already reflected in the design ceiling, so it does not move the band."
+    },
+    {
+      "id": "check.difference_in_means.randomised_assignment.name",
+      "kind": "name",
+      "subject": "est.difference_in_means.method",
+      "value": "randomised_assignment"
+    },
+    {
+      "id": "check.difference_in_means.randomised_assignment.kind",
+      "kind": "label",
+      "subject": "est.difference_in_means.method",
+      "value": "identification"
+    },
+    {
+      "id": "check.difference_in_means.randomised_assignment.status",
+      "kind": "label",
+      "subject": "est.difference_in_means.method",
+      "value": "NOT_TESTABLE"
+    },
+    {
+      "id": "check.difference_in_means.randomised_assignment.interpretation",
+      "kind": "text",
+      "subject": "est.difference_in_means.method",
+      "value": "This estimator is unbiased only if treatment was randomly assigned. Nothing in the data can establish that; it is a claim about how the data came to exist."
+    },
+    {
+      "id": "check.difference_in_means.randomised_assignment.remedy",
+      "kind": "text",
+      "subject": "est.difference_in_means.method",
+      "value": "Confirm the assignment procedure. If assignment was not random, use an estimator that adjusts for covariates."
+    },
+    {
+      "id": "cmp.ate.percentage_point.n_methods",
+      "kind": "count",
+      "subject": null,
+      "value": 1
+    },
+    {
+      "id": "cmp.ate.percentage_point.not_compared_reason",
+      "kind": "text",
+      "subject": null,
+      "value": "only one method estimated the ATE on the percentage_point scale, so there is no second estimate to compare it with"
+    },
+    {
+      "id": "route.aipw.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "aipw"
+    },
+    {
+      "id": "route.aipw.eligible",
+      "kind": "label",
+      "subject": "route.aipw.estimator",
+      "value": "eligible"
+    },
+    {
+      "id": "route.bsts.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "bsts"
+    },
+    {
+      "id": "route.bsts.eligible",
+      "kind": "label",
+      "subject": "route.bsts.estimator",
+      "value": "not eligible"
+    },
+    {
+      "id": "route.bsts.reasons.0",
+      "kind": "text",
+      "subject": "route.bsts.estimator",
+      "value": "requires panel data; dataset is a cross-section"
+    },
+    {
+      "id": "route.bsts.reasons.1",
+      "kind": "text",
+      "subject": "route.bsts.estimator",
+      "value": "requires at most 1 treated unit(s); dataset has 218"
+    },
+    {
+      "id": "route.callaway_santanna.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "callaway_santanna"
+    },
+    {
+      "id": "route.callaway_santanna.eligible",
+      "kind": "label",
+      "subject": "route.callaway_santanna.estimator",
+      "value": "not eligible"
+    },
+    {
+      "id": "route.callaway_santanna.reasons.0",
+      "kind": "text",
+      "subject": "route.callaway_santanna.estimator",
+      "value": "requires panel data; dataset is a cross-section"
+    },
+    {
+      "id": "route.causal_forest.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "causal_forest"
+    },
+    {
+      "id": "route.causal_forest.eligible",
+      "kind": "label",
+      "subject": "route.causal_forest.estimator",
+      "value": "eligible"
+    },
+    {
+      "id": "route.did_2x2.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "did_2x2"
+    },
+    {
+      "id": "route.did_2x2.eligible",
+      "kind": "label",
+      "subject": "route.did_2x2.estimator",
+      "value": "not eligible"
+    },
+    {
+      "id": "route.did_2x2.reasons.0",
+      "kind": "text",
+      "subject": "route.did_2x2.estimator",
+      "value": "requires panel data; dataset is a cross-section"
+    },
+    {
+      "id": "route.difference_in_means.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "difference_in_means"
+    },
+    {
+      "id": "route.difference_in_means.eligible",
+      "kind": "label",
+      "subject": "route.difference_in_means.estimator",
+      "value": "eligible"
+    },
+    {
+      "id": "route.event_study.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "event_study"
+    },
+    {
+      "id": "route.event_study.eligible",
+      "kind": "label",
+      "subject": "route.event_study.estimator",
+      "value": "not eligible"
+    },
+    {
+      "id": "route.event_study.reasons.0",
+      "kind": "text",
+      "subject": "route.event_study.estimator",
+      "value": "requires panel data; dataset is a cross-section"
+    },
+    {
+      "id": "route.hierarchical_did.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "hierarchical_did"
+    },
+    {
+      "id": "route.hierarchical_did.eligible",
+      "kind": "label",
+      "subject": "route.hierarchical_did.estimator",
+      "value": "not eligible"
+    },
+    {
+      "id": "route.hierarchical_did.reasons.0",
+      "kind": "text",
+      "subject": "route.hierarchical_did.estimator",
+      "value": "requires panel data; dataset is a cross-section"
+    },
+    {
+      "id": "route.hierarchical_did.reasons.1",
+      "kind": "text",
+      "subject": "route.hierarchical_did.estimator",
+      "value": "does not support outcome_type 'binary'; supports ['continuous']"
+    },
+    {
+      "id": "route.ipw.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "ipw"
+    },
+    {
+      "id": "route.ipw.eligible",
+      "kind": "label",
+      "subject": "route.ipw.estimator",
+      "value": "eligible"
+    },
+    {
+      "id": "route.lin_regression.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "lin_regression"
+    },
+    {
+      "id": "route.lin_regression.eligible",
+      "kind": "label",
+      "subject": "route.lin_regression.estimator",
+      "value": "eligible"
+    },
+    {
+      "id": "route.synthetic_control.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "synthetic_control"
+    },
+    {
+      "id": "route.synthetic_control.eligible",
+      "kind": "label",
+      "subject": "route.synthetic_control.estimator",
+      "value": "not eligible"
+    },
+    {
+      "id": "route.synthetic_control.reasons.0",
+      "kind": "text",
+      "subject": "route.synthetic_control.estimator",
+      "value": "requires panel data; dataset is a cross-section"
+    },
+    {
+      "id": "route.synthetic_control.reasons.1",
+      "kind": "text",
+      "subject": "route.synthetic_control.estimator",
+      "value": "requires at most 1 treated unit(s); dataset has 218"
+    },
+    {
+      "id": "route.twfe.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "twfe"
+    },
+    {
+      "id": "route.twfe.eligible",
+      "kind": "label",
+      "subject": "route.twfe.estimator",
+      "value": "not eligible"
+    },
+    {
+      "id": "route.twfe.reasons.0",
+      "kind": "text",
+      "subject": "route.twfe.estimator",
+      "value": "requires panel data; dataset is a cross-section"
+    }
+  ],
+  "schema_version": 1
+}

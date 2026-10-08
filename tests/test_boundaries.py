@@ -223,11 +223,16 @@ def test_mlflow_is_imported_only_by_the_tracking_log_module():
     assert not found, f"mlflow imported outside {allowed}: {sorted(map(str, found))}"
 
 
-def test_the_model_sdk_is_imported_only_by_the_llm_client_module():
+def test_the_model_sdk_is_imported_only_by_the_two_model_modules():
     import pathlib
 
     packages = pathlib.Path(__file__).resolve().parents[1] / "packages"
-    allowed = packages / "cp-llm" / "src" / "cp_llm" / "client.py"
+    # The interpreter's client and the evaluation judge: the only two modules
+    # that call a model.
+    allowed = {
+        packages / "cp-llm" / "src" / "cp_llm" / "client.py",
+        packages / "cp-llm-eval" / "src" / "cp_llm_eval" / "judge.py",
+    }
     offenders = subprocess.run(
         ["grep", "-rlE", "--include=*.py", r"^\s*(import anthropic|from anthropic)", str(packages)],
         capture_output=True,
@@ -235,8 +240,8 @@ def test_the_model_sdk_is_imported_only_by_the_llm_client_module():
     )
     assert offenders.returncode in (0, 1), offenders.stderr
     found = {pathlib.Path(p) for p in offenders.stdout.splitlines()}
-    assert allowed in found, "the scan no longer reaches the one module that imports the SDK"
-    assert found == {allowed}, f"anthropic imported outside {allowed}: {sorted(map(str, found))}"
+    assert allowed <= found, "the scan no longer reaches a module that imports the SDK"
+    assert found == allowed, f"anthropic imported outside {allowed}: {sorted(map(str, found))}"
 
 
 def test_no_test_package_shadows_a_stdlib_module():

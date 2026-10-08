@@ -35,6 +35,19 @@ class Attempt:
     violations: tuple[Violation, ...]
     usage: Usage
 
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "narrative": self.narrative.model_dump(),
+            "violations": [
+                {"rule": v.rule, "section": v.section, "statement": v.statement, "reason": v.reason}
+                for v in self.violations
+            ],
+            "usage": {
+                "input_tokens": self.usage.input_tokens,
+                "output_tokens": self.usage.output_tokens,
+            },
+        }
+
 
 class InterpretationRefusedError(Exception):
     """Every attempt broke a rule. Nothing was rendered."""
@@ -53,10 +66,12 @@ class ModelDidNotAnswerError(Exception):
 
     `stop_reason` says why: a refusal, a reply cut off at the token limit, or
     `invalid_reply`, a reply that ended normally but did not fit the schema.
+    `attempts` holds the replies made before it, each rejected by the verifier.
     """
 
-    def __init__(self, stop_reason: str) -> None:
+    def __init__(self, stop_reason: str, attempts: tuple[Attempt, ...] = ()) -> None:
         self.stop_reason = stop_reason
+        self.attempts = attempts
         super().__init__(f"the model returned no narrative (stop reason: {stop_reason})")
 
 
@@ -111,25 +126,7 @@ class Interpretation:
             "prompt_version": self.prompt_version,
             "narrative": self.narrative.model_dump(),
             "rendered": self.rendered.to_dict(),
-            "attempts": [
-                {
-                    "narrative": attempt.narrative.model_dump(),
-                    "violations": [
-                        {
-                            "rule": v.rule,
-                            "section": v.section,
-                            "statement": v.statement,
-                            "reason": v.reason,
-                        }
-                        for v in attempt.violations
-                    ],
-                    "usage": {
-                        "input_tokens": attempt.usage.input_tokens,
-                        "output_tokens": attempt.usage.output_tokens,
-                    },
-                }
-                for attempt in self.attempts
-            ],
+            "attempts": [attempt.to_dict() for attempt in self.attempts],
         }
 
 
@@ -149,23 +146,31 @@ def render_verified(narrative: Narrative, facts: FactTable) -> RenderedNarrative
     )
 
 
-def interpret(facts: FactTable, model: NarrativeModel, max_attempts: int = 2) -> Interpretation:
+def interpret(
+    facts: FactTable,
+    model: NarrativeModel,
+    max_attempts: int = 2,
+    system: str | None = None,
+) -> Interpretation:
     """Ask `model` for a narrative of `facts` until one verifies, or refuse.
 
     A reply that breaks a rule is sent back with its violations, in the same
     conversation, at most `max_attempts - 1` times. A refusal or a truncated
-    reply is not retried: asking again fixes neither.
+    reply is not retried: asking again fixes neither. `system` replaces
+    `system_prompt()`, for an evaluation that compares prompts; the record's
+    `prompt_version` is then that prompt's.
     """
     if max_attempts < 1:
         raise ValueError(f"max_attempts must be at least 1, got {max_attempts}")
-    system = system_prompt()
+    if system is None:
+        system = system_prompt()
     turns: list[Turn] = [Turn("user", facts_message(facts))]
     attempts: list[Attempt] = []
     reply: ModelReply
     for _ in range(max_attempts):
         reply = model.complete(system, turns)
         if reply.narrative is None:
-            raise ModelDidNotAnswerError(reply.stop_reason)
+            raise ModelDidNotAnswerError(reply.stop_reason, tuple(attempts))
         violations = verify(reply.narrative, facts)
         attempts.append(Attempt(reply.narrative, violations, reply.usage))
         if not violations:
@@ -173,7 +178,7 @@ def interpret(facts: FactTable, model: NarrativeModel, max_attempts: int = 2) ->
                 narrative=reply.narrative,
                 rendered=render_verified(reply.narrative, facts),
                 model=reply.model,
-                prompt_version=prompt_version(),
+                prompt_version=prompt_version(system),
                 attempts=tuple(attempts),
             )
         turns.extend(

@@ -1,0 +1,1271 @@
+{
+  "facts": [
+    {
+      "id": "analysis.assignment_provenance",
+      "kind": "label",
+      "subject": null,
+      "value": "natural_experiment"
+    },
+    {
+      "id": "analysis.n_estimates",
+      "kind": "count",
+      "subject": null,
+      "value": 4
+    },
+    {
+      "id": "analysis.n_failed",
+      "kind": "count",
+      "subject": null,
+      "value": 0
+    },
+    {
+      "id": "est.callaway_santanna.method",
+      "kind": "name",
+      "subject": null,
+      "value": "callaway_santanna"
+    },
+    {
+      "id": "est.callaway_santanna.estimand",
+      "kind": "label",
+      "subject": "est.callaway_santanna.method",
+      "value": "ATT"
+    },
+    {
+      "id": "est.callaway_santanna.scale",
+      "kind": "label",
+      "subject": "est.callaway_santanna.method",
+      "value": "absolute"
+    },
+    {
+      "id": "est.callaway_santanna.ci_basis",
+      "kind": "label",
+      "subject": "est.callaway_santanna.method",
+      "value": "bootstrap"
+    },
+    {
+      "id": "est.callaway_santanna.point",
+      "kind": "number",
+      "subject": "est.callaway_santanna.method",
+      "value": 3.7545365943715066
+    },
+    {
+      "id": "est.callaway_santanna.se",
+      "kind": "number",
+      "subject": "est.callaway_santanna.method",
+      "value": 0.1212401610013328
+    },
+    {
+      "id": "est.callaway_santanna.ci_lower",
+      "kind": "number",
+      "subject": "est.callaway_santanna.method",
+      "value": 3.516910245329057
+    },
+    {
+      "id": "est.callaway_santanna.ci_upper",
+      "kind": "number",
+      "subject": "est.callaway_santanna.method",
+      "value": 3.9921629434139563
+    },
+    {
+      "id": "est.callaway_santanna.ci_level",
+      "kind": "level",
+      "subject": "est.callaway_santanna.method",
+      "value": 0.95
+    },
+    {
+      "id": "est.callaway_santanna.p_value",
+      "kind": "p_value",
+      "subject": "est.callaway_santanna.method",
+      "value": 0.0
+    },
+    {
+      "id": "est.callaway_santanna.n_treated",
+      "kind": "count",
+      "subject": "est.callaway_santanna.method",
+      "value": 91
+    },
+    {
+      "id": "est.callaway_santanna.n_control",
+      "kind": "count",
+      "subject": "est.callaway_santanna.method",
+      "value": 59
+    },
+    {
+      "id": "est.callaway_santanna.direction",
+      "kind": "label",
+      "subject": "est.callaway_santanna.method",
+      "value": "positive"
+    },
+    {
+      "id": "est.callaway_santanna.interval_excludes_zero",
+      "kind": "label",
+      "subject": "est.callaway_santanna.method",
+      "value": "excludes zero"
+    },
+    {
+      "id": "score.callaway_santanna.band",
+      "kind": "label",
+      "subject": "est.callaway_santanna.method",
+      "value": "STRONG"
+    },
+    {
+      "id": "score.callaway_santanna.ceiling",
+      "kind": "label",
+      "subject": "est.callaway_santanna.method",
+      "value": "STRONG"
+    },
+    {
+      "id": "score.callaway_santanna.rationale.0",
+      "kind": "text",
+      "subject": "est.callaway_santanna.method",
+      "value": "Design provenance is natural_experiment, so the band cannot exceed STRONG."
+    },
+    {
+      "id": "score.callaway_santanna.rationale.1",
+      "kind": "text",
+      "subject": "est.callaway_santanna.method",
+      "value": "Not testable from data (no_concurrent_intervention); recorded here and already reflected in the design ceiling, so it does not move the band."
+    },
+    {
+      "id": "check.callaway_santanna.parallel_trends.name",
+      "kind": "name",
+      "subject": "est.callaway_santanna.method",
+      "value": "parallel_trends"
+    },
+    {
+      "id": "check.callaway_santanna.parallel_trends.kind",
+      "kind": "label",
+      "subject": "est.callaway_santanna.method",
+      "value": "identification"
+    },
+    {
+      "id": "check.callaway_santanna.parallel_trends.status",
+      "kind": "label",
+      "subject": "est.callaway_santanna.method",
+      "value": "PASS"
+    },
+    {
+      "id": "check.callaway_santanna.parallel_trends.statistic",
+      "kind": "number",
+      "subject": "est.callaway_santanna.method",
+      "value": 8.854283594036476
+    },
+    {
+      "id": "check.callaway_santanna.parallel_trends.threshold",
+      "kind": "number",
+      "subject": "est.callaway_santanna.method",
+      "value": 16.918977604620444
+    },
+    {
+      "id": "check.callaway_santanna.parallel_trends.interpretation",
+      "kind": "text",
+      "subject": "est.callaway_santanna.method",
+      "value": "The 9 pre-treatment leads are not jointly distinguishable from zero (chi2 = 8.85, p = 0.4508). Failure to reject is not evidence that parallel trends holds: the test has limited power, and the assumption concerns counterfactual post-treatment trends that no pre-treatment data can observe."
+    },
+    {
+      "id": "check.callaway_santanna.absorbing_treatment.name",
+      "kind": "name",
+      "subject": "est.callaway_santanna.method",
+      "value": "absorbing_treatment"
+    },
+    {
+      "id": "check.callaway_santanna.absorbing_treatment.kind",
+      "kind": "label",
+      "subject": "est.callaway_santanna.method",
+      "value": "data_adequacy"
+    },
+    {
+      "id": "check.callaway_santanna.absorbing_treatment.status",
+      "kind": "label",
+      "subject": "est.callaway_santanna.method",
+      "value": "PASS"
+    },
+    {
+      "id": "check.callaway_santanna.absorbing_treatment.interpretation",
+      "kind": "text",
+      "subject": "est.callaway_santanna.method",
+      "value": "Treatment is absorbing: no unit returns to untreated once treated."
+    },
+    {
+      "id": "check.callaway_santanna.sufficient_pre_periods.name",
+      "kind": "name",
+      "subject": "est.callaway_santanna.method",
+      "value": "sufficient_pre_periods"
+    },
+    {
+      "id": "check.callaway_santanna.sufficient_pre_periods.kind",
+      "kind": "label",
+      "subject": "est.callaway_santanna.method",
+      "value": "data_adequacy"
+    },
+    {
+      "id": "check.callaway_santanna.sufficient_pre_periods.status",
+      "kind": "label",
+      "subject": "est.callaway_santanna.method",
+      "value": "PASS"
+    },
+    {
+      "id": "check.callaway_santanna.sufficient_pre_periods.statistic",
+      "kind": "number",
+      "subject": "est.callaway_santanna.method",
+      "value": 2.0
+    },
+    {
+      "id": "check.callaway_santanna.sufficient_pre_periods.threshold",
+      "kind": "number",
+      "subject": "est.callaway_santanna.method",
+      "value": 1.0
+    },
+    {
+      "id": "check.callaway_santanna.sufficient_pre_periods.interpretation",
+      "kind": "text",
+      "subject": "est.callaway_santanna.method",
+      "value": "2 pre-treatment period(s) are observed before the earliest adoption at period 3; this estimator declares a minimum of 1."
+    },
+    {
+      "id": "check.callaway_santanna.no_concurrent_intervention.name",
+      "kind": "name",
+      "subject": "est.callaway_santanna.method",
+      "value": "no_concurrent_intervention"
+    },
+    {
+      "id": "check.callaway_santanna.no_concurrent_intervention.kind",
+      "kind": "label",
+      "subject": "est.callaway_santanna.method",
+      "value": "identification"
+    },
+    {
+      "id": "check.callaway_santanna.no_concurrent_intervention.status",
+      "kind": "label",
+      "subject": "est.callaway_santanna.method",
+      "value": "NOT_TESTABLE"
+    },
+    {
+      "id": "check.callaway_santanna.no_concurrent_intervention.interpretation",
+      "kind": "text",
+      "subject": "est.callaway_santanna.method",
+      "value": "Difference-in-differences attributes the post-adoption divergence to the treatment. Whether another change hit the treated units at the same time cannot be determined from this data at all, and no diagnostic here should be read as ruling it out."
+    },
+    {
+      "id": "check.callaway_santanna.no_concurrent_intervention.remedy",
+      "kind": "text",
+      "subject": "est.callaway_santanna.method",
+      "value": "Check deployment and campaign calendars for the adoption window, and run a placebo on an outcome the treatment should not affect."
+    },
+    {
+      "id": "est.event_study.method",
+      "kind": "name",
+      "subject": null,
+      "value": "event_study"
+    },
+    {
+      "id": "est.event_study.estimand",
+      "kind": "label",
+      "subject": "est.event_study.method",
+      "value": "ATT"
+    },
+    {
+      "id": "est.event_study.scale",
+      "kind": "label",
+      "subject": "est.event_study.method",
+      "value": "absolute"
+    },
+    {
+      "id": "est.event_study.ci_basis",
+      "kind": "label",
+      "subject": "est.event_study.method",
+      "value": "analytic"
+    },
+    {
+      "id": "est.event_study.point",
+      "kind": "number",
+      "subject": "est.event_study.method",
+      "value": 4.5434814955276135
+    },
+    {
+      "id": "est.event_study.se",
+      "kind": "number",
+      "subject": "est.event_study.method",
+      "value": 0.15583342418892052
+    },
+    {
+      "id": "est.event_study.ci_lower",
+      "kind": "number",
+      "subject": "est.event_study.method",
+      "value": 4.2380535965297765
+    },
+    {
+      "id": "est.event_study.ci_upper",
+      "kind": "number",
+      "subject": "est.event_study.method",
+      "value": 4.8489093945254504
+    },
+    {
+      "id": "est.event_study.ci_level",
+      "kind": "level",
+      "subject": "est.event_study.method",
+      "value": 0.95
+    },
+    {
+      "id": "est.event_study.p_value",
+      "kind": "p_value",
+      "subject": "est.event_study.method",
+      "value": 0.0
+    },
+    {
+      "id": "est.event_study.n_treated",
+      "kind": "count",
+      "subject": "est.event_study.method",
+      "value": 91
+    },
+    {
+      "id": "est.event_study.n_control",
+      "kind": "count",
+      "subject": "est.event_study.method",
+      "value": 59
+    },
+    {
+      "id": "est.event_study.direction",
+      "kind": "label",
+      "subject": "est.event_study.method",
+      "value": "positive"
+    },
+    {
+      "id": "est.event_study.interval_excludes_zero",
+      "kind": "label",
+      "subject": "est.event_study.method",
+      "value": "excludes zero"
+    },
+    {
+      "id": "score.event_study.band",
+      "kind": "label",
+      "subject": "est.event_study.method",
+      "value": "WEAK"
+    },
+    {
+      "id": "score.event_study.ceiling",
+      "kind": "label",
+      "subject": "est.event_study.method",
+      "value": "STRONG"
+    },
+    {
+      "id": "score.event_study.rationale.0",
+      "kind": "text",
+      "subject": "est.event_study.method",
+      "value": "Design provenance is natural_experiment, so the band cannot exceed STRONG."
+    },
+    {
+      "id": "score.event_study.rationale.1",
+      "kind": "text",
+      "subject": "est.event_study.method",
+      "value": "Identification or data-adequacy checks failed (parallel_trends), which caps the band at WEAK."
+    },
+    {
+      "id": "score.event_study.rationale.2",
+      "kind": "text",
+      "subject": "est.event_study.method",
+      "value": "Not testable from data (no_concurrent_intervention); recorded here and already reflected in the design ceiling, so it does not move the band."
+    },
+    {
+      "id": "check.event_study.parallel_trends.name",
+      "kind": "name",
+      "subject": "est.event_study.method",
+      "value": "parallel_trends"
+    },
+    {
+      "id": "check.event_study.parallel_trends.kind",
+      "kind": "label",
+      "subject": "est.event_study.method",
+      "value": "identification"
+    },
+    {
+      "id": "check.event_study.parallel_trends.status",
+      "kind": "label",
+      "subject": "est.event_study.method",
+      "value": "FAIL"
+    },
+    {
+      "id": "check.event_study.parallel_trends.statistic",
+      "kind": "number",
+      "subject": "est.event_study.method",
+      "value": 17.41259828732176
+    },
+    {
+      "id": "check.event_study.parallel_trends.threshold",
+      "kind": "number",
+      "subject": "est.event_study.method",
+      "value": 11.070497693516351
+    },
+    {
+      "id": "check.event_study.parallel_trends.interpretation",
+      "kind": "text",
+      "subject": "est.event_study.method",
+      "value": "The 5 pre-treatment leads are jointly different from zero (chi2 = 17.41, p = 0.0038). Treated and control units were already diverging before treatment, so the estimate confounds the effect with a pre-existing trend."
+    },
+    {
+      "id": "check.event_study.parallel_trends.remedy",
+      "kind": "text",
+      "subject": "est.event_study.method",
+      "value": "Inspect the event-study path, consider a comparison group with closer pre-trends, or report the breakdown value alongside."
+    },
+    {
+      "id": "check.event_study.no_anticipation.name",
+      "kind": "name",
+      "subject": "est.event_study.method",
+      "value": "no_anticipation"
+    },
+    {
+      "id": "check.event_study.no_anticipation.kind",
+      "kind": "label",
+      "subject": "est.event_study.method",
+      "value": "identification"
+    },
+    {
+      "id": "check.event_study.no_anticipation.status",
+      "kind": "label",
+      "subject": "est.event_study.method",
+      "value": "PASS"
+    },
+    {
+      "id": "check.event_study.no_anticipation.statistic",
+      "kind": "number",
+      "subject": "est.event_study.method",
+      "value": -0.16713123722874546
+    },
+    {
+      "id": "check.event_study.no_anticipation.interpretation",
+      "kind": "text",
+      "subject": "est.event_study.method",
+      "value": "The nearest estimated pre-treatment lead (t-2, since t-1 is the omitted reference period and cannot be estimated) is -0.1671 (z = -0.87, p = 0.3859). No detectable movement at the nearest estimated pre-treatment lead (t-2, since t-1 is the omitted reference period and cannot be estimated)."
+    },
+    {
+      "id": "check.event_study.absorbing_treatment.name",
+      "kind": "name",
+      "subject": "est.event_study.method",
+      "value": "absorbing_treatment"
+    },
+    {
+      "id": "check.event_study.absorbing_treatment.kind",
+      "kind": "label",
+      "subject": "est.event_study.method",
+      "value": "data_adequacy"
+    },
+    {
+      "id": "check.event_study.absorbing_treatment.status",
+      "kind": "label",
+      "subject": "est.event_study.method",
+      "value": "PASS"
+    },
+    {
+      "id": "check.event_study.absorbing_treatment.interpretation",
+      "kind": "text",
+      "subject": "est.event_study.method",
+      "value": "Treatment is absorbing: no unit returns to untreated once treated."
+    },
+    {
+      "id": "check.event_study.sufficient_pre_periods.name",
+      "kind": "name",
+      "subject": "est.event_study.method",
+      "value": "sufficient_pre_periods"
+    },
+    {
+      "id": "check.event_study.sufficient_pre_periods.kind",
+      "kind": "label",
+      "subject": "est.event_study.method",
+      "value": "data_adequacy"
+    },
+    {
+      "id": "check.event_study.sufficient_pre_periods.status",
+      "kind": "label",
+      "subject": "est.event_study.method",
+      "value": "PASS"
+    },
+    {
+      "id": "check.event_study.sufficient_pre_periods.statistic",
+      "kind": "number",
+      "subject": "est.event_study.method",
+      "value": 2.0
+    },
+    {
+      "id": "check.event_study.sufficient_pre_periods.threshold",
+      "kind": "number",
+      "subject": "est.event_study.method",
+      "value": 2.0
+    },
+    {
+      "id": "check.event_study.sufficient_pre_periods.interpretation",
+      "kind": "text",
+      "subject": "est.event_study.method",
+      "value": "2 pre-treatment period(s) are observed before the earliest adoption at period 3; this estimator declares a minimum of 2."
+    },
+    {
+      "id": "check.event_study.no_concurrent_intervention.name",
+      "kind": "name",
+      "subject": "est.event_study.method",
+      "value": "no_concurrent_intervention"
+    },
+    {
+      "id": "check.event_study.no_concurrent_intervention.kind",
+      "kind": "label",
+      "subject": "est.event_study.method",
+      "value": "identification"
+    },
+    {
+      "id": "check.event_study.no_concurrent_intervention.status",
+      "kind": "label",
+      "subject": "est.event_study.method",
+      "value": "NOT_TESTABLE"
+    },
+    {
+      "id": "check.event_study.no_concurrent_intervention.interpretation",
+      "kind": "text",
+      "subject": "est.event_study.method",
+      "value": "Difference-in-differences attributes the post-adoption divergence to the treatment. Whether another change hit the treated units at the same time cannot be determined from this data at all, and no diagnostic here should be read as ruling it out."
+    },
+    {
+      "id": "check.event_study.no_concurrent_intervention.remedy",
+      "kind": "text",
+      "subject": "est.event_study.method",
+      "value": "Check deployment and campaign calendars for the adoption window, and run a placebo on an outcome the treatment should not affect."
+    },
+    {
+      "id": "est.hierarchical_did.method",
+      "kind": "name",
+      "subject": null,
+      "value": "hierarchical_did"
+    },
+    {
+      "id": "est.hierarchical_did.estimand",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "ATT"
+    },
+    {
+      "id": "est.hierarchical_did.scale",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "absolute"
+    },
+    {
+      "id": "est.hierarchical_did.ci_basis",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "posterior"
+    },
+    {
+      "id": "est.hierarchical_did.point",
+      "kind": "number",
+      "subject": "est.hierarchical_did.method",
+      "value": 3.8216981163682586
+    },
+    {
+      "id": "est.hierarchical_did.se",
+      "kind": "number",
+      "subject": "est.hierarchical_did.method",
+      "value": 0.09951962040489808
+    },
+    {
+      "id": "est.hierarchical_did.ci_lower",
+      "kind": "number",
+      "subject": "est.hierarchical_did.method",
+      "value": 3.6266809136579803
+    },
+    {
+      "id": "est.hierarchical_did.ci_upper",
+      "kind": "number",
+      "subject": "est.hierarchical_did.method",
+      "value": 4.015193137524243
+    },
+    {
+      "id": "est.hierarchical_did.ci_level",
+      "kind": "level",
+      "subject": "est.hierarchical_did.method",
+      "value": 0.95
+    },
+    {
+      "id": "est.hierarchical_did.n_treated",
+      "kind": "count",
+      "subject": "est.hierarchical_did.method",
+      "value": 91
+    },
+    {
+      "id": "est.hierarchical_did.n_control",
+      "kind": "count",
+      "subject": "est.hierarchical_did.method",
+      "value": 59
+    },
+    {
+      "id": "est.hierarchical_did.direction",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "positive"
+    },
+    {
+      "id": "est.hierarchical_did.interval_excludes_zero",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "excludes zero"
+    },
+    {
+      "id": "score.hierarchical_did.band",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "STRONG"
+    },
+    {
+      "id": "score.hierarchical_did.ceiling",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "STRONG"
+    },
+    {
+      "id": "score.hierarchical_did.rationale.0",
+      "kind": "text",
+      "subject": "est.hierarchical_did.method",
+      "value": "Design provenance is natural_experiment, so the band cannot exceed STRONG."
+    },
+    {
+      "id": "score.hierarchical_did.rationale.1",
+      "kind": "text",
+      "subject": "est.hierarchical_did.method",
+      "value": "No check warned or failed, so the band sits at the ceiling."
+    },
+    {
+      "id": "check.hierarchical_did.r_hat.name",
+      "kind": "name",
+      "subject": "est.hierarchical_did.method",
+      "value": "r_hat"
+    },
+    {
+      "id": "check.hierarchical_did.r_hat.kind",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "estimation"
+    },
+    {
+      "id": "check.hierarchical_did.r_hat.status",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "PASS"
+    },
+    {
+      "id": "check.hierarchical_did.r_hat.statistic",
+      "kind": "number",
+      "subject": "est.hierarchical_did.method",
+      "value": 1.0097748041152954
+    },
+    {
+      "id": "check.hierarchical_did.r_hat.threshold",
+      "kind": "number",
+      "subject": "est.hierarchical_did.method",
+      "value": 1.01
+    },
+    {
+      "id": "check.hierarchical_did.r_hat.interpretation",
+      "kind": "text",
+      "subject": "est.hierarchical_did.method",
+      "value": "The worst R-hat across all sampled parameters is 1.0098 (z_gamma). Chains agree with each other."
+    },
+    {
+      "id": "check.hierarchical_did.effective_sample_size.name",
+      "kind": "name",
+      "subject": "est.hierarchical_did.method",
+      "value": "effective_sample_size"
+    },
+    {
+      "id": "check.hierarchical_did.effective_sample_size.kind",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "estimation"
+    },
+    {
+      "id": "check.hierarchical_did.effective_sample_size.status",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "PASS"
+    },
+    {
+      "id": "check.hierarchical_did.effective_sample_size.statistic",
+      "kind": "number",
+      "subject": "est.hierarchical_did.method",
+      "value": 392.9831555946932
+    },
+    {
+      "id": "check.hierarchical_did.effective_sample_size.threshold",
+      "kind": "number",
+      "subject": "est.hierarchical_did.method",
+      "value": 200.0
+    },
+    {
+      "id": "check.hierarchical_did.effective_sample_size.interpretation",
+      "kind": "text",
+      "subject": "est.hierarchical_did.method",
+      "value": "The smallest effective sample size across all sampled parameters is 393.0 (z_gamma). Enough independent draws to trust the posterior summary."
+    },
+    {
+      "id": "check.hierarchical_did.divergent_transitions.name",
+      "kind": "name",
+      "subject": "est.hierarchical_did.method",
+      "value": "divergent_transitions"
+    },
+    {
+      "id": "check.hierarchical_did.divergent_transitions.kind",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "estimation"
+    },
+    {
+      "id": "check.hierarchical_did.divergent_transitions.status",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "PASS"
+    },
+    {
+      "id": "check.hierarchical_did.divergent_transitions.statistic",
+      "kind": "number",
+      "subject": "est.hierarchical_did.method",
+      "value": 0.0025
+    },
+    {
+      "id": "check.hierarchical_did.divergent_transitions.threshold",
+      "kind": "number",
+      "subject": "est.hierarchical_did.method",
+      "value": 0.1
+    },
+    {
+      "id": "check.hierarchical_did.divergent_transitions.interpretation",
+      "kind": "text",
+      "subject": "est.hierarchical_did.method",
+      "value": "10 of 4000 post-warmup draws (0.2%) were divergent transitions. Within tolerance."
+    },
+    {
+      "id": "check.hierarchical_did.parallel_trends.name",
+      "kind": "name",
+      "subject": "est.hierarchical_did.method",
+      "value": "parallel_trends"
+    },
+    {
+      "id": "check.hierarchical_did.parallel_trends.kind",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "identification"
+    },
+    {
+      "id": "check.hierarchical_did.parallel_trends.status",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "PASS"
+    },
+    {
+      "id": "check.hierarchical_did.parallel_trends.statistic",
+      "kind": "number",
+      "subject": "est.hierarchical_did.method",
+      "value": 10.405012909210237
+    },
+    {
+      "id": "check.hierarchical_did.parallel_trends.threshold",
+      "kind": "number",
+      "subject": "est.hierarchical_did.method",
+      "value": 16.918977604620444
+    },
+    {
+      "id": "check.hierarchical_did.parallel_trends.interpretation",
+      "kind": "text",
+      "subject": "est.hierarchical_did.method",
+      "value": "The 9 pre-treatment leads are not jointly distinguishable from zero (chi2 = 10.41, p = 0.3187). Failure to reject is not evidence that parallel trends holds: the test has limited power, and the assumption concerns counterfactual post-treatment trends that no pre-treatment data can observe."
+    },
+    {
+      "id": "check.hierarchical_did.no_anticipation.name",
+      "kind": "name",
+      "subject": "est.hierarchical_did.method",
+      "value": "no_anticipation"
+    },
+    {
+      "id": "check.hierarchical_did.no_anticipation.kind",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "identification"
+    },
+    {
+      "id": "check.hierarchical_did.no_anticipation.status",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "PASS"
+    },
+    {
+      "id": "check.hierarchical_did.no_anticipation.statistic",
+      "kind": "number",
+      "subject": "est.hierarchical_did.method",
+      "value": 0.06796198174857965
+    },
+    {
+      "id": "check.hierarchical_did.no_anticipation.interpretation",
+      "kind": "text",
+      "subject": "est.hierarchical_did.method",
+      "value": "The period 1 placebo lead for the cohort adopting at period 3 (its nearest pre-treatment period to the omitted baseline) is +0.0680 (z = 0.23, p = 0.8200). No detectable movement at the period 1 placebo lead for the cohort adopting at period 3 (its nearest pre-treatment period to the omitted baseline)."
+    },
+    {
+      "id": "check.hierarchical_did.absorbing_treatment.name",
+      "kind": "name",
+      "subject": "est.hierarchical_did.method",
+      "value": "absorbing_treatment"
+    },
+    {
+      "id": "check.hierarchical_did.absorbing_treatment.kind",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "data_adequacy"
+    },
+    {
+      "id": "check.hierarchical_did.absorbing_treatment.status",
+      "kind": "label",
+      "subject": "est.hierarchical_did.method",
+      "value": "PASS"
+    },
+    {
+      "id": "check.hierarchical_did.absorbing_treatment.interpretation",
+      "kind": "text",
+      "subject": "est.hierarchical_did.method",
+      "value": "Treatment is absorbing: no unit returns to untreated once treated."
+    },
+    {
+      "id": "est.twfe.method",
+      "kind": "name",
+      "subject": null,
+      "value": "twfe"
+    },
+    {
+      "id": "est.twfe.estimand",
+      "kind": "label",
+      "subject": "est.twfe.method",
+      "value": "ATT"
+    },
+    {
+      "id": "est.twfe.scale",
+      "kind": "label",
+      "subject": "est.twfe.method",
+      "value": "absolute"
+    },
+    {
+      "id": "est.twfe.ci_basis",
+      "kind": "label",
+      "subject": "est.twfe.method",
+      "value": "analytic"
+    },
+    {
+      "id": "est.twfe.point",
+      "kind": "number",
+      "subject": "est.twfe.method",
+      "value": 2.384385262168454
+    },
+    {
+      "id": "est.twfe.se",
+      "kind": "number",
+      "subject": "est.twfe.method",
+      "value": 0.16230584512948634
+    },
+    {
+      "id": "est.twfe.ci_lower",
+      "kind": "number",
+      "subject": "est.twfe.method",
+      "value": 2.066271651234325
+    },
+    {
+      "id": "est.twfe.ci_upper",
+      "kind": "number",
+      "subject": "est.twfe.method",
+      "value": 2.702498873102583
+    },
+    {
+      "id": "est.twfe.ci_level",
+      "kind": "level",
+      "subject": "est.twfe.method",
+      "value": 0.95
+    },
+    {
+      "id": "est.twfe.p_value",
+      "kind": "p_value",
+      "subject": "est.twfe.method",
+      "value": 0.0
+    },
+    {
+      "id": "est.twfe.n_treated",
+      "kind": "count",
+      "subject": "est.twfe.method",
+      "value": 91
+    },
+    {
+      "id": "est.twfe.n_control",
+      "kind": "count",
+      "subject": "est.twfe.method",
+      "value": 59
+    },
+    {
+      "id": "est.twfe.direction",
+      "kind": "label",
+      "subject": "est.twfe.method",
+      "value": "positive"
+    },
+    {
+      "id": "est.twfe.interval_excludes_zero",
+      "kind": "label",
+      "subject": "est.twfe.method",
+      "value": "excludes zero"
+    },
+    {
+      "id": "score.twfe.band",
+      "kind": "label",
+      "subject": "est.twfe.method",
+      "value": "STRONG"
+    },
+    {
+      "id": "score.twfe.ceiling",
+      "kind": "label",
+      "subject": "est.twfe.method",
+      "value": "STRONG"
+    },
+    {
+      "id": "score.twfe.rationale.0",
+      "kind": "text",
+      "subject": "est.twfe.method",
+      "value": "Design provenance is natural_experiment, so the band cannot exceed STRONG."
+    },
+    {
+      "id": "score.twfe.rationale.1",
+      "kind": "text",
+      "subject": "est.twfe.method",
+      "value": "Not testable from data (no_concurrent_intervention); recorded here and already reflected in the design ceiling, so it does not move the band."
+    },
+    {
+      "id": "check.twfe.absorbing_treatment.name",
+      "kind": "name",
+      "subject": "est.twfe.method",
+      "value": "absorbing_treatment"
+    },
+    {
+      "id": "check.twfe.absorbing_treatment.kind",
+      "kind": "label",
+      "subject": "est.twfe.method",
+      "value": "data_adequacy"
+    },
+    {
+      "id": "check.twfe.absorbing_treatment.status",
+      "kind": "label",
+      "subject": "est.twfe.method",
+      "value": "PASS"
+    },
+    {
+      "id": "check.twfe.absorbing_treatment.interpretation",
+      "kind": "text",
+      "subject": "est.twfe.method",
+      "value": "Treatment is absorbing: no unit returns to untreated once treated."
+    },
+    {
+      "id": "check.twfe.sufficient_pre_periods.name",
+      "kind": "name",
+      "subject": "est.twfe.method",
+      "value": "sufficient_pre_periods"
+    },
+    {
+      "id": "check.twfe.sufficient_pre_periods.kind",
+      "kind": "label",
+      "subject": "est.twfe.method",
+      "value": "data_adequacy"
+    },
+    {
+      "id": "check.twfe.sufficient_pre_periods.status",
+      "kind": "label",
+      "subject": "est.twfe.method",
+      "value": "PASS"
+    },
+    {
+      "id": "check.twfe.sufficient_pre_periods.statistic",
+      "kind": "number",
+      "subject": "est.twfe.method",
+      "value": 2.0
+    },
+    {
+      "id": "check.twfe.sufficient_pre_periods.threshold",
+      "kind": "number",
+      "subject": "est.twfe.method",
+      "value": 1.0
+    },
+    {
+      "id": "check.twfe.sufficient_pre_periods.interpretation",
+      "kind": "text",
+      "subject": "est.twfe.method",
+      "value": "2 pre-treatment period(s) are observed before the earliest adoption at period 3; this estimator declares a minimum of 1."
+    },
+    {
+      "id": "check.twfe.no_concurrent_intervention.name",
+      "kind": "name",
+      "subject": "est.twfe.method",
+      "value": "no_concurrent_intervention"
+    },
+    {
+      "id": "check.twfe.no_concurrent_intervention.kind",
+      "kind": "label",
+      "subject": "est.twfe.method",
+      "value": "identification"
+    },
+    {
+      "id": "check.twfe.no_concurrent_intervention.status",
+      "kind": "label",
+      "subject": "est.twfe.method",
+      "value": "NOT_TESTABLE"
+    },
+    {
+      "id": "check.twfe.no_concurrent_intervention.interpretation",
+      "kind": "text",
+      "subject": "est.twfe.method",
+      "value": "Difference-in-differences attributes the post-adoption divergence to the treatment. Whether another change hit the treated units at the same time cannot be determined from this data at all, and no diagnostic here should be read as ruling it out."
+    },
+    {
+      "id": "check.twfe.no_concurrent_intervention.remedy",
+      "kind": "text",
+      "subject": "est.twfe.method",
+      "value": "Check deployment and campaign calendars for the adoption window, and run a placebo on an outcome the treatment should not affect."
+    },
+    {
+      "id": "cmp.att.absolute.n_methods",
+      "kind": "count",
+      "subject": null,
+      "value": 4
+    },
+    {
+      "id": "cmp.att.absolute.agreement",
+      "kind": "label",
+      "subject": null,
+      "value": "divergent"
+    },
+    {
+      "id": "cmp.att.absolute.verdict",
+      "kind": "text",
+      "subject": null,
+      "value": "The 4 methods scored WEAK or better do not all overlap, so they are not mutually consistent under their own assumptions. 7 assumption(s) differ across methods; read assumption_diff rather than treating the spread as uncertainty. Point estimates range from 2.384 to 4.543; descriptive dispersion (standard deviation across methods, not a test of heterogeneity) is 0.9015. Interval bases in this comparison: analytic, bootstrap, posterior."
+    },
+    {
+      "id": "cmp.att.absolute.point_low",
+      "kind": "number",
+      "subject": null,
+      "value": 2.384385262168454
+    },
+    {
+      "id": "cmp.att.absolute.point_high",
+      "kind": "number",
+      "subject": null,
+      "value": 4.5434814955276135
+    },
+    {
+      "id": "cmp.att.absolute.dispersion",
+      "kind": "number",
+      "subject": null,
+      "value": 0.9015170285144986
+    },
+    {
+      "id": "route.aipw.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "aipw"
+    },
+    {
+      "id": "route.aipw.eligible",
+      "kind": "label",
+      "subject": "route.aipw.estimator",
+      "value": "not eligible"
+    },
+    {
+      "id": "route.aipw.reasons.0",
+      "kind": "text",
+      "subject": "route.aipw.estimator",
+      "value": "requires a cross-section; dataset is a panel and this estimator has no unit/period structure to exploit or protect"
+    },
+    {
+      "id": "route.bsts.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "bsts"
+    },
+    {
+      "id": "route.bsts.eligible",
+      "kind": "label",
+      "subject": "route.bsts.estimator",
+      "value": "not eligible"
+    },
+    {
+      "id": "route.bsts.reasons.0",
+      "kind": "text",
+      "subject": "route.bsts.estimator",
+      "value": "requires at least 10 pre-treatment period(s); dataset has 2 before the earliest adoption at 3"
+    },
+    {
+      "id": "route.bsts.reasons.1",
+      "kind": "text",
+      "subject": "route.bsts.estimator",
+      "value": "requires at most 1 treated unit(s); dataset has 91"
+    },
+    {
+      "id": "route.callaway_santanna.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "callaway_santanna"
+    },
+    {
+      "id": "route.callaway_santanna.eligible",
+      "kind": "label",
+      "subject": "route.callaway_santanna.estimator",
+      "value": "eligible"
+    },
+    {
+      "id": "route.causal_forest.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "causal_forest"
+    },
+    {
+      "id": "route.causal_forest.eligible",
+      "kind": "label",
+      "subject": "route.causal_forest.estimator",
+      "value": "not eligible"
+    },
+    {
+      "id": "route.causal_forest.reasons.0",
+      "kind": "text",
+      "subject": "route.causal_forest.estimator",
+      "value": "requires a cross-section; dataset is a panel and this estimator has no unit/period structure to exploit or protect"
+    },
+    {
+      "id": "route.did_2x2.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "did_2x2"
+    },
+    {
+      "id": "route.did_2x2.eligible",
+      "kind": "label",
+      "subject": "route.did_2x2.estimator",
+      "value": "not eligible"
+    },
+    {
+      "id": "route.did_2x2.reasons.0",
+      "kind": "text",
+      "subject": "route.did_2x2.estimator",
+      "value": "requires uniform adoption (a single treatment start); dataset has 3 adoption periods [3, 5, 7]"
+    },
+    {
+      "id": "route.difference_in_means.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "difference_in_means"
+    },
+    {
+      "id": "route.difference_in_means.eligible",
+      "kind": "label",
+      "subject": "route.difference_in_means.estimator",
+      "value": "not eligible"
+    },
+    {
+      "id": "route.difference_in_means.reasons.0",
+      "kind": "text",
+      "subject": "route.difference_in_means.estimator",
+      "value": "requires a cross-section; dataset is a panel and this estimator has no unit/period structure to exploit or protect"
+    },
+    {
+      "id": "route.event_study.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "event_study"
+    },
+    {
+      "id": "route.event_study.eligible",
+      "kind": "label",
+      "subject": "route.event_study.estimator",
+      "value": "eligible"
+    },
+    {
+      "id": "route.hierarchical_did.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "hierarchical_did"
+    },
+    {
+      "id": "route.hierarchical_did.eligible",
+      "kind": "label",
+      "subject": "route.hierarchical_did.estimator",
+      "value": "eligible"
+    },
+    {
+      "id": "route.ipw.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "ipw"
+    },
+    {
+      "id": "route.ipw.eligible",
+      "kind": "label",
+      "subject": "route.ipw.estimator",
+      "value": "not eligible"
+    },
+    {
+      "id": "route.ipw.reasons.0",
+      "kind": "text",
+      "subject": "route.ipw.estimator",
+      "value": "requires a cross-section; dataset is a panel and this estimator has no unit/period structure to exploit or protect"
+    },
+    {
+      "id": "route.lin_regression.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "lin_regression"
+    },
+    {
+      "id": "route.lin_regression.eligible",
+      "kind": "label",
+      "subject": "route.lin_regression.estimator",
+      "value": "not eligible"
+    },
+    {
+      "id": "route.lin_regression.reasons.0",
+      "kind": "text",
+      "subject": "route.lin_regression.estimator",
+      "value": "requires a cross-section; dataset is a panel and this estimator has no unit/period structure to exploit or protect"
+    },
+    {
+      "id": "route.synthetic_control.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "synthetic_control"
+    },
+    {
+      "id": "route.synthetic_control.eligible",
+      "kind": "label",
+      "subject": "route.synthetic_control.estimator",
+      "value": "not eligible"
+    },
+    {
+      "id": "route.synthetic_control.reasons.0",
+      "kind": "text",
+      "subject": "route.synthetic_control.estimator",
+      "value": "requires at least 10 pre-treatment period(s); dataset has 2 before the earliest adoption at 3"
+    },
+    {
+      "id": "route.synthetic_control.reasons.1",
+      "kind": "text",
+      "subject": "route.synthetic_control.estimator",
+      "value": "requires at most 1 treated unit(s); dataset has 91"
+    },
+    {
+      "id": "route.twfe.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "twfe"
+    },
+    {
+      "id": "route.twfe.eligible",
+      "kind": "label",
+      "subject": "route.twfe.estimator",
+      "value": "eligible"
+    }
+  ],
+  "schema_version": 1
+}

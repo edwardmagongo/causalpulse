@@ -1,0 +1,1295 @@
+{
+  "facts": [
+    {
+      "id": "analysis.assignment_provenance",
+      "kind": "label",
+      "subject": null,
+      "value": "observational"
+    },
+    {
+      "id": "analysis.n_estimates",
+      "kind": "count",
+      "subject": null,
+      "value": 5
+    },
+    {
+      "id": "analysis.n_failed",
+      "kind": "count",
+      "subject": null,
+      "value": 0
+    },
+    {
+      "id": "est.aipw.method",
+      "kind": "name",
+      "subject": null,
+      "value": "aipw"
+    },
+    {
+      "id": "est.aipw.estimand",
+      "kind": "label",
+      "subject": "est.aipw.method",
+      "value": "ATE"
+    },
+    {
+      "id": "est.aipw.scale",
+      "kind": "label",
+      "subject": "est.aipw.method",
+      "value": "percentage_point"
+    },
+    {
+      "id": "est.aipw.ci_basis",
+      "kind": "label",
+      "subject": "est.aipw.method",
+      "value": "analytic"
+    },
+    {
+      "id": "est.aipw.point",
+      "kind": "number",
+      "subject": "est.aipw.method",
+      "value": 0.01387506004200606
+    },
+    {
+      "id": "est.aipw.se",
+      "kind": "number",
+      "subject": "est.aipw.method",
+      "value": 0.04778476415298317
+    },
+    {
+      "id": "est.aipw.ci_lower",
+      "kind": "number",
+      "subject": "est.aipw.method",
+      "value": -0.07978135670758157
+    },
+    {
+      "id": "est.aipw.ci_upper",
+      "kind": "number",
+      "subject": "est.aipw.method",
+      "value": 0.1075314767915937
+    },
+    {
+      "id": "est.aipw.ci_level",
+      "kind": "level",
+      "subject": "est.aipw.method",
+      "value": 0.95
+    },
+    {
+      "id": "est.aipw.p_value",
+      "kind": "p_value",
+      "subject": "est.aipw.method",
+      "value": 0.7715364244669187
+    },
+    {
+      "id": "est.aipw.n_treated",
+      "kind": "count",
+      "subject": "est.aipw.method",
+      "value": 146
+    },
+    {
+      "id": "est.aipw.n_control",
+      "kind": "count",
+      "subject": "est.aipw.method",
+      "value": 144
+    },
+    {
+      "id": "est.aipw.direction",
+      "kind": "label",
+      "subject": "est.aipw.method",
+      "value": "positive"
+    },
+    {
+      "id": "est.aipw.interval_excludes_zero",
+      "kind": "label",
+      "subject": "est.aipw.method",
+      "value": "includes zero"
+    },
+    {
+      "id": "score.aipw.band",
+      "kind": "label",
+      "subject": "est.aipw.method",
+      "value": "WEAK"
+    },
+    {
+      "id": "score.aipw.ceiling",
+      "kind": "label",
+      "subject": "est.aipw.method",
+      "value": "MODERATE"
+    },
+    {
+      "id": "score.aipw.rationale.0",
+      "kind": "text",
+      "subject": "est.aipw.method",
+      "value": "Design provenance is observational, so the band cannot exceed MODERATE."
+    },
+    {
+      "id": "score.aipw.rationale.1",
+      "kind": "text",
+      "subject": "est.aipw.method",
+      "value": "Checks warned (positivity), which drops the band one step below the MODERATE ceiling."
+    },
+    {
+      "id": "score.aipw.rationale.2",
+      "kind": "text",
+      "subject": "est.aipw.method",
+      "value": "Not testable from data (unconfoundedness); recorded here and already reflected in the design ceiling, so it does not move the band."
+    },
+    {
+      "id": "check.aipw.positivity.name",
+      "kind": "name",
+      "subject": "est.aipw.method",
+      "value": "positivity"
+    },
+    {
+      "id": "check.aipw.positivity.kind",
+      "kind": "label",
+      "subject": "est.aipw.method",
+      "value": "identification"
+    },
+    {
+      "id": "check.aipw.positivity.status",
+      "kind": "label",
+      "subject": "est.aipw.method",
+      "value": "WARN"
+    },
+    {
+      "id": "check.aipw.positivity.statistic",
+      "kind": "number",
+      "subject": "est.aipw.method",
+      "value": 0.0
+    },
+    {
+      "id": "check.aipw.positivity.threshold",
+      "kind": "number",
+      "subject": "est.aipw.method",
+      "value": 0.01
+    },
+    {
+      "id": "check.aipw.positivity.interpretation",
+      "kind": "text",
+      "subject": "est.aipw.method",
+      "value": "0.0% of units have a propensity score within 0.01 of 0 or 1, and 5.5% lie outside the region where both arms are represented. Such units have almost no counterpart in the other arm, so their contribution rests on extrapolation rather than comparison."
+    },
+    {
+      "id": "check.aipw.positivity.remedy",
+      "kind": "text",
+      "subject": "est.aipw.method",
+      "value": "Trim to the common support, or restrict the population to where both arms exist."
+    },
+    {
+      "id": "check.aipw.covariate_balance.name",
+      "kind": "name",
+      "subject": "est.aipw.method",
+      "value": "covariate_balance"
+    },
+    {
+      "id": "check.aipw.covariate_balance.kind",
+      "kind": "label",
+      "subject": "est.aipw.method",
+      "value": "data_adequacy"
+    },
+    {
+      "id": "check.aipw.covariate_balance.status",
+      "kind": "label",
+      "subject": "est.aipw.method",
+      "value": "PASS"
+    },
+    {
+      "id": "check.aipw.covariate_balance.statistic",
+      "kind": "number",
+      "subject": "est.aipw.method",
+      "value": 0.06721515665141535
+    },
+    {
+      "id": "check.aipw.covariate_balance.threshold",
+      "kind": "number",
+      "subject": "est.aipw.method",
+      "value": 0.1
+    },
+    {
+      "id": "check.aipw.covariate_balance.interpretation",
+      "kind": "text",
+      "subject": "est.aipw.method",
+      "value": "Largest standardised mean difference after weighting is 0.067; below 0.1 is conventionally read as adequate balance on the covariates supplied."
+    },
+    {
+      "id": "check.aipw.covariate_balance.remedy",
+      "kind": "text",
+      "subject": "est.aipw.method",
+      "value": "Enrich the propensity model, or match rather than weight."
+    },
+    {
+      "id": "check.aipw.unconfoundedness.name",
+      "kind": "name",
+      "subject": "est.aipw.method",
+      "value": "unconfoundedness"
+    },
+    {
+      "id": "check.aipw.unconfoundedness.kind",
+      "kind": "label",
+      "subject": "est.aipw.method",
+      "value": "identification"
+    },
+    {
+      "id": "check.aipw.unconfoundedness.status",
+      "kind": "label",
+      "subject": "est.aipw.method",
+      "value": "NOT_TESTABLE"
+    },
+    {
+      "id": "check.aipw.unconfoundedness.interpretation",
+      "kind": "text",
+      "subject": "est.aipw.method",
+      "value": "Balance on the covariates supplied says nothing about covariates not supplied. No diagnostic computed from this data can establish that treatment assignment is independent of the potential outcomes given these covariates."
+    },
+    {
+      "id": "check.aipw.unconfoundedness.remedy",
+      "kind": "text",
+      "subject": "est.aipw.method",
+      "value": "Assess sensitivity to unobserved confounding, and justify the covariate set from domain knowledge."
+    },
+    {
+      "id": "est.causal_forest.method",
+      "kind": "name",
+      "subject": null,
+      "value": "causal_forest"
+    },
+    {
+      "id": "est.causal_forest.estimand",
+      "kind": "label",
+      "subject": "est.causal_forest.method",
+      "value": "ATE"
+    },
+    {
+      "id": "est.causal_forest.scale",
+      "kind": "label",
+      "subject": "est.causal_forest.method",
+      "value": "percentage_point"
+    },
+    {
+      "id": "est.causal_forest.ci_basis",
+      "kind": "label",
+      "subject": "est.causal_forest.method",
+      "value": "analytic"
+    },
+    {
+      "id": "est.causal_forest.point",
+      "kind": "number",
+      "subject": "est.causal_forest.method",
+      "value": 0.02764579314093366
+    },
+    {
+      "id": "est.causal_forest.se",
+      "kind": "number",
+      "subject": "est.causal_forest.method",
+      "value": 0.04442483936940934
+    },
+    {
+      "id": "est.causal_forest.ci_lower",
+      "kind": "number",
+      "subject": "est.causal_forest.method",
+      "value": -0.05942529204208573
+    },
+    {
+      "id": "est.causal_forest.ci_upper",
+      "kind": "number",
+      "subject": "est.causal_forest.method",
+      "value": 0.11471687832395304
+    },
+    {
+      "id": "est.causal_forest.ci_level",
+      "kind": "level",
+      "subject": "est.causal_forest.method",
+      "value": 0.95
+    },
+    {
+      "id": "est.causal_forest.p_value",
+      "kind": "p_value",
+      "subject": "est.causal_forest.method",
+      "value": 0.5337414305906942
+    },
+    {
+      "id": "est.causal_forest.n_treated",
+      "kind": "count",
+      "subject": "est.causal_forest.method",
+      "value": 146
+    },
+    {
+      "id": "est.causal_forest.n_control",
+      "kind": "count",
+      "subject": "est.causal_forest.method",
+      "value": 144
+    },
+    {
+      "id": "est.causal_forest.direction",
+      "kind": "label",
+      "subject": "est.causal_forest.method",
+      "value": "positive"
+    },
+    {
+      "id": "est.causal_forest.interval_excludes_zero",
+      "kind": "label",
+      "subject": "est.causal_forest.method",
+      "value": "includes zero"
+    },
+    {
+      "id": "score.causal_forest.band",
+      "kind": "label",
+      "subject": "est.causal_forest.method",
+      "value": "WEAK"
+    },
+    {
+      "id": "score.causal_forest.ceiling",
+      "kind": "label",
+      "subject": "est.causal_forest.method",
+      "value": "MODERATE"
+    },
+    {
+      "id": "score.causal_forest.rationale.0",
+      "kind": "text",
+      "subject": "est.causal_forest.method",
+      "value": "Design provenance is observational, so the band cannot exceed MODERATE."
+    },
+    {
+      "id": "score.causal_forest.rationale.1",
+      "kind": "text",
+      "subject": "est.causal_forest.method",
+      "value": "Checks warned (calibration_test, positivity), which drops the band one step below the MODERATE ceiling."
+    },
+    {
+      "id": "score.causal_forest.rationale.2",
+      "kind": "text",
+      "subject": "est.causal_forest.method",
+      "value": "Not testable from data (unconfoundedness); recorded here and already reflected in the design ceiling, so it does not move the band."
+    },
+    {
+      "id": "check.causal_forest.positivity.name",
+      "kind": "name",
+      "subject": "est.causal_forest.method",
+      "value": "positivity"
+    },
+    {
+      "id": "check.causal_forest.positivity.kind",
+      "kind": "label",
+      "subject": "est.causal_forest.method",
+      "value": "identification"
+    },
+    {
+      "id": "check.causal_forest.positivity.status",
+      "kind": "label",
+      "subject": "est.causal_forest.method",
+      "value": "WARN"
+    },
+    {
+      "id": "check.causal_forest.positivity.statistic",
+      "kind": "number",
+      "subject": "est.causal_forest.method",
+      "value": 0.0
+    },
+    {
+      "id": "check.causal_forest.positivity.threshold",
+      "kind": "number",
+      "subject": "est.causal_forest.method",
+      "value": 0.01
+    },
+    {
+      "id": "check.causal_forest.positivity.interpretation",
+      "kind": "text",
+      "subject": "est.causal_forest.method",
+      "value": "0.0% of units have a propensity score within 0.01 of 0 or 1, and 4.5% lie outside the region where both arms are represented. Such units have almost no counterpart in the other arm, so their contribution rests on extrapolation rather than comparison."
+    },
+    {
+      "id": "check.causal_forest.positivity.remedy",
+      "kind": "text",
+      "subject": "est.causal_forest.method",
+      "value": "Trim to the common support, or restrict the population to where both arms exist."
+    },
+    {
+      "id": "check.causal_forest.covariate_balance.name",
+      "kind": "name",
+      "subject": "est.causal_forest.method",
+      "value": "covariate_balance"
+    },
+    {
+      "id": "check.causal_forest.covariate_balance.kind",
+      "kind": "label",
+      "subject": "est.causal_forest.method",
+      "value": "data_adequacy"
+    },
+    {
+      "id": "check.causal_forest.covariate_balance.status",
+      "kind": "label",
+      "subject": "est.causal_forest.method",
+      "value": "PASS"
+    },
+    {
+      "id": "check.causal_forest.covariate_balance.statistic",
+      "kind": "number",
+      "subject": "est.causal_forest.method",
+      "value": 0.019110966610290547
+    },
+    {
+      "id": "check.causal_forest.covariate_balance.threshold",
+      "kind": "number",
+      "subject": "est.causal_forest.method",
+      "value": 0.1
+    },
+    {
+      "id": "check.causal_forest.covariate_balance.interpretation",
+      "kind": "text",
+      "subject": "est.causal_forest.method",
+      "value": "Largest standardised mean difference after weighting is 0.019; below 0.1 is conventionally read as adequate balance on the covariates supplied."
+    },
+    {
+      "id": "check.causal_forest.covariate_balance.remedy",
+      "kind": "text",
+      "subject": "est.causal_forest.method",
+      "value": "Enrich the propensity model, or match rather than weight."
+    },
+    {
+      "id": "check.causal_forest.unconfoundedness.name",
+      "kind": "name",
+      "subject": "est.causal_forest.method",
+      "value": "unconfoundedness"
+    },
+    {
+      "id": "check.causal_forest.unconfoundedness.kind",
+      "kind": "label",
+      "subject": "est.causal_forest.method",
+      "value": "identification"
+    },
+    {
+      "id": "check.causal_forest.unconfoundedness.status",
+      "kind": "label",
+      "subject": "est.causal_forest.method",
+      "value": "NOT_TESTABLE"
+    },
+    {
+      "id": "check.causal_forest.unconfoundedness.interpretation",
+      "kind": "text",
+      "subject": "est.causal_forest.method",
+      "value": "Balance on the covariates supplied says nothing about covariates not supplied. No diagnostic computed from this data can establish that treatment assignment is independent of the potential outcomes given these covariates."
+    },
+    {
+      "id": "check.causal_forest.unconfoundedness.remedy",
+      "kind": "text",
+      "subject": "est.causal_forest.method",
+      "value": "Assess sensitivity to unobserved confounding, and justify the covariate set from domain knowledge."
+    },
+    {
+      "id": "check.causal_forest.calibration_test.name",
+      "kind": "name",
+      "subject": "est.causal_forest.method",
+      "value": "calibration_test"
+    },
+    {
+      "id": "check.causal_forest.calibration_test.kind",
+      "kind": "label",
+      "subject": "est.causal_forest.method",
+      "value": "data_adequacy"
+    },
+    {
+      "id": "check.causal_forest.calibration_test.status",
+      "kind": "label",
+      "subject": "est.causal_forest.method",
+      "value": "WARN"
+    },
+    {
+      "id": "check.causal_forest.calibration_test.statistic",
+      "kind": "number",
+      "subject": "est.causal_forest.method",
+      "value": 0.19026214322651294
+    },
+    {
+      "id": "check.causal_forest.calibration_test.threshold",
+      "kind": "number",
+      "subject": "est.causal_forest.method",
+      "value": 1.644853626951472
+    },
+    {
+      "id": "check.causal_forest.calibration_test.interpretation",
+      "kind": "text",
+      "subject": "est.causal_forest.method",
+      "value": "Differential-prediction calibration coefficient 0.2811 (t=0.19, one-sided p=0.4246), evaluated on out-of-bag CATE and corrected for the out-of-bag numerator's -sigma^2 bias and doubled variance. No reliable evidence of heterogeneity -- subgroup reporting is skipped."
+    },
+    {
+      "id": "check.causal_forest.calibration_test.remedy",
+      "kind": "text",
+      "subject": "est.causal_forest.method",
+      "value": "Report the aggregate ATE/ATT only; do not report per-unit CATE or subgroups as if heterogeneity were established."
+    },
+    {
+      "id": "est.difference_in_means.method",
+      "kind": "name",
+      "subject": null,
+      "value": "difference_in_means"
+    },
+    {
+      "id": "est.difference_in_means.estimand",
+      "kind": "label",
+      "subject": "est.difference_in_means.method",
+      "value": "ATE"
+    },
+    {
+      "id": "est.difference_in_means.scale",
+      "kind": "label",
+      "subject": "est.difference_in_means.method",
+      "value": "percentage_point"
+    },
+    {
+      "id": "est.difference_in_means.ci_basis",
+      "kind": "label",
+      "subject": "est.difference_in_means.method",
+      "value": "analytic"
+    },
+    {
+      "id": "est.difference_in_means.point",
+      "kind": "number",
+      "subject": "est.difference_in_means.method",
+      "value": 0.10121765601217655
+    },
+    {
+      "id": "est.difference_in_means.se",
+      "kind": "number",
+      "subject": "est.difference_in_means.method",
+      "value": 0.04279470233396107
+    },
+    {
+      "id": "est.difference_in_means.ci_lower",
+      "kind": "number",
+      "subject": "est.difference_in_means.method",
+      "value": 0.01613574522179821
+    },
+    {
+      "id": "est.difference_in_means.ci_upper",
+      "kind": "number",
+      "subject": "est.difference_in_means.method",
+      "value": 0.18544887115690772
+    },
+    {
+      "id": "est.difference_in_means.ci_level",
+      "kind": "level",
+      "subject": "est.difference_in_means.method",
+      "value": 0.95
+    },
+    {
+      "id": "est.difference_in_means.p_value",
+      "kind": "p_value",
+      "subject": "est.difference_in_means.method",
+      "value": 0.018020761637279392
+    },
+    {
+      "id": "est.difference_in_means.n_treated",
+      "kind": "count",
+      "subject": "est.difference_in_means.method",
+      "value": 146
+    },
+    {
+      "id": "est.difference_in_means.n_control",
+      "kind": "count",
+      "subject": "est.difference_in_means.method",
+      "value": 144
+    },
+    {
+      "id": "est.difference_in_means.direction",
+      "kind": "label",
+      "subject": "est.difference_in_means.method",
+      "value": "positive"
+    },
+    {
+      "id": "est.difference_in_means.interval_excludes_zero",
+      "kind": "label",
+      "subject": "est.difference_in_means.method",
+      "value": "excludes zero"
+    },
+    {
+      "id": "score.difference_in_means.band",
+      "kind": "label",
+      "subject": "est.difference_in_means.method",
+      "value": "MODERATE"
+    },
+    {
+      "id": "score.difference_in_means.ceiling",
+      "kind": "label",
+      "subject": "est.difference_in_means.method",
+      "value": "MODERATE"
+    },
+    {
+      "id": "score.difference_in_means.rationale.0",
+      "kind": "text",
+      "subject": "est.difference_in_means.method",
+      "value": "Design provenance is observational, so the band cannot exceed MODERATE."
+    },
+    {
+      "id": "score.difference_in_means.rationale.1",
+      "kind": "text",
+      "subject": "est.difference_in_means.method",
+      "value": "Not testable from data (randomised_assignment); recorded here and already reflected in the design ceiling, so it does not move the band."
+    },
+    {
+      "id": "check.difference_in_means.randomised_assignment.name",
+      "kind": "name",
+      "subject": "est.difference_in_means.method",
+      "value": "randomised_assignment"
+    },
+    {
+      "id": "check.difference_in_means.randomised_assignment.kind",
+      "kind": "label",
+      "subject": "est.difference_in_means.method",
+      "value": "identification"
+    },
+    {
+      "id": "check.difference_in_means.randomised_assignment.status",
+      "kind": "label",
+      "subject": "est.difference_in_means.method",
+      "value": "NOT_TESTABLE"
+    },
+    {
+      "id": "check.difference_in_means.randomised_assignment.interpretation",
+      "kind": "text",
+      "subject": "est.difference_in_means.method",
+      "value": "This estimator is unbiased only if treatment was randomly assigned. Nothing in the data can establish that; it is a claim about how the data came to exist."
+    },
+    {
+      "id": "check.difference_in_means.randomised_assignment.remedy",
+      "kind": "text",
+      "subject": "est.difference_in_means.method",
+      "value": "Confirm the assignment procedure. If assignment was not random, use an estimator that adjusts for covariates."
+    },
+    {
+      "id": "est.ipw.method",
+      "kind": "name",
+      "subject": null,
+      "value": "ipw"
+    },
+    {
+      "id": "est.ipw.estimand",
+      "kind": "label",
+      "subject": "est.ipw.method",
+      "value": "ATE"
+    },
+    {
+      "id": "est.ipw.scale",
+      "kind": "label",
+      "subject": "est.ipw.method",
+      "value": "percentage_point"
+    },
+    {
+      "id": "est.ipw.ci_basis",
+      "kind": "label",
+      "subject": "est.ipw.method",
+      "value": "analytic"
+    },
+    {
+      "id": "est.ipw.point",
+      "kind": "number",
+      "subject": "est.ipw.method",
+      "value": 0.029471807062366268
+    },
+    {
+      "id": "est.ipw.se",
+      "kind": "number",
+      "subject": "est.ipw.method",
+      "value": 0.04838787353372002
+    },
+    {
+      "id": "est.ipw.ci_lower",
+      "kind": "number",
+      "subject": "est.ipw.method",
+      "value": -0.06536668235220384
+    },
+    {
+      "id": "est.ipw.ci_upper",
+      "kind": "number",
+      "subject": "est.ipw.method",
+      "value": 0.12431029647693638
+    },
+    {
+      "id": "est.ipw.ci_level",
+      "kind": "level",
+      "subject": "est.ipw.method",
+      "value": 0.95
+    },
+    {
+      "id": "est.ipw.p_value",
+      "kind": "p_value",
+      "subject": "est.ipw.method",
+      "value": 0.5424752344955703
+    },
+    {
+      "id": "est.ipw.n_treated",
+      "kind": "count",
+      "subject": "est.ipw.method",
+      "value": 146
+    },
+    {
+      "id": "est.ipw.n_control",
+      "kind": "count",
+      "subject": "est.ipw.method",
+      "value": 144
+    },
+    {
+      "id": "est.ipw.direction",
+      "kind": "label",
+      "subject": "est.ipw.method",
+      "value": "positive"
+    },
+    {
+      "id": "est.ipw.interval_excludes_zero",
+      "kind": "label",
+      "subject": "est.ipw.method",
+      "value": "includes zero"
+    },
+    {
+      "id": "score.ipw.band",
+      "kind": "label",
+      "subject": "est.ipw.method",
+      "value": "WEAK"
+    },
+    {
+      "id": "score.ipw.ceiling",
+      "kind": "label",
+      "subject": "est.ipw.method",
+      "value": "MODERATE"
+    },
+    {
+      "id": "score.ipw.rationale.0",
+      "kind": "text",
+      "subject": "est.ipw.method",
+      "value": "Design provenance is observational, so the band cannot exceed MODERATE."
+    },
+    {
+      "id": "score.ipw.rationale.1",
+      "kind": "text",
+      "subject": "est.ipw.method",
+      "value": "Checks warned (positivity), which drops the band one step below the MODERATE ceiling."
+    },
+    {
+      "id": "score.ipw.rationale.2",
+      "kind": "text",
+      "subject": "est.ipw.method",
+      "value": "Not testable from data (unconfoundedness); recorded here and already reflected in the design ceiling, so it does not move the band."
+    },
+    {
+      "id": "check.ipw.positivity.name",
+      "kind": "name",
+      "subject": "est.ipw.method",
+      "value": "positivity"
+    },
+    {
+      "id": "check.ipw.positivity.kind",
+      "kind": "label",
+      "subject": "est.ipw.method",
+      "value": "identification"
+    },
+    {
+      "id": "check.ipw.positivity.status",
+      "kind": "label",
+      "subject": "est.ipw.method",
+      "value": "WARN"
+    },
+    {
+      "id": "check.ipw.positivity.statistic",
+      "kind": "number",
+      "subject": "est.ipw.method",
+      "value": 0.0
+    },
+    {
+      "id": "check.ipw.positivity.threshold",
+      "kind": "number",
+      "subject": "est.ipw.method",
+      "value": 0.01
+    },
+    {
+      "id": "check.ipw.positivity.interpretation",
+      "kind": "text",
+      "subject": "est.ipw.method",
+      "value": "0.0% of units have a propensity score within 0.01 of 0 or 1, and 6.9% lie outside the region where both arms are represented. Such units have almost no counterpart in the other arm, so their contribution rests on extrapolation rather than comparison."
+    },
+    {
+      "id": "check.ipw.positivity.remedy",
+      "kind": "text",
+      "subject": "est.ipw.method",
+      "value": "Trim to the common support, or restrict the population to where both arms exist."
+    },
+    {
+      "id": "check.ipw.covariate_balance.name",
+      "kind": "name",
+      "subject": "est.ipw.method",
+      "value": "covariate_balance"
+    },
+    {
+      "id": "check.ipw.covariate_balance.kind",
+      "kind": "label",
+      "subject": "est.ipw.method",
+      "value": "data_adequacy"
+    },
+    {
+      "id": "check.ipw.covariate_balance.status",
+      "kind": "label",
+      "subject": "est.ipw.method",
+      "value": "PASS"
+    },
+    {
+      "id": "check.ipw.covariate_balance.statistic",
+      "kind": "number",
+      "subject": "est.ipw.method",
+      "value": 0.0725597638856922
+    },
+    {
+      "id": "check.ipw.covariate_balance.threshold",
+      "kind": "number",
+      "subject": "est.ipw.method",
+      "value": 0.1
+    },
+    {
+      "id": "check.ipw.covariate_balance.interpretation",
+      "kind": "text",
+      "subject": "est.ipw.method",
+      "value": "Largest standardised mean difference after weighting is 0.073; below 0.1 is conventionally read as adequate balance on the covariates supplied."
+    },
+    {
+      "id": "check.ipw.covariate_balance.remedy",
+      "kind": "text",
+      "subject": "est.ipw.method",
+      "value": "Enrich the propensity model, or match rather than weight."
+    },
+    {
+      "id": "check.ipw.unconfoundedness.name",
+      "kind": "name",
+      "subject": "est.ipw.method",
+      "value": "unconfoundedness"
+    },
+    {
+      "id": "check.ipw.unconfoundedness.kind",
+      "kind": "label",
+      "subject": "est.ipw.method",
+      "value": "identification"
+    },
+    {
+      "id": "check.ipw.unconfoundedness.status",
+      "kind": "label",
+      "subject": "est.ipw.method",
+      "value": "NOT_TESTABLE"
+    },
+    {
+      "id": "check.ipw.unconfoundedness.interpretation",
+      "kind": "text",
+      "subject": "est.ipw.method",
+      "value": "Balance on the covariates supplied says nothing about covariates not supplied. No diagnostic computed from this data can establish that treatment assignment is independent of the potential outcomes given these covariates."
+    },
+    {
+      "id": "check.ipw.unconfoundedness.remedy",
+      "kind": "text",
+      "subject": "est.ipw.method",
+      "value": "Assess sensitivity to unobserved confounding, and justify the covariate set from domain knowledge."
+    },
+    {
+      "id": "est.lin_regression.method",
+      "kind": "name",
+      "subject": null,
+      "value": "lin_regression"
+    },
+    {
+      "id": "est.lin_regression.estimand",
+      "kind": "label",
+      "subject": "est.lin_regression.method",
+      "value": "ATE"
+    },
+    {
+      "id": "est.lin_regression.scale",
+      "kind": "label",
+      "subject": "est.lin_regression.method",
+      "value": "percentage_point"
+    },
+    {
+      "id": "est.lin_regression.ci_basis",
+      "kind": "label",
+      "subject": "est.lin_regression.method",
+      "value": "analytic"
+    },
+    {
+      "id": "est.lin_regression.point",
+      "kind": "number",
+      "subject": "est.lin_regression.method",
+      "value": 0.032684195061943366
+    },
+    {
+      "id": "est.lin_regression.se",
+      "kind": "number",
+      "subject": "est.lin_regression.method",
+      "value": 0.044231192716992725
+    },
+    {
+      "id": "est.lin_regression.ci_lower",
+      "kind": "number",
+      "subject": "est.lin_regression.method",
+      "value": -0.05400734965661272
+    },
+    {
+      "id": "est.lin_regression.ci_upper",
+      "kind": "number",
+      "subject": "est.lin_regression.method",
+      "value": 0.11937573978049945
+    },
+    {
+      "id": "est.lin_regression.ci_level",
+      "kind": "level",
+      "subject": "est.lin_regression.method",
+      "value": 0.95
+    },
+    {
+      "id": "est.lin_regression.p_value",
+      "kind": "p_value",
+      "subject": "est.lin_regression.method",
+      "value": 0.4599434659217656
+    },
+    {
+      "id": "est.lin_regression.n_treated",
+      "kind": "count",
+      "subject": "est.lin_regression.method",
+      "value": 146
+    },
+    {
+      "id": "est.lin_regression.n_control",
+      "kind": "count",
+      "subject": "est.lin_regression.method",
+      "value": 144
+    },
+    {
+      "id": "est.lin_regression.direction",
+      "kind": "label",
+      "subject": "est.lin_regression.method",
+      "value": "positive"
+    },
+    {
+      "id": "est.lin_regression.interval_excludes_zero",
+      "kind": "label",
+      "subject": "est.lin_regression.method",
+      "value": "includes zero"
+    },
+    {
+      "id": "score.lin_regression.band",
+      "kind": "label",
+      "subject": "est.lin_regression.method",
+      "value": "MODERATE"
+    },
+    {
+      "id": "score.lin_regression.ceiling",
+      "kind": "label",
+      "subject": "est.lin_regression.method",
+      "value": "MODERATE"
+    },
+    {
+      "id": "score.lin_regression.rationale.0",
+      "kind": "text",
+      "subject": "est.lin_regression.method",
+      "value": "Design provenance is observational, so the band cannot exceed MODERATE."
+    },
+    {
+      "id": "score.lin_regression.rationale.1",
+      "kind": "text",
+      "subject": "est.lin_regression.method",
+      "value": "Not testable from data (outcome_model_specification, randomised_assignment); recorded here and already reflected in the design ceiling, so it does not move the band."
+    },
+    {
+      "id": "check.lin_regression.randomised_assignment.name",
+      "kind": "name",
+      "subject": "est.lin_regression.method",
+      "value": "randomised_assignment"
+    },
+    {
+      "id": "check.lin_regression.randomised_assignment.kind",
+      "kind": "label",
+      "subject": "est.lin_regression.method",
+      "value": "identification"
+    },
+    {
+      "id": "check.lin_regression.randomised_assignment.status",
+      "kind": "label",
+      "subject": "est.lin_regression.method",
+      "value": "NOT_TESTABLE"
+    },
+    {
+      "id": "check.lin_regression.randomised_assignment.interpretation",
+      "kind": "text",
+      "subject": "est.lin_regression.method",
+      "value": "Lin adjustment removes finite-sample imbalance in the covariates supplied; it does not correct for confounding by anything unobserved. Randomisation is what licenses the causal reading, and it cannot be checked from data."
+    },
+    {
+      "id": "check.lin_regression.randomised_assignment.remedy",
+      "kind": "text",
+      "subject": "est.lin_regression.method",
+      "value": "Use a propensity or doubly-robust estimator if assignment was not random."
+    },
+    {
+      "id": "check.lin_regression.outcome_model_specification.name",
+      "kind": "name",
+      "subject": "est.lin_regression.method",
+      "value": "outcome_model_specification"
+    },
+    {
+      "id": "check.lin_regression.outcome_model_specification.kind",
+      "kind": "label",
+      "subject": "est.lin_regression.method",
+      "value": "data_adequacy"
+    },
+    {
+      "id": "check.lin_regression.outcome_model_specification.status",
+      "kind": "label",
+      "subject": "est.lin_regression.method",
+      "value": "NOT_TESTABLE"
+    },
+    {
+      "id": "check.lin_regression.outcome_model_specification.interpretation",
+      "kind": "text",
+      "subject": "est.lin_regression.method",
+      "value": "The adjustment is linear in the supplied covariates. Under randomisation Lin stays consistent even when that linear form is wrong, but its precision advantage shrinks."
+    },
+    {
+      "id": "check.lin_regression.outcome_model_specification.remedy",
+      "kind": "text",
+      "subject": "est.lin_regression.method",
+      "value": "Add interactions or transformed covariates if the relationship is non-linear."
+    },
+    {
+      "id": "cmp.ate.percentage_point.n_methods",
+      "kind": "count",
+      "subject": null,
+      "value": 5
+    },
+    {
+      "id": "cmp.ate.percentage_point.agreement",
+      "kind": "label",
+      "subject": null,
+      "value": "consistent"
+    },
+    {
+      "id": "cmp.ate.percentage_point.verdict",
+      "kind": "text",
+      "subject": null,
+      "value": "The 5 methods scored WEAK or better report intervals that overlap pairwise, which is consistent with a common effect under each method's own assumptions. Highest validity band: difference_in_means at MODERATE. Point estimates range from 0.01388 to 0.1012; descriptive dispersion (standard deviation across methods, not a test of heterogeneity) is 0.03443. Interval bases in this comparison: analytic."
+    },
+    {
+      "id": "cmp.ate.percentage_point.point_low",
+      "kind": "number",
+      "subject": null,
+      "value": 0.01387506004200606
+    },
+    {
+      "id": "cmp.ate.percentage_point.point_high",
+      "kind": "number",
+      "subject": null,
+      "value": 0.10121765601217655
+    },
+    {
+      "id": "cmp.ate.percentage_point.dispersion",
+      "kind": "number",
+      "subject": null,
+      "value": 0.03443222662987068
+    },
+    {
+      "id": "route.aipw.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "aipw"
+    },
+    {
+      "id": "route.aipw.eligible",
+      "kind": "label",
+      "subject": "route.aipw.estimator",
+      "value": "eligible"
+    },
+    {
+      "id": "route.bsts.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "bsts"
+    },
+    {
+      "id": "route.bsts.eligible",
+      "kind": "label",
+      "subject": "route.bsts.estimator",
+      "value": "not eligible"
+    },
+    {
+      "id": "route.bsts.reasons.0",
+      "kind": "text",
+      "subject": "route.bsts.estimator",
+      "value": "requires panel data; dataset is a cross-section"
+    },
+    {
+      "id": "route.bsts.reasons.1",
+      "kind": "text",
+      "subject": "route.bsts.estimator",
+      "value": "requires at most 1 treated unit(s); dataset has 146"
+    },
+    {
+      "id": "route.callaway_santanna.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "callaway_santanna"
+    },
+    {
+      "id": "route.callaway_santanna.eligible",
+      "kind": "label",
+      "subject": "route.callaway_santanna.estimator",
+      "value": "not eligible"
+    },
+    {
+      "id": "route.callaway_santanna.reasons.0",
+      "kind": "text",
+      "subject": "route.callaway_santanna.estimator",
+      "value": "requires panel data; dataset is a cross-section"
+    },
+    {
+      "id": "route.causal_forest.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "causal_forest"
+    },
+    {
+      "id": "route.causal_forest.eligible",
+      "kind": "label",
+      "subject": "route.causal_forest.estimator",
+      "value": "eligible"
+    },
+    {
+      "id": "route.did_2x2.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "did_2x2"
+    },
+    {
+      "id": "route.did_2x2.eligible",
+      "kind": "label",
+      "subject": "route.did_2x2.estimator",
+      "value": "not eligible"
+    },
+    {
+      "id": "route.did_2x2.reasons.0",
+      "kind": "text",
+      "subject": "route.did_2x2.estimator",
+      "value": "requires panel data; dataset is a cross-section"
+    },
+    {
+      "id": "route.difference_in_means.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "difference_in_means"
+    },
+    {
+      "id": "route.difference_in_means.eligible",
+      "kind": "label",
+      "subject": "route.difference_in_means.estimator",
+      "value": "eligible"
+    },
+    {
+      "id": "route.event_study.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "event_study"
+    },
+    {
+      "id": "route.event_study.eligible",
+      "kind": "label",
+      "subject": "route.event_study.estimator",
+      "value": "not eligible"
+    },
+    {
+      "id": "route.event_study.reasons.0",
+      "kind": "text",
+      "subject": "route.event_study.estimator",
+      "value": "requires panel data; dataset is a cross-section"
+    },
+    {
+      "id": "route.hierarchical_did.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "hierarchical_did"
+    },
+    {
+      "id": "route.hierarchical_did.eligible",
+      "kind": "label",
+      "subject": "route.hierarchical_did.estimator",
+      "value": "not eligible"
+    },
+    {
+      "id": "route.hierarchical_did.reasons.0",
+      "kind": "text",
+      "subject": "route.hierarchical_did.estimator",
+      "value": "requires panel data; dataset is a cross-section"
+    },
+    {
+      "id": "route.hierarchical_did.reasons.1",
+      "kind": "text",
+      "subject": "route.hierarchical_did.estimator",
+      "value": "does not support outcome_type 'binary'; supports ['continuous']"
+    },
+    {
+      "id": "route.ipw.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "ipw"
+    },
+    {
+      "id": "route.ipw.eligible",
+      "kind": "label",
+      "subject": "route.ipw.estimator",
+      "value": "eligible"
+    },
+    {
+      "id": "route.lin_regression.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "lin_regression"
+    },
+    {
+      "id": "route.lin_regression.eligible",
+      "kind": "label",
+      "subject": "route.lin_regression.estimator",
+      "value": "eligible"
+    },
+    {
+      "id": "route.synthetic_control.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "synthetic_control"
+    },
+    {
+      "id": "route.synthetic_control.eligible",
+      "kind": "label",
+      "subject": "route.synthetic_control.estimator",
+      "value": "not eligible"
+    },
+    {
+      "id": "route.synthetic_control.reasons.0",
+      "kind": "text",
+      "subject": "route.synthetic_control.estimator",
+      "value": "requires panel data; dataset is a cross-section"
+    },
+    {
+      "id": "route.synthetic_control.reasons.1",
+      "kind": "text",
+      "subject": "route.synthetic_control.estimator",
+      "value": "requires at most 1 treated unit(s); dataset has 146"
+    },
+    {
+      "id": "route.twfe.estimator",
+      "kind": "name",
+      "subject": null,
+      "value": "twfe"
+    },
+    {
+      "id": "route.twfe.eligible",
+      "kind": "label",
+      "subject": "route.twfe.estimator",
+      "value": "not eligible"
+    },
+    {
+      "id": "route.twfe.reasons.0",
+      "kind": "text",
+      "subject": "route.twfe.estimator",
+      "value": "requires panel data; dataset is a cross-section"
+    }
+  ],
+  "schema_version": 1
+}
