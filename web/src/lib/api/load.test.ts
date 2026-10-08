@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, ApiUnavailable, Unauthorized } from "./errors";
+import { ApiError, ApiUnavailable, Unauthorized, errorFor } from "./errors";
 
 vi.mock("server-only", () => ({}));
 vi.mock("next/navigation", () => ({
@@ -41,6 +41,27 @@ describe("load", () => {
 
   it("answers an unavailable API as a value, so the page can say so in place", async () => {
     expect(await load(failing(new ApiUnavailable()))).toEqual({ ok: false, reason: "unavailable" });
+  });
+
+  it("answers a 429 as a value carrying the API's own sentence", async () => {
+    const sentence = "Too many failed sign-ins from this address. Try again in 14 minutes.";
+    // As the client makes it, from the status and the body.
+    expect(await load(failing(errorFor(429, { detail: sentence })))).toEqual({
+      ok: false,
+      reason: "limited",
+      detail: sentence,
+    });
+  });
+
+  it("answers a 429 whose body could not be parsed with a plain sentence about too many requests", async () => {
+    // `null` is what the client reads a body that is not JSON as.
+    for (const body of [null, "<html>", {}]) {
+      expect(await load(failing(errorFor(429, body)))).toEqual({
+        ok: false,
+        reason: "limited",
+        detail: "Too many requests. Try again later.",
+      });
+    }
   });
 
   it("rethrows anything else", async () => {

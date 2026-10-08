@@ -7,13 +7,16 @@ import { expect, test, type Page, type Request } from "@playwright/test";
 
 /**
  * What only the production stack can show: the proxy's redirect and headers,
- * the `Secure` cookie, each rate limit driven to its refusal, and an upload
- * refused before its body has been read.
+ * the `Secure` cookie, each rate limit driven to its refusal, and a large
+ * upload that is refused: the refusal arrives as the one answer to the request
+ * and the user sees the right page. That the API refuses it before reading the
+ * body is not something a browser can see; `tests/services/test_upload_order.py`
+ * proves that.
  *
  * Run by `make smoke-prod`, after `workflow.spec.ts` and never before it: the
  * last test here leaves this machine's address refused at sign-in for the
  * rest of a quarter of an hour. `playwright.config.ts` leaves this file out
- * unless `CP_E2E_PRODUCTION` is set.
+ * unless `CP_E2E_PRODUCTION` is "true".
  *
  * The limits are per user, so everything that spends one is done as a second
  * user, `limits`, and `workflow.spec.ts`'s user is only read from. The tests
@@ -374,13 +377,17 @@ test("a 12 MB upload with a revoked key lands on sign-in", async ({ page }) => {
 
 test("failed sign-ins: the address is refused at the limit, and then a good key is refused too", async ({ page }) => {
   // The suite has already failed a few sign-ins from this address (the gate's
-  // arithmetic is beside the limits in the Makefile), and the window they are
-  // counted in may have ended since. Either way the limit is reached within
-  // as many failures as it allows, and the attempt after that is refused.
+  // arithmetic is beside the limits in the Makefile), and the 15 minutes they
+  // are counted in may have ended since, or may end between two attempts
+  // here, which starts the count again. The window can end once in the time
+  // this loop takes, so twice the limit and one more attempt always reach a
+  // refusal. The loop stops at the first one.
   const invalid = page.getByRole("alert").filter({ hasText: "missing or invalid API key" });
   const refused = page.getByRole("alert").filter({ hasText: TOO_MANY_SIGNINS });
   let attempts = 0;
-  for (let locked = false; !locked && attempts <= SIGNIN_FAILURES; attempts += 1) {
+  let locked = false;
+  while (!locked && attempts < 2 * SIGNIN_FAILURES + 1) {
+    attempts += 1;
     // A new page each time, so that the message read is this attempt's.
     await page.goto("/sign-in");
     await page.getByLabel("API key").fill("cpk_AAAAAAAAAAAA_wrong");
@@ -388,7 +395,7 @@ test("failed sign-ins: the address is refused at the limit, and then a good key 
     await expect(invalid.or(refused)).toBeVisible({ timeout: 15_000 });
     locked = await refused.isVisible();
   }
-  await expect(refused, `the sentence after ${attempts} wrong keys`).toBeVisible();
+  expect(locked, `whether any of ${attempts} wrong keys was refused for too many failed sign-ins`).toBe(true);
 
   // Refused before the key is looked at: a key that works is answered the same.
   await page.goto("/sign-in");

@@ -141,10 +141,12 @@ PROD_SMOKE_SETTINGS = CP_SITE_ADDRESS=localhost:$(PROD_HTTPS_PORT) CP_HTTP_PORT=
 
 # Shell functions each line of the recipe starts with (a line is one shell).
 #   retry COMMAND...     run it every two seconds until it succeeds; give up after a minute
+#   quietly COMMAND...   run it without what it writes to standard error
 #   logged SERVICE TEXT  the service's log holds the text
 #   restarted SERVICE    Docker has restarted the service's container at least once
 #   unserved URL         the URL is answered with a 5xx: the proxy is up and has nothing behind it
 PROD_SMOKE_SH = retry() { n=0; until "$$@"; do n=$$((n + 1)); [ $$n -lt 30 ] || { echo "smoke-prod: gave up waiting for: $$*" >&2; return 1; }; sleep 2; done; }; \
+	quietly() { "$$@" 2>/dev/null; }; \
 	logged() { $(PROD_SMOKE_STACK) logs "$$1" 2>&1 | grep -q "$$2"; }; \
 	restarted() { [ "$$(docker inspect -f '{{.RestartCount}}' "$$($(PROD_SMOKE_STACK) ps -a -q "$$1")" 2>/dev/null)" -gt 0 ] 2>/dev/null; }; \
 	unserved() { case "$$(curl -sk -o /dev/null -w '%{http_code}' --max-time 5 "$$1")" in 5??) ;; *) return 1 ;; esac; };
@@ -156,11 +158,15 @@ PROD_SMOKE_SH = retry() { n=0; until "$$@"; do n=$$((n + 1)); [ $$n -lt 30 ] || 
 #    one's. `up -d` returns once the proxy has started, which waits for the
 #    dashboard to be healthy, which waits for the API. Then: no
 #    service but the proxy has a port on the host; the proxy's root
-#    certificate, for Node (the browser is told to accept it); two users and
+#    certificate, for Node (the browser is told to accept it), copied
+#    `quietly`: it is not there until Caddy has made it, and only `retry`'s
+#    giving up is worth a line; two users and
 #    two keys each, in shell variables; `workflow.spec.ts`, and then
 #    `production.spec.ts` whether or not the first passed, so one run reports
-#    both. In that order: the second ends with its address locked out of
-#    sign-in. The services' last log lines are printed if anything failed.
+#    both, each with its own directory under `web/test-results/`, because
+#    a run empties the directory it writes its traces to. In that order: the
+#    second ends with its address locked out of sign-in. The services' last
+#    log lines are printed if anything failed.
 # 2. The dashboard alone, with the demo stack's session secret: it must say so
 #    and be restarted by Docker, and the proxy, started in front of it, must
 #    have nothing to serve.
@@ -171,7 +177,7 @@ smoke-prod:
 	$(PROD_SMOKE_STACK) down -v >/dev/null 2>&1; \
 	( $(PROD_SMOKE_STACK) up -d --build \
 	&& sh deploy/only-the-proxy-publishes.sh $(PROD_SMOKE_PROJECT) \
-	&& retry $(PROD_SMOKE_STACK) cp proxy:/data/caddy/pki/authorities/local/root.crt "$$ca/root.crt" 2>/dev/null \
+	&& retry quietly $(PROD_SMOKE_STACK) cp proxy:/data/caddy/pki/authorities/local/root.crt "$$ca/root.crt" \
 	&& $(PROD_SMOKE_STACK) exec -T api cp-api-admin create-user smoke \
 	&& $(PROD_SMOKE_STACK) exec -T api cp-api-admin create-user limits \
 	&& KEY=$$($(PROD_SMOKE_STACK) exec -T api cp-api-admin issue-key smoke) \
@@ -182,7 +188,7 @@ smoke-prod:
 	&& export CP_WEB_URL=https://localhost:$(PROD_HTTPS_PORT) CP_E2E_HTTP_URL=http://localhost:$(PROD_HTTP_PORT) CP_E2E_IGNORE_HTTPS_ERRORS=true NODE_EXTRA_CA_CERTS="$$ca/root.crt" \
 		CP_E2E_KEY=$$KEY CP_E2E_REVOCABLE_KEY=$$REVOCABLE CP_E2E_LIMITS_KEY=$$LIMITS_KEY CP_E2E_LIMITS_REVOCABLE_KEY=$$LIMITS_REVOCABLE \
 		CP_E2E_REVOKE='$(PROD_SMOKE_STACK) exec -T api cp-api-admin revoke-key' \
-	&& { pnpm run e2e; workflow=$$?; CP_E2E_PRODUCTION=true pnpm exec playwright test production.spec.ts; production=$$?; [ $$workflow -eq 0 ] && [ $$production -eq 0 ]; } ); status=$$?; \
+	&& { pnpm exec playwright test --output test-results/workflow; workflow=$$?; CP_E2E_PRODUCTION=true pnpm exec playwright test --output test-results/production production.spec.ts; production=$$?; [ $$workflow -eq 0 ] && [ $$production -eq 0 ]; } ); status=$$?; \
 	[ $$status -eq 0 ] || $(PROD_SMOKE_STACK) logs --no-color --tail 60; \
 	$(PROD_SMOKE_STACK) down -v; rm -rf "$$ca"; exit $$status
 	$(PROD_SMOKE_SH) export $(PROD_SMOKE_SETTINGS) POSTGRES_PASSWORD=$$(openssl rand -hex 24) CP_SESSION_SECRET=local-demo-only-session-secret-not-for-deployment; \

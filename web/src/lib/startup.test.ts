@@ -126,6 +126,17 @@ const PIECE = String.raw`\$\{[^}]*\}|\$\$?\([^)]*\)`;
 //   stubEnv("CP_SESSION_SECRET", "v")    and any other `name, value` pair
 // but not a comparison (`===`), nor the name inside `${CP_SESSION_SECRET:-v}`,
 // which is read as the value of whatever it is assigned to.
+//
+// Not read, and passed over without an error: a fallback that follows anything
+// chained onto the name before the operator. All of these come back empty:
+//   process.env.CP_SESSION_SECRET?.trim() || "v"   and with `??`
+//   process.env.CP_SESSION_SECRET!.trim() || "v"
+//   String(process.env.CP_SESSION_SECRET) || "v"
+// The operator must come straight after the name. A chain on the other side
+// is read: `CP_SESSION_SECRET: process.env.X?.trim() || "v"` holds `v`. And
+// `(process.env.CP_SESSION_SECRET ?? "").trim() || "v"` is read as far as its
+// first fallback, the empty string, which no list holds: that one fails
+// loudly, though not for `v`.
 const ASSIGNMENT = new RegExp(
   String.raw`(?<![$\{\w])CP_SESSION_SECRET["'\`]?\]?[ \t]*(\?\?=?|\|\|=?|:|=(?!=)|,)[ \t]*` +
     String.raw`("[^"\n]*"|'[^'\n]*'|\`[^\`\n]*\`|(?:${PIECE}|[^\s"'\`,;)#])*)`,

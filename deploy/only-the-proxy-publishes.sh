@@ -6,6 +6,9 @@
 #
 # Read from the containers themselves, as Docker created them, and not from
 # the compose file: `HostConfig.PortBindings` is what a `ports:` entry becomes.
+# A container on the host's own network (`network_mode: host`) has no entry
+# there and every port it listens on is the host's, so that fails too, for
+# any service, the proxy included.
 # Trying the ports from outside would say nothing, because another stack on
 # the machine (the demo one) may be answering on them.
 set -eu
@@ -17,11 +20,16 @@ if [ -z "$containers" ]; then
     exit 1
 fi
 
-# One line a container: its service, and how many of its ports are bound.
+# One line a container: its service, how many of its ports are bound, and the
+# network it is on.
 # shellcheck disable=SC2086  # the ids are separate arguments
-docker inspect -f '{{index .Config.Labels "com.docker.compose.service"}} {{len .HostConfig.PortBindings}}' $containers |
+docker inspect -f '{{index .Config.Labels "com.docker.compose.service"}} {{len .HostConfig.PortBindings}} {{.HostConfig.NetworkMode}}' $containers |
     awk -v project="$project" '
         { seen[$1] = 1 }
+        $3 == "host" {
+            print "only-the-proxy-publishes: " $1 " is on the network of the host" > "/dev/stderr"
+            bad = 1
+        }
         $1 == "proxy" { proxy = $2 }
         $1 != "proxy" && $2 > 0 {
             print "only-the-proxy-publishes: " $1 " has " $2 " port(s) on the host" > "/dev/stderr"

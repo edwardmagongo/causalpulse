@@ -12,7 +12,7 @@ export default async function AnalysesPage({
 }) {
   const { cursor } = await searchParams;
   const loaded = await load(() => listAnalyses(cursor));
-  if (!loaded.ok) return <Unavailable />;
+  if (!loaded.ok) return <Unavailable failure={loaded} />;
   const { items, next_cursor: nextCursor } = loaded.data;
   if (items.length === 0 && !cursor) {
     return (

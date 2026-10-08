@@ -127,12 +127,15 @@ jobs:
       # Makes `pnpm` the version `web/package.json` names in `packageManager`.
       - run: corepack enable
       - run: make smoke-prod PLAYWRIGHT_INSTALL=--with-deps
-      # Playwright keeps a trace of each failed test here. Its own name: two
-      # jobs of one run cannot upload artifacts under the same one.
+      # Playwright keeps a trace of each failed test here, the gate's two runs
+      # apart. Its own name: two jobs of one run cannot upload artifacts under
+      # the same one.
       - if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: playwright-traces-production
-          path: web/test-results/
+          path: |
+            web/test-results/workflow/
+            web/test-results/production/
           retention-days: 7
           if-no-files-found: ignore

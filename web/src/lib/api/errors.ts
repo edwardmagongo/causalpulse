@@ -32,11 +32,15 @@ export class ApiError extends Error {
   }
 }
 
+/** What a 429 is said to be when its body does not say: the status means this much by itself. */
+export const TOO_MANY_REQUESTS = "Too many requests. Try again later.";
+
 /**
  * The `detail` of an error body as one line of text.
  *
  * The API's own refusals carry a string. FastAPI's request validation carries
- * a list of `{loc, msg}` items instead, one per offending field.
+ * a list of `{loc, msg}` items instead, one per offending field. A body with
+ * neither leaves the status to speak for itself.
  */
 export function detailOf(body: unknown, status: number): string {
   if (typeof body === "object" && body !== null && "detail" in body) {
@@ -51,7 +55,7 @@ export function detailOf(body: unknown, status: number): string {
       if (lines.length > 0) return lines.join("; ");
     }
   }
-  return `the API answered ${status}`;
+  return status === 429 ? TOO_MANY_REQUESTS : `the API answered ${status}`;
 }
 
 /** The error a non-2xx status stands for. */

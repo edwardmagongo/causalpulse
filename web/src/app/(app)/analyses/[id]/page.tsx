@@ -18,7 +18,7 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
     const summary = analysis.status === "succeeded" ? await getSummary(id) : null;
     return { analysis, comparisons: summary?.comparisons ?? [] };
   });
-  if (!loaded.ok) return <Unavailable />;
+  if (!loaded.ok) return <Unavailable failure={loaded} />;
   const { analysis, comparisons } = loaded.data;
   return (
     <>
