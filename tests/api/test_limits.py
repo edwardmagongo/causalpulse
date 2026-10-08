@@ -25,7 +25,7 @@ from cp_api.limits import (
     limits_from_environment,
 )
 from redis.exceptions import ConnectionError as RedisConnectionError
-from redis.exceptions import ExecAbortError, OutOfMemoryError, ReadOnlyError
+from redis.exceptions import ExecAbortError, OutOfMemoryError, ReadOnlyError, ResponseError
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -217,8 +217,9 @@ def test_a_redis_that_cannot_be_reached_allows(monkeypatch, caplog):
     assert "ConnectionError" in caplog.records[0].getMessage()
 
 
-# What a Redis older than 7 answers, which will not run `EXPIRE ... NX` or the
-# transaction it is in.
+# What a Redis older than 7 answers, which will not run `EXPIRE ... NX`: the
+# transaction it is in is aborted, and this is the refusal among the others
+# that the aborted transaction raises.
 TOO_OLD = ExecAbortError("Transaction discarded because of previous errors.")
 
 
@@ -256,11 +257,33 @@ def test_a_redis_that_refuses_the_command_allows_and_says_so_as_an_error(
     assert caplog.records[0].levelno == logging.ERROR
     message = caplog.records[0].getMessage()
     assert "Redis refused the rate limiter's command" in message
-    # The server's own words, and no guess at the cause: an old Redis is one of several.
-    assert f"{type(error).__name__}: {error}" in message
+    # The exception's type, and no guess at the cause: an old Redis is one of several.
+    # (Not its message: that can carry the command, and so a client's address.)
+    assert type(error).__name__ in message
     assert "Redis 7" not in message
     # Not the outage's message: Redis was reached.
     assert "could not be reached" not in message
+
+
+def test_the_refusal_log_carries_no_client_address_or_key(monkeypatch, caplog):
+    # redis-py puts the whole command, key included, in the message of what it
+    # raises, and the key of a sign-in count is made from the client's address.
+    monkeypatch.setattr(limits, "_outage_logged", False)
+    monkeypatch.setattr(limits, "_refusal_logged", False)
+    leaky = ResponseError(
+        "Error 1 while writing to socket. INCR cp:limit:signin:203.0.113.7 (command failed)"
+    )
+
+    with caplog.at_level(logging.WARNING, logger="cp_api.limits"):
+        FixedWindow(RefusingRedis(leaky)).hit("signin:203.0.113.7", THREE_A_MINUTE)
+
+    assert len(caplog.records) == 1
+    message = caplog.records[0].getMessage()
+    assert "Redis refused the rate limiter's command" in message
+    assert "ResponseError" in message
+    assert "203.0.113.7" not in message
+    assert "cp:limit:" not in message
+    assert caplog.records[0].exc_info is None
 
 
 def test_a_refused_command_and_an_outage_are_each_logged(monkeypatch, caplog):

@@ -81,7 +81,8 @@ _LOST = {JobStatus.FAILED, JobStatus.STOPPED, JobStatus.CANCELED}
 # insert, the commit and the enqueue. None of these waits on a person, and
 # half a minute allows for a loaded machine and for any difference between
 # the database's clock and this process's, which `utcnow` reads. It costs
-# little: a job that really is lost holds its place this long at most, and a
+# little: a job that really is lost holds its place this long at most (give or take
+# the difference between the API's clock and the database's), and a
 # refused client is told to wait longer than that (`ACTIVE_RETRY_SECONDS`).
 SUBMISSION_GRACE = timedelta(seconds=30)
 
@@ -172,8 +173,8 @@ async def _form(request: Request) -> FormData:
     so the length is counted here as the body arrives. A body over the bound
     is read on and thrown away, so the client gets its 413 after sending the
     whole request, as it does for a file just over the limit; but only for a
-    further `MAX_UPLOAD_BYTES`. Past that this stops reading, and the 413 is
-    answered to a client that is still sending. That ends the request: no
+    further `MAX_UPLOAD_BYTES`. Past that this stops reading, after at most one
+    message more, and the 413 is answered to a client that is still sending. That ends the request: no
     task, temporary file or database connection is left with it. It does not
     close the connection. uvicorn goes on taking what such a client sends,
     discarding it, for as long as the client keeps the connection open.

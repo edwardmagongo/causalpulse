@@ -184,15 +184,17 @@ def _allow_through_outage(exc: RedisError) -> Decision:
         # older than 7, which has no `EXPIRE ... NX` (see `FixedWindow.hit`).
         # Others are a server out of memory that evicts nothing, a read-only
         # replica, and a key holding something that is not a count. The
-        # message does not guess: it carries the server's own words, which
+        # message does not guess, and does not carry the exception's text:
+        # redis-py adds the whole command to it, and a sign-in count's key
+        # holds a client's address. The type name and the server's own log
         # say which it is.
         if not _refusal_logged:
             _refusal_logged = True
             logger.error(
-                "Redis refused the rate limiter's command (%s: %s), so the rate limits "
-                "are counting nothing and allowing every request. This is logged once.",
+                "Redis refused the rate limiter's command (%s), so the rate limits "
+                "are counting nothing and allowing every request. The server's own "
+                "log says why. This is logged once.",
                 type(exc).__name__,
-                exc,
             )
         return Decision(True, 0)
     if not _outage_logged:
