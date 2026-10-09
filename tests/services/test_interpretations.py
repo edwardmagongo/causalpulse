@@ -5,6 +5,7 @@ Real PostgreSQL and Redis; the jobs run in this process with
 """
 
 import json
+import threading
 from datetime import timedelta
 
 import pytest
@@ -18,13 +19,14 @@ from cp_api.app import (
     WORKER_LOST,
     create_app,
 )
-from cp_api.db import AnalysisSummary, Interpretation
+from cp_api.db import Analysis, AnalysisSummary, Interpretation, utcnow
 from cp_api.limits import Limit, Limits
 from cp_llm.facts import FactTable
 from cp_llm.model import ModelCallError
 from cp_worker import jobs
 from cp_worker.worker import make_worker
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from worker.data import scenario_d_upload
 from worker.narratives import ScriptedReplies, narrative_for
 
@@ -201,7 +203,9 @@ def test_a_failed_interpretation_can_be_asked_for_again(
     analysis_id = _analysed(client, redis_conn)
     facts = _facts(sessions, analysis_id)
     _script(monkeypatch, ModelCallError("the model API call failed: APIConnectionError"))
-    first = _ask(client, analysis_id).json()
+    _ask(client, analysis_id)
+    with sessions() as session:
+        first_job = session.get(Interpretation, analysis_id).job_id
     _drain(redis_conn)
     failed = client.get(f"/v1/analyses/{analysis_id}").json()["interpretation"]
     assert (failed["status"], failed["error"]) == (
@@ -215,7 +219,7 @@ def test_a_failed_interpretation_can_be_asked_for_again(
     assert again.status_code == 202
     assert again.json()["error"] is None
     with sessions() as session:
-        assert session.get(Interpretation, analysis_id).job_id != first.get("job_id", "")
+        assert session.get(Interpretation, analysis_id).job_id != first_job
     assert client.get(f"/v1/analyses/{analysis_id}").json()["interpretation"]["status"] == (
         "verified"
     )
@@ -324,3 +328,77 @@ def test_a_refused_row_is_never_served_as_a_narrative_whatever_it_holds(
     assert (got["status"], got["sections"], got["limits"], got["notice"]) == (
         "refused", None, None, None,
     )
+
+
+def test_asking_again_clears_what_the_failed_attempt_left(
+    make_client, redis_conn, sessions, monkeypatch
+):
+    client = make_client()
+    analysis_id = _analysed(client, redis_conn)
+    _script(monkeypatch, ModelCallError("down"))
+    _ask(client, analysis_id)
+    _drain(redis_conn)
+    with sessions() as session:
+        row = session.get(Interpretation, analysis_id)
+        assert row.status == "failed"
+        old_job = row.job_id
+        row.attempts = [{"x": 1}]
+        row.prompt_version = "v-old"
+        row.facts_sha256 = "f" * 64
+        row.returned_model = "old-model"
+        row.started_at = row.finished_at = utcnow()
+        row.error = "left over"
+        session.commit()
+
+    assert _ask(client, analysis_id).status_code == 202
+
+    with sessions() as session:
+        row = session.get(Interpretation, analysis_id)
+        assert (row.status, row.job_id != old_job) == ("queued", True)
+        for column in (
+            "attempts", "prompt_version", "facts_sha256", "returned_model",
+            "started_at", "finished_at", "error", "rendered", "notice",
+        ):
+            assert getattr(row, column) is None, column
+
+
+def test_a_refused_request_does_not_spend_the_daily_allowance(
+    make_client, redis_conn
+):
+    limits = Limits(interpretations_per_day=Limit("interpretations_per_day", 1, 86_400))
+    client = make_client(limits=limits)
+    content, schema = scenario_d_upload()
+    dataset = client.post("/v1/datasets", files={"file": ("d.csv", content, "text/csv")}).json()
+    body = {"dataset_id": dataset["id"], "schema": schema, "random_seed": 0, "estimators": PAIR}
+    unfinished = client.post("/v1/analyses", json=body).json()["id"]
+    assert _ask(client, unfinished).status_code == 409
+    _drain(redis_conn)
+    finished = _analysed(client, redis_conn)
+
+    assert _ask(client, finished).status_code == 202
+
+
+def test_a_request_waits_for_another_request_on_the_same_analysis(
+    make_client, redis_conn, sessions
+):
+    client = make_client()
+    analysis_id = _analysed(client, redis_conn)
+    holder = sessions()
+    # FOR NO KEY UPDATE, not FOR UPDATE: the insert's foreign key takes a
+    # weaker lock that this one permits, so only a request that itself locks
+    # the analysis row waits, and the test fails without that lock.
+    holder.execute(
+        select(Analysis.id).where(Analysis.id == analysis_id).with_for_update(key_share=True)
+    )
+    answers = []
+    thread = threading.Thread(target=lambda: answers.append(_ask(client, analysis_id)))
+    try:
+        thread.start()
+        thread.join(0.5)
+        assert thread.is_alive(), "the request did not wait for the lock on the analysis"
+    finally:
+        holder.rollback()
+        holder.close()
+        thread.join(10)
+    assert not thread.is_alive()
+    assert answers[0].status_code == 202

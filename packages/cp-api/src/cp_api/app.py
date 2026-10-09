@@ -416,6 +416,10 @@ def create_app(
             row.finished_at = utcnow()
             session.commit()
 
+    def _lock_analysis(session: Session, analysis_id: uuid.UUID) -> None:
+        """Hold the analysis row's lock until the session's next commit or rollback."""
+        session.execute(select(Analysis.id).where(Analysis.id == analysis_id).with_for_update())
+
     def _uninterpretable(session: Session, analysis: Analysis) -> str | None:
         """Why this analysis cannot be interpreted, or None if it can (interpretations on)."""
         if analysis.status != "succeeded":
@@ -722,6 +726,8 @@ def create_app(
         user: CurrentUser, analysis_id: uuid.UUID, session: SessionDep
     ) -> dict[str, Any]:
         analysis = _analysis_or_404(session, analysis_id, user)
+        # Serialises requests for one analysis, so a double request cannot write two jobs.
+        _lock_analysis(session, analysis_id)
         if not interpreting:
             raise RequestError(403, INTERPRETATIONS_OFF)
         reason = _uninterpretable(session, analysis)
@@ -735,6 +741,10 @@ def create_app(
             with contextlib.suppress(RedisError):
                 if row.created_at <= utcnow() - SUBMISSION_GRACE:
                     _fail_interpretation_if_lost(session, row)
+                    # That commit released the lock; take it again and read
+                    # what a request that slipped in meanwhile left.
+                    _lock_analysis(session, analysis_id)
+                    session.refresh(row)
         if row is not None and row.status in INTERPRETATION_PENDING:
             raise RequestError(409, BEING_WRITTEN)
         if row is not None and row.status == "verified":
