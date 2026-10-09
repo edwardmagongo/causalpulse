@@ -1772,6 +1772,30 @@ lists can still reach the narrative as the model's own free text.
 the SDK's transport. `make check-llm` runs those two against the real API: this interpretation, and
 `cp-llm-eval`'s judge (below).
 
+### On the server and in the dashboard (phase 3)
+
+A server can offer the same interpretation for an analysis run through the API. It is off unless
+`CP_INTERPRETATION=on` is set for both the API and the worker. When it is on, the worker also needs
+`ANTHROPIC_API_KEY`, and refuses to start without it. The API never reads the key.
+
+- **The fact table is stored when the analysis runs.** The worker writes it beside the outcome. This
+  calls no model and costs nothing. If the extractor cannot build it, the analysis still succeeds,
+  and it simply cannot be interpreted. Analyses run before this existed have no fact table and are
+  not refitted to get one.
+- **An interpretation is written only when someone asks.** `POST /v1/analyses/{id}/interpretation`
+  answers 202 and queues a separate job, so an analysis never waits on the model.
+  `CP_LIMIT_INTERPRETATIONS_PER_DAY` caps the requests per user, counted when accepted. The
+  production stack defaults to 5.
+- **A result is final.** A verified or refused interpretation cannot be asked for again: re-asking
+  until something passes would cost money and lower the bar. Only a failed one can be retried,
+  such as a model that could not be reached, a job that ran out of time, or a worker that was lost.
+- **What the reader sees.** On the analysis page, a verified interpretation is shown under
+  "Interpretation (model-written, verified against the facts)". Beside it are the system's limits
+  text, a fixed note on what "verified" establishes and what it does not, and the model and prompt
+  version. A refused one is not shown; the page says so and gives the number of attempts.
+- **How often a verified interpretation still misreads its analysis is not yet measured.** Phase 2's
+  study, below, measures it, and its paid run is paused.
+
 ## Measuring misreadings (sub-project 4, phase 2)
 
 A verified interpretation cannot cite a figure that is not in its fact table, but it can still
