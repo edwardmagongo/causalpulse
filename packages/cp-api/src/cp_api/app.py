@@ -36,6 +36,8 @@ from starlette.types import Message
 from cp_api import models, validation
 from cp_api.auth import CurrentUser
 from cp_api.db import (
+    INTERPRETATION_JOB_FUNCTION,
+    INTERPRETATION_PENDING,
     JOB_FUNCTION,
     JOB_TIMEOUT_SECONDS,
     QUEUE_NAME,
@@ -43,6 +45,7 @@ from cp_api.db import (
     AnalysisSummary,
     Dataset,
     EstimateRow,
+    Interpretation,
     RoutingDecisionRow,
     User,
     make_engine,
@@ -59,7 +62,7 @@ from cp_api.limits import (
     limits_from_environment,
 )
 from cp_api.pagination import DEFAULT_LIMIT, MAX_LIMIT, decode_cursor, encode_cursor
-from cp_api.settings import require_production_settings
+from cp_api.settings import interpretation_enabled, require_production_settings
 from cp_api.validation import RequestError, check_analysis_request, check_upload, csv_header
 
 WORKER_LOST = "worker lost: the job ended without recording a result"
@@ -86,6 +89,26 @@ _LOST = {JobStatus.FAILED, JobStatus.STOPPED, JobStatus.CANCELED}
 # refused client is told to wait longer than that (`ACTIVE_RETRY_SECONDS`).
 SUBMISSION_GRACE = timedelta(seconds=30)
 
+# The model an interpretation is asked of, and how hard it thinks. Phase 1's
+# defaults; recorded on the row, which is what the worker reads.
+INTERPRETATION_MODEL = "claude-opus-5-5"
+INTERPRETATION_EFFORT = "medium"
+# What `POST /v1/analyses/{id}/interpretation` answers when it cannot accept.
+INTERPRETATIONS_OFF = "Interpretation is not enabled on this server."
+NOT_FINISHED = "Only an analysis that has finished can be interpreted."
+NO_FACTS = (
+    "This analysis has no fact table, so it cannot be interpreted: it was run before "
+    "interpretations were available, or its results could not be put into one. Run it "
+    "again to try."
+)
+BEING_WRITTEN = "An interpretation of this analysis is already being written."
+ALREADY_VERIFIED = "This analysis already has an interpretation."
+ALREADY_REFUSED = "This analysis already has an interpretation that could not be verified."
+INTERPRETATION_QUEUE_DOWN = (
+    "the job queue could not be reached, so the interpretation could not be confirmed as "
+    "queued; ask for it again"
+)
+
 
 class AnalysisRequest(BaseModel):
     # `schema` is the wire name; a field literally named `schema` would
@@ -108,11 +131,43 @@ Limit = Annotated[int, Query(ge=1, le=MAX_LIMIT)]
 
 
 def _job_lost(redis: Redis, analysis_id: uuid.UUID) -> bool:
+    return _job_id_lost(redis, str(analysis_id))
+
+
+def _job_id_lost(redis: Redis, job_id: str) -> bool:
     try:
-        job = Job.fetch(str(analysis_id), connection=redis)
+        job = Job.fetch(job_id, connection=redis)
     except NoSuchJobError:
         return True
     return job.get_status() in _LOST
+
+
+def _interpretation_out(row: Interpretation) -> dict[str, Any]:
+    """The row as `models.InterpretationDetail`: each field only for its status."""
+    rendered = row.rendered if row.status == "verified" else None
+    attempts = row.attempts or []
+    rules = sorted(
+        {violation["rule"] for violation in (attempts[-1]["violations"] if attempts else [])}
+    )
+    return {
+        "status": row.status,
+        "model": row.model,
+        "returned_model": row.returned_model,
+        "prompt_version": row.prompt_version,
+        "created_at": _iso(row.created_at),
+        "started_at": _iso(row.started_at),
+        "finished_at": _iso(row.finished_at),
+        "sections": rendered["sections"] if rendered else None,
+        "limits": rendered["limits"] if rendered else None,
+        "notice": row.notice if row.status == "verified" else None,
+        "attempts": len(attempts) if row.status == "refused" else None,
+        "reason": (
+            f"The last attempt broke {len(rules)} rule(s): {', '.join(rules)}."
+            if row.status == "refused" and rules
+            else None
+        ),
+        "error": row.error if row.status == "failed" else None,
+    }
 
 
 # `POST /v1/datasets` reads its own form (see `uploaded_file`), so FastAPI does
@@ -258,6 +313,7 @@ def create_app(
     sessions: sessionmaker[Session] | None = None,
     redis: Redis | None = None,
     limits: Limits | None = None,
+    interpretation: bool | None = None,
 ) -> FastAPI:
     if sessions is None:
         # The server's own start: uvicorn calls this factory before it listens.
@@ -285,6 +341,9 @@ def create_app(
     app.state.uploads_per_day = limits.uploads_per_day
     analyses_per_day = limits.analyses_per_day
     analyses_active = limits.analyses_active
+    interpretations_per_day = limits.interpretations_per_day
+    # Whether this server writes interpretations (`CP_INTERPRETATION=on`).
+    interpreting = interpretation_enabled() if interpretation is None else interpretation
 
     @app.exception_handler(RequestError)
     async def _refused(request: Request, exc: RequestError) -> JSONResponse:
@@ -348,6 +407,25 @@ def create_app(
             analysis.error = WORKER_LOST
             analysis.finished_at = utcnow()
             session.commit()
+
+    def _fail_interpretation_if_lost(session: Session, row: Interpretation) -> None:
+        """Mark a pending interpretation `failed` when its job is gone, as for an analysis."""
+        if row.status in INTERPRETATION_PENDING and _job_id_lost(queue_redis, row.job_id):
+            row.status = "failed"
+            row.error = WORKER_LOST
+            row.finished_at = utcnow()
+            session.commit()
+
+    def _uninterpretable(session: Session, analysis: Analysis) -> str | None:
+        """Why this analysis cannot be interpreted, or None if it can (interpretations on)."""
+        if analysis.status != "succeeded":
+            return NOT_FINISHED
+        has_facts = session.scalar(
+            select(AnalysisSummary.facts.is_not(None)).where(
+                AnalysisSummary.analysis_id == analysis.id
+            )
+        )
+        return None if has_facts else NO_FACTS
 
     active_statuses = ("queued", "running")
 
@@ -606,6 +684,10 @@ def create_app(
             .where(EstimateRow.analysis_id == analysis_id)
             .order_by(EstimateRow.id)
         ).all()
+        interpretation = session.get(Interpretation, analysis_id)
+        if interpretation is not None:
+            _fail_interpretation_if_lost(session, interpretation)
+        reason = _uninterpretable(session, analysis) if interpreting else None
         return {
             "id": str(analysis.id),
             "dataset_id": str(analysis.dataset_id),
@@ -624,7 +706,77 @@ def create_app(
                 {"method": e.method, "band": e.band, "summary": e.summary, "error": e.error}
                 for e in estimates
             ],
+            "interpretation": (
+                None if interpretation is None else _interpretation_out(interpretation)
+            ),
+            "interpretable": interpreting and reason is None,
+            "interpretable_reason": reason,
         }
+
+    @app.post(
+        "/v1/analyses/{analysis_id}/interpretation",
+        status_code=202,
+        response_model=models.InterpretationDetail,
+    )
+    def request_interpretation(
+        user: CurrentUser, analysis_id: uuid.UUID, session: SessionDep
+    ) -> dict[str, Any]:
+        analysis = _analysis_or_404(session, analysis_id, user)
+        if not interpreting:
+            raise RequestError(403, INTERPRETATIONS_OFF)
+        reason = _uninterpretable(session, analysis)
+        if reason is not None:
+            raise RequestError(409, reason)
+        row = session.get(Interpretation, analysis_id)
+        if row is not None and row.status in INTERPRETATION_PENDING:
+            # A job that died with its worker would otherwise hold the analysis
+            # for good. A row too new to judge stands: its job may not be
+            # enqueued yet (see `SUBMISSION_GRACE`).
+            with contextlib.suppress(RedisError):
+                if row.created_at <= utcnow() - SUBMISSION_GRACE:
+                    _fail_interpretation_if_lost(session, row)
+        if row is not None and row.status in INTERPRETATION_PENDING:
+            raise RequestError(409, BEING_WRITTEN)
+        if row is not None and row.status == "verified":
+            raise RequestError(409, ALREADY_VERIFIED)
+        if row is not None and row.status == "refused":
+            raise RequestError(409, ALREADY_REFUSED)
+        # Counted when nothing is left that can refuse it, as an analysis is.
+        window.require(f"interpretations:{user.id}", interpretations_per_day)
+        # A fresh job id each time, so a job asked for again never collides
+        # with the failed one still recorded in the queue.
+        job_id = f"interpretation-{analysis_id}-{uuid.uuid4().hex[:8]}"
+        if row is None:
+            row = Interpretation(analysis_id=analysis_id)
+            session.add(row)
+        row.status = "queued"
+        row.job_id = job_id
+        row.model = INTERPRETATION_MODEL
+        row.effort = INTERPRETATION_EFFORT
+        for cleared in (
+            "returned_model", "prompt_version", "facts_sha256", "rendered", "notice",
+            "attempts", "error", "started_at", "finished_at",
+        ):
+            setattr(row, cleared, None)
+        row.created_at = func.now()
+        # Committed before enqueueing, so a fast worker never looks for a row
+        # that is not there yet.
+        session.commit()
+        session.refresh(row)
+        try:
+            Queue(QUEUE_NAME, connection=queue_redis).enqueue(
+                INTERPRETATION_JOB_FUNCTION,
+                str(analysis_id),
+                job_id=job_id,
+                job_timeout=JOB_TIMEOUT_SECONDS,
+            )
+        except RedisError:
+            row.status = "failed"
+            row.error = INTERPRETATION_QUEUE_DOWN
+            row.finished_at = utcnow()
+            session.commit()
+            raise
+        return _interpretation_out(row)
 
     @app.get("/v1/analyses/{analysis_id}/estimates/{method}/report.html")
     def report_html(

@@ -9,5 +9,8 @@
   "started_at": "2026-10-05T17:24:54.992863+00:00",
   "finished_at": "2026-10-05T17:24:55.056302+00:00",
   "routing": [],
-  "estimates": []
+  "estimates": [],
+  "interpretation": null,
+  "interpretable": false,
+  "interpretable_reason": null
 }

@@ -90,6 +90,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/analyses/{analysis_id}/interpretation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Request Interpretation */
+        post: operations["request_interpretation_v1_analyses__analysis_id__interpretation_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/analyses/{analysis_id}/manifest": {
         parameters: {
             query?: never;
@@ -240,6 +257,11 @@ export interface components {
             finished_at: string | null;
             /** Id */
             id: string;
+            /** Interpretable */
+            interpretable: boolean;
+            /** Interpretable Reason */
+            interpretable_reason: string | null;
+            interpretation: components["schemas"]["InterpretationDetail"] | null;
             /** Partial */
             partial: boolean;
             /** Routing */
@@ -452,6 +474,53 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * InterpretationDetail
+         * @description An analysis's interpretation. Which fields are filled depends on `status`.
+         *
+         *     `verified`: `sections`, `limits` and `notice`. `refused`: `attempts` and
+         *     `reason`; a refused narrative is not served. `failed`: `error`.
+         */
+        InterpretationDetail: {
+            /** Attempts */
+            attempts: number | null;
+            /** Created At */
+            created_at: string | null;
+            /** Error */
+            error: string | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Limits */
+            limits: string | null;
+            /** Model */
+            model: string;
+            /** Notice */
+            notice: string | null;
+            /** Prompt Version */
+            prompt_version: string | null;
+            /** Reason */
+            reason: string | null;
+            /** Returned Model */
+            returned_model: string | null;
+            /** Sections */
+            sections: components["schemas"]["InterpretationSection"][] | null;
+            /** Started At */
+            started_at: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "verified" | "refused" | "failed";
+        };
+        /** InterpretationSection */
+        InterpretationSection: {
+            /** Heading */
+            heading: string;
+            /** Name */
+            name: string;
+            /** Statements */
+            statements: string[];
         };
         /** Me */
         Me: {
@@ -686,6 +755,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    request_interpretation_v1_analyses__analysis_id__interpretation_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                analysis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InterpretationDetail"];
                 };
             };
             /** @description Validation Error */

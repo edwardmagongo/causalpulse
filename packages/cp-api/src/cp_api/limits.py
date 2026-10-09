@@ -61,6 +61,9 @@ _SENTENCES = {
     "signin_failures": "Too many failed sign-ins from this address. Try again in {wait}.",
     "uploads_per_day": "Too many uploads today for this account. Try again in {wait}.",
     "analyses_per_day": "Too many analyses today for this account. Try again in {wait}.",
+    "interpretations_per_day": (
+        "Too many interpretations today for this account. Try again in {wait}."
+    ),
     "analyses_active": (
         "This account already has {count} {analyses} waiting or running. "
         "Try again when one has finished."
@@ -97,12 +100,13 @@ class Limit:
 
 @dataclass(frozen=True)
 class Limits:
-    """The four limits; None is a limit that is switched off."""
+    """The five limits; None is a limit that is switched off."""
 
     signin_failures: Limit | None = None
     uploads_per_day: Limit | None = None
     analyses_per_day: Limit | None = None
     analyses_active: Limit | None = None
+    interpretations_per_day: Limit | None = None
 
 
 @dataclass(frozen=True)
@@ -143,6 +147,9 @@ def limits_from_environment(environ: Mapping[str, str] | None = None) -> Limits:
         ),
         analyses_active=_setting(
             source, "CP_LIMIT_ANALYSES_ACTIVE", "analyses_active", ACTIVE_RETRY_SECONDS
+        ),
+        interpretations_per_day=_setting(
+            source, "CP_LIMIT_INTERPRETATIONS_PER_DAY", "interpretations_per_day", DAY_SECONDS
         ),
     )
 

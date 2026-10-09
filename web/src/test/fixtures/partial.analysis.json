@@ -116,5 +116,8 @@
       "summary": null,
       "error": "array must not contain infs or NaNs"
     }
-  ]
+  ],
+  "interpretation": null,
+  "interpretable": false,
+  "interpretable_reason": null
 }

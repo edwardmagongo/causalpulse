@@ -122,5 +122,8 @@
       },
       "error": null
     }
-  ]
+  ],
+  "interpretation": null,
+  "interpretable": false,
+  "interpretable_reason": null
 }

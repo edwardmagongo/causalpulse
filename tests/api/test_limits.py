@@ -493,6 +493,7 @@ def test_the_process_environment_is_what_is_read_by_default(monkeypatch):
         "CP_LIMIT_UPLOADS_PER_DAY",
         "CP_LIMIT_ANALYSES_PER_DAY",
         "CP_LIMIT_ANALYSES_ACTIVE",
+        "CP_LIMIT_INTERPRETATIONS_PER_DAY",
     ],
 )
 def test_a_setting_that_is_not_a_positive_integer_stops_the_start(setting, value):
@@ -592,4 +593,20 @@ def test_a_refusal_is_a_429_with_the_wait_in_whole_seconds():
     assert response.headers["retry-after"] == "1"
     assert response.body == (
         b'{"detail":"Too many uploads today for this account. Try again in 1 second."}'
+    )
+
+
+def test_the_interpretations_limit_is_read_per_day_and_off_by_default():
+    assert limits_from_environment({}).interpretations_per_day is None
+
+    read = limits_from_environment({"CP_LIMIT_INTERPRETATIONS_PER_DAY": "5"})
+
+    assert read.interpretations_per_day == Limit("interpretations_per_day", 5, 86_400)
+
+
+def test_the_interpretations_limit_has_its_own_sentence():
+    limit = Limit("interpretations_per_day", 5, 86_400)
+
+    assert LimitExceededError(limit, 120).detail == (
+        "Too many interpretations today for this account. Try again in 2 minutes."
     )
