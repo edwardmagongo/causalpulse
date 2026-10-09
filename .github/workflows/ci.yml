@@ -1,14 +1,16 @@
 name: CI
 
-# Six of the gates a developer runs with `make`, one job each: the quick
-# ones, about ten billed runner-minutes together. A seventh job, `production`,
+# Five of the gates a developer runs with `make`, one job each: the quick
+# ones, about ten billed runner-minutes together. A sixth job, `production`,
 # runs `make smoke-prod` on pushes to `main` only. Every job is set-up followed
-# by one `make` invocation: nothing a gate does is written again here. (The
-# `infrastructure` job runs one test file after its gate, for a reason given
-# there.) That job looks first at which files the change touches and does
-# nothing more when none is among those it checks, which is most changes. One
-# more gate, the fast Python suite, is half an hour and has its own workflow
-# (`fast.yml`), which runs only when something it tests has changed.
+# by one `make` invocation: nothing a gate does is written again here.
+#
+# Two more gates have workflows of their own, because a workflow can be
+# limited to the paths a change touches and a job cannot. The fast Python
+# suite is half an hour (`fast.yml`) and runs on a pull request only when
+# something it tests has changed. `make check-infra` (`infra.yml`) runs only
+# when the change touches the Terraform, the deploy files, a workflow or one
+# of the few other files that gate reads.
 #
 # Pushes run for `main` only; every other branch is covered by its pull
 # request. That is what makes a push to a branch with an open pull request run
@@ -142,101 +144,3 @@ jobs:
             web/test-results/production/
           retention-days: 7
           if-no-files-found: ignore
-
-  # `make check-infra`: the Terraform under `infra/` is formatted, valid and
-  # passes its tests, with no AWS account and no credentials; the scripts the
-  # server runs pass `shellcheck`; and the workflows pass `actionlint`.
-  #
-  # Only when the change touches what that gate reads. The repository is
-  # private and its Actions minutes are counted, and a change to the Python or
-  # the dashboard alone has nothing for this job to find. A workflow can be
-  # limited by path and a job cannot, so the first step lists the files that
-  # changed and every later step is conditional on what it found. A job that
-  # stops there is a few seconds long, and is billed as one minute. When the
-  # first step cannot tell what changed, the gate runs.
-  #
-  # After the gate, `tests/test_deploy_files.py`, which runs the deploy script
-  # against a stand-in for Docker. The fast suite holds it too, but that
-  # workflow's paths do not include `deploy/`, so a pull request that changed
-  # only the deploy script would otherwise run none of those tests.
-  infrastructure:
-    name: Infrastructure
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      # Two commits deep: on a pull request the checkout is the merge of the
-      # branch into its base, and the commit before it is the base.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 2
-      - name: See whether the change touches the infrastructure
-        id: changed
-        env:
-          EVENT: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
-        run: |
-          set -euo pipefail
-          decide() {
-            echo "$2"
-            echo "run=$1" >>"$GITHUB_OUTPUT"
-            exit 0
-          }
-          if [ "$EVENT" = pull_request ]; then
-            base=$(git rev-parse --verify --quiet "HEAD^1^{commit}") \
-              || decide true "The pull request's base is not in the checkout, so the gate runs."
-          else
-            # What `main` was before the push. It is all zeros for a new
-            # branch, and is gone from the repository after a forced push.
-            base=$BEFORE
-            if ! [[ $base =~ ^[0-9a-f]{40}$ ]] || [[ $base =~ ^0+$ ]]; then
-              decide true "The push names no commit before it, so the gate runs."
-            fi
-            if ! git cat-file -e "$base^{commit}" 2>/dev/null \
-              && ! git fetch --quiet --no-tags --depth=1 origin "$base"; then
-              decide true "The commit before the push could not be fetched, so the gate runs."
-            fi
-          fi
-          # A file that was moved is listed under both of its names.
-          names=$(git diff --name-only --no-renames "$base" HEAD)
-          watched='^(infra/|deploy/|\.github/workflows/|(Makefile|Dockerfile|\.dockerignore|docker-compose\.prod\.yml)$)'
-          if grep --quiet --extended-regexp "$watched" <<<"$names"; then
-            decide true "The change touches what the gate reads, so it runs."
-          fi
-          decide false "The change touches nothing the gate reads, so it does not run."
-      # The version is one that `infra/versions.tf` accepts. Without the
-      # wrapper, `terraform` is the program itself and its exit status is its
-      # own.
-      - if: steps.changed.outputs.run == 'true'
-        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
-        with:
-          terraform_version: 1.15.8
-          terraform_wrapper: false
-      # `shellcheck` is on the runner already; `actionlint` is not. One
-      # release, and the archive is what its checksum says or nothing is
-      # unpacked. The checksum is from the release's own checksums file.
-      - name: Install actionlint
-        if: steps.changed.outputs.run == 'true'
-        env:
-          VERSION: 1.7.12
-          SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
-        run: |
-          set -euo pipefail
-          archive="actionlint_${VERSION}_linux_amd64.tar.gz"
-          curl --fail --silent --show-error --location --max-time 60 \
-            --output "$RUNNER_TEMP/$archive" \
-            "https://github.com/rhysd/actionlint/releases/download/v$VERSION/$archive"
-          echo "$SHA256  $RUNNER_TEMP/$archive" | sha256sum --check --quiet
-          mkdir -p "$RUNNER_TEMP/bin"
-          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP/bin" actionlint
-          echo "$RUNNER_TEMP/bin" >>"$GITHUB_PATH"
-      - if: steps.changed.outputs.run == 'true'
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
-        with:
-          enable-cache: true
-          cache-dependency-glob: uv.lock
-      - if: steps.changed.outputs.run == 'true'
-        run: uv sync --frozen
-      - if: steps.changed.outputs.run == 'true'
-        run: make check-infra
-      - if: steps.changed.outputs.run == 'true'
-        run: uv run pytest tests/test_deploy_files.py -q

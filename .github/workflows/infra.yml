@@ -1,0 +1,125 @@
+name: Infrastructure
+
+# `make check-infra`: the Terraform under `infra/` is formatted, valid and
+# passes its tests, with no AWS account and no credentials; the scripts the
+# server runs pass `shellcheck`; the workflows pass `actionlint`; and the two
+# test files that run the deploy script and the deploy command against
+# stand-ins pass. The gate runs those two files itself, as its last step.
+#
+# Only when the change touches what that gate reads. The repository is
+# private and its Actions minutes are counted, and a change to the Python or
+# the dashboard alone has nothing for this workflow to find. The paths are
+# the same for a pull request and for a push to `main`, so a commit of `main`
+# that touches none of them has no run of this workflow at all. GitHub looks
+# at the first 300 changed files only.
+#
+# The paths are what the gate reads: the Terraform and its tests; the deploy
+# files; every workflow, this one included (`actionlint` reads them all, and
+# one test reads them all to see that only the deploy workflow asks GitHub
+# for a token of identity); the two test files; and the four files at the
+# root that those tests read or that say how the gate is run. The fast
+# suite holds the two test files too, but its pull-request paths do not
+# include `deploy/` or `infra/`.
+#
+# This workflow asks for no credentials and reaches no AWS account.
+#
+# If branch protection is ever enforced again, "Infrastructure" must not be a
+# required check as it stands: a pull request these paths skip would wait for
+# it for ever.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "infra/**"
+      - "deploy/**"
+      - ".github/workflows/**"
+      - "tests/test_deploy_*.py"
+      - "Makefile"
+      - "Dockerfile"
+      - ".dockerignore"
+      - "docker-compose.prod.yml"
+  pull_request:
+    # The same list: keep the two alike.
+    paths:
+      - "infra/**"
+      - "deploy/**"
+      - ".github/workflows/**"
+      - "tests/test_deploy_*.py"
+      - "Makefile"
+      - "Dockerfile"
+      - ".dockerignore"
+      - "docker-compose.prod.yml"
+
+# As in `ci.yml`: a newer push to the same pull request cancels the older
+# run, and on `main` a run in progress is never cancelled.
+concurrency:
+  group: infra-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  infrastructure:
+    name: Infrastructure
+    runs-on: ubuntu-latest
+    # Two provider downloads, the Python environment, and under a minute of
+    # tests. Not yet timed on a runner.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The version is one that `infra/versions.tf` accepts. Without the
+      # wrapper, `terraform` is the program itself and its exit status is its
+      # own.
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+      # The runner has a `shellcheck` of its own, an older one that changes
+      # with the runner's image, and what it objects to differs between
+      # versions. So one release is installed, the one the gate is run with
+      # on a developer's machine, and it comes first on the search path. The
+      # archive is what its checksum says or nothing is unpacked. The release
+      # publishes no checksums file: the checksum is that of the archive as
+      # it was downloaded from the release when this step was written, and
+      # it is the digest GitHub's API gives for that file of the release.
+      - name: Install shellcheck
+        env:
+          VERSION: 0.11.0
+          SHA256: 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
+        run: |
+          set -euo pipefail
+          archive="shellcheck-v${VERSION}.linux.x86_64.tar.xz"
+          curl --fail --silent --show-error --location --max-time 60 \
+            --output "$RUNNER_TEMP/$archive" \
+            "https://github.com/koalaman/shellcheck/releases/download/v$VERSION/$archive"
+          echo "$SHA256  $RUNNER_TEMP/$archive" | sha256sum --check --quiet
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xJf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP/bin" \
+            --strip-components=1 "shellcheck-v$VERSION/shellcheck"
+          echo "$RUNNER_TEMP/bin" >>"$GITHUB_PATH"
+      # `actionlint` is not on the runner. One release, checked in the same
+      # way. The checksum is from the release's own checksums file.
+      - name: Install actionlint
+        env:
+          VERSION: 1.7.12
+          SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          set -euo pipefail
+          archive="actionlint_${VERSION}_linux_amd64.tar.gz"
+          curl --fail --silent --show-error --location --max-time 60 \
+            --output "$RUNNER_TEMP/$archive" \
+            "https://github.com/rhysd/actionlint/releases/download/v$VERSION/$archive"
+          echo "$SHA256  $RUNNER_TEMP/$archive" | sha256sum --check --quiet
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP/bin" actionlint
+          echo "$RUNNER_TEMP/bin" >>"$GITHUB_PATH"
+      # Said in the log, so that a failure of the gate can be read against
+      # the versions that ran it.
+      - run: shellcheck --version && actionlint -version
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --frozen
+      - run: make check-infra

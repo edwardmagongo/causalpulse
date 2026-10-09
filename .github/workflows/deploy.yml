@@ -2,7 +2,8 @@ name: Deploy
 
 # Puts one commit of `main` on the server. Started by hand only, with the
 # commit's full SHA and the site's name typed as a confirmation. It checks
-# the commit, builds the two images for it unless the registry already has
+# the commit and the gates that ran for it, builds the two images for it
+# unless the registry already has
 # them, pushes them, tells the server to deploy them through the one Systems
 # Manager document the pipeline's role may run, waits for that to end, and
 # then asks the site three questions from outside.
@@ -20,10 +21,18 @@ name: Deploy
 # So the identifiers are the repository's variables, not an environment's:
 # `AWS_ROLE_ARN`, `INSTANCE_ID`, `DEPLOY_DOCUMENT`, `REGISTRY` and
 # `SITE_NAME`, filled in from the outputs of `infra/`. None is a secret, and
-# GitHub masks none of them, so no step here prints one and none goes into
-# the summary. (The build's own log names the image it pushes, and that name
-# holds the account's number; the credentials step is asked to have the
-# runner mask that number wherever it is printed.)
+# GitHub masks none of them.
+#
+# The site's name is public: it is the site's address, and it is in the
+# README. So this workflow may print it. The server's deploy document still
+# takes every value of its environment file out of what it hands back, the
+# site's name among them.
+#
+# No step here sets out to print the other four, and none goes into the
+# summary. An error of AWS's own may name one all the same: a refusal of the
+# instance's id repeats the id. (The build's own log names the image it
+# pushes, and that name holds the account's number; the credentials step is
+# asked to have the runner mask that number wherever it is printed.)
 #
 # What is typed reaches a shell only through `env:`, never written into a
 # script, and the SHA is forty lowercase hexadecimal digits before anything
@@ -36,6 +45,13 @@ name: Deploy
 # Stopping a run, or its time-out, does not stop a deploy the server has
 # already been sent: the role cannot cancel a command, and the server
 # finishes it. `/srv/causalpulse/deploy.log` on the server has how it went.
+# The summary of such a run says the command was sent and its result was not
+# read.
+#
+# The run has no `run-name`. One that showed the commit would be an
+# expression over what was typed, worked out before the first step has
+# checked it, and GitHub's documentation of `run-name` does not say what is
+# done with such a value. The summary shows the commit.
 on:
   workflow_dispatch:
     inputs:
@@ -73,8 +89,11 @@ jobs:
     runs-on: ubuntu-latest
     # The server is given 30 minutes by the document and is waited on for 32.
     # What is left is for the two builds, which have not been measured from
-    # an empty cache.
-    timeout-minutes: 45
+    # an empty cache. The limit is kept inside the life of the role's
+    # credentials, which is two hours from the step that asks for them
+    # (`role-duration-seconds` below), so that the last look at the command
+    # is not refused for an expired session.
+    timeout-minutes: 75
     steps:
       - name: Check what was asked for
         id: request
@@ -153,11 +172,20 @@ jobs:
             fail "git could not say whether this commit is on main (status $status)."
           fi
 
-      # The run asked for is exact: the workflow in `ci.yml`, started by a
-      # push to `main`, with this commit at its tip, and successful. A run of
-      # a pull request, or of another branch that held the same commit, does
-      # not count.
-      - name: Check CI passed for the commit
+      # Three workflows may have run for the commit, and each is asked for in
+      # the same exact way: started by a push to `main`, with this commit at
+      # its tip. A run of a pull request, or of another branch that held the
+      # same commit, does not count.
+      #
+      # `ci.yml` runs on every push to `main`: it must have a run, and one
+      # that succeeded. `fast.yml` runs on every push to `main` too, and takes
+      # half an hour or more. `infra.yml` runs only for a push that touches what
+      # it checks. For those two, a run that is there must have succeeded,
+      # and when there is none that is said and the deploy goes on. A run
+      # still in progress has not succeeded. Nor has one that was waiting on
+      # `main` when a later push took its place: GitHub cancels it, and it
+      # can be run again from its page.
+      - name: Check the gates passed for the commit
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
@@ -168,35 +196,77 @@ jobs:
             echo "::error::$1"
             exit 1
           }
-          runs=$(gh run list --repo "$REPOSITORY" --workflow ci.yml \
-            --event push --branch main --commit "$SHA" --limit 50 \
-            --json conclusion,event,headBranch,headSha,status,workflowName)
+          # runs_of FILE NAME: that workflow's runs for the commit, as JSON.
           # What was asked for is checked again on what came back.
-          runs=$(jq --arg sha "$SHA" '[.[] | select(
-            .workflowName == "CI" and .event == "push"
-            and .headBranch == "main" and .headSha == $sha)]' <<<"$runs")
-          if [ "$(jq 'length' <<<"$runs")" -eq 0 ]; then
+          runs_of() {
+            local found
+            found=$(gh run list --repo "$REPOSITORY" --workflow "$1" \
+              --event push --branch main --commit "$SHA" --limit 50 \
+              --json conclusion,event,headBranch,headSha,status,workflowName) || {
+              echo "::error::GitHub could not be asked for the runs of $1 for this commit." >&2
+              return 1
+            }
+            jq --arg sha "$SHA" --arg name "$2" '[.[] | select(
+              .workflowName == $name and .event == "push"
+              and .headBranch == "main" and .headSha == $sha)]' <<<"$found" || return 1
+          }
+          # count RUNS [CONCLUSION]: how many, or how many that ended so.
+          count() {
+            jq --arg conclusion "${2:-}" '[.[] | select(
+              $conclusion == "" or .conclusion == $conclusion)] | length' <<<"$1"
+          }
+          # refuse NAME RUNS: lists the runs, and ends this one.
+          refuse() {
+            echo "$1: its runs for this commit on main:"
+            jq -r '.[] | "  status \(.status), conclusion \(.conclusion | if . == "" or . == null then "none yet" else . end)"' <<<"$2"
+            fail "$1 has not succeeded for this commit on main. Nothing was built and nothing was deployed."
+          }
+
+          runs=$(runs_of ci.yml CI)
+          if [ "$(count "$runs")" -eq 0 ]; then
             fail "CI has no run for this commit as the tip of a push to main. A commit that reached main inside a merged pull request, and was not the last commit of that push, never has one. Deploy the merge commit, which has."
           fi
-          if [ "$(jq '[.[] | select(.conclusion == "success")] | length' <<<"$runs")" -eq 0 ]; then
-            echo "CI's runs for this commit on main:"
-            jq -r '.[] | "  status \(.status), conclusion \(.conclusion | if . == "" or . == null then "none yet" else . end)"' <<<"$runs"
-            fail "CI has not succeeded for this commit on main. Nothing was built and nothing was deployed."
+          if [ "$(count "$runs" success)" -eq 0 ]; then
+            refuse CI "$runs"
           fi
           echo "CI succeeded for this commit on main."
 
+          runs=$(runs_of fast.yml "Fast suite")
+          if [ "$(count "$runs")" -eq 0 ]; then
+            echo "::warning::The fast suite has no run for this commit as the tip of a push to main, so there was no result of it to require. That workflow runs on every push to main, so this is not expected: look at why before relying on this deploy."
+          elif [ "$(count "$runs" success)" -eq 0 ]; then
+            refuse "The fast suite" "$runs"
+          else
+            echo "The fast suite succeeded for this commit on main."
+          fi
+
+          runs=$(runs_of infra.yml Infrastructure)
+          if [ "$(count "$runs")" -eq 0 ]; then
+            echo "The infrastructure gate has no run for this commit as the tip of a push to main, so there was no result of it to require. That is usual: it runs only for a push that touches what it checks."
+          elif [ "$(count "$runs" success)" -eq 0 ]; then
+            refuse "The infrastructure gate" "$runs"
+          else
+            echo "The infrastructure gate succeeded for this commit on main."
+          fi
+
       # No access key: GitHub signs a token for this run, and AWS exchanges
-      # it for the role's short-lived credentials.
+      # it for the role's short-lived credentials. They are asked to last two
+      # hours, which is the most the role allows (`max_session_duration` in
+      # `infra/pipeline.tf`) and is longer than this job may run; the
+      # action's own default is one hour, which the builds and the wait for
+      # the server could together outlast.
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+          role-duration-seconds: 7200
           mask-aws-account-id: true
 
       - uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
 
-      # A tag that is there is not built again. "Not found" is the one answer
-      # taken for "build it"; any other failure stops the run.
+      # A tag that is there is not built again, and could not be pushed
+      # again: the two repositories refuse a tag that exists. "Not found" is
+      # the one answer taken for "build it"; any other failure stops the run.
       - name: See which images the registry already has
         id: images
         env:
@@ -285,6 +355,11 @@ jobs:
       # `stop-commands` markers, so that the runner takes no line of it as a
       # command to itself. The document has already taken the values of the
       # server's settings out of it.
+      #
+      # That the command was sent is written to the step's outputs at once,
+      # and what is learnt later is written over it. A run that is stopped or
+      # times out while it waits therefore leaves "sent, result not read" for
+      # the summary, and not nothing.
       - name: Deploy on the server
         id: deploy
         env:
@@ -313,6 +388,7 @@ jobs:
             --parameters "Sha=$SHA" --timeout-seconds "$DELIVERY_SECONDS" \
             --comment "Deploy $SHA" \
             --query Command.CommandId --output text)
+          echo "status=Sent; its result was not read" >>"$GITHUB_OUTPUT"
           echo "The command was sent: $command_id."
 
           refusal=$(mktemp)
@@ -364,14 +440,21 @@ jobs:
           if [ "$status" = Success ]; then
             exit 0
           fi
-          # The exit statuses are those of `deploy/deploy.sh` and of the
-          # document around it.
+          # The exit statuses are those of `deploy/deploy.sh` (1, 2, 10, 20,
+          # 30, 40: see its header) and of the document around it (75, 76,
+          # and 1 again for a step of its own that failed before the script
+          # ran: see `infra/deploy-command.tf`). After 1, 2, 10 and 20 the
+          # document puts back the release directory it had set aside, when
+          # it had set one aside; before 75 and 76 it has touched none.
           case $code in
-            10) meaning="An image could not be pulled, or a file of the release is missing. The running stack was not touched." ;;
-            20) meaning="The migration failed. No application service was replaced." ;;
-            30) meaning="The stack did not come up, or was not well in time. It is left as the attempt left it." ;;
+            1) meaning="A command failed that has no status of its own. That is the registry login, the pull of the app image or the copy of its files, before the deploy script ran, in which case nothing was replaced; or a command inside the script that it did not expect to fail. See the output above." ;;
+            2) meaning="The deploy script refused its arguments or its health deadline. No application service was replaced." ;;
+            10) meaning="An image could not be pulled, or a file the deploy needs on the server is missing or is not a file. No application service was replaced." ;;
+            20) meaning="The migration failed, or Postgres was not there for it to run against. No application service was replaced. When the commit is older than the one running, the usual reason is that the older code does not know the revision the database is at: see 'Deploying and rolling back' in docs/runbook.md." ;;
+            30) meaning="The stack did not come up, or was not well in time. It is left as the attempt left it, and the server still records the commit before." ;;
             40) meaning="The stack is well on this commit, and the commit could not be recorded on the server." ;;
             75) meaning="Another deploy was running on the server. This one did nothing." ;;
+            76) meaning="The server's first boot did not finish. Nothing was deployed. See 'The first boot did not finish' in docs/runbook.md." ;;
             -1) meaning="Systems Manager has no exit status for it: the command was not run on the server, or was stopped there." ;;
             *) meaning="See the output above." ;;
           esac
