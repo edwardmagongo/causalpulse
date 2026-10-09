@@ -26,6 +26,16 @@ def is_production() -> bool:
     return os.environ.get("CP_ENV") == "production"
 
 
+def interpretation_enabled() -> bool:
+    """Whether this server writes interpretations: `CP_INTERPRETATION=on` and nothing else.
+
+    Read by the API, which offers them, and by the worker, which writes them
+    and then needs the model's key. Off unless asked for, because each one is a
+    paid call on the server's key.
+    """
+    return os.environ.get("CP_INTERPRETATION") == "on"
+
+
 _REFUSED = "CP_ENV=production does not start with it"
 
 

@@ -19,21 +19,38 @@ mid-job, a job deleted from Redis, a database unreachable even for the
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import os
 import uuid
+from typing import Any, cast
 
 from cp_api.db import (
     Analysis,
     AnalysisSummary,
     Dataset,
     EstimateRow,
+    Interpretation,
     RoutingDecisionRow,
     make_engine,
     make_sessionmaker,
     utcnow,
 )
+from cp_api.settings import interpretation_enabled
 from cp_core.results import estimate_summary
+from cp_llm.extract import fact_table
+from cp_llm.facts import FactTable
+from cp_llm.interpret import (
+    SECTION_HEADINGS,
+    VERIFIED_MEANS,
+    InterpretationRefusedError,
+    ModelDidNotAnswerError,
+    RenderedNarrative,
+    interpret,
+)
+from cp_llm.model import Effort, ModelCallError, NarrativeModel
+from cp_llm.prompt import prompt_version
 from cp_report.pipeline import AnalysisOutcome
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -41,6 +58,21 @@ from cp_worker.execute import execute
 from cp_worker.worker import JobTimeLimitExceeded
 
 logger = logging.getLogger(__name__)
+
+
+def facts_of(analysis_id: uuid.UUID, outcome: AnalysisOutcome) -> dict[str, Any] | None:
+    """The outcome's fact table as JSON, or None if the extractor refuses it.
+
+    The extractor refuses, for example, a name the table cannot hold. That
+    costs this analysis its interpretation, never its result.
+    """
+    try:
+        loaded = json.loads(fact_table(outcome).to_json())
+    except ValueError:
+        logger.exception("analysis %s: its fact table could not be built", analysis_id)
+        return None
+    assert isinstance(loaded, dict)
+    return loaded
 
 
 def store_outcome(session: Session, analysis_id: uuid.UUID, outcome: AnalysisOutcome) -> None:
@@ -74,6 +106,7 @@ def store_outcome(session: Session, analysis_id: uuid.UUID, outcome: AnalysisOut
             analysis_id=analysis_id,
             manifest=json.loads(outcome.manifest.to_json()),
             comparisons=[group.to_dict() for group in outcome.comparisons],
+            facts=facts_of(analysis_id, outcome),
         )
     )
 
@@ -153,3 +186,135 @@ def run_analysis_job(analysis_id: str) -> None:
             _fail(sessions, key, str(exc), unless_finished=True)
     finally:
         engine.dispose()
+
+
+def require_interpretation_settings() -> None:
+    """Exit if interpretations are on and the model's key is not set.
+
+    The message names the setting, never a value: it goes to a log.
+    """
+    if interpretation_enabled() and not os.environ.get("ANTHROPIC_API_KEY"):
+        raise SystemExit(
+            "CP_INTERPRETATION=on, but ANTHROPIC_API_KEY is not set. The worker writes "
+            "interpretations with it; set it, or turn interpretations off."
+        )
+
+
+def build_model(model: str, effort: str) -> NarrativeModel:
+    """The one place a real model is built; a test replaces it."""
+    # Imported here, so that only the interpretation job loads the SDK.
+    from cp_llm.client import ClaudeModel
+
+    return ClaudeModel(model=model, effort=cast(Effort, effort))
+
+
+def facts_digest(facts: dict[str, Any]) -> str:
+    """The SHA-256 of the stored fact table, in one canonical JSON form."""
+    canonical = json.dumps(facts, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def rendered_record(rendered: RenderedNarrative) -> dict[str, Any]:
+    """The narrative as the dashboard shows it: each section under its heading, then the limits.
+
+    Every section is kept, an empty one too, in phase 1's order.
+    """
+    return {
+        "sections": [
+            {"name": name, "heading": SECTION_HEADINGS[name], "statements": list(statements)}
+            for name, statements in rendered.sections
+        ],
+        "limits": rendered.limits,
+    }
+
+
+def _finish_interpretation(
+    sessions: sessionmaker[Session], key: uuid.UUID, **fields: Any
+) -> None:
+    with sessions() as session:
+        row = session.get(Interpretation, key)
+        assert row is not None
+        for name, value in fields.items():
+            setattr(row, name, value)
+        row.finished_at = utcnow()
+        session.commit()
+
+
+def _interpret(sessions: sessionmaker[Session], key: uuid.UUID) -> None:
+    with sessions() as session:
+        row = session.get(Interpretation, key)
+        if row is None:
+            raise LookupError(f"no interpretation of analysis {key}")
+        summary = session.get(AnalysisSummary, key)
+        if summary is None or summary.facts is None:
+            raise LookupError(f"analysis {key} has no fact table")
+        row.status = "running"
+        row.started_at = utcnow()
+        row.error = None
+        row.finished_at = None
+        stored = dict(summary.facts)
+        row.facts_sha256 = facts_digest(stored)
+        session.commit()
+        model_name, effort = row.model, row.effort
+
+    facts = FactTable.from_json(json.dumps(stored))
+    version = prompt_version()
+    try:
+        result = interpret(facts, build_model(model_name, effort))
+    except InterpretationRefusedError as exc:
+        _finish_interpretation(
+            sessions, key, status="refused", prompt_version=version,
+            attempts=[a.to_dict() for a in exc.attempts],
+        )
+    except ModelDidNotAnswerError as exc:
+        _finish_interpretation(
+            sessions, key, status="failed", prompt_version=version,
+            attempts=[a.to_dict() for a in exc.attempts],
+            error=f"the model gave no narrative (stop reason: {exc.stop_reason})",
+        )
+    except ModelCallError as exc:
+        _finish_interpretation(sessions, key, status="failed", error=str(exc))
+    else:
+        _finish_interpretation(
+            sessions, key, status="verified", prompt_version=result.prompt_version,
+            returned_model=result.model, rendered=rendered_record(result.rendered),
+            notice=VERIFIED_MEANS, attempts=[a.to_dict() for a in result.attempts],
+        )
+
+
+def run_interpretation_job(analysis_id: str) -> None:
+    """Write the interpretation of one analysis, or record why there is none.
+
+    Ends normally on every path, as `run_analysis_job` does: anything
+    unexpected is logged with its traceback and stored as `failed`.
+    """
+    key = uuid.UUID(analysis_id)
+    engine = make_engine()
+    sessions = make_sessionmaker(engine)
+    try:
+        try:
+            _interpret(sessions, key)
+        except JobTimeLimitExceeded as exc:
+            logger.exception("interpretation of %s was stopped at its time limit", key)
+            _fail_interpretation(
+                sessions,
+                key,
+                f"the interpretation exceeded the {exc.seconds}-second job limit and was stopped",
+            )
+        except Exception as exc:
+            logger.exception("interpretation of %s failed", key)
+            _fail_interpretation(sessions, key, str(exc) or type(exc).__name__)
+    finally:
+        engine.dispose()
+
+
+def _fail_interpretation(sessions: sessionmaker[Session], key: uuid.UUID, error: str) -> None:
+    """Record a failure, unless the row is gone or a result was already stored."""
+    with sessions() as session:
+        row = session.get(Interpretation, key)
+        if row is None or row.status in ("verified", "refused", "failed"):
+            return
+        row.status = "failed"
+        row.error = error
+        row.finished_at = utcnow()
+        session.commit()
