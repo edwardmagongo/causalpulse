@@ -17,16 +17,17 @@ left to fail later.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from dataclasses import asdict
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
 from cp_causal.manifest import run_analysis
 from cp_core.dataset import CausalDataset
 from cp_core.manifest import DatasetReference, FixtureReference, ScenarioReference
+from cp_core.reading import read_csv
 from cp_core.results import EffectEstimate
 from cp_core.values import EstimatorConfig
 from cp_llm.extract import fact_table
@@ -105,8 +106,13 @@ def _load(args: argparse.Namespace) -> tuple[CausalDataset, DatasetReference]:
         return dataset, reference
 
     schema = schema_from_args(args)
-    frame = pd.read_csv(args.data)
-    return CausalDataset(frame=frame, schema=schema), FixtureReference.from_path(str(args.data))
+    # Read once: the frame and the hash the manifest records are of the same
+    # bytes even if the file changes while this runs.
+    content = Path(args.data).read_bytes()
+    reference = FixtureReference(
+        path=str(args.data), content_sha256=hashlib.sha256(content).hexdigest()
+    )
+    return CausalDataset(frame=read_csv(content), schema=schema), reference
 
 
 def _write_outcome(outcome: AnalysisOutcome, out: Path) -> None:

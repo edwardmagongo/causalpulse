@@ -1240,40 +1240,77 @@ the choice is recorded (`CompleteCaseRecord`, which rows were dropped and which 
 Complete-case is a starting point offered for convenience, not a recommendation — the error message
 that points to it says so, rather than presenting it as the fix.
 
-### A dataset whose numbers are not numbers, or are infinite, is refused when it is built
+### What is refused before anything is fitted
 
-A missing value is refused in a different place from the two refusals here, on purpose. A dataset
-with gaps has to be constructible, because `complete_cases` and imputation take one, so a missing
-outcome or covariate value is refused only when an estimator is fitted. Nothing can use a column of
-text where numbers belong, or an infinity, so `CausalDataset` refuses both when the dataset is
-built, each with one message naming the columns, before anything is routed or fitted:
+An upload is read, checked and analysed in different places, and a file that one of them reads
+differently from another is analysed as something its owner did not send. So there is one reader,
+and the dataset built from what it reads refuses, by name, whatever the estimators cannot use.
 
+**The reader** (`cp_core.reading.read_csv`) is the one function that turns the bytes of a dataset
+someone supplies into a frame. The API's check of an upload, the worker, `causalpulse analyze
+--data` and the replay of a manifest all hand it the file's bytes and pass pandas nothing of their
+own. (The evaluation corpus reads this repository's own two fixtures with pandas directly; a test
+holds those two files to read the same either way.) It differs from pandas' defaults in three
+ways.
+
+- **A row with more fields than the header names is refused, naming the line,** whether or not
+  the extra field holds anything. pandas reads such a file in more than one way; when the first
+  data row is the wide one it takes as many leading columns as there are extra fields for an
+  index and moves the rest along. A file whose every line ends in a comma is refused too: it
+  reads the same as a stray comma inside a value before an empty last column (`3,5,` is `3` then
+  `5`, or the decimal `3,5` then nothing), and nothing in the file says which was meant. The line
+  is pandas' count, in which a quoted value that runs over several lines is one line.
+- **A large file is read whole,** not in pieces whose types are settled separately, which left a
+  column that was numbers in one piece and text in another holding both.
+- **The bytes are read as they are.** Given a path pandas decides from the file's name whether to
+  decompress it, so the same bytes could be read two ways under two names. A compressed file is
+  therefore not read by anything here, `causalpulse analyze --data` included, which used to
+  decompress one: decompress it first.
+
+The two real datasets in this repository are read exactly as before.
+
+**`CausalDataset`** then refuses, when the dataset is built, each with one message naming the
+column:
+
+- **A column the schema names appearing twice** in the frame.
+- **A unit column with a missing value, or one mixing numbers and text.** pandas reads `NA`,
+  `N/A`, `n/a`, `NaN`, `null`, `NULL`, `None` and an empty cell as missing, so a unit with one of
+  those names (a country coded `NA`) has to be renamed; the message says so.
 - **A column that must be numeric and was not read as numbers.** The treatment, the outcome, the
   covariates, the cohort, the negative-control outcome and the auxiliary columns must have a
-  numeric dtype. The unit may be text, and the time column may be dates.
+  numeric dtype. The unit may be text.
 - **An infinite value**, `inf` or `-inf`, in any of those columns or in a numeric unit or time
   column. Text such as `1e400`, which pandas reads as infinite, is refused the same way.
+- **A numeric period that is not a whole number, or is larger than 2**53.** Periods are used as
+  integers. A time column may hold dates and the dataset is built, but a panel estimator needs
+  numbered periods and says so.
 
-The analysis of an upload, `cp analyze` and `cp replay` all go through both; the upload itself is
-accepted, and its analysis fails with the message.
+**A missing value** in the outcome or a covariate is different, on purpose. A dataset with gaps
+has to be constructible, because `complete_cases` and imputation take one. It is refused when it
+is analysed: once, before anything is fitted, for an analysis that goes through the pipeline (an
+upload, `causalpulse analyze --report`), and by each estimator for itself when one is fitted
+directly.
 
-The first rule exists because `read_csv` and Python's `float()` disagree about what a number is.
-One cell of `1_000`, or of `inf` followed by a space, makes pandas read the column as text (in a
-large file, as a mix of numbers and text), and yet every cell converts when an estimator asks for
-floats. Measured on LaLonde before the rule: a covariate cell of `1_000` was analysed as the number
-1000 with no warning, and a covariate cell of `inf ` went past the infinity check, which looks only
-at numeric columns, and reached the estimators. Nothing is cleaned on the user's behalf: write
-`1000`.
+The analysis of an upload, `cp analyze` and `cp replay` all go through these. A file the reader
+refuses is refused when it is uploaded; a dataset `CausalDataset` refuses is accepted as an upload,
+and its analysis fails with the message. Nothing is cleaned on the user's behalf.
 
-Before this, measured on the real datasets with one cell changed: an infinite covariate gave a
-partial analysis (`difference_in_means` succeeded and the other four failed, each with a library's
-own message naming no column); an infinite outcome failed every estimator the same way; and an
-infinite period in Prop 99 was **fitted**, with `hierarchical_did` returning an estimate.
+Why each exists, measured on the real datasets before it did. `read_csv` and Python's `float()`
+disagree about what a number is: one covariate cell of `1_000` made pandas read the column as
+text, and it was analysed as the number 1000 with no warning; a cell of `inf ` (a trailing space)
+went past the infinity check, which looks only at numeric columns. An infinite covariate gave a
+partial analysis, an infinite outcome failed every estimator with a library's own message, and an
+infinite period in Prop 99 was **fitted**. LaLonde with a comma ending every line was read with
+every column shifted by one. Prop 99 with a state renamed `NA` crashed while it was being routed.
+Prop 99 with each year moved by half a period gave a cohort that is not in the data.
 
-Not covered: a value that is finite and absurdly large. One covariate cell of `1e39` in LaLonde
-gives `aipw` and `causal_forest` estimates near -1e36, and `1e155` leaves the causal forest without
-an answer after a minute. That is a question of magnitude with no threshold to justify yet; it is
-recorded in `docs/specs/2026-10-05-refuse-infinite-values-design.md`, section 8.
+Not refused, by decision (2026-10-06): a value that is finite and absurdly large. One covariate
+cell of `1e39` in LaLonde gives `aipw` and `causal_forest` estimates near -1e36, and `1e155`
+leaves the causal forest without an answer after a minute. There is no threshold with a reason
+behind it, the estimate is arithmetic on the user's own data, and the worker's time limit bounds a
+fit that does not finish. An integer above 2**53 in an outcome or covariate is rounded when it is
+converted, by about one part in 1e16. Both are recorded in
+`docs/specs/2026-10-06-input-followups-design.md`, section 10.
 
 ### What a wide bound means
 

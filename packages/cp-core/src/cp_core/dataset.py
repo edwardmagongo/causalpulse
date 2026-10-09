@@ -288,6 +288,10 @@ def schema_from_dict(data: Mapping[str, Any]) -> CausalSchema:
     return CausalSchema(**values)
 
 
+# The largest magnitude below which every whole number is exact as a float.
+MAX_EXACT_PERIOD = 2**53
+
+
 # eq=False: this holds array-valued fields, so a generated __eq__ would raise
 # on the ambiguous truth value of an array rather than compare. Identity
 # equality is the honest semantics for a container of measurements.
@@ -303,6 +307,8 @@ class CausalDataset:
 
     def __post_init__(self) -> None:
         self._validate_columns_present()
+        self._validate_no_duplicated_labels()
+        self._validate_unit_column()
         self._validate_numeric_roles()
         self._validate_finite_values()
         self._validate_treatment_missing_values()
@@ -315,6 +321,59 @@ class CausalDataset:
         missing = [c for c in self.schema.required_columns if c not in self.frame.columns]
         if missing:
             raise ValueError(f"frame is missing required columns: {sorted(missing)}")
+
+    def _validate_no_duplicated_labels(self) -> None:
+        """Refuse a frame in which a column the schema names appears twice.
+
+        `frame[label]` is then a frame and not a column, and what each later
+        check and each estimator makes of that differs: an infinity under a
+        duplicated covariate label used to go unseen, and a duplicated
+        treatment raised pandas' own complaint about an ambiguous truth value.
+        `read_csv` renames duplicates (`x`, `x.1`), so only a frame built in
+        code has one. A duplicated label the schema does not name is left
+        alone.
+        """
+        if self.frame.columns.is_unique:
+            return
+        named = dict.fromkeys((*self.schema.required_columns, *self.schema.auxiliary_columns))
+        counts = self.frame.columns.value_counts()
+        duplicated = sorted(column for column in named if counts.get(column, 0) > 1)
+        if duplicated:
+            raise ValueError(
+                f"columns {duplicated} appear more than once in the frame; each column "
+                "the schema names must appear once."
+            )
+
+    def _validate_unit_column(self) -> None:
+        """Refuse a unit column with a gap, or one that mixes numbers and text.
+
+        A missing unit is refused here for the reason a missing treatment or
+        period is: a row that belongs to no unit is not an observation of
+        anything. Before this a panel with one crashed while it was being
+        routed, on a comparison of text with `nan`. The message lists what
+        pandas reads as missing because that is how a real unit goes missing:
+        a country coded `NA` is read as a gap.
+
+        A unit column mixing numbers and text cannot be sorted, which every
+        panel estimator does, and holds `5` and `'5'` as two units. Only a
+        column of dtype `object` is scanned for that. A categorical column
+        can mix them too and is not looked at.
+        """
+        name = self.schema.unit
+        column = self.frame[name]
+        if column.isna().any():
+            raise ValueError(
+                f"unit column {name!r} contains missing values. pandas reads NA, N/A, "
+                "n/a, NaN, null, NULL, None and an empty cell as missing, so a unit "
+                "with one of those names has to be renamed."
+            )
+        if column.dtype == object:
+            is_text = column.map(lambda value: isinstance(value, str))
+            if is_text.any() and not is_text.all():
+                raise ValueError(
+                    f"unit column {name!r} mixes numbers and text, so its values cannot "
+                    "be ordered or compared. Make every unit a number or every unit text."
+                )
 
     def _validate_numeric_roles(self) -> None:
         """Refuse a column that must be numeric and was not read as numbers.
@@ -343,25 +402,13 @@ class CausalDataset:
         if schema.negative_control_outcome is not None:
             roles.append(schema.negative_control_outcome)
         roles.extend(c for c in schema.auxiliary_columns if c in self.frame.columns)
-
-        frame_dtypes = self.frame.dtypes
-
-        def dtypes_of(column: str) -> list[Any]:
-            # A duplicated label has one dtype per copy, so the lookup gives a
-            # Series of them; `self.frame[column].dtype` would raise.
-            found = frame_dtypes[column]
-            return list(found) if isinstance(found, pd.Series) else [found]
-
         offending = sorted(
             column
             for column in dict.fromkeys(roles)
-            if not all(pd.api.types.is_numeric_dtype(dtype) for dtype in dtypes_of(column))
+            if not pd.api.types.is_numeric_dtype(self.frame[column])
         )
         if offending:
-            dtypes = ", ".join(
-                f"{column}: {' and '.join(dict.fromkeys(str(d) for d in dtypes_of(column)))}"
-                for column in offending
-            )
+            dtypes = ", ".join(f"{column}: {self.frame[column].dtype}" for column in offending)
             raise ValueError(
                 f"columns {offending} must hold numbers, and were not read as numbers "
                 f"({dtypes}). Every value has to be a plain number: look for stray "
@@ -386,13 +433,9 @@ class CausalDataset:
         numeric have been through `_validate_numeric_roles` by now, so what is
         passed over is a unit or a time column that is not numeric, and an
         auxiliary column absent from the frame. A unit column of dtype `object`
-        can hold a float infinity beside text, which is what a large upload
-        read in chunks gives, and it is not inspected: the unit is used as a
-        label and never as a number. A time column that is neither numeric nor
-        dates is refused by `_validate_time_column`. A column whose label is
-        duplicated in the frame is passed over as well: `frame[label]` is then
-        a frame and not a column. `read_csv` renames duplicates, so only a
-        frame built in code has one, and an infinity in it is not refused.
+        that holds only numbers is not inspected, so an infinity in one is not
+        seen: the unit is used as a label and never as a number. A time column
+        that is neither numeric nor dates is refused by `_validate_time_column`.
         """
         declared = (*self.schema.required_columns, *self.schema.auxiliary_columns)
         offending = sorted(
@@ -448,7 +491,7 @@ class CausalDataset:
             )
 
     def _validate_time_column(self) -> None:
-        """Structural check only: the time column must be orderable and complete.
+        """Structural check only: the time column must be orderable, complete and exact.
 
         Panel *balance* and whether treatment is absorbing are deliberately not
         validated here. Both are legitimate real-data conditions — attrition
@@ -457,6 +500,14 @@ class CausalDataset:
         assumption failure. This mirrors rejecting nulls in the treatment column
         while permitting them in the outcome column: structural impossibilities
         are rejected, adverse data conditions are reported.
+
+        A numeric period has to be a whole number no larger than 2**53. The
+        panel code turns periods and cohorts into integers: a fractional
+        period was truncated to one that is not in the data, and a period
+        beyond the integer range became 9223372036854775807 with a warning.
+        2**53 is where whole numbers stop being exact as floats. A column of
+        dates is not checked here; it constructs, and the panel code says what
+        it needs.
         """
         if self.schema.time is None:
             return
@@ -473,6 +524,24 @@ class CausalDataset:
                 f"time column {self.schema.time!r} must be orderable "
                 f"(numeric or datetime), got dtype {column.dtype}"
             )
+        if pd.api.types.is_numeric_dtype(column):
+            # Integers are compared as integers: as floats, one just above the
+            # limit rounds down onto it and would pass.
+            if pd.api.types.is_integer_dtype(column):
+                unusable = (column > MAX_EXACT_PERIOD) | (column < -MAX_EXACT_PERIOD)
+            else:
+                values = column.to_numpy(dtype=float)
+                unusable = (values != np.floor(values)) | (np.abs(values) > MAX_EXACT_PERIOD)
+            if unusable.any():
+                found = column[unusable].iloc[0]
+                # A numpy scalar prints as `np.float64(1989.5)`; one from another
+                # backend may already be a plain number, with no `item`.
+                shown = found.item() if hasattr(found, "item") else found
+                raise ValueError(
+                    f"time column {self.schema.time!r} must hold whole-numbered periods "
+                    f"no larger than 2**53; found {shown!r}. Periods are used as "
+                    "integers, so a fractional or very large value would be changed."
+                )
 
     def _require_panel(self) -> str:
         if self.schema.time is None:

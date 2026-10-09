@@ -8,12 +8,12 @@ test tier.
 
 from __future__ import annotations
 
-import io
 from collections.abc import Mapping, Sequence
 from typing import Any
 
 import pandas as pd
 from cp_core.dataset import CausalSchema, schema_from_dict
+from cp_core.reading import read_csv
 
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 FALLBACK_FILENAME = "upload.csv"
@@ -46,8 +46,10 @@ def safe_filename(raw: str | None) -> str:
 
 def _parse(content: bytes, nrows: int | None = None) -> pd.DataFrame:
     try:
-        return pd.read_csv(io.BytesIO(content), nrows=nrows, low_memory=False)
-    except (pd.errors.EmptyDataError, pd.errors.ParserError, UnicodeDecodeError) as exc:
+        return read_csv(content, nrows=nrows)
+    # pandas' own failures to read a file (`EmptyDataError`, `ParserError`,
+    # `UnicodeDecodeError`) are all `ValueError`s, as is the reader's refusal.
+    except ValueError as exc:
         raise RequestError(422, f"the upload could not be read as CSV: {exc}") from exc
 
 
