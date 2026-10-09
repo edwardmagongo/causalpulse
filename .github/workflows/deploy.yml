@@ -1,0 +1,529 @@
+name: Deploy
+
+# Puts one commit of `main` on the server. Started by hand only, with the
+# commit's full SHA and the site's name typed as a confirmation. It checks
+# the commit, builds the two images for it unless the registry already has
+# them, pushes them, tells the server to deploy them through the one Systems
+# Manager document the pipeline's role may run, waits for that to end, and
+# then asks the site three questions from outside.
+#
+# Start it from `main`. The role's trust in `infra/pipeline.tf` accepts one
+# token subject, `repo:<owner>/<name>:ref:refs/heads/main`, compared whole.
+# A run started from another branch or from a tag presents another subject
+# and AWS refuses it the role, whatever that branch's copy of this file says.
+# That refusal is the guard. The first step's look at the ref is not one: it
+# is there so that the mistake is met with a sentence and not with an error
+# from AWS several steps on.
+#
+# For the same reason the job declares no `environment:`. A job with one
+# presents `repo:<owner>/<name>:environment:<name>` and would be refused too.
+# So the identifiers are the repository's variables, not an environment's:
+# `AWS_ROLE_ARN`, `INSTANCE_ID`, `DEPLOY_DOCUMENT`, `REGISTRY` and
+# `SITE_NAME`, filled in from the outputs of `infra/`. None is a secret, and
+# GitHub masks none of them, so no step here prints one and none goes into
+# the summary. (The build's own log names the image it pushes, and that name
+# holds the account's number; the credentials step is asked to have the
+# runner mask that number wherever it is printed.)
+#
+# What is typed reaches a shell only through `env:`, never written into a
+# script, and the SHA is forty lowercase hexadecimal digits before anything
+# uses it.
+#
+# The repository is private and its Actions minutes are counted. A run that
+# finds both images in the registry, as a second deploy of a commit or a
+# rollback does, builds nothing.
+#
+# Stopping a run, or its time-out, does not stop a deploy the server has
+# already been sent: the role cannot cancel a command, and the server
+# finishes it. `/srv/causalpulse/deploy.log` on the server has how it went.
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "The commit of main to deploy: all forty characters of its SHA"
+        required: true
+        type: string
+      confirm:
+        description: "The site's name, typed out, to confirm"
+        required: true
+        type: string
+
+# One deploy at a time, and one in progress is never cancelled. A second
+# waits. A third started while one runs and one waits replaces the waiting
+# one: GitHub keeps one waiting run for a group.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+# `id-token` is what lets the job ask GitHub for the token AWS exchanges for
+# the role; `actions` is for reading the CI workflow's runs.
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+env:
+  # The region of everything in `infra/`, where it is written and is not a
+  # variable either.
+  AWS_REGION: eu-west-1
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    # The server is given 30 minutes by the document and is waited on for 32.
+    # What is left is for the two builds, which have not been measured from
+    # an empty cache.
+    timeout-minutes: 45
+    steps:
+      - name: Check what was asked for
+        id: request
+        env:
+          REF: ${{ github.ref }}
+          SHA: ${{ inputs.sha }}
+          CONFIRM: ${{ inputs.confirm }}
+          SITE_NAME: ${{ vars.SITE_NAME }}
+          ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+          INSTANCE_ID: ${{ vars.INSTANCE_ID }}
+          DEPLOY_DOCUMENT: ${{ vars.DEPLOY_DOCUMENT }}
+          REGISTRY: ${{ vars.REGISTRY }}
+        # No message here repeats what was typed or what a variable holds.
+        run: |
+          set -euo pipefail
+          fail() {
+            echo "::error::$1"
+            exit 1
+          }
+          if [ "$REF" != refs/heads/main ]; then
+            fail "Start this workflow from main. It was started from another branch or a tag, and AWS gives the deploy role to runs from main only."
+          fi
+          if ! [[ $SHA =~ ^[0-9a-f]{40}$ ]]; then
+            fail "The commit must be given as its full SHA: forty hexadecimal digits, in lower case, and nothing else."
+          fi
+          missing=""
+          [ -n "$SITE_NAME" ] || missing="$missing SITE_NAME"
+          [ -n "$ROLE_ARN" ] || missing="$missing AWS_ROLE_ARN"
+          [ -n "$INSTANCE_ID" ] || missing="$missing INSTANCE_ID"
+          [ -n "$DEPLOY_DOCUMENT" ] || missing="$missing DEPLOY_DOCUMENT"
+          [ -n "$REGISTRY" ] || missing="$missing REGISTRY"
+          if [ -n "$missing" ]; then
+            fail "These repository variables are not set:$missing. They are filled in from the outputs of infra/."
+          fi
+          # The name goes into the addresses the last step asks, so it is a
+          # host's name and nothing more.
+          if ! [[ $SITE_NAME =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ ]]; then
+            fail "The repository variable SITE_NAME is not a host's name: lower-case letters, digits, dots and hyphens, with no scheme and no path."
+          fi
+          if [ "$CONFIRM" != "$SITE_NAME" ]; then
+            fail "The confirmation is not the site's name. Nothing was built and nothing was deployed."
+          fi
+          echo "sha=$SHA" >>"$GITHUB_OUTPUT"
+
+      # The commit that is built, with the whole history, so that the next
+      # step can ask whether it is on `main`. The token is not left in the
+      # checkout: nothing after this pushes or fetches.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.request.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check the commit is on main
+        env:
+          SHA: ${{ steps.request.outputs.sha }}
+        run: |
+          set -euo pipefail
+          fail() {
+            echo "::error::$1"
+            exit 1
+          }
+          if [ "$(git rev-parse HEAD)" != "$SHA" ]; then
+            fail "The checkout is not at the commit that was asked for."
+          fi
+          if ! git rev-parse --verify --quiet "origin/main^{commit}" >/dev/null; then
+            fail "The checkout has no origin/main to compare the commit with."
+          fi
+          # Status 1 is "not an ancestor"; any other failure is git's own and
+          # is not taken for an answer.
+          status=0
+          git merge-base --is-ancestor "$SHA" origin/main || status=$?
+          if [ "$status" -eq 1 ]; then
+            fail "This commit is not on main. Only a commit of main is deployed."
+          elif [ "$status" -ne 0 ]; then
+            fail "git could not say whether this commit is on main (status $status)."
+          fi
+
+      # The run asked for is exact: the workflow in `ci.yml`, started by a
+      # push to `main`, with this commit at its tip, and successful. A run of
+      # a pull request, or of another branch that held the same commit, does
+      # not count.
+      - name: Check CI passed for the commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SHA: ${{ steps.request.outputs.sha }}
+        run: |
+          set -euo pipefail
+          fail() {
+            echo "::error::$1"
+            exit 1
+          }
+          runs=$(gh run list --repo "$REPOSITORY" --workflow ci.yml \
+            --event push --branch main --commit "$SHA" --limit 50 \
+            --json conclusion,event,headBranch,headSha,status,workflowName)
+          # What was asked for is checked again on what came back.
+          runs=$(jq --arg sha "$SHA" '[.[] | select(
+            .workflowName == "CI" and .event == "push"
+            and .headBranch == "main" and .headSha == $sha)]' <<<"$runs")
+          if [ "$(jq 'length' <<<"$runs")" -eq 0 ]; then
+            fail "CI has no run for this commit as the tip of a push to main. A commit that reached main inside a merged pull request, and was not the last commit of that push, never has one. Deploy the merge commit, which has."
+          fi
+          if [ "$(jq '[.[] | select(.conclusion == "success")] | length' <<<"$runs")" -eq 0 ]; then
+            echo "CI's runs for this commit on main:"
+            jq -r '.[] | "  status \(.status), conclusion \(.conclusion | if . == "" or . == null then "none yet" else . end)"' <<<"$runs"
+            fail "CI has not succeeded for this commit on main. Nothing was built and nothing was deployed."
+          fi
+          echo "CI succeeded for this commit on main."
+
+      # No access key: GitHub signs a token for this run, and AWS exchanges
+      # it for the role's short-lived credentials.
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          mask-aws-account-id: true
+
+      - uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+
+      # A tag that is there is not built again. "Not found" is the one answer
+      # taken for "build it"; any other failure stops the run.
+      - name: See which images the registry already has
+        id: images
+        env:
+          SHA: ${{ steps.request.outputs.sha }}
+        run: |
+          set -euo pipefail
+          look() {
+            local answer
+            if answer=$(aws ecr describe-images --region "$AWS_REGION" \
+              --repository-name "$1" --image-ids "imageTag=$SHA" \
+              --query 'imageDetails[0].imageDigest' --output text 2>&1); then
+              echo found
+            elif grep -q ImageNotFoundException <<<"$answer"; then
+              echo missing
+            else
+              printf '%s\n' "$answer" >&2
+              echo "::error::The registry could not be asked whether $1 has this commit's image." >&2
+              return 1
+            fi
+          }
+          app=$(look causalpulse-app)
+          web=$(look causalpulse-web)
+          echo "causalpulse-app: $app. causalpulse-web: $web."
+          {
+            echo "app=$app"
+            echo "web=$web"
+          } >>"$GITHUB_OUTPUT"
+
+      # A builder of its own, for the layer cache used below: the builder the
+      # runner starts with is not relied on to write one.
+      - if: steps.images.outputs.app == 'missing' || steps.images.outputs.web == 'missing'
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # No provenance and no bill of materials: with either, a tag is an index
+      # of several manifests, and the registry's rule that keeps five images
+      # counts images. The layer cache is GitHub's, one scope for each image,
+      # every layer of every stage (`mode=max`). The action's own summary and
+      # its upload of a build record are switched off: the summary would name
+      # the registry, and the record is an artifact nobody reads.
+      - name: Build and push the app image
+        id: build-app
+        if: steps.images.outputs.app == 'missing'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        env:
+          DOCKER_BUILD_SUMMARY: false
+          DOCKER_BUILD_RECORD_UPLOAD: false
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ vars.REGISTRY }}/causalpulse-app:${{ steps.request.outputs.sha }}
+          provenance: false
+          sbom: false
+          cache-from: type=gha,scope=app
+          cache-to: type=gha,scope=app,mode=max
+
+      - name: Build and push the dashboard image
+        id: build-web
+        if: steps.images.outputs.web == 'missing'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        env:
+          DOCKER_BUILD_SUMMARY: false
+          DOCKER_BUILD_RECORD_UPLOAD: false
+        with:
+          context: web
+          platforms: linux/amd64
+          push: true
+          tags: ${{ vars.REGISTRY }}/causalpulse-web:${{ steps.request.outputs.sha }}
+          provenance: false
+          sbom: false
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,scope=web,mode=max
+
+      # Sends the one document to the one machine and asks every ten seconds
+      # how it went. The role may send and may read one invocation by its id;
+      # it may not list invocations, and the CLI's own waiter gives up after
+      # about 100 seconds, so the waiting is written out here.
+      #
+      # If the server has not taken the command within a minute it is not
+      # run at all (`--timeout-seconds`, which is about delivery). Once
+      # started, the document allows it 1,800 seconds (`timeoutSeconds` in
+      # `infra/deploy-command.tf`). The wait here is longer than the two
+      # together, so the server's own ending is what is normally seen.
+      #
+      # What the command printed is the server's text. It is shown between
+      # `stop-commands` markers, so that the runner takes no line of it as a
+      # command to itself. The document has already taken the values of the
+      # server's settings out of it.
+      - name: Deploy on the server
+        id: deploy
+        env:
+          SHA: ${{ steps.request.outputs.sha }}
+          INSTANCE_ID: ${{ vars.INSTANCE_ID }}
+          DEPLOY_DOCUMENT: ${{ vars.DEPLOY_DOCUMENT }}
+          DELIVERY_SECONDS: 60
+          WAIT_SECONDS: 1920
+          PAUSE_SECONDS: 10
+        run: |
+          set -euo pipefail
+          fail() {
+            echo "::error::$1"
+            exit 1
+          }
+          show() {
+            local marker
+            marker=$(openssl rand -hex 16)
+            echo "::stop-commands::$marker"
+            printf '%s\n' "$1"
+            echo "::$marker::"
+          }
+
+          command_id=$(aws ssm send-command --region "$AWS_REGION" \
+            --document-name "$DEPLOY_DOCUMENT" --instance-ids "$INSTANCE_ID" \
+            --parameters "Sha=$SHA" --timeout-seconds "$DELIVERY_SECONDS" \
+            --comment "Deploy $SHA" \
+            --query Command.CommandId --output text)
+          echo "The command was sent: $command_id."
+
+          refusal=$(mktemp)
+          started=$SECONDS
+          unread=0
+          last=""
+          while :; do
+            waited=$((SECONDS - started))
+            if invocation=$(aws ssm get-command-invocation --region "$AWS_REGION" \
+              --command-id "$command_id" --instance-id "$INSTANCE_ID" \
+              --output json 2>"$refusal"); then
+              unread=0
+              status=$(jq -r '.Status' <<<"$invocation")
+            elif grep -q InvocationDoesNotExist "$refusal" && [ "$waited" -lt 60 ]; then
+              # Just after sending, the invocation is not yet there to read.
+              status=NotYetThere
+            else
+              unread=$((unread + 1))
+              cat "$refusal" >&2
+              if [ "$unread" -ge 5 ]; then
+                echo "status=Unread" >>"$GITHUB_OUTPUT"
+                fail "The command's result could not be read, five times running. The deploy may be running on the server all the same: see /srv/causalpulse/deploy.log there."
+              fi
+              status=Unread
+            fi
+            if [ "$status" != "$last" ]; then
+              echo "After $waited seconds: $status."
+              last=$status
+            fi
+            case $status in
+              Pending | InProgress | Delayed | Cancelling | NotYetThere | Unread) ;;
+              *) break ;;
+            esac
+            if [ "$waited" -ge "$WAIT_SECONDS" ]; then
+              echo "status=StillRunning" >>"$GITHUB_OUTPUT"
+              fail "The command had not ended after $waited seconds, which is longer than the server allows it. It was last seen as $status. See /srv/causalpulse/deploy.log on the server."
+            fi
+            sleep "$PAUSE_SECONDS"
+          done
+
+          details=$(jq -r '.StatusDetails // ""' <<<"$invocation")
+          code=$(jq -r '.ResponseCode // ""' <<<"$invocation")
+          echo "status=$status" >>"$GITHUB_OUTPUT"
+          echo "The command ended as $status ($details), with exit status $code."
+          echo "What it printed, which is the end of the deploy's own output:"
+          show "$(jq -r '.StandardOutputContent // ""' <<<"$invocation")"
+          echo "What it printed on standard error:"
+          show "$(jq -r '.StandardErrorContent // ""' <<<"$invocation")"
+          if [ "$status" = Success ]; then
+            exit 0
+          fi
+          # The exit statuses are those of `deploy/deploy.sh` and of the
+          # document around it.
+          case $code in
+            10) meaning="An image could not be pulled, or a file of the release is missing. The running stack was not touched." ;;
+            20) meaning="The migration failed. No application service was replaced." ;;
+            30) meaning="The stack did not come up, or was not well in time. It is left as the attempt left it." ;;
+            40) meaning="The stack is well on this commit, and the commit could not be recorded on the server." ;;
+            75) meaning="Another deploy was running on the server. This one did nothing." ;;
+            -1) meaning="Systems Manager has no exit status for it: the command was not run on the server, or was stopped there." ;;
+            *) meaning="See the output above." ;;
+          esac
+          fail "The deploy did not succeed: $status ($details), exit status $code. $meaning"
+
+      # Three questions, asked from the runner as anyone would ask them, with
+      # certificates checked. Each is asked again every five seconds until it
+      # is answered as expected; after two minutes in all, which covers a
+      # first certificate, each one still unanswered is asked once more and
+      # then given up. No redirect is followed: the redirect is the answer.
+      - name: Ask the site from outside
+        id: outside
+        env:
+          SITE_NAME: ${{ vars.SITE_NAME }}
+          LIMIT_SECONDS: 120
+          PAUSE_SECONDS: 5
+          CALL_SECONDS: 10
+        run: |
+          set -euo pipefail
+          headers=$(mktemp)
+          refusal=$(mktemp)
+          show() {
+            local marker
+            marker=$(openssl rand -hex 16)
+            echo "::stop-commands::$marker"
+            printf '%s\n' "$1"
+            echo "::$marker::"
+          }
+          # ask URL: leaves the status in `status` ("000" when there was no
+          # answer) and the answer's headers in the file.
+          ask() {
+            : >"$headers"
+            if ! status=$(curl --silent --show-error --output /dev/null \
+              --dump-header "$headers" --max-time "$CALL_SECONDS" \
+              --write-out '%{http_code}' "$1" 2>"$refusal"); then
+              status=000
+            fi
+          }
+          # header NAME: the value of that header in the last answer, or
+          # nothing. NAME is in lower case; the answer's may be in either.
+          header() {
+            tr -d '\r' <"$headers" | awk -v name="$1" '
+              {
+                at = index($0, ":")
+                if (at > 1 && tolower(substr($0, 1, at - 1)) == name) {
+                  value = substr($0, at + 1)
+                  sub(/^[ \t]+/, "", value)
+                  sub(/[ \t]+$/, "", value)
+                  found = value
+                }
+              }
+              END { print found }'
+          }
+          study() {
+            ask "https://$SITE_NAME/study"
+            [ "$status" = 200 ] && [ -n "$(header strict-transport-security)" ]
+          }
+          # The dashboard sends the address whole; the path alone would mean
+          # the same.
+          root() {
+            local location
+            ask "https://$SITE_NAME/"
+            location=$(header location)
+            [ "$status" = 307 ] && { [ "$location" = /sign-in ] || [ "$location" = "https://$SITE_NAME/sign-in" ]; }
+          }
+          plain() {
+            ask "http://$SITE_NAME/"
+            { [ "$status" = 301 ] || [ "$status" = 308 ]; } && [ "$(header location)" = "https://$SITE_NAME/" ]
+          }
+          asked() {
+            case $1 in
+              study) study ;;
+              root) root ;;
+              plain) plain ;;
+            esac
+          }
+
+          started=$SECONDS
+          failed=0
+          for check in study root plain; do
+            case $check in
+              study) expected="https://<site>/study answers 200 with a strict-transport-security header" ;;
+              root) expected="https://<site>/ answers 307 to /sign-in" ;;
+              plain) expected="http://<site>/ answers 301 or 308 to https://<site>/" ;;
+            esac
+            result=passed
+            until asked "$check"; do
+              if [ $((SECONDS - started)) -ge "$LIMIT_SECONDS" ]; then
+                result=failed
+                break
+              fi
+              sleep "$PAUSE_SECONDS"
+            done
+            echo "$check=$result" >>"$GITHUB_OUTPUT"
+            if [ "$result" = passed ]; then
+              echo "Passed: $expected."
+              continue
+            fi
+            failed=1
+            echo "::error::Failed: $expected. The last answer's status was $status."
+            if [ -s "$refusal" ]; then
+              echo "What curl said:"
+              show "$(cat "$refusal")"
+            fi
+            echo "The last answer's headers:"
+            show "$(cat "$headers")"
+          done
+          exit "$failed"
+
+      # Written whatever happened, from what the steps above left. It holds
+      # the commit and no identifier.
+      - name: Summarise
+        if: always()
+        env:
+          RESULT: ${{ job.status }}
+          SHA: ${{ steps.request.outputs.sha }}
+          APP: ${{ steps.images.outputs.app }}
+          WEB: ${{ steps.images.outputs.web }}
+          APP_BUILD: ${{ steps.build-app.outcome }}
+          WEB_BUILD: ${{ steps.build-web.outcome }}
+          DEPLOY: ${{ steps.deploy.outputs.status }}
+          STUDY: ${{ steps.outside.outputs.study }}
+          ROOT: ${{ steps.outside.outputs.root }}
+          PLAIN: ${{ steps.outside.outputs.plain }}
+        run: |
+          set -euo pipefail
+          # image FOUND-OR-MISSING BUILD-OUTCOME
+          image() {
+            case $1:$2 in
+              found:*) echo "already in the registry; not built" ;;
+              missing:success) echo "built and pushed" ;;
+              missing:failure) echo "the build or the push failed" ;;
+              missing:*) echo "not in the registry, and not built" ;;
+              *) echo "not looked for" ;;
+            esac
+          }
+          {
+            if [ -z "$SHA" ]; then
+              echo "## Nothing was deployed"
+              echo
+              echo "The request was refused before a commit was accepted."
+            else
+              echo "## Deploy of \`$SHA\`"
+              echo
+              echo "| | |"
+              echo "|---|---|"
+              echo "| The run | $RESULT |"
+              echo "| App image | $(image "$APP" "$APP_BUILD") |"
+              echo "| Dashboard image | $(image "$WEB" "$WEB_BUILD") |"
+              echo "| The command on the server | ${DEPLOY:-not sent} |"
+              echo "| \`/study\` is 200 with the transport-security header | ${STUDY:-not asked} |"
+              echo "| \`/\` is a 307 to \`/sign-in\` | ${ROOT:-not asked} |"
+              echo "| \`http://\` is redirected to \`https://\` | ${PLAIN:-not asked} |"
+            fi
+          } >>"$GITHUB_STEP_SUMMARY"
