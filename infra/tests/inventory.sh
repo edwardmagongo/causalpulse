@@ -17,10 +17,19 @@
 #    take charge of something this directory did not create).
 # 3. The data volume and the state bucket have `prevent_destroy = true`.
 # 4. Each provider has `default_tags`, and the main one is given
-#    `local.default_tags`, whose value `security.tftest.hcl` reads.
+#    `local.default_tags`, whose value `security.tftest.hcl` reads. Each
+#    provider's region, and the backend's, is written as `eu-west-1`: the
+#    backend cannot follow a variable, so nothing else may either.
 # 5. Each lock file holds two `h1:` hashes: one for each platform it was
 #    locked for (`linux_amd64`, `darwin_arm64`).
-# 6. None of the texts refused below appears in any file under `infra/`.
+# 6. The state bucket refuses a request that is not over TLS, and removes a
+#    replaced version after 90 days. `bootstrap/` has no tests of its own.
+# 7. The two answers only the owner can give, after a look at the account,
+#    have no default: which subnet, and whether the account already has an
+#    identity provider for GitHub Actions. The subnet that is named is
+#    refused at the plan if it would give the machine an IPv6 address; no
+#    test can say so, because the mock that would is one of the texts below.
+# 8. None of the texts refused below appears in any file under `infra/`.
 #    This file and `inventory.txt` are not read; nor are the lock files,
 #    `.terraform/` or a state file.
 #
@@ -160,6 +169,13 @@ if ! printf '%s\n' "$provider" | grep -q -E '^  default_tags [{]$' ||
     fail "the provider (bootstrap/main.tf) must have default_tags with Project = \"causalpulse\""
 fi
 
+for file in versions.tf bootstrap/main.tf; do
+    block "$infra/$file" 'provider "aws" {' | grep -q -E '^  region = "eu-west-1"$' ||
+        fail "the provider ($file) must have region = \"eu-west-1\", written and not from a variable"
+done
+block "$infra/versions.tf" 'terraform {' | grep -q -E '^    region[[:space:]]*= "eu-west-1"$' ||
+    fail "the backend (versions.tf) must have region = \"eu-west-1\""
+
 # 5. The provider is locked for the platform of a Linux runner and of the
 #    owner's machine.
 for lock in "$infra/.terraform.lock.hcl" "$infra/bootstrap/.terraform.lock.hcl"; do
@@ -170,7 +186,40 @@ for lock in "$infra/.terraform.lock.hcl" "$infra/bootstrap/.terraform.lock.hcl";
     fi
 done
 
-# 6. The texts refused. Each is an extended regular expression, matched
+# 6. The state bucket.
+policy=$(block "$infra/bootstrap/main.tf" 'resource "aws_s3_bucket_policy" "state" {')
+# The dollar sign in what follows is Terraform's, not this shell's.
+# shellcheck disable=SC2016
+if ! printf '%s\n' "$policy" | grep -q -E '^      Effect    = "Deny"$' ||
+    ! printf '%s\n' "$policy" | grep -q -E '^      Principal = "\*"$' ||
+    ! printf '%s\n' "$policy" | grep -q -E '^      Action    = "s3:\*"$' ||
+    ! printf '%s\n' "$policy" | grep -q -F 'Resource  = [aws_s3_bucket.state.arn, "${aws_s3_bucket.state.arn}/*"]' ||
+    ! printf '%s\n' "$policy" | grep -q -F 'Bool = { "aws:SecureTransport" = "false" }' ||
+    [ "$(printf '%s\n' "$policy" | grep -c -E 'Effect[[:space:]]*=')" -ne 1 ]; then
+    fail "the state bucket's policy (bootstrap/main.tf) must be one statement that denies every request not made over TLS"
+fi
+rule=$(block "$infra/bootstrap/main.tf" 'resource "aws_s3_bucket_lifecycle_configuration" "state" {')
+if ! printf '%s\n' "$rule" | grep -q -E '^    status = "Enabled"$' ||
+    ! printf '%s\n' "$rule" | grep -q -E '^    filter \{\}$' ||
+    ! printf '%s\n' "$rule" | grep -q -E '^      noncurrent_days = 90$' ||
+    printf '%s\n' "$rule" | grep -q -E '^[[:space:]]*expiration[[:space:]]'; then
+    fail "the state bucket's lifecycle rule (bootstrap/main.tf) must remove replaced versions after 90 days, of every object, and never a current one"
+fi
+
+# 7. The owner's two answers are asked for, not assumed.
+for name in subnet_id create_github_oidc_provider; do
+    variable=$(block "$infra/variables.tf" "variable \"$name\" {")
+    if [ -z "$variable" ]; then
+        fail "variables.tf must declare the variable $name"
+    elif printf '%s\n' "$variable" | grep -q -E '^[[:space:]]*default[[:space:]]*='; then
+        fail "the variable $name (variables.tf) must have no default: the owner answers it"
+    fi
+done
+
+block "$infra/network.tf" 'data "aws_subnet" "server" {' | grep -q -E '^      condition     = !self\.assign_ipv6_address_on_creation$' ||
+    fail "the subnet (network.tf, data.aws_subnet.server) must have the postcondition !self.assign_ipv6_address_on_creation"
+
+# 8. The texts refused. Each is an extended regular expression, matched
 #    without regard to case, with what it means beside it.
 #
 # refuse REGEX MEANING [ALLOWED]: fail for each line of code under infra/
