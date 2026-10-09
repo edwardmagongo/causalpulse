@@ -8,6 +8,7 @@ Importing this package registers every estimator, so the router and the
 comparison layer see a complete set without callers importing each module.
 """
 
+from cp_causal._support import require_no_missing
 from cp_causal.estimators import (  # noqa: F401
     bsts,
     callaway_santanna,
@@ -22,4 +23,5 @@ from cp_causal.estimators import (  # noqa: F401
     weighting,
 )
 
+__all__ = ["require_no_missing"]
 __version__ = "0.1.0"
