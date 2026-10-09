@@ -205,13 +205,16 @@ smoke-prod:
 	[ $$status -eq 0 ] || $(PROD_SMOKE_STACK) logs --no-color --tail 60; \
 	$(PROD_SMOKE_STACK) down -v; exit $$status
 
-# The deploy, as a server does it: `deploy/deploy.sh`, taken out of the app
-# image, run against a throwaway registry on 127.0.0.1:5005 and its own
-# compose project. It proves that a first deploy from nothing comes up
+# The deploy, as a server does it: the script of the deploy command in
+# `infra/deploy-command.tf`, which takes `deploy/deploy.sh` out of the app
+# image and runs it, against a throwaway registry on 127.0.0.1:5005 and its
+# own compose project. It proves that a first deploy from nothing comes up
 # healthy, that a second tag replaces the first, that the first tag can be
 # deployed again without an image being created, that a broken image fails
-# and leaves the recorded SHA alone, and that a failed migration leaves the
-# running containers running. The script says how, and removes what it made.
+# and leaves the recorded SHA alone, that a failed migration leaves the
+# running containers running, and that it leaves the release directory
+# holding the running commit's files. The script says how, what it does not
+# prove, and removes what it made.
 #
 # The proxy is on 8091 and 8444, as in `smoke-prod`: not at the same time.
 # CI does not run this: it creates both images, and the minutes are counted.

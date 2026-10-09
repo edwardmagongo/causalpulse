@@ -1,9 +1,14 @@
 #!/bin/sh
 # The deploy, end to end, on this machine: `make smoke-deploy`.
 #
-# A throwaway registry stands in for the server's, a temporary directory for
-# `/srv/causalpulse`, and the real `deploy/deploy.sh`, taken out of the image
-# it deploys, runs against the local Docker. Five cases, in order:
+# A throwaway registry stands in for the server's and a temporary directory
+# for `/srv/causalpulse`. Each deploy is the server's own command: the script
+# of the Systems Manager document in `infra/deploy-command.tf`, printed by
+# `infra/tests/render-deploy-command.sh` with this gate's registry, root and
+# SHA written into it, and run against the local Docker. So the real
+# `deploy/deploy.sh` is taken out of the image it deploys by the same lines
+# that take it out on the server, and the release directory is kept or put
+# back by the same lines. Six cases, in order:
 #
 #   1. a first deploy, from nothing, brings the stack up healthy;
 #   2. a deploy of a second tag, whose Caddyfile has one more response
@@ -19,7 +24,33 @@
 #   5. a deploy of the SHA already recorded keeps the images of the SHA
 #      recorded before it and leaves the proxy's container the one it was;
 #      and a deploy whose migration fails ends with status 20 and leaves
-#      every running container the one it was, not restarted.
+#      every running container the one it was, not restarted;
+#   6. a deploy whose migration fails, from an image whose Caddyfile has the
+#      extra header, ends with status 20 and leaves the release directory
+#      holding the running commit's Caddyfile; the proxy is then restarted,
+#      comes back healthy, and does not send the header.
+#
+# What the server's command does that is not done here. It logs in to the
+# registry with a password from `aws`: here `aws` is a stand-in that prints a
+# made-up one, and `docker login` is answered without Docker, so nothing is
+# written to this machine's Docker settings. It takes a lock with `flock`,
+# which a Mac does not have: here a stand-in that always gives the lock. It
+# runs as root with `dash` as `sh`: here as whoever runs the gate, with this
+# machine's `sh`. `tests/test_deploy_command.py` runs the same script against
+# stand-ins for all of Docker, where the lock and a failed login can be
+# tried.
+#
+# What case 6 does and does not prove. On a Linux server the proxy's
+# Caddyfile is a bind mount of one file, which Docker looks up by its path
+# each time the container starts: that is how a proxy restarted after a
+# failed deploy would come to read a Caddyfile that was never deployed. This
+# gate runs where Docker Desktop is, whose shared files are not a Linux bind
+# mount. So case 6 proves that after a failed migration the path holds the
+# running commit's file again, and that a proxy restarted on this machine
+# reads that file and is well. It does not prove what Docker does at a
+# restart on the server, and a failure of this case on the old command was
+# not seen: it is the `cmp` of the Caddyfile that fails first there, whatever
+# the proxy would have read.
 #
 # What is not run here: a pull that fails. The script's status 10 and its
 # look for each image after the pull are tested against a stand-in for
@@ -68,6 +99,9 @@ unset POSTGRES_PASSWORD CP_SESSION_SECRET CP_SITE_ADDRESS CP_HTTP_PORT CP_HTTPS_
     CP_DEPLOY_HEALTH_DEADLINE COMPOSE_PROJECT_NAME COMPOSE_FILE COMPOSE_ENV_FILES
 
 work=
+# Docker itself, before this gate puts a command of the same name in front
+# of it for the server's command to find.
+docker=$(command -v docker) || docker=
 
 if ! docker info >/dev/null 2>&1; then
     say "Docker is not answering"
@@ -107,7 +141,7 @@ finish() {
     remove_everything
     [ -z "$work" ] || rm -rf "$work"
     if [ "$status" -eq 0 ]; then
-        say "all five cases passed"
+        say "all six cases passed"
     else
         say "FAILED (status $status)"
     fi
@@ -199,45 +233,44 @@ site_answers() {
     done
 }
 
-# deploy SHA [DEADLINE]: what the server's command does. Pull the two images,
-# copy the deploy files out of the app image into the release directory, and
-# run the script that came out. Leaves the script's status in
-# `deploy_status` and what it wrote in `$log`, which is also shown.
+# deploy SHA [DEADLINE]: the server's command, for that SHA. Leaves its status
+# in `deploy_status`. What it printed, which is the end of the run and what
+# Systems Manager would hand back, is in `$log` and is shown; the whole run,
+# as the command kept it, is in `$run_log`.
 deploy() {
     deploy_status=0
     : >"$log"
     say "deploying $1"
-    {
-        docker pull -q "$registry/causalpulse-app:$1" &&
-            docker pull -q "$registry/causalpulse-web:$1" &&
-            carrier=$(docker create --label "$label" "$registry/causalpulse-app:$1") &&
-            rm -rf "$root/release" &&
-            mkdir "$root/release" &&
-            docker cp "$carrier:/deploy/." "$root/release" &&
-            docker rm "$carrier" >/dev/null
-    } || failed "the images for $1 could not be pulled, or the deploy files not copied out of the app image"
-    (
-        cd "$root/release" &&
-            CP_DEPLOY_ROOT=$root CP_DEPLOY_PROJECT=$project CP_DEPLOY_HEALTH_DEADLINE=${2:-300} \
-                sh deploy/deploy.sh "$registry" "$1"
-    ) >"$log" 2>&1 || deploy_status=$?
+    sh infra/tests/render-deploy-command.sh "root=$root" "marker=$work/first-boot-done" \
+        "path=$work/bin:$PATH" "registry=$registry" "sha=$1" >"$work/deploy-command.sh" ||
+        failed "the server's command could not be printed from infra/deploy-command.tf"
+    CP_DEPLOY_ROOT=$root CP_DEPLOY_PROJECT=$project CP_DEPLOY_HEALTH_DEADLINE=${2:-300} \
+        sh "$work/deploy-command.sh" >"$log" 2>&1 || deploy_status=$?
     cat "$log"
-    say "deploy.sh ended with status $deploy_status"
+    say "the server's command ended with status $deploy_status"
+}
+
+# No release directory is left under another name, whatever the status was.
+one_release() {
+    if [ -e "$root/release.old" ] || [ -e "$root/release.new" ]; then
+        failed "the root holds a release directory under another name: $(cd "$root" && echo release*)"
+    fi
 }
 
 # An image made from the app image with one file replaced, as root, and the
 # services' user restored.
-#   variant NAME FILE LINE...
+#   variant NAME FROM FILE LINE...
 variant() {
     name=$1
-    file=$2
-    shift 2
+    from=$2
+    file=$3
+    shift 3
     quoted=
     for line in "$@"; do
         quoted="$quoted '$line'"
     done
     docker build -q -t "$name" - <<EOF >/dev/null
-FROM $local_app:working
+FROM $from
 USER root
 RUN printf '%s\n'$quoted > $file && chmod 755 $file
 USER app
@@ -258,8 +291,33 @@ work=$(mktemp -d)
 # proxy's configuration is mounted from the release directory under it.
 work=$(cd "$work" && pwd -P)
 root=$work/root
-log=$work/deploy.log
-mkdir "$root"
+log=$work/command.log
+run_log=$root/deploy-run.log
+mkdir "$root" "$work/bin"
+# What the server's command looks for before it does anything: the file the
+# first boot leaves.
+date -u +%Y-%m-%dT%H:%M:%SZ >"$work/first-boot-done"
+# The three commands the server's command finds first on its search path.
+# `docker` passes everything on to Docker but the login, which it answers
+# itself, and gives the container the deploy files are copied out of this
+# gate's label, so that an interrupted run's is found and removed.
+cat >"$work/bin/docker" <<EOF
+#!/bin/sh
+case \${1:-} in
+    login)
+        cat >/dev/null
+        exit 0
+        ;;
+    create)
+        shift
+        exec "$docker" create --label "$label" "\$@"
+        ;;
+esac
+exec "$docker" "\$@"
+EOF
+printf '%s\n' '#!/bin/sh' 'echo made-up-registry-password' >"$work/bin/aws"
+printf '%s\n' '#!/bin/sh' 'exit 0' >"$work/bin/flock"
+chmod 755 "$work/bin/docker" "$work/bin/aws" "$work/bin/flock"
 (
     umask 077
     {
@@ -271,13 +329,14 @@ mkdir "$root"
     } >"$root/.env"
 )
 
-# Four made-up SHAs. A is the working tree's images; B is the same with one
+# Five made-up SHAs. A is the working tree's images; B is the same with one
 # line more in the Caddyfile its app image carries; C and D are broken on
-# purpose, each in one place.
+# purpose, each in one place; E is D with B's Caddyfile.
 sha_a=$(openssl rand -hex 20)
 sha_b=$(openssl rand -hex 20)
 sha_c=$(openssl rand -hex 20)
 sha_d=$(openssl rand -hex 20)
+sha_e=$(openssl rand -hex 20)
 
 say "starting the registry on $registry"
 docker run -d --name "$registry_container" --label "$label" -p "$registry:5000" registry:2 >/dev/null
@@ -307,20 +366,25 @@ EOF
 # check, which does not look at the process, is first run five seconds in
 # and passes, so the container reads healthy for the seconds in between: a
 # deploy that looked at its health once would take it for well.
-variant "$local_app:worker-broken" /app/packages/cp-worker/src/cp_worker/__main__.py \
+variant "$local_app:worker-broken" "$local_app:working" /app/packages/cp-worker/src/cp_worker/__main__.py \
     'import time' 'time.sleep(8)' \
     'raise SystemExit("smoke-deploy: this worker is broken on purpose")'
 # D: the migration's command, in the image's virtual environment, replaced by
 # one that fails.
-variant "$local_app:migration-broken" /app/.venv/bin/cp-api-migrate \
+variant "$local_app:migration-broken" "$local_app:working" /app/.venv/bin/cp-api-migrate \
+    '#!/bin/sh' 'echo "smoke-deploy: this migration fails on purpose" >&2' 'exit 1'
+# E: the same failing migration, in the image whose Caddyfile has the header.
+variant "$local_app:migration-broken-caddyfile-changed" "$local_app:caddyfile-changed" \
+    /app/.venv/bin/cp-api-migrate \
     '#!/bin/sh' 'echo "smoke-deploy: this migration fails on purpose" >&2' 'exit 1'
 
-say "pushing four tags of each image, and removing them here so that each deploy pulls"
+say "pushing five tags of each image, and removing them here so that each deploy pulls"
 publish "$local_app:working" "$registry/causalpulse-app:$sha_a"
 publish "$local_app:caddyfile-changed" "$registry/causalpulse-app:$sha_b"
 publish "$local_app:worker-broken" "$registry/causalpulse-app:$sha_c"
 publish "$local_app:migration-broken" "$registry/causalpulse-app:$sha_d"
-for sha in "$sha_a" "$sha_b" "$sha_c" "$sha_d"; do
+publish "$local_app:migration-broken-caddyfile-changed" "$registry/causalpulse-app:$sha_e"
+for sha in "$sha_a" "$sha_b" "$sha_c" "$sha_d" "$sha_e"; do
     publish "$local_web:working" "$registry/causalpulse-web:$sha"
 done
 
@@ -333,6 +397,11 @@ for file in docker-compose.prod.yml deploy/compose.server.yml deploy/Caddyfile d
         failed "$file out of the image is not the working tree's"
 done
 [ "$(recorded)" = "$sha_a" ] || failed "current-sha holds '$(recorded)', not A ($sha_a)"
+one_release
+grep -q -x "CP_IMAGE_TAG=$sha_a" "$root/deploy.env" ||
+    failed "deploy.env does not hold CP_IMAGE_TAG for A ($sha_a)"
+grep -q "^==== .* $sha_a, exit status 0\$" "$root/deploy.log" ||
+    failed "the history, deploy.log, has no heading for the deploy of A that ended with status 0"
 for service in api worker; do
     [ "$(image_of "$service")" = "$registry/causalpulse-app:$sha_a" ] ||
         failed "$service runs '$(image_of "$service")', not the app image for A"
@@ -360,6 +429,9 @@ for file in docker-compose.prod.yml deploy/compose.server.yml deploy/deploy.sh; 
     cmp -s "$file" "$root/release/$file" || failed "$file out of B's image is not the working tree's"
 done
 [ "$(recorded)" = "$sha_b" ] || failed "current-sha holds '$(recorded)', not B ($sha_b)"
+one_release
+grep -q -x "CP_IMAGE_TAG=$sha_b" "$root/deploy.env" ||
+    failed "deploy.env does not hold CP_IMAGE_TAG for B ($sha_b)"
 [ "$(recorded previous-sha)" = "$sha_a" ] ||
     failed "previous-sha holds '$(recorded previous-sha)', not A ($sha_a)"
 [ "$(image_of api)" = "$registry/causalpulse-app:$sha_b" ] ||
@@ -383,7 +455,7 @@ passed "a deploy of a second tag replaces the first, records B, and serves B's C
 number=3
 deploy "$sha_a"
 [ "$deploy_status" -eq 0 ] || failed "the deploy of A again ended with status $deploy_status, not 0"
-if grep -E -i -q 'building|load build definition|exporting to image|\[[a-z]+ +[0-9]+/[0-9]+\]' "$log"; then
+if grep -E -i -q 'building|load build definition|exporting to image|\[[a-z]+ +[0-9]+/[0-9]+\]' "$run_log"; then
     failed "the deploy's output shows an image being created"
 fi
 [ "$(recorded)" = "$sha_a" ] || failed "current-sha holds '$(recorded)', not A ($sha_a)"
@@ -403,9 +475,12 @@ passed "a deploy of the first tag again works, creates no image, records A and s
 number=4
 deploy "$sha_c" 60
 [ "$deploy_status" -eq 30 ] || failed "the deploy of the broken C ended with status $deploy_status, not 30"
-grep -q '^deploy: not healthy after 60 seconds:.* worker=' "$log" ||
+grep -q '^deploy: not healthy after 60 seconds:.* worker=' "$run_log" ||
     failed "the deploy did not say that the worker was not healthy"
 [ "$(recorded)" = "$sha_a" ] || failed "current-sha holds '$(recorded)' after a failed deploy, not A ($sha_a)"
+one_release
+grep -q -x "CP_IMAGE_TAG=$sha_a" "$root/deploy.env" ||
+    failed "deploy.env no longer holds CP_IMAGE_TAG for A ($sha_a) after a deploy that failed"
 site_answers || failed "the site answered $(site_status), not 200, after the failed deploy"
 # C's images are new and its Caddyfile is A's.
 [ "$(container proxy)" = "$proxy_third" ] ||
@@ -452,7 +527,7 @@ for service in postgres redis api worker web proxy; do
 done
 deploy "$sha_d"
 [ "$deploy_status" -eq 20 ] || failed "the deploy of D ended with status $deploy_status, not 20"
-grep -q 'smoke-deploy: this migration fails on purpose' "$log" ||
+grep -q 'smoke-deploy: this migration fails on purpose' "$run_log" ||
     failed "the deploy failed before the migration's own command ran"
 after=
 for service in postgres redis api worker web proxy; do
@@ -463,3 +538,37 @@ done
 [ "$(recorded)" = "$sha_a" ] || failed "current-sha holds '$(recorded)' after a failed migration, not A ($sha_a)"
 site_answers || failed "the site answered $(site_status), not 200, after the failed migration"
 passed "a deploy of the recorded SHA keeps the previous one's images, and a failed migration ends with status 20 and leaves every running container the one it was"
+
+# ---- 6. A failed migration with another Caddyfile: the release directory is put back ----
+number=6
+# The stack is A's and well, and the release directory holds A's files: D's
+# were put back, and they were the same as A's in any case. E's are not.
+deploy "$sha_e"
+[ "$deploy_status" -eq 20 ] || failed "the deploy of E ended with status $deploy_status, not 20"
+grep -q 'smoke-deploy: this migration fails on purpose' "$run_log" ||
+    failed "the deploy of E failed before the migration's own command ran"
+one_release
+if grep -q "$header" "$root/release/deploy/Caddyfile"; then
+    failed "after a failed migration the release directory holds E's Caddyfile, with $header in it: the running commit's was not put back"
+fi
+cmp -s deploy/Caddyfile "$root/release/deploy/Caddyfile" ||
+    failed "after a failed migration the release directory's Caddyfile is not A's, which is the working tree's"
+[ "$(recorded)" = "$sha_a" ] || failed "current-sha holds '$(recorded)' after a failed migration, not A ($sha_a)"
+[ "$(container proxy)" = "$proxy_third" ] ||
+    failed "the proxy's container was replaced by a deploy whose migration failed"
+# The restart that a reboot or a crash would be: the same container, started
+# again, which is when Docker looks up the path of the Caddyfile again.
+proxy_started=$(started proxy)
+docker restart "$proxy_third" >/dev/null || failed "the proxy's container could not be restarted"
+tries=0
+until [ "$(docker inspect -f '{{.State.Status}} {{.State.Health.Status}}' "$proxy_third" 2>/dev/null)" = 'running healthy' ] &&
+    [ "$(started proxy)" != "$proxy_started" ]; do
+    tries=$((tries + 1))
+    [ "$tries" -lt 90 ] ||
+        failed "the proxy, restarted after the failed migration, was not running and healthy again in 90 seconds: $(docker inspect -f '{{.State.Status}} {{.State.Health.Status}}, started {{.State.StartedAt}}' "$proxy_third" 2>&1)"
+    sleep 1
+done
+site_answers || failed "the site answered $(site_status), not 200, after the proxy was restarted"
+[ -z "$(header_served)" ] ||
+    failed "the restarted proxy sends $header: it read E's Caddyfile, and E was never deployed"
+passed "a failed migration from an image with another Caddyfile leaves the release directory A's, and the proxy, restarted, is healthy and serves A's Caddyfile"

@@ -3,10 +3,18 @@
 # this template (`infra/machine.tf`), so a dollar sign followed by a brace is
 # Terraform's unless it is doubled.
 #
-# It may be run again by hand: every step looks at what is there before it
-# acts. It formats the data volume only when two probes agree that the volume
-# holds nothing, and it never replaces an environment file. It prints the
-# names of the settings it writes and never their values.
+# It may be run again by hand, as root, when it stopped half-way: every step
+# looks at what is there before it acts. It formats the data volume only when
+# two probes agree that the volume holds nothing, and it never replaces an
+# environment file. It prints the names of the settings it writes and never
+# their values.
+#
+# Its last act is to write `/var/lib/causalpulse/first-boot-done`. The file is
+# on the root disk and not on the data volume, so a machine that replaces
+# this one has none until its own first boot has finished. The deploy command
+# (`infra/deploy-command.tf`) refuses a machine without it: cloud-init runs
+# this script once, and a run that failed is otherwise found out only when a
+# deploy fails for want of Docker or of the environment file.
 #
 # CP_FIRST_BOOT_SKIP_DEVICES=1 leaves out the steps that need the machine
 # itself (the data volume, Docker, the swap file, the time zone), so that the
@@ -18,6 +26,7 @@ site_name='${site_name}'
 volume_id='${volume_id}'
 root=/srv/causalpulse
 volumes=/var/lib/docker/volumes
+marker=/var/lib/causalpulse/first-boot-done
 skip_devices=$${CP_FIRST_BOOT_SKIP_DEVICES:-0}
 
 export DEBIAN_FRONTEND=noninteractive
@@ -50,6 +59,38 @@ retry() {
 # second time. Every call below goes through this.
 apt_get() {
     apt-get -o DPkg::Lock::Timeout=300 "$@"
+}
+
+# install_packages PACKAGE...: the package lists fetched and the packages
+# installed, as one unit that is tried again whole. Two things at boot make
+# the first tries fail, and neither is waited for by the option above:
+#   - the address change `retry` speaks of. Cut that way, a fetch of the
+#     lists ends with warnings and status 0 unless it is told that any
+#     failure is an error, which is what `APT::Update::Error-Mode=any` is
+#     for; and an install that follows a half-fetched list fails for a
+#     package the list does not hold, which fetching again is what mends.
+#   - Ubuntu's own daily fetch of the lists, which holds the lists' lock
+#     while it runs. The option above is for dpkg's lock, and a fetch that
+#     meets the other one is believed to be refused and not made to wait.
+# Ten tries, thirty seconds apart: four and a half minutes of waiting, on top
+# of the time the tries themselves take. The address changes once, when
+# Terraform has seen the machine start, and the daily fetch is one fetch of
+# the same lists; the span is meant to be several times either, and neither
+# was measured on a server. After a failed try dpkg is asked to finish anything
+# it left half-configured, which is what a try that was itself cut short
+# (or an earlier run of this script that was) leaves, and which stops every
+# later install until it is done.
+install_packages() {
+    local attempt=1
+    until apt_get -o APT::Update::Error-Mode=any update -q && apt_get install -y -q "$@"; do
+        if [ "$attempt" -ge 10 ]; then
+            die "the packages could not be installed in 10 tries: $*"
+        fi
+        say "the package lists or the packages could not be had (try $attempt of 10); trying again in 30 seconds"
+        dpkg --configure -a || true
+        sleep 30
+        attempt=$((attempt + 1))
+    done
 }
 
 # add_fstab MOUNT_POINT LINE: the line, unless the mount point has one. A
@@ -165,8 +206,7 @@ install_docker() {
         codename=$(. /etc/os-release && echo "$VERSION_CODENAME")
         echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $codename stable" \
             >/etc/apt/sources.list.d/docker.list
-        retry apt_get update -q
-        retry apt_get install -y -q docker-ce docker-ce-cli containerd.io docker-compose-plugin
+        install_packages docker-ce docker-ce-cli containerd.io docker-compose-plugin
     fi
     systemctl enable --now docker
     say "Docker is installed"
@@ -174,6 +214,12 @@ install_docker() {
 
 make_swap() {
     if [ -n "$(swapon --show --noheadings)" ]; then
+        # A run that stopped between turning this script's swap file on and
+        # writing its line would otherwise leave a machine with no swap after its
+        # next boot.
+        if swapon --show=NAME --noheadings | grep -q -x /swapfile; then
+            add_fstab none "/swapfile none swap sw 0 0"
+        fi
         return 0
     fi
     if [ ! -e /swapfile ]; then
@@ -246,8 +292,7 @@ if [ "$skip_devices" = 1 ]; then
     say "leaving out the data volume, Docker, the swap file and the time zone"
 fi
 
-retry apt_get update -q
-retry apt_get install -y -q ca-certificates curl unzip openssl unattended-upgrades
+install_packages ca-certificates curl unzip openssl unattended-upgrades
 
 if [ "$skip_devices" = 1 ]; then
     mkdir -p "$root"
@@ -262,4 +307,9 @@ fi
 install_aws_cli
 write_environment_file
 configure_upgrades
+
+# Last, and whole or not at all: see the top of this file.
+install -d -m 755 "$(dirname "$marker")"
+date -u +%Y-%m-%dT%H:%M:%SZ >"$marker.new"
+mv "$marker.new" "$marker"
 say "done"

@@ -14,8 +14,8 @@
 # log in to the registry: whoever calls it has done that.
 #
 # From the environment:
-#   CP_DEPLOY_ROOT             holds `.env`, `current-sha` and `previous-sha`
-#                              (default /srv/causalpulse)
+#   CP_DEPLOY_ROOT             holds `.env`, `current-sha`, `previous-sha`
+#                              and `deploy.env` (default /srv/causalpulse)
 #   CP_DEPLOY_PROJECT          the compose project (default causalpulse-prod)
 #   CP_DEPLOY_HEALTH_DEADLINE  seconds to wait for health (default 300): a
 #                              whole number of at most six digits, with no
@@ -32,16 +32,24 @@
 #    1  a command failed where this script did not expect one to (`set -e`)
 #    2  the arguments or the deadline are not what is described above
 #   10  the release directory cannot be entered; a file of the release or the
-#       environment file is missing; `current-sha` or `previous-sha` is there
-#       and is not a file; the Caddyfile's digest could not be computed; or
+#       environment file is missing; `current-sha`, `previous-sha` or
+#       `deploy.env` is there and is not a file; the Caddyfile's digest could
+#       not be computed; or
 #       an image could not be pulled or is not on the machine afterwards
 #   20  the migration failed, or Postgres was not there for it to run against
 #   30  the stack did not come up, or was not well by the deadline
-#   40  the stack is well on <sha> and the SHA could not be recorded
+#   40  the stack is well on <sha> and `previous-sha`, `deploy.env` or
+#       `current-sha` could not be written
 #
-# It does not roll back. After 20 no application service has been replaced.
-# After 30 or 40 the stack is as the attempt left it, and `current-sha` still
-# holds what it held before.
+# It does not roll back. After 2, 10 or 20 no application service has been
+# replaced. After 30 or 40 the stack is as the attempt left it, and
+# `current-sha` still holds what it held before.
+#
+# `deploy.env` is for a person, and this script does not read it. It holds
+# the three settings the override needs, as they were for the last deploy
+# that ended well, so that Compose can be run by hand from the release
+# directory with `--env-file` given twice: the environment file, then this
+# one. It holds no secret.
 #
 # Everything this script says goes to standard error and begins `deploy:`.
 set -eu
@@ -115,7 +123,7 @@ for file in docker-compose.prod.yml deploy/compose.server.yml deploy/Caddyfile "
         exit 10
     fi
 done
-for name in current-sha previous-sha; do
+for name in current-sha previous-sha deploy.env; do
     if [ -e "$root/$name" ] && [ ! -f "$root/$name" ]; then
         say "$root/$name is not a file"
         exit 10
@@ -274,10 +282,10 @@ show_state() {
     compose logs --no-color --tail 40 >&2 || true
 }
 
-# 1. The images. Whoever called this has usually pulled them already, to take
-#    this script out of one; then this fetches nothing. Compose may not treat
-#    a failed pull as an error for every service, so each image is also
-#    looked for afterwards.
+# 1. The images. Whoever called this has pulled the app image already, to
+#    take this script out of it, so this fetches the dashboard's image and,
+#    of the app image, nothing. Compose may not treat a failed pull as an
+#    error for every service, so each image is also looked for afterwards.
 say "pulling the images for $sha"
 if ! compose pull migrate api web >&2; then
     say "the images for $sha could not be pulled"
@@ -336,17 +344,25 @@ if ! wait_healthy "$settle" postgres redis api worker web proxy; then
 fi
 
 # 4. The records, each written whole or not at all, and `current-sha` last.
-#    A deploy of the SHA already recorded writes neither, so `previous-sha`
-#    goes on holding the SHA that was recorded before it.
-if [ "$sha" != "$recorded" ]; then
-    if [ -n "$recorded" ] && ! record previous-sha "$recorded"; then
-        say "the stack is healthy on $sha, and $root/previous-sha could not be written"
-        exit 40
-    fi
-    if ! record current-sha "$sha"; then
-        say "the stack is healthy on $sha, and $root/current-sha could not be written"
-        exit 40
-    fi
+#    A deploy of the SHA already recorded writes neither SHA, so
+#    `previous-sha` goes on holding the SHA that was recorded before it.
+#    `deploy.env` is written every time: see the top of this file.
+if [ "$sha" != "$recorded" ] && [ -n "$recorded" ] && ! record previous-sha "$recorded"; then
+    say "the stack is healthy on $sha, and $root/previous-sha could not be written"
+    exit 40
+fi
+if ! record deploy.env "# Written by deploy/deploy.sh when a deploy ends well: what the override
+# (deploy/compose.server.yml) needs to name the images and the proxy's label
+# of the commit that is running. This file holds no secret.
+CP_IMAGE_REGISTRY=$CP_IMAGE_REGISTRY
+CP_IMAGE_TAG=$CP_IMAGE_TAG
+CP_CADDYFILE_DIGEST=$CP_CADDYFILE_DIGEST"; then
+    say "the stack is healthy on $sha, and $root/deploy.env could not be written"
+    exit 40
+fi
+if [ "$sha" != "$recorded" ] && ! record current-sha "$sha"; then
+    say "the stack is healthy on $sha, and $root/current-sha could not be written"
+    exit 40
 fi
 
 # 5. Older images, so the disk does not fill: every tag of the two

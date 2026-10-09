@@ -325,6 +325,8 @@ run "the_deploy_command_takes_one_guarded_parameter" {
 
 # The script is read as text: nothing here runs it. `make check-infra` also
 # gives it to `sh -n` and `shellcheck` (`tests/render-deploy-command.sh`).
+# What runs it is `tests/test_deploy_command.py` at the repository's root,
+# against stand-ins, and `make smoke-deploy`, against a real Docker.
 run "a_deploy_returns_its_reason_and_its_status" {
   command = plan
 
@@ -368,6 +370,31 @@ run "a_deploy_returns_its_reason_and_its_status" {
   }
 }
 
+run "a_machine_whose_first_boot_did_not_finish_is_refused" {
+  command = plan
+
+  assert {
+    condition = (
+      contains(local.deploy_script_lines, "marker=/var/lib/causalpulse/first-boot-done")
+      && contains(local.deploy_script_lines, "if [ ! -e \"$marker\" ]; then echo \"deploy-command: the first boot of this machine did not finish ($marker is missing), so nothing was deployed: follow 'The first boot did not finish' in docs/runbook.md\"; exit 76; fi")
+    )
+    error_message = "A machine without the first boot's marker must be refused with status 76 and a sentence that names the runbook's procedure."
+  }
+
+  # Before the lock file, the first thing the script makes, and so before
+  # anything under the root.
+  assert {
+    condition     = index(local.deploy_script_lines, "marker=/var/lib/causalpulse/first-boot-done") < index(local.deploy_script_lines, "exec 9>\"$root/deploy.lock\"") && [for line in local.deploy_script_code : line if strcontains(line, "$marker")][0] == element(local.deploy_script_code, index(local.deploy_script_code, "exec 9>\"$root/deploy.lock\"") - 2)
+    error_message = "The marker must be looked for before the lock file is made."
+  }
+
+  # The first-boot script writes the same path, on the root disk, last.
+  assert {
+    condition     = strcontains(local.first_boot, "\nmarker=/var/lib/causalpulse/first-boot-done\n") && endswith(trimspace(local.first_boot), "install -d -m 755 \"$(dirname \"$marker\")\"\ndate -u +%Y-%m-%dT%H:%M:%SZ >\"$marker.new\"\nmv \"$marker.new\" \"$marker\"\nsay \"done\"") && length(regexall("\\$marker", local.first_boot)) == 4
+    error_message = "The first-boot script must write the marker the deploy command looks for, as its last act and nowhere else."
+  }
+}
+
 run "one_deploy_at_a_time_and_nothing_of_the_records_is_removed" {
   command = plan
 
@@ -380,15 +407,23 @@ run "one_deploy_at_a_time_and_nothing_of_the_records_is_removed" {
   assert {
     condition = [for line in local.deploy_script_code : line if length(regexall("(^|[ ;&|])(rm|mv|rmdir|unlink|truncate|find|dd|cp|install|tee|ln)( |$)|>>?[\"/$]", line)) > 0] == [
       "exec 9>\"$root/deploy.lock\"",
+      "rm -rf \"$root/release.new\"",
+      "if [ -e \"$root/release\" ]; then mv \"$root/release\" \"$root/release.new\"; fi",
+      "mv \"$root/release.old\" \"$root/release\"",
+      "rm -rf \"$root/release.new\"",
       "aws ecr get-login-password --region \"eu-west-1\" | docker login --username AWS --password-stdin \"$registry\" >/dev/null",
-      "rm -rf \"$root/release.new\" \"$root/release.old\"",
       "trap 'docker rm -f \"$id\" >/dev/null' EXIT",
       "docker cp \"$id:/deploy/.\" \"$root/release.new/\"",
       "docker rm -f \"$id\" >/dev/null",
       "if [ -e \"$root/release\" ]; then mv \"$root/release\" \"$root/release.old\"; fi",
+      "if [ -e \"$root/release\" ]; then rm -rf \"$root/release\"; fi",
       "mv \"$root/release.new\" \"$root/release\"",
-      "rm -rf \"$root/release.old\"",
       ") >\"$run\" 2>&1",
+      "rm -rf \"$root/release.new\"",
+      "if [ -e \"$root/release.old\" ]; then mv \"$root/release.old\" \"$root/release.new\"; fi",
+      "if { [ ! -e \"$root/release\" ] || mv \"$root/release\" \"$root/release.new\"; } && mv \"$root/release.old\" \"$root/release\"; then",
+      "rm -rf \"$root/release.new\"",
+      "} >>\"$run\" 2>&1",
       "' \"$run\" >\"$run.clean\"; then",
       "mv \"$run.clean\" \"$run\"",
       "rm -f \"$run\" \"$run.clean\"",
@@ -398,9 +433,33 @@ run "one_deploy_at_a_time_and_nothing_of_the_records_is_removed" {
     error_message = "The script removes, renames or writes over something this list does not hold. It may touch deploy.lock, deploy-run.log, deploy.log and the release directories, and nothing else."
   }
 
+  # `release.old` is whole whenever it exists only because it is made by a
+  # rename and leaves by one. The one `rm -rf` of `release` itself stands
+  # between the two renames of the swap, where a release cannot be.
   assert {
-    condition     = length(regexall("current-sha|previous-sha", local.deploy_script)) == 0 && [for line in local.deploy_script_code : line if strcontains(line, ".env")] == ["if awk -v envfile=\"$root/.env\" -v quote=\"'\" '"]
-    error_message = "The script must not name current-sha or previous-sha, and must name the environment file once, to read it."
+    condition = (
+      length([for line in local.deploy_script_code : line if length(regexall("rm -[rf]+ [^;&|]*release\\.old", line)) > 0]) == 0
+      && index(local.deploy_script_lines, "if [ -e \"$root/release\" ]; then mv \"$root/release\" \"$root/release.old\"; fi") + 1 == index(local.deploy_script_lines, "if [ -e \"$root/release\" ]; then rm -rf \"$root/release\"; fi")
+      && index(local.deploy_script_lines, "if [ -e \"$root/release\" ]; then rm -rf \"$root/release\"; fi") + 1 == index(local.deploy_script_lines, "mv \"$root/release.new\" \"$root/release\"")
+    )
+    error_message = "release.old must never be removed in place, and release itself only between the two renames that put the new one there."
+  }
+
+  # The statuses after which the new release directory stays. Every other
+  # one puts back the directory that was there.
+  assert {
+    condition     = [for line in local.deploy_script_code : line if endswith(line, ")") && !strcontains(line, "(")] == ["0 | 30 | 40)", "*)"] && index(local.deploy_script_lines, "status=$?") < index(local.deploy_script_lines, "case $status in")
+    error_message = "The new release directory must stay after status 0, 30 or 40 and after no other."
+  }
+
+  assert {
+    condition     = length(regexall("current-sha|previous-sha|deploy\\.env", local.deploy_script)) == 0 && [for line in local.deploy_script_code : line if strcontains(line, ".env")] == ["if awk -v envfile=\"$root/.env\" -v quote=\"'\" '", "if [ ! -r \"$root/.env\" ]; then echo \"deploy-command: $root/.env is missing or cannot be read\"; fi"]
+    error_message = "The script must not name current-sha, previous-sha or deploy.env, and must name the environment file twice: to read it, and to say that it could not be read."
+  }
+
+  assert {
+    condition     = contains(local.deploy_script_lines, "if (got < 0) exit 1") && contains(local.deploy_script_lines, "while ((got = (getline line < envfile)) > 0) {")
+    error_message = "An environment file that cannot be read must fail the search, so that nothing is printed unsearched."
   }
 
   assert {
@@ -537,6 +596,13 @@ run "the_first_boot_script_waits_and_checks" {
   assert {
     condition     = length(regexall("apt-get", local.first_boot)) == length(regexall("apt-get -o DPkg::Lock::Timeout=300 ", local.first_boot)) && length(regexall("apt-get", local.first_boot)) > 0
     error_message = "Every apt-get must wait for dpkg's lock (-o DPkg::Lock::Timeout=300)."
+  }
+
+  # The lists and the packages are one unit, tried again whole, and a fetch
+  # of the lists that was cut is an error and not a warning.
+  assert {
+    condition     = strcontains(local.first_boot, "until apt_get -o APT::Update::Error-Mode=any update -q && apt_get install -y -q \"$@\"; do") && length(regexall("apt_get (-o [A-Za-z:=-]+ )?(update|install)", local.first_boot)) == 2 && length(regexall("(^|\n) *install_packages [a-z]", local.first_boot)) == 2
+    error_message = "Every fetch of the package lists and every install must be the one retried unit in install_packages, with APT::Update::Error-Mode=any."
   }
 
   assert {

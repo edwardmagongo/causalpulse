@@ -552,7 +552,7 @@ def test_a_server_without_its_environment_file_is_exit_10_before_docker(deploy):
     assert deploy.calls() == []
 
 
-@pytest.mark.parametrize("name", ["current-sha", "previous-sha"])
+@pytest.mark.parametrize("name", ["current-sha", "previous-sha", "deploy.env"])
 def test_a_record_that_is_there_and_is_not_a_file_is_exit_10_before_docker(deploy, name):
     (deploy.root / name).mkdir()
 
@@ -891,7 +891,7 @@ def test_a_previous_sha_that_is_not_one_is_ignored_and_not_printed(deploy):
     assert "previous-sha does not hold a SHA" in result.stderr
 
 
-@pytest.mark.parametrize("name", ["current-sha", "previous-sha"])
+@pytest.mark.parametrize("name", ["current-sha", "previous-sha", "deploy.env"])
 def test_a_record_that_cannot_be_written_is_exit_40_and_no_image_is_removed(deploy, name):
     (deploy.root / "current-sha").write_text(PREVIOUS + "\n", encoding="utf-8")
     # A directory where the script writes the new record first: the write
@@ -976,12 +976,100 @@ def test_every_message_is_on_stderr_and_begins_with_deploy(deploy, settings):
 def test_no_temporary_file_is_left_beside_the_records(deploy):
     deploy.run(REGISTRY, SHA)
 
-    assert sorted(path.name for path in deploy.root.iterdir()) == [".env", "current-sha"]
+    assert sorted(path.name for path in deploy.root.iterdir()) == [
+        ".env",
+        "current-sha",
+        "deploy.env",
+    ]
 
     deploy.run(REGISTRY, PREVIOUS)
 
     assert sorted(path.name for path in deploy.root.iterdir()) == [
         ".env",
         "current-sha",
+        "deploy.env",
         "previous-sha",
     ]
+
+
+# ---- The settings of the commit that is running, for a person ----
+
+
+def _deploy_env(deploy: Deploy) -> tuple[list[str], dict[str, str]]:
+    """`deploy.env` as (its comment lines, its settings in order)."""
+    lines = (deploy.root / "deploy.env").read_text(encoding="utf-8").splitlines()
+    comments = [line for line in lines if line.startswith("#")]
+    settings = dict(line.split("=", 1) for line in lines if not line.startswith("#"))
+    assert len(comments) + len(settings) == len(lines)
+    return comments, settings
+
+
+def test_a_deploy_that_ends_well_writes_the_three_settings_compose_was_given(deploy):
+    result = deploy.run(REGISTRY, SHA)
+
+    assert result.returncode == 0, result.stderr
+    comments, settings = _deploy_env(deploy)
+    # Exactly the three the override reads, as every compose call had them.
+    assert settings == {
+        "CP_IMAGE_REGISTRY": REGISTRY,
+        "CP_IMAGE_TAG": SHA,
+        "CP_CADDYFILE_DIGEST": _digest(deploy),
+    }
+    assert deploy.digests() == {settings["CP_CADDYFILE_DIGEST"]}
+    assert "This file holds no secret." in " ".join(comments)
+    # And it holds none: nothing of the environment file is in it.
+    assert MARKER not in (deploy.root / "deploy.env").read_text(encoding="utf-8")
+
+
+def test_a_deploy_of_the_sha_already_recorded_writes_the_settings_again(deploy):
+    (deploy.root / "current-sha").write_text(SHA + "\n", encoding="utf-8")
+    (deploy.root / "deploy.env").write_text("CP_IMAGE_TAG=stale\n", encoding="utf-8")
+
+    result = deploy.run(REGISTRY, SHA)
+
+    assert result.returncode == 0, result.stderr
+    assert _deploy_env(deploy)[1]["CP_IMAGE_TAG"] == SHA
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        {"STUB_FAIL": " pull "},
+        {"STUB_FAIL": " run "},
+        {"STUB_FAIL": "--remove-orphans"},
+        {"STUB_UNHEALTHY": "api"},
+    ],
+)
+def test_a_deploy_that_does_not_end_well_leaves_the_settings_of_the_one_before(deploy, settings):
+    assert deploy.run(REGISTRY, PREVIOUS).returncode == 0
+    before = (deploy.root / "deploy.env").read_bytes()
+
+    result = deploy.run(REGISTRY, SHA, **settings)
+
+    assert result.returncode in (10, 20, 30)
+    assert (deploy.root / "deploy.env").read_bytes() == before
+    assert _deploy_env(deploy)[1]["CP_IMAGE_TAG"] == PREVIOUS
+
+
+def test_the_settings_are_written_before_the_sha_is_recorded(deploy):
+    # `current-sha` is written last, so a machine whose record names a commit
+    # has that commit's settings beside it.
+    (deploy.root / "current-sha").write_text(PREVIOUS + "\n", encoding="utf-8")
+    (deploy.root / "current-sha.new").mkdir()
+
+    result = deploy.run(REGISTRY, SHA)
+
+    assert result.returncode == 40
+    assert deploy.recorded() == PREVIOUS + "\n"
+    assert _deploy_env(deploy)[1]["CP_IMAGE_TAG"] == SHA
+
+
+def test_the_script_writes_the_settings_file_and_never_reads_it():
+    naming = [line for line in _script_commands() if "deploy.env" in line]
+
+    # The look that refuses a directory of that name, the write, and the
+    # sentence for a write that failed.
+    assert len(naming) == 3
+    assert naming[0] == "for name in current-sha previous-sha deploy.env; do"
+    assert naming[1].startswith('if ! record deploy.env "')
+    assert naming[2].startswith("say ")
