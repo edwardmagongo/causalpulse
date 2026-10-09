@@ -1073,3 +1073,32 @@ def test_the_script_writes_the_settings_file_and_never_reads_it():
     assert naming[0] == "for name in current-sha previous-sha deploy.env; do"
     assert naming[1].startswith('if ! record deploy.env "')
     assert naming[2].startswith("say ")
+
+
+# ---- Which workflow may reach AWS ----
+
+WORKFLOWS = ROOT / ".github" / "workflows"
+
+
+def test_only_the_deploy_workflow_asks_for_an_identity_token():
+    # The pipeline's role is given to any job on `main` that presents GitHub's
+    # identity token (`infra/pipeline.tf`), and a job gets the token only by
+    # asking for the `id-token` permission. The role is root on the server,
+    # so a second workflow that asks is a second way to it. The word is looked
+    # for anywhere in a file, a comment included: a new mention is a decision.
+    files = sorted([*WORKFLOWS.glob("*.yml"), *WORKFLOWS.glob("*.yaml")])
+    asking = [file.name for file in files if "id-token" in file.read_text(encoding="utf-8")]
+
+    assert len(files) > 1
+    assert asking == ["deploy.yml"]
+
+
+def test_the_deploy_workflow_is_started_by_hand_and_in_no_other_way():
+    loaded = yaml.safe_load((WORKFLOWS / "deploy.yml").read_text(encoding="utf-8"))
+    assert isinstance(loaded, dict)
+    # YAML 1.1 reads the key `on` as the boolean true.
+    triggers = loaded[True] if True in loaded else loaded["on"]
+
+    assert isinstance(triggers, dict)
+    assert list(triggers) == ["workflow_dispatch"]
+    assert loaded["permissions"]["id-token"] == "write"

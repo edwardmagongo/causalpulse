@@ -224,8 +224,10 @@ smoke-deploy:
 # The infrastructure, checked without an account: Terraform's formatting, its
 # validation, and its tests against a mocked provider (`infra/tests/`), then
 # the first-boot script as Terraform renders it, the deploy document's
-# script, the deploy scripts and the workflows. Nothing is planned against
-# AWS and nothing is created.
+# script, the deploy scripts and the workflows, and last the two test files
+# that run the deploy script and the deploy document's script against
+# stand-ins for Docker. Nothing is planned against AWS and nothing is
+# created. It needs `terraform`, `shellcheck`, `actionlint` and `uv`.
 #
 # A test reads the resources it names and no other. `infra/tests/inventory.sh`
 # is what fails when a resource is added that `infra/tests/inventory.txt`
@@ -258,3 +260,4 @@ check-infra:
 	sh -n "$$rendered/deploy-command.sh" && shellcheck -s sh "$$rendered/deploy-command.sh"
 	shellcheck deploy/*.sh infra/tests/*.sh
 	actionlint
+	env -u DATABASE_URL -u REDIS_URL uv run pytest tests/test_deploy_files.py tests/test_deploy_command.py -q -p no:cacheprovider

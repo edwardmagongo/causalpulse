@@ -141,6 +141,13 @@ run "the_pipeline_role_trusts_one_branch_of_one_repository" {
     error_message = "The pipeline role must be given exactly the tested trust policy."
   }
 
+  # The deploy workflow asks for a session of this length, and AWS refuses a
+  # request for longer than the role allows.
+  assert {
+    condition     = aws_iam_role.pipeline.max_session_duration == 7200
+    error_message = "The pipeline role's sessions must be allowed to last two hours (7200 seconds), which is what the deploy workflow asks for."
+  }
+
   assert {
     condition     = aws_iam_openid_connect_provider.github[0].url == "https://token.actions.githubusercontent.com" && aws_iam_openid_connect_provider.github[0].client_id_list == toset(["sts.amazonaws.com"])
     error_message = "The OIDC provider must be GitHub's, for the audience sts.amazonaws.com."
@@ -258,6 +265,13 @@ run "the_pipeline_may_push_two_images_and_send_one_command" {
     error_message = "The pipeline role must be given exactly the tested policy."
   }
 
+  # Nothing by which a tag could be written again or an image removed: with
+  # immutable tags, that is what keeps a SHA naming one image.
+  assert {
+    condition     = length([for action in flatten(local.pipeline_policy.Statement[*].Action) : action if length(regexall("(?i)delete|PutImageTagMutability|SetRepositoryPolicy|PutLifecyclePolicy", action)) > 0]) == 0
+    error_message = "The pipeline policy must hold no action that deletes an image or changes a repository's settings."
+  }
+
   assert {
     condition     = length(aws_iam_role_policy_attachments_exclusive.pipeline.policy_arns) == 0 && aws_iam_role_policies_exclusive.pipeline.policy_names == toset(["push-and-deploy"])
     error_message = "The pipeline role must have no managed policy and no inline policy but the tested one."
@@ -325,9 +339,11 @@ run "the_machine_may_pull_two_images_and_be_managed" {
     error_message = "The server's role must be given exactly the tested policy."
   }
 
+  # The whole local, not its first statement: a second statement is a second
+  # way in.
   assert {
-    condition     = aws_iam_role.server.assume_role_policy == jsonencode(local.server_trust) && local.server_trust.Statement[0].Principal == { Service = "ec2.amazonaws.com" }
-    error_message = "The server's role must be assumable by EC2 only."
+    condition     = aws_iam_role.server.assume_role_policy == jsonencode(local.server_trust) && local.server_trust == { Version = "2012-10-17", Statement = [{ Effect = "Allow", Principal = { Service = "ec2.amazonaws.com" }, Action = "sts:AssumeRole" }] }
+    error_message = "The server's role must be assumable by EC2 only: one statement, and nothing else in the trust policy."
   }
 
   assert {
@@ -342,8 +358,13 @@ run "the_snapshot_role_is_the_snapshot_services_and_no_more" {
   command = plan
 
   assert {
-    condition     = aws_iam_role.backup.assume_role_policy == jsonencode(local.backup_trust) && local.backup_trust.Statement == [{ Effect = "Allow", Principal = { Service = "dlm.amazonaws.com" }, Action = "sts:AssumeRole" }]
-    error_message = "The snapshot role must be assumable by Data Lifecycle Manager only."
+    condition     = aws_iam_role.backup.assume_role_policy == jsonencode(local.backup_trust) && local.backup_trust == { Version = "2012-10-17", Statement = [{ Effect = "Allow", Principal = { Service = "dlm.amazonaws.com" }, Action = "sts:AssumeRole", Condition = { StringEquals = { "aws:SourceAccount" = "000000000000" } } }] }
+    error_message = "The snapshot role must be assumable by Data Lifecycle Manager only, and only for this account's lifecycle policies."
+  }
+
+  assert {
+    condition     = aws_iam_role_policy_attachments_exclusive.backup.policy_arns == toset(["arn:aws:iam::aws:policy/service-role/AWSDataLifecycleManagerServiceRole"]) && length(aws_iam_role_policies_exclusive.backup.policy_names) == 0 && aws_iam_role_policy_attachments_exclusive.backup.role_name == "causalpulse-backup" && aws_iam_role_policies_exclusive.backup.role_name == "causalpulse-backup"
+    error_message = "The snapshot role must have the one managed policy and no inline policy, and no other."
   }
 
   assert {

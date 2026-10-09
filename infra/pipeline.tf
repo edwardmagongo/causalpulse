@@ -1,6 +1,28 @@
 # The pipeline's identity. GitHub Actions presents a token GitHub signed; AWS
 # exchanges it for this role's short-lived credentials. There is no access
 # key, and the role can push two images and run one command on one machine.
+#
+# What that amounts to. The one command (`deploy-command.tf`) takes
+# `deploy/deploy.sh` out of the app image for the commit it is given and runs
+# it as root. So whoever can push an app image under a new tag and send the
+# command has root on the server: its environment file and the secrets in
+# it, its database, and the server's own role. The trust below gives this
+# role to any job that runs on `main` and asks GitHub for an identity token;
+# it tells `main` from every other ref, and it does not tell the deploy
+# workflow from any other workflow file on `main`. The repository has no
+# enforced branch protection. So "can push to `main`" is "root on the
+# server". That is the intended boundary while the repository is private and
+# has one owner. `tests/test_deploy_files.py` holds that only the deploy
+# workflow asks for the token and that it is started by hand only, which is
+# a guard against doing it by accident and not against a person who can push.
+# If the repository gains a second person who can push, the boundary has to
+# move: enforced branch protection on `main`, and the deploy job put in a
+# GitHub environment with required reviewers, with the subject below changed
+# to that environment's (`repo:<owner>/<name>:environment:<name>`).
+#
+# The session lasts two hours at most. The deploy workflow asks for that
+# long, because the role is taken before the images are built and is still
+# needed when the server's answer is read, and its job is limited to less.
 locals {
   github_oidc_host = "token.actions.githubusercontent.com"
 
@@ -69,7 +91,10 @@ locals {
       {
         # SendCommand is checked against the document and against the
         # target, so both are named and nothing else is: no other document
-        # on this machine, and this document on no other machine.
+        # on this machine, and this document on no other machine. The
+        # document's ARN carries no version, so every version of it that
+        # the account still holds may be sent: a version that was looser
+        # than the present one stays sendable until it is deleted.
         Sid      = "SendTheDeployCommand"
         Effect   = "Allow"
         Action   = ["ssm:SendCommand"]
@@ -116,6 +141,8 @@ resource "aws_iam_role" "pipeline" {
   name               = "causalpulse-pipeline"
   description        = "GitHub Actions, deploying CausalPulse from the main branch"
   assume_role_policy = jsonencode(local.pipeline_trust)
+  # Two hours: see the top of this file.
+  max_session_duration = 7200
 }
 
 resource "aws_iam_role_policy" "pipeline" {

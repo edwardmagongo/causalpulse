@@ -263,6 +263,13 @@ run "only_the_data_volume_is_snapshotted" {
     error_message = "The data volume must carry the tag the snapshot policy looks for."
   }
 
+  # Volumes, found by tag. With INSTANCE here the policy would look for a
+  # machine carrying the tag, find none, and take no snapshot at all.
+  assert {
+    condition     = aws_dlm_lifecycle_policy.data.policy_details[0].resource_types == tolist(["VOLUME"])
+    error_message = "The snapshot policy must target volumes."
+  }
+
   assert {
     condition     = aws_dlm_lifecycle_policy.data.policy_details[0].target_tags == tomap({ Backup = "causalpulse-data" })
     error_message = "The snapshot policy must look for the data volume's own tag and no other."
@@ -518,6 +525,12 @@ run "images_are_scanned_and_five_are_kept" {
     error_message = "The repositories must be causalpulse-app and causalpulse-web."
   }
 
+  # A SHA names one image: a tag that is there cannot be pushed again.
+  assert {
+    condition     = aws_ecr_repository.app.image_tag_mutability == "IMMUTABLE" && aws_ecr_repository.web.image_tag_mutability == "IMMUTABLE"
+    error_message = "Both repositories must have immutable tags."
+  }
+
   assert {
     condition     = aws_ecr_repository.app.image_scanning_configuration[0].scan_on_push && aws_ecr_repository.web.image_scanning_configuration[0].scan_on_push
     error_message = "Both repositories must scan on push."
@@ -553,6 +566,15 @@ run "the_budget_warns_twice_at_80_percent_of_50_dollars" {
       n.threshold == 80 && n.threshold_type == "PERCENTAGE" && n.subscriber_email_addresses == toset([var.budget_email])
     ])
     error_message = "Each warning must be at 80 percent, to the budget's address."
+  }
+}
+
+run "the_outputs_are_what_the_runbook_and_the_workflow_are_filled_in_from" {
+  command = plan
+
+  assert {
+    condition     = output.site_name == "causalpulse.example" && output.data_volume_id == "vol-00000000000000000" && output.deploy_document_name == "causalpulse-deploy" && output.registry == "000000000000.dkr.ecr.eu-west-1.amazonaws.com"
+    error_message = "The outputs must give the site's name, the data volume's id, the deploy document's name and the registry's host."
   }
 }
 

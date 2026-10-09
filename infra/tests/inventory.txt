@@ -27,12 +27,14 @@ infra resource aws_iam_openid_connect_provider github
 infra resource aws_iam_role backup
 infra resource aws_iam_role pipeline
 infra resource aws_iam_role server
+infra resource aws_iam_role_policies_exclusive backup
 infra resource aws_iam_role_policies_exclusive pipeline
 infra resource aws_iam_role_policies_exclusive server
 infra resource aws_iam_role_policy pipeline
 infra resource aws_iam_role_policy server
 infra resource aws_iam_role_policy_attachment backup
 infra resource aws_iam_role_policy_attachment server
+infra resource aws_iam_role_policy_attachments_exclusive backup
 infra resource aws_iam_role_policy_attachments_exclusive pipeline
 infra resource aws_iam_role_policy_attachments_exclusive server
 infra resource aws_instance server

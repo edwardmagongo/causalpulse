@@ -157,6 +157,14 @@ block "$infra/machine.tf" 'resource "aws_ebs_volume" "data" {' | grep -q -E '^  
 block "$infra/bootstrap/main.tf" 'resource "aws_s3_bucket" "state" {' | grep -q -E '^    prevent_destroy = true$' ||
     fail "the state bucket (bootstrap/main.tf, aws_s3_bucket.state) must have prevent_destroy = true"
 
+# 3a. A changed first-boot script or a newer image id does not replace the
+#     running machine. A test cannot read a `lifecycle` block, so the text is
+#     held here. Without this line an edit to `deploy/first-boot.sh.tftpl`
+#     would have the next apply stop the server to change its user data, and
+#     a new `ami_id` would replace it.
+block "$infra/machine.tf" 'resource "aws_instance" "server" {' | grep -q -E '^    ignore_changes = \[user_data, ami\]$' ||
+    fail "the machine (machine.tf, aws_instance.server) must have lifecycle { ignore_changes = [user_data, ami] }"
+
 # 4. Everything that takes tags is tagged for the project.
 provider=$(block "$infra/versions.tf" 'provider "aws" {')
 if ! printf '%s\n' "$provider" | grep -q -E '^  default_tags [{]$' ||

@@ -5,6 +5,16 @@ output "site_address" {
   value       = aws_eip.server.public_ip
 }
 
+output "site_name" {
+  description = "The site's public name, as given in terraform.tfvars: the SITE_NAME variable on GitHub."
+  value       = var.site_name
+}
+
+output "data_volume_id" {
+  description = "The volume that holds the database and the certificates: what a restore replaces."
+  value       = aws_ebs_volume.data.id
+}
+
 output "instance_id" {
   description = "The server, as the deploy workflow names it."
   value       = aws_instance.server.id

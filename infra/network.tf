@@ -31,6 +31,10 @@ data "aws_subnet" "server" {
 #
 # No port 22: the machine is reached through Systems Manager. No IPv6: the
 # proxy is published on IPv4 only (see `.env.example`).
+#
+# Do not change the group's `name` or `description`: either replaces the
+# group, and the old one cannot be deleted while the machine is in it, so the
+# apply waits and then fails.
 resource "aws_security_group" "server" {
   name        = "causalpulse-server"
   description = "CausalPulse: HTTP and HTTPS in over IPv4, everything out"
