@@ -20,7 +20,8 @@ import pytest
 from sqlalchemy import text
 
 TABLES = (
-    "analysis_summaries, estimates, routing_decisions, analyses, datasets, api_keys, users"
+    "interpretations, analysis_summaries, estimates, routing_decisions, analyses, datasets, "
+    "api_keys, users"
 )
 
 

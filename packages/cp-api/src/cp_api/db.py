@@ -36,6 +36,11 @@ JOB_TIMEOUT_SECONDS = 30 * 60
 
 STATUSES = ("queued", "running", "succeeded", "failed")
 
+INTERPRETATION_JOB_FUNCTION = "cp_worker.jobs.run_interpretation_job"
+INTERPRETATION_STATUSES = ("queued", "running", "verified", "refused", "failed")
+# The two an interpretation can still leave by itself.
+INTERPRETATION_PENDING = ("queued", "running")
+
 
 def utcnow() -> datetime:
     return datetime.now(UTC)
@@ -146,6 +151,45 @@ class AnalysisSummary(Base):
     )
     manifest: Mapped[dict[str, Any]] = mapped_column(JSONB)
     comparisons: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
+    # The analysis's fact table (phase 1's `facts.json`), or None: an analysis
+    # stored before interpretations existed, or one the extractor refused.
+    # `none_as_null`: without it SQLAlchemy writes None as the JSON value
+    # `null`, which `IS NULL` does not match, so a missing table would look
+    # like a present one.
+    facts: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
+
+
+class Interpretation(Base):
+    """One per analysis: the model's narrative of it, once verified, or why there is none.
+
+    `rendered` holds the five sections and the limits text, and `notice` what
+    "verified" establishes, both as the worker wrote them, so the API serves
+    them without importing the interpretation code. `job_id` changes when a
+    failed interpretation is asked for again, so a new job never collides with
+    the old one in the queue.
+    """
+
+    __tablename__ = "interpretations"
+
+    analysis_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("analyses.id"), primary_key=True
+    )
+    status: Mapped[str] = mapped_column(String(16))
+    job_id: Mapped[str] = mapped_column(String(64))
+    model: Mapped[str] = mapped_column(String(64))
+    effort: Mapped[str] = mapped_column(String(16))
+    returned_model: Mapped[str | None] = mapped_column(String(64))
+    prompt_version: Mapped[str | None] = mapped_column(String(32))
+    facts_sha256: Mapped[str | None] = mapped_column(String(64))
+    rendered: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    notice: Mapped[str | None] = mapped_column(Text)
+    attempts: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 def database_url() -> str:
