@@ -76,6 +76,20 @@ def _no_real_model_call(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:9")
 
 
+@pytest.fixture(autouse=True)
+def _no_ambient_server_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A developer's shell must not change how `create_app()` behaves in a test."""
+    for name in (
+        "CP_INTERPRETATION",
+        "CP_LIMIT_SIGNIN_FAILURES",
+        "CP_LIMIT_UPLOADS_PER_DAY",
+        "CP_LIMIT_ANALYSES_PER_DAY",
+        "CP_LIMIT_ANALYSES_ACTIVE",
+        "CP_LIMIT_INTERPRETATIONS_PER_DAY",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+
 def _shard(value: str) -> tuple[int, int]:
     """Parse `I/N` into (I, N), 1-based; anything else is a usage error."""
     index, slash, count = value.partition("/")
