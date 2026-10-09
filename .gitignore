@@ -55,6 +55,14 @@ infra/**/.terraform/
 *.tfstate.*
 terraform.tfvars
 *.auto.tfvars
+# A saved plan holds the account's number and the budget's address, and a
+# backend file names the state bucket.
+infra/**/tfplan
+infra/**/*.tfplan
+infra/**/plan.out
+infra/**/*.plan
+infra/**/backend.hcl
+infra/**/*.tfbackend
 
 # ---- Benchmark & analysis artifacts ----
 # Raw simulation output is large and reproducible from a seed + grid config.

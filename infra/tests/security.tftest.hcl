@@ -25,15 +25,13 @@ mock_provider "aws" {
     }
   }
 
-  mock_data "aws_subnets" {
-    defaults = {
-      ids = ["subnet-b", "subnet-a"]
-    }
-  }
-
+  # The subnet the owner names, as AWS would describe a default one.
   mock_data "aws_subnet" {
     defaults = {
-      availability_zone = "eu-west-1a"
+      vpc_id                          = "vpc-00000000000000000"
+      availability_zone               = "eu-west-1a"
+      map_public_ip_on_launch         = true
+      assign_ipv6_address_on_creation = false
     }
   }
 }
@@ -49,11 +47,23 @@ override_resource {
 # A key pair's name is one of the things AWS may answer with, so a plan
 # does not know it when the configuration is silent. Here the mock's answer
 # is "none"; a name written in the configuration is still what the plan shows.
+# The network interface's id is given so that its tags can be read.
 override_resource {
   target          = aws_instance.server
   override_during = plan
   values = {
-    key_name = null
+    key_name                     = null
+    primary_network_interface_id = "eni-00000000000000000"
+  }
+}
+
+# The group's id, so that a test can say the machine is in this group and in
+# no other. `tests/inventory.sh` is what says there is no other group.
+override_resource {
+  target          = aws_security_group.server
+  override_during = plan
+  values = {
+    id = "sg-00000000000000000"
   }
 }
 
@@ -62,6 +72,9 @@ variables {
   repository   = "owner/name"
   budget_email = "you@example.com"
   ami_id       = "ami-00000000000000000"
+  subnet_id    = "subnet-00000000000000000"
+
+  create_github_oidc_provider = true
 }
 
 run "inbound_is_http_and_https_over_ipv4_only" {
@@ -108,6 +121,55 @@ run "inbound_is_http_and_https_over_ipv4_only" {
     ])
     error_message = "No inbound rule may admit a security group or a prefix list."
   }
+
+  assert {
+    condition     = aws_instance.server.vpc_security_group_ids == toset(["sg-00000000000000000"])
+    error_message = "The machine must be in the one security group read above, and in no other."
+  }
+
+  assert {
+    condition     = aws_security_group.server.vpc_id == "vpc-00000000000000000"
+    error_message = "The security group must be in the VPC of the subnet the owner named."
+  }
+}
+
+run "the_machine_is_where_the_owner_said" {
+  command = plan
+
+  assert {
+    condition     = data.aws_subnet.server.id == "subnet-00000000000000000" && aws_instance.server.subnet_id == "subnet-00000000000000000"
+    error_message = "The machine must be placed in var.subnet_id, which is read and not looked for."
+  }
+
+  assert {
+    condition     = aws_ebs_volume.data.availability_zone == "eu-west-1a"
+    error_message = "The data volume must be created in the subnet's zone."
+  }
+}
+
+run "a_subnet_that_gives_no_public_address_is_refused" {
+  command = plan
+
+  override_data {
+    target = data.aws_subnet.server
+    values = {
+      vpc_id                  = "vpc-00000000000000000"
+      availability_zone       = "eu-west-1a"
+      map_public_ip_on_launch = false
+    }
+  }
+
+  expect_failures = [data.aws_subnet.server]
+}
+
+run "a_subnet_id_that_is_not_one_is_refused" {
+  command = plan
+
+  variables {
+    subnet_id = "eu-west-1a"
+  }
+
+  expect_failures = [var.subnet_id]
 }
 
 run "the_machine_has_no_key_no_ipv6_and_version_2_metadata" {
@@ -186,6 +248,11 @@ run "both_disks_are_encrypted_and_sized" {
     condition     = aws_volume_attachment.data.device_name == "/dev/sdf"
     error_message = "The data volume must be attached as /dev/sdf."
   }
+
+  assert {
+    condition     = aws_volume_attachment.data.stop_instance_before_detaching == true && aws_volume_attachment.data.force_detach != true
+    error_message = "The data volume must be detached from a stopped machine, and never by force: the database is on it."
+  }
 }
 
 run "only_the_data_volume_is_snapshotted" {
@@ -246,13 +313,104 @@ run "the_deploy_command_takes_one_guarded_parameter" {
   }
 
   assert {
-    condition     = length(regexall("\\{\\{", local.deploy_script)) == length(regexall("[\":]\\{\\{ Sha \\}\\}\"", local.deploy_script))
-    error_message = "Every substitution in the deploy script must be {{ Sha }}, inside double quotes."
+    condition     = length(regexall("\\{\\{|\\}\\}", local.deploy_script)) == 2 && contains(local.deploy_script_lines, "sha=\"{{ Sha }}\"")
+    error_message = "The deploy script must hold one substitution, the line sha=\"{{ Sha }}\", and no other pair of braces."
   }
 
   assert {
-    condition     = element(local.deploy_document.mainSteps[0].inputs.runCommand, -1) == "exec sh deploy/deploy.sh \"$registry\" \"{{ Sha }}\""
-    error_message = "The deploy script must end by running deploy/deploy.sh with the registry and the SHA."
+    condition     = local.deploy_document.mainSteps[0].inputs.runCommand == split("\n", trimspace(local.deploy_script))
+    error_message = "The document must run the tested script, line for line."
+  }
+}
+
+# The script is read as text: nothing here runs it. `make check-infra` also
+# gives it to `sh -n` and `shellcheck` (`tests/render-deploy-command.sh`).
+run "a_deploy_returns_its_reason_and_its_status" {
+  command = plan
+
+  assert {
+    condition     = contains(local.deploy_script_lines, "sh deploy/deploy.sh \"$registry\" \"$sha\"") && length(regexall("deploy\\.sh", join("\n", local.deploy_script_code))) == 1
+    error_message = "The deploy script must be run once, with the registry and the SHA, and not by exec: what follows it returns its output."
+  }
+
+  assert {
+    condition     = contains(local.deploy_script_lines, ") >\"$run\" 2>&1") && contains(local.deploy_script_lines, "run=\"$root/deploy-run.log\"")
+    error_message = "Both streams of the whole deploy must go to this run's file."
+  }
+
+  assert {
+    condition     = length(regexall(">&2|2>[^&]", join("\n", local.deploy_script_code))) == 0
+    error_message = "The script must say nothing on standard error, of which Systems Manager returns the first 8,000 characters only."
+  }
+
+  assert {
+    condition = (
+      index(local.deploy_script_lines, ") >\"$run\" 2>&1") + 1 == index(local.deploy_script_lines, "status=$?")
+      && index(local.deploy_script_lines, "status=$?") < index(local.deploy_script_lines, "tail -c 20000 \"$run\"")
+      && element(local.deploy_script_lines, -1) == "exit \"$status\""
+    )
+    error_message = "The status must be taken straight after the deploy, the end of this run's output printed, and the status returned last."
+  }
+
+  assert {
+    condition     = length(regexall("tail -c [0-9]+ \"\\$run\"", local.deploy_script)) == 1 && length(regexall("(^|[^a-z])cat ", join("\n", local.deploy_script_code))) == 1 && contains(local.deploy_script_lines, "cat \"$run\"")
+    error_message = "Standard output must carry the last 20,000 bytes of this run and no more: Systems Manager returns the first 24,000 characters."
+  }
+
+  assert {
+    condition     = contains(local.deploy_script_lines, "} >>\"$log\" || echo \"deploy-command: could not add this run to $log\"") && contains(local.deploy_script_lines, "if [ \"$(wc -c <\"$log\")\" -gt 1048576 ]; then") && contains(local.deploy_script_lines, "tail -c 524288 \"$log\" >\"$log.new\" && mv \"$log.new\" \"$log\" || echo \"deploy-command: could not shorten $log\"")
+    error_message = "Each run must be added to the history, and the history cut to its last half once it passes a megabyte."
+  }
+
+  assert {
+    condition     = contains(local.deploy_script_lines, "docker pull --quiet \"$registry/causalpulse-app:$sha\"")
+    error_message = "The document's own pull must be quiet."
+  }
+}
+
+run "one_deploy_at_a_time_and_nothing_of_the_records_is_removed" {
+  command = plan
+
+  assert {
+    condition     = index(local.deploy_script_lines, "exec 9>\"$root/deploy.lock\"") + 1 == index(local.deploy_script_lines, "flock -n 9 || { echo \"deploy-command: another deploy is running; this one did nothing\"; exit 75; }") && index(local.deploy_script_lines, "exec 9>\"$root/deploy.lock\"") < index(local.deploy_script_lines, "(")
+    error_message = "The lock must be taken before anything is written, and a second deploy must say so on standard output and exit 75."
+  }
+
+  # Every line that removes or renames, in order. A new one is a decision.
+  assert {
+    condition = [for line in local.deploy_script_code : line if length(regexall("(^|[ ;&|])(rm|mv|rmdir|unlink|truncate|find|dd|cp|install|tee|ln)( |$)|>>?[\"/$]", line)) > 0] == [
+      "exec 9>\"$root/deploy.lock\"",
+      "aws ecr get-login-password --region \"eu-west-1\" | docker login --username AWS --password-stdin \"$registry\" >/dev/null",
+      "rm -rf \"$root/release.new\" \"$root/release.old\"",
+      "trap 'docker rm -f \"$id\" >/dev/null' EXIT",
+      "docker cp \"$id:/deploy/.\" \"$root/release.new/\"",
+      "docker rm -f \"$id\" >/dev/null",
+      "if [ -e \"$root/release\" ]; then mv \"$root/release\" \"$root/release.old\"; fi",
+      "mv \"$root/release.new\" \"$root/release\"",
+      "rm -rf \"$root/release.old\"",
+      ") >\"$run\" 2>&1",
+      "' \"$run\" >\"$run.clean\"; then",
+      "mv \"$run.clean\" \"$run\"",
+      "rm -f \"$run\" \"$run.clean\"",
+      "} >>\"$log\" || echo \"deploy-command: could not add this run to $log\"",
+      "tail -c 524288 \"$log\" >\"$log.new\" && mv \"$log.new\" \"$log\" || echo \"deploy-command: could not shorten $log\"",
+    ]
+    error_message = "The script removes, renames or writes over something this list does not hold. It may touch deploy.lock, deploy-run.log, deploy.log and the release directories, and nothing else."
+  }
+
+  assert {
+    condition     = length(regexall("current-sha|previous-sha", local.deploy_script)) == 0 && [for line in local.deploy_script_code : line if strcontains(line, ".env")] == ["if awk -v envfile=\"$root/.env\" -v quote=\"'\" '"]
+    error_message = "The script must not name current-sha or previous-sha, and must name the environment file once, to read it."
+  }
+
+  assert {
+    condition     = length(regexall("set -[a-z]*x|xtrace|compose config|printenv|(^|[ ;])env( |$)", join("\n", local.deploy_script_code))) == 0
+    error_message = "The script must not trace its commands or print settings."
+  }
+
+  assert {
+    condition     = index(local.deploy_script_lines, "' \"$run\" >\"$run.clean\"; then") < index(local.deploy_script_lines, "cat \"$run\"") && index(local.deploy_script_lines, "' \"$run\" >\"$run.clean\"; then") < index(local.deploy_script_lines, "tail -c 20000 \"$run\"") && contains(local.deploy_script_lines, "if (length(value) >= 8) {")
+    error_message = "The environment file's values must be taken out of the run's output before it is kept or printed."
   }
 
   assert {
@@ -269,10 +427,22 @@ run "everything_is_tagged_for_the_project" {
     error_message = "The provider's default tags must be Project = causalpulse."
   }
 
-  # The two places the provider's default tags do not reach.
+  # The three places the provider's default tags do not reach.
   assert {
     condition     = aws_instance.server.root_block_device[0].tags["Project"] == "causalpulse"
     error_message = "The root disk must be tagged Project = causalpulse."
+  }
+
+  assert {
+    condition     = { for key, tag in aws_ec2_tag.server_network_interface : key => tag.value } == { Name = "causalpulse-server", Project = "causalpulse" } && alltrue([for key, tag in aws_ec2_tag.server_network_interface : tag.key == key && tag.resource_id == "eni-00000000000000000"])
+    error_message = "The machine's network interface must be tagged Project = causalpulse and named."
+  }
+
+  # `volume_tags` on the instance would also take charge of the data
+  # volume's tags, and remove the one the snapshot policy looks for.
+  assert {
+    condition     = aws_instance.server.volume_tags == null
+    error_message = "The instance must not set volume_tags: the data volume's tags are its own."
   }
 
   assert {
@@ -357,6 +527,26 @@ run "the_first_boot_script_is_given_whole" {
   assert {
     condition     = startswith(local.first_boot, "#!/bin/bash\n")
     error_message = "cloud-init runs user data as a script only when it begins with an interpreter line."
+  }
+}
+
+# Read as text: no test here runs the script.
+run "the_first_boot_script_waits_and_checks" {
+  command = plan
+
+  assert {
+    condition     = length(regexall("apt-get", local.first_boot)) == length(regexall("apt-get -o DPkg::Lock::Timeout=300 ", local.first_boot)) && length(regexall("apt-get", local.first_boot)) > 0
+    error_message = "Every apt-get must wait for dpkg's lock (-o DPkg::Lock::Timeout=300)."
+  }
+
+  assert {
+    condition     = strcontains(local.first_boot, "signatures=$(wipefs \"$device\") || wipe_status=$?\n        if [ \"$wipe_status\" -ne 0 ]; then\n            die ") && length(regexall("wipefs \"", local.first_boot)) == 1
+    error_message = "wipefs's status must be looked at before its silence is taken to mean an empty volume."
+  }
+
+  assert {
+    condition     = strcontains(local.first_boot, "\"$work/aws/install\" --update >/dev/null") && length(regexall("aws/install", local.first_boot)) == 1
+    error_message = "The AWS CLI installer must be run with --update."
   }
 }
 

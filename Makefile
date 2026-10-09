@@ -220,8 +220,15 @@ smoke-deploy:
 
 # The infrastructure, checked without an account: Terraform's formatting, its
 # validation, and its tests against a mocked provider (`infra/tests/`), then
-# the first-boot script as Terraform renders it, the deploy scripts and the
-# workflows. Nothing is planned against AWS and nothing is created.
+# the first-boot script as Terraform renders it, the deploy document's
+# script, the deploy scripts and the workflows. Nothing is planned against
+# AWS and nothing is created.
+#
+# A test reads the resources it names and no other. `infra/tests/inventory.sh`
+# is what fails when a resource is added that `infra/tests/inventory.txt`
+# does not list, or when one of the texts it refuses appears (a key pair,
+# port 22, IPv6, a policy the tests do not read). It comes after the
+# formatting check because it reads the files as that leaves them.
 #
 # Terraform is run with every source of AWS credentials taken away, so a
 # developer who is signed in reaches nothing through this target. `init`
@@ -235,6 +242,7 @@ TERRAFORM_NO_AWS = env -u AWS_PROFILE -u AWS_DEFAULT_PROFILE -u AWS_ACCESS_KEY_I
 
 check-infra:
 	$(TERRAFORM_NO_AWS) -chdir=infra fmt -check -recursive
+	sh infra/tests/inventory.sh
 	$(TERRAFORM_NO_AWS) -chdir=infra init -backend=false -input=false -lockfile=readonly
 	$(TERRAFORM_NO_AWS) -chdir=infra validate
 	$(TERRAFORM_NO_AWS) -chdir=infra test
@@ -242,6 +250,8 @@ check-infra:
 	$(TERRAFORM_NO_AWS) -chdir=infra/bootstrap validate
 	rendered=$$(mktemp -d) && trap 'rm -rf "$$rendered"' EXIT && \
 	sh infra/tests/render-first-boot.sh >"$$rendered/first-boot.sh" && \
-	bash -n "$$rendered/first-boot.sh" && shellcheck "$$rendered/first-boot.sh"
+	bash -n "$$rendered/first-boot.sh" && shellcheck "$$rendered/first-boot.sh" && \
+	sh infra/tests/render-deploy-command.sh >"$$rendered/deploy-command.sh" && \
+	sh -n "$$rendered/deploy-command.sh" && shellcheck -s sh "$$rendered/deploy-command.sh"
 	shellcheck deploy/*.sh infra/tests/*.sh
 	actionlint

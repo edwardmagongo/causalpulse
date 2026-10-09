@@ -26,15 +26,13 @@ mock_provider "aws" {
     }
   }
 
-  mock_data "aws_subnets" {
-    defaults = {
-      ids = ["subnet-b", "subnet-a"]
-    }
-  }
-
+  # The subnet the owner names, as AWS would describe a default one.
   mock_data "aws_subnet" {
     defaults = {
-      availability_zone = "eu-west-1a"
+      vpc_id                          = "vpc-00000000000000000"
+      availability_zone               = "eu-west-1a"
+      map_public_ip_on_launch         = true
+      assign_ipv6_address_on_creation = false
     }
   }
 }
@@ -72,11 +70,21 @@ override_resource {
   }
 }
 
+# The account's identity provider for GitHub Actions, in each of the two
+# ways it can come to be in use. In an account the two would have one ARN,
+# since it is made from the address; here they are told apart on purpose.
 override_resource {
   target          = aws_iam_openid_connect_provider.github
   override_during = plan
   values = {
-    arn = "arn:aws:iam::000000000000:oidc-provider/token.actions.githubusercontent.com"
+    arn = "arn:aws:iam::000000000000:oidc-provider/created-here"
+  }
+}
+
+override_data {
+  target = data.aws_iam_openid_connect_provider.github
+  values = {
+    arn = "arn:aws:iam::000000000000:oidc-provider/already-there"
   }
 }
 
@@ -85,6 +93,9 @@ variables {
   repository   = "owner/name"
   budget_email = "you@example.com"
   ami_id       = "ami-00000000000000000"
+  subnet_id    = "subnet-00000000000000000"
+
+  create_github_oidc_provider = true
 }
 
 run "the_pipeline_role_trusts_one_branch_of_one_repository" {
@@ -116,8 +127,13 @@ run "the_pipeline_role_trusts_one_branch_of_one_repository" {
   }
 
   assert {
-    condition     = local.pipeline_trust.Statement[0].Action == "sts:AssumeRoleWithWebIdentity" && local.pipeline_trust.Statement[0].Principal == { Federated = aws_iam_openid_connect_provider.github.arn }
-    error_message = "The role must be assumable through GitHub's OIDC provider only."
+    condition     = local.pipeline_trust.Statement[0].Action == "sts:AssumeRoleWithWebIdentity" && local.pipeline_trust.Statement[0].Principal == { Federated = "arn:aws:iam::000000000000:oidc-provider/created-here" }
+    error_message = "The role must be assumable through GitHub's OIDC provider only: here, the one this configuration creates."
+  }
+
+  assert {
+    condition     = length(aws_iam_openid_connect_provider.github) == 1 && length(data.aws_iam_openid_connect_provider.github) == 0
+    error_message = "With create_github_oidc_provider = true the provider must be created, and not also read."
   }
 
   assert {
@@ -126,8 +142,37 @@ run "the_pipeline_role_trusts_one_branch_of_one_repository" {
   }
 
   assert {
-    condition     = aws_iam_openid_connect_provider.github.url == "https://token.actions.githubusercontent.com" && aws_iam_openid_connect_provider.github.client_id_list == toset(["sts.amazonaws.com"])
+    condition     = aws_iam_openid_connect_provider.github[0].url == "https://token.actions.githubusercontent.com" && aws_iam_openid_connect_provider.github[0].client_id_list == toset(["sts.amazonaws.com"])
     error_message = "The OIDC provider must be GitHub's, for the audience sts.amazonaws.com."
+  }
+}
+
+# An account holds one provider for an address, and this account is shared.
+run "an_identity_provider_the_account_already_has_is_read_and_not_created" {
+  command = plan
+
+  variables {
+    create_github_oidc_provider = false
+  }
+
+  assert {
+    condition     = length(aws_iam_openid_connect_provider.github) == 0 && length(data.aws_iam_openid_connect_provider.github) == 1
+    error_message = "With create_github_oidc_provider = false no provider may be created: a second for the same address is refused by AWS, and the first is another project's."
+  }
+
+  assert {
+    condition     = data.aws_iam_openid_connect_provider.github[0].url == "https://token.actions.githubusercontent.com"
+    error_message = "The provider that is read must be GitHub's."
+  }
+
+  assert {
+    condition     = local.pipeline_trust.Statement[0].Principal == { Federated = "arn:aws:iam::000000000000:oidc-provider/already-there" }
+    error_message = "The role must trust the provider the account already has."
+  }
+
+  assert {
+    condition     = aws_iam_role.pipeline.assume_role_policy == jsonencode(local.pipeline_trust) && local.pipeline_trust.Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:sub"] == "repo:owner/name:ref:refs/heads/main" && keys(local.pipeline_trust.Statement[0].Condition) == ["StringEquals"]
+    error_message = "The trust must be the same one branch of one repository whichever provider is in use."
   }
 }
 
@@ -158,10 +203,9 @@ run "the_pipeline_may_push_two_images_and_send_one_command" {
         "ecr:UploadLayerPart",
         "ssm:SendCommand",
         "ssm:GetCommandInvocation",
-        "ssm:ListCommandInvocations",
       ], action)
     ])
-    error_message = "The pipeline policy holds an action outside the list: pushing and reading images, ssm:SendCommand, and reading a command's result."
+    error_message = "The pipeline policy holds an action outside the list: pushing and reading images, ssm:SendCommand, and reading the result of a command whose id is known."
   }
 
   assert {
@@ -203,10 +247,10 @@ run "the_pipeline_may_push_two_images_and_send_one_command" {
   assert {
     condition = alltrue([
       for statement in local.pipeline_policy.Statement :
-      alltrue([for action in statement.Action : contains(["ecr:GetAuthorizationToken", "ssm:GetCommandInvocation", "ssm:ListCommandInvocations"], action)])
+      alltrue([for action in statement.Action : contains(["ecr:GetAuthorizationToken", "ssm:GetCommandInvocation"], action)])
       if contains(statement.Resource, "*")
     ])
-    error_message = "Only ecr:GetAuthorizationToken and the two actions that read a command's result may be allowed on every resource."
+    error_message = "Only ecr:GetAuthorizationToken and ssm:GetCommandInvocation may be allowed on every resource."
   }
 
   assert {
@@ -225,22 +269,45 @@ run "the_machine_may_pull_two_images_and_be_managed" {
 
   assert {
     condition = alltrue([
-      for action in flatten(local.server_policy.Statement[*].Action) : contains([
+      for action in flatten([for statement in local.server_policy.Statement : statement.Action if statement.Effect == "Allow"]) : contains([
         "ecr:GetAuthorizationToken",
         "ecr:BatchCheckLayerAvailability",
         "ecr:BatchGetImage",
         "ecr:GetDownloadUrlForLayer",
       ], action)
     ])
-    error_message = "The server's policy must hold ECR read actions only."
+    error_message = "The server's policy must allow ECR read actions only."
   }
 
   assert {
     condition = alltrue([
       for statement in local.server_policy.Statement :
-      statement.Effect == "Allow" && (statement.Resource == [aws_ecr_repository.app.arn, aws_ecr_repository.web.arn] || statement.Action == ["ecr:GetAuthorizationToken"])
+      statement.Resource == [aws_ecr_repository.app.arn, aws_ecr_repository.web.arn] || statement.Action == ["ecr:GetAuthorizationToken"]
+      if statement.Effect == "Allow"
     ])
     error_message = "The server's policy must name the two repositories, and every resource only for ecr:GetAuthorizationToken."
+  }
+
+  # The managed policy allows these two on every resource, and the account is
+  # shared. They are refused whole: every resource, no condition.
+  assert {
+    condition = [for statement in local.server_policy.Statement : statement if statement.Effect != "Allow"] == [{
+      Sid      = "NoParameterStore"
+      Effect   = "Deny"
+      Action   = ["ssm:GetParameter", "ssm:GetParameters"]
+      Resource = ["*"]
+    }]
+    error_message = "The server's policy must deny ssm:GetParameter and ssm:GetParameters on every resource, without a condition, and deny nothing else."
+  }
+
+  assert {
+    condition     = alltrue([for statement in local.server_policy.Statement : contains(["Allow", "Deny"], statement.Effect) && !can(statement.NotAction) && !can(statement.NotResource) && !can(statement.Condition) && !can(statement.Principal)])
+    error_message = "The server's policy must be plain statements, with no NotAction, NotResource or Condition."
+  }
+
+  assert {
+    condition     = keys(aws_iam_role_policy_attachment.server) == ["arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"] && alltrue([for arn, attachment in aws_iam_role_policy_attachment.server : attachment.policy_arn == arn && attachment.role == "causalpulse-server"])
+    error_message = "The one managed policy attached to the server's role must be AmazonSSMManagedInstanceCore."
   }
 
   assert {
@@ -266,5 +333,21 @@ run "the_machine_may_pull_two_images_and_be_managed" {
   assert {
     condition     = aws_iam_instance_profile.server.role == "causalpulse-server"
     error_message = "The instance profile must carry the server's role."
+  }
+}
+
+# The other managed policy in this directory: AWS's own for the service that
+# takes the snapshots. `tests/inventory.sh` refuses a third attachment.
+run "the_snapshot_role_is_the_snapshot_services_and_no_more" {
+  command = plan
+
+  assert {
+    condition     = aws_iam_role.backup.assume_role_policy == jsonencode(local.backup_trust) && local.backup_trust.Statement == [{ Effect = "Allow", Principal = { Service = "dlm.amazonaws.com" }, Action = "sts:AssumeRole" }]
+    error_message = "The snapshot role must be assumable by Data Lifecycle Manager only."
+  }
+
+  assert {
+    condition     = aws_iam_role_policy_attachment.backup.policy_arn == "arn:aws:iam::aws:policy/service-role/AWSDataLifecycleManagerServiceRole" && aws_iam_role_policy_attachment.backup.role == "causalpulse-backup"
+    error_message = "The snapshot role's one managed policy must be AWSDataLifecycleManagerServiceRole."
   }
 }

@@ -1,0 +1,48 @@
+# Every `resource`, `data` and `provider` block under `infra/`, one to a
+# line: the directory, the kind, the type and the name. `inventory.sh`,
+# beside this file, fails unless the blocks declared are exactly these.
+#
+# To add or remove a resource, change this list in the same commit, by hand.
+# The line is the place where a reviewer is told that the infrastructure has
+# gained or lost something, and that the tests may not yet read it.
+infra data aws_caller_identity current
+infra data aws_iam_openid_connect_provider github
+infra data aws_partition current
+infra data aws_region current
+infra data aws_subnet server
+infra provider aws
+infra resource aws_budgets_budget monthly
+infra resource aws_cloudwatch_metric_alarm recover
+infra resource aws_dlm_lifecycle_policy data
+infra resource aws_ebs_volume data
+infra resource aws_ec2_tag server_network_interface
+infra resource aws_ecr_lifecycle_policy app
+infra resource aws_ecr_lifecycle_policy web
+infra resource aws_ecr_repository app
+infra resource aws_ecr_repository web
+infra resource aws_eip server
+infra resource aws_eip_association server
+infra resource aws_iam_instance_profile server
+infra resource aws_iam_openid_connect_provider github
+infra resource aws_iam_role backup
+infra resource aws_iam_role pipeline
+infra resource aws_iam_role server
+infra resource aws_iam_role_policies_exclusive pipeline
+infra resource aws_iam_role_policies_exclusive server
+infra resource aws_iam_role_policy pipeline
+infra resource aws_iam_role_policy server
+infra resource aws_iam_role_policy_attachment backup
+infra resource aws_iam_role_policy_attachment server
+infra resource aws_iam_role_policy_attachments_exclusive pipeline
+infra resource aws_iam_role_policy_attachments_exclusive server
+infra resource aws_instance server
+infra resource aws_security_group server
+infra resource aws_ssm_document deploy
+infra resource aws_volume_attachment data
+infra/bootstrap provider aws
+infra/bootstrap resource aws_s3_bucket state
+infra/bootstrap resource aws_s3_bucket_lifecycle_configuration state
+infra/bootstrap resource aws_s3_bucket_policy state
+infra/bootstrap resource aws_s3_bucket_public_access_block state
+infra/bootstrap resource aws_s3_bucket_server_side_encryption_configuration state
+infra/bootstrap resource aws_s3_bucket_versioning state

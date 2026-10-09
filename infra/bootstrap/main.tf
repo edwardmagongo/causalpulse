@@ -17,14 +17,10 @@ variable "state_bucket" {
   type        = string
 }
 
-variable "region" {
-  description = "The AWS region the bucket is created in."
-  type        = string
-  default     = "eu-west-1"
-}
-
+# The region is written and is not a variable: it must be the one the
+# backend block in `../versions.tf` names, which cannot follow a variable.
 provider "aws" {
-  region = var.region
+  region = "eu-west-1"
 
   default_tags {
     tags = {
@@ -41,7 +37,8 @@ resource "aws_s3_bucket" "state" {
   }
 }
 
-# An earlier state can be brought back after a bad write.
+# An earlier state can be brought back after a bad write (for how long, see
+# the lifecycle rule below).
 resource "aws_s3_bucket_versioning" "state" {
   bucket = aws_s3_bucket.state.id
 
@@ -69,6 +66,50 @@ resource "aws_s3_bucket_public_access_block" "state" {
   block_public_policy     = true
   ignore_public_acls      = true
   restrict_public_buckets = true
+}
+
+# Every request must come over TLS. The public access block comes first: AWS
+# refuses two changes to one bucket's settings at the same moment.
+resource "aws_s3_bucket_policy" "state" {
+  bucket = aws_s3_bucket.state.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "TlsOnly"
+      Effect    = "Deny"
+      Principal = "*"
+      Action    = "s3:*"
+      Resource  = [aws_s3_bucket.state.arn, "${aws_s3_bucket.state.arn}/*"]
+      Condition = {
+        Bool = { "aws:SecureTransport" = "false" }
+      }
+    }]
+  })
+
+  depends_on = [aws_s3_bucket_public_access_block.state]
+}
+
+# Each apply writes a new version of the state, and each lock writes and
+# deletes a small object, which leaves a version behind. A version that has
+# been replaced is removed 90 days later, so an earlier state can be brought
+# back for 90 days and not for ever. The current version is never removed.
+resource "aws_s3_bucket_lifecycle_configuration" "state" {
+  bucket = aws_s3_bucket.state.id
+
+  rule {
+    id     = "expire-replaced-versions"
+    status = "Enabled"
+
+    filter {}
+
+    noncurrent_version_expiration {
+      noncurrent_days = 90
+    }
+  }
+
+  # A lifecycle rule for versions is refused on a bucket without versioning.
+  depends_on = [aws_s3_bucket_versioning.state]
 }
 
 output "state_bucket" {

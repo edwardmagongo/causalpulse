@@ -39,7 +39,8 @@ resource "aws_instance" "server" {
   }
 
   # The system and Docker's images. The provider's default tags do not reach
-  # this disk, so they are given here.
+  # this disk, so they are given here. `volume_tags` is not used: it would
+  # also claim the tags of the data volume, which is a resource of its own.
   root_block_device {
     volume_type = "gp3"
     volume_size = 30
@@ -62,6 +63,19 @@ resource "aws_instance" "server" {
   lifecycle {
     ignore_changes = [user_data, ami]
   }
+}
+
+# The provider's default tags do not reach the machine's network interface
+# either, which EC2 creates with it. These follow a replaced machine to its
+# new interface.
+resource "aws_ec2_tag" "server_network_interface" {
+  for_each = merge(local.default_tags, {
+    Name = "causalpulse-server"
+  })
+
+  resource_id = aws_instance.server.primary_network_interface_id
+  key         = each.key
+  value       = each.value
 }
 
 # Docker's named volumes: the database and the proxy's certificates. It is
@@ -116,6 +130,35 @@ resource "aws_cloudwatch_metric_alarm" "recover" {
 
 # What the machine itself may do: be managed by Systems Manager, and pull the
 # two images.
+#
+# `AmazonSSMManagedInstanceCore` is AWS's own policy and is wider than this
+# machine needs. Version 2 of it, as AWS publishes it, allows on every
+# resource two actions that read Parameter Store, `ssm:GetParameter` and
+# `ssm:GetParameters`, and the account is shared: without the `Deny` below,
+# root on this public machine could read the other project's parameters,
+# decrypted where they are encrypted under the account's default key. A
+# `Deny` wins over any `Allow`, in this policy or the managed one.
+#
+# The agent works without them. A command and a session reach it through the
+# `ssmmessages:` and `ec2messages:` actions. It reads Parameter Store when a
+# document or a command names a parameter (`{{ssm:...}}` or
+# `{{ssm-secure:...}}`), or when something on the machine (the CloudWatch
+# agent, for one) is told to take its configuration from one. The deploy
+# document names none, and nothing else here does either.
+#
+# Those two are every action of that policy that reads Parameter Store. The
+# others that read it (`ssm:GetParametersByPath`, `ssm:GetParameterHistory`,
+# `ssm:DescribeParameters`) are not allowed by it or by anything else on this
+# role, so there is nothing of theirs to deny; a later version of AWS's
+# policy could add one, and the `Deny` below would not cover it.
+#
+# Left as AWS grants them, on every resource: `ssm:GetDocument` and
+# `ssm:DescribeDocument` (they belong to how the agent is sent documents to
+# run, and by them the machine can read any document in the account),
+# `ssm:GetManifest`, `ssm:DescribeAssociation`, `ssm:ListAssociations`,
+# `ssm:ListInstanceAssociations`, `ssm:GetDeployablePatchSnapshotForInstance`,
+# the `ssm:Put...` and `ssm:Update...` actions by which the agent reports,
+# and the `ssmmessages:` and `ec2messages:` actions.
 locals {
   server_trust = {
     Version = "2012-10-17"
@@ -151,6 +194,15 @@ locals {
         ]
         Resource = local.repository_arns
       },
+      {
+        Sid    = "NoParameterStore"
+        Effect = "Deny"
+        Action = [
+          "ssm:GetParameter",
+          "ssm:GetParameters",
+        ]
+        Resource = ["*"]
+      },
     ]
   }
 }
@@ -161,6 +213,8 @@ resource "aws_iam_role" "server" {
   assume_role_policy = jsonencode(local.server_trust)
 }
 
+# The name is from before the policy also denied anything, and is kept: a
+# role's inline policy cannot be renamed, only replaced.
 resource "aws_iam_role_policy" "server" {
   name   = "pull-images"
   role   = aws_iam_role.server.name

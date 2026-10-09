@@ -1,12 +1,6 @@
 # None of these has a default that is a real value. Set them in
 # `terraform.tfvars`, which git ignores; `terraform.tfvars.example` shows how.
 
-variable "region" {
-  description = "The AWS region everything is created in."
-  type        = string
-  default     = "eu-west-1"
-}
-
 variable "site_name" {
   description = "The site's public name, which the proxy asks a certificate for."
   type        = string
@@ -48,4 +42,19 @@ variable "ami_id" {
     condition     = can(regex("^ami-[0-9a-f]{8,17}$", var.ami_id))
     error_message = "The image must be an AMI id."
   }
+}
+
+variable "subnet_id" {
+  description = "The public subnet of the default VPC the machine is placed in. The data volume is created in its zone. See terraform.tfvars.example."
+  type        = string
+
+  validation {
+    condition     = can(regex("^subnet-[0-9a-f]{8,17}$", var.subnet_id))
+    error_message = "The subnet must be a subnet id."
+  }
+}
+
+variable "create_github_oidc_provider" {
+  description = "Whether this configuration creates the account's identity provider for GitHub Actions (true), or reads the one the account already has (false). An account holds one. See terraform.tfvars.example."
+  type        = bool
 }

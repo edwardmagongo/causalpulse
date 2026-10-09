@@ -1,5 +1,5 @@
 # Copy to `terraform.tfvars`, which git ignores, and put the real values
-# there. This file holds placeholders only.
+# there. This file holds placeholders only. Every command below only reads.
 
 # The site's public name. Its A record is added by hand, to the address
 # `terraform output site_address` prints.
@@ -19,3 +19,26 @@ budget_email = "you@example.com"
 # It is written here and not looked up at each apply, so that a newer image
 # never replaces the machine by itself.
 ami_id = "ami-00000000000000000"
+
+# The subnet the machine is placed in: one of the default VPC's public
+# subnets, which this lists with the zone of each:
+#
+#   aws ec2 describe-subnets --region eu-west-1 \
+#     --filters Name=default-for-az,Values=true \
+#     --query 'Subnets[?MapPublicIpOnLaunch].[SubnetId,AvailabilityZone]' --output text
+#
+# Choose one and keep it. The data volume is created in the subnet's zone
+# and cannot leave it, so a different subnet later means a different zone,
+# and Terraform then refuses the plan sooner than replace the volume.
+subnet_id = "subnet-00000000000000000"
+
+# An account holds one identity provider for GitHub Actions. This lists the
+# account's providers:
+#
+#   aws iam list-open-id-connect-providers --query 'OpenIDConnectProviderList[].Arn' --output text
+#
+# `true` if nothing it prints ends
+# `oidc-provider/token.actions.githubusercontent.com`: this configuration
+# then creates the provider, and a `terraform destroy` here removes it.
+# `false` if something does: that provider is read and left exactly as it is.
+create_github_oidc_provider = false

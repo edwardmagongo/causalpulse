@@ -1,37 +1,40 @@
-# The account's default VPC, and the default subnet whose id sorts first.
-# The choice is stable for as long as the VPC's default subnets are the same
-# ones; the data volume is created in that subnet's zone.
-data "aws_vpc" "default" {
-  default = true
-}
-
-data "aws_subnets" "default" {
-  filter {
-    name   = "vpc-id"
-    values = [data.aws_vpc.default.id]
-  }
-
-  filter {
-    name   = "default-for-az"
-    values = ["true"]
-  }
-}
-
+# The subnet is named by the owner (`var.subnet_id`) and is not looked up, so
+# the choice cannot move when the account's subnets change: a moved choice
+# would have Terraform propose replacing the machine and its data volume. The
+# VPC and the data volume's zone are the subnet's.
+#
+# The two conditions are what the rest of this directory assumes. The machine
+# reaches the package archives at first boot through the public address the
+# subnet gives it, before the fixed address is associated; and nothing here
+# is to have an IPv6 address.
 data "aws_subnet" "server" {
-  id = sort(data.aws_subnets.default.ids)[0]
+  id = var.subnet_id
+
+  lifecycle {
+    postcondition {
+      condition     = self.map_public_ip_on_launch
+      error_message = "The subnet must give a public IPv4 address at launch: the first boot needs the network before the fixed address is associated."
+    }
+
+    postcondition {
+      condition     = !self.assign_ipv6_address_on_creation
+      error_message = "The subnet must not assign IPv6 addresses."
+    }
+  }
 }
 
 # The rules are written inside the group, so that Terraform owns the whole
 # list and removes a rule added by any other means. Do not add a separate
-# rule resource for this group: the tests read the list below, and the
-# provider does not support mixing the two forms.
+# rule resource for this group: the tests read the list below, the provider
+# does not support mixing the two forms, and `tests/inventory.sh` refuses
+# both kinds of rule resource and any second group.
 #
 # No port 22: the machine is reached through Systems Manager. No IPv6: the
 # proxy is published on IPv4 only (see `.env.example`).
 resource "aws_security_group" "server" {
   name        = "causalpulse-server"
   description = "CausalPulse: HTTP and HTTPS in over IPv4, everything out"
-  vpc_id      = data.aws_vpc.default.id
+  vpc_id      = data.aws_subnet.server.vpc_id
 
   ingress {
     description = "HTTP, for the certificate challenge and the redirect"

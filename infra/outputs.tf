@@ -1,4 +1,4 @@
-# What the runbook and the GitHub environment's variables are filled in from.
+# What the runbook and the repository's variables on GitHub are filled in from.
 
 output "site_address" {
   description = "The server's fixed public address, for the site's A record."

@@ -44,6 +44,14 @@ retry() {
     done
 }
 
+# apt_get ARGUMENT...: the package tool, told to wait up to five minutes for
+# dpkg's lock. Ubuntu's own unattended upgrade may hold it when this starts,
+# and a failure here stops the script for good: cloud-init does not run it a
+# second time. Every call below goes through this.
+apt_get() {
+    apt-get -o DPkg::Lock::Timeout=300 "$@"
+}
+
 # add_fstab MOUNT_POINT LINE: the line, unless the mount point has one. A
 # different line for the same mount point is somebody's decision, and stops
 # the script.
@@ -58,7 +66,7 @@ add_fstab() {
 }
 
 mount_data_volume() {
-    local link device waited status fstype uuid
+    local link device waited status fstype uuid wipe_status signatures
     # NVMe device names are given in the order the kernel finds the disks.
     # The link under by-id carries the volume's id, without its hyphen.
     link=/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_$(printf %s "$volume_id" | tr -d -)
@@ -87,9 +95,19 @@ mount_data_volume() {
         say "the data volume holds a file system, which is kept"
     elif [ "$status" -eq 0 ]; then
         die "the data volume holds '$fstype', not ext4; left alone"
-    elif [ "$status" -eq 2 ] && [ -z "$fstype" ] && [ -z "$(wipefs "$device")" ]; then
-        # blkid found no file system, and wipefs found no signature of any
-        # kind, a partition table included. Only then is it formatted.
+    elif [ "$status" -eq 2 ] && [ -z "$fstype" ]; then
+        # blkid found no file system. wipefs must also have run to its end
+        # and found no signature of any kind, a partition table included: a
+        # wipefs that fails prints nothing either, and that is not "empty".
+        # Only then is the volume formatted.
+        wipe_status=0
+        signatures=$(wipefs "$device") || wipe_status=$?
+        if [ "$wipe_status" -ne 0 ]; then
+            die "wipefs could not read the data volume (status $wipe_status); left alone"
+        fi
+        if [ -n "$signatures" ]; then
+            die "the data volume holds something that is not a file system; left alone"
+        fi
         say "the data volume is empty; formatting it"
         mkfs.ext4 -q -L causalpulse-data "$device"
     else
@@ -147,8 +165,8 @@ install_docker() {
         codename=$(. /etc/os-release && echo "$VERSION_CODENAME")
         echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $codename stable" \
             >/etc/apt/sources.list.d/docker.list
-        retry apt-get update -q
-        retry apt-get install -y -q docker-ce docker-ce-cli containerd.io docker-compose-plugin
+        retry apt_get update -q
+        retry apt_get install -y -q docker-ce docker-ce-cli containerd.io docker-compose-plugin
     fi
     systemctl enable --now docker
     say "Docker is installed"
@@ -177,7 +195,9 @@ install_aws_cli() {
     work=$(mktemp -d)
     retry curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -o "$work/awscli.zip"
     unzip -q "$work/awscli.zip" -d "$work"
-    "$work/aws/install" >/dev/null
+    # --update: a run that was cut short leaves the installation's directory
+    # without the command, and the installer refuses that directory otherwise.
+    "$work/aws/install" --update >/dev/null
     rm -rf "$work"
     say "the AWS CLI is installed"
 }
@@ -226,8 +246,8 @@ if [ "$skip_devices" = 1 ]; then
     say "leaving out the data volume, Docker, the swap file and the time zone"
 fi
 
-retry apt-get update -q
-retry apt-get install -y -q ca-certificates curl unzip openssl unattended-upgrades
+retry apt_get update -q
+retry apt_get install -y -q ca-certificates curl unzip openssl unattended-upgrades
 
 if [ "$skip_devices" = 1 ]; then
     mkdir -p "$root"

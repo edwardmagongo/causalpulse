@@ -1,7 +1,9 @@
-# A snapshot of the data volume each night at 03:00 UTC, an hour before the
-# time an automatic reboot may happen; the last seven are kept. The policy
-# finds the volume by the tag only it carries, so the root disk is not
-# snapshotted.
+# A snapshot of the data volume each night; the last seven are kept. Data
+# Lifecycle Manager starts it within the hour after 03:00 UTC, so it is not
+# certain to be finished, or even begun, by 04:00, when an automatic reboot
+# may happen. Either way it is a snapshot of a disk in use: what a machine
+# that lost power would find. The policy finds the volume by the tag only it
+# carries, so the root disk is not snapshotted.
 locals {
   backup_trust = {
     Version = "2012-10-17"

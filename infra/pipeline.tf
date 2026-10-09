@@ -4,15 +4,31 @@
 locals {
   github_oidc_host = "token.actions.githubusercontent.com"
 
+  # An account holds one identity provider for GitHub Actions, and this
+  # account is shared. Whether it is created here or read is the owner's
+  # answer (`var.create_github_oidc_provider`), given after one look at the
+  # account. This is the provider in use, whichever it is.
+  github_oidc_provider_arn = (
+    var.create_github_oidc_provider
+    ? aws_iam_openid_connect_provider.github[0].arn
+    : data.aws_iam_openid_connect_provider.github[0].arn
+  )
+
   # One repository, one branch. The comparison in the trust policy is
   # StringEquals, in which a star is a star and matches nothing else.
+  #
+  # The subject is compared whole. A job that declares an `environment:`
+  # presents `repo:<owner>/<name>:environment:<name>` instead, and is
+  # refused. That is intended: the deploy job uses no GitHub environment, and
+  # the branch is the condition this role rests on. A pull request, a tag,
+  # another branch and another repository are refused in the same way.
   pipeline_subject = "repo:${var.repository}:ref:refs/heads/main"
 
   pipeline_trust = {
     Version = "2012-10-17"
     Statement = [{
       Effect    = "Allow"
-      Principal = { Federated = aws_iam_openid_connect_provider.github.arn }
+      Principal = { Federated = local.github_oidc_provider_arn }
       Action    = "sts:AssumeRoleWithWebIdentity"
       Condition = {
         StringEquals = {
@@ -61,21 +77,39 @@ locals {
       },
       {
         # Reading how a command went. The IAM reference lists no resource
-        # type for either action, so a narrower resource would deny them.
-        # The role can therefore read the output of any run-command in this
-        # account and region, not only its own.
+        # type for this action, so a narrower resource would deny it. The
+        # role can therefore read the output of any run-command in this
+        # account and region whose id it is given, not only its own. It is
+        # not given `ssm:ListCommandInvocations`, by which it could find the
+        # ids of commands it did not send: the workflow waits on the id its
+        # own `SendCommand` returned.
         Sid      = "ReadTheCommandResult"
         Effect   = "Allow"
-        Action   = ["ssm:GetCommandInvocation", "ssm:ListCommandInvocations"]
+        Action   = ["ssm:GetCommandInvocation"]
         Resource = ["*"]
       },
     ]
   }
 }
 
+# Created only where the account has none. A second for the same address is
+# refused by AWS part of the way through an apply; and one created here is
+# removed by a `terraform destroy` here, from under anything else in the
+# account that has come to use it.
 resource "aws_iam_openid_connect_provider" "github" {
+  count = var.create_github_oidc_provider ? 1 : 0
+
   url            = "https://${local.github_oidc_host}"
   client_id_list = ["sts.amazonaws.com"]
+}
+
+# Otherwise the account's own is read, and nothing about it is changed. It
+# must already list the audience `sts.amazonaws.com`, which is the one
+# GitHub's own action for AWS credentials asks for.
+data "aws_iam_openid_connect_provider" "github" {
+  count = var.create_github_oidc_provider ? 0 : 1
+
+  url = "https://${local.github_oidc_host}"
 }
 
 resource "aws_iam_role" "pipeline" {

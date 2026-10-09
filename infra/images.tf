@@ -11,6 +11,10 @@ locals {
   # The registry's host, which is the account's and the region's.
   registry = "${local.account_id}.dkr.ecr.${local.region}.${data.aws_partition.current.dns_suffix}"
 
+  # Five images are kept in each repository. Not established: whether a push
+  # that carries build provenance, which is an index and several manifests,
+  # counts as one image here or as more. If it counts as more, fewer than
+  # five deploys are kept. To be looked at after the first two deploys.
   image_lifecycle = {
     rules = [{
       rulePriority = 1
