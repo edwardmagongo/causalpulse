@@ -249,3 +249,51 @@ def test_a_refused_fact_table_is_stored_as_sql_null_not_json_null(
             select(AnalysisSummary.facts.is_(None)).where(AnalysisSummary.analysis_id == key)
         )
     assert missing is True
+
+
+def test_a_job_on_a_row_that_is_not_queued_makes_no_model_call(
+    sessions, worker_env, monkeypatch
+):
+    key = _analysed(sessions)
+    _queued(sessions, key)
+    with sessions() as session:
+        row = session.get(Interpretation, key)
+        row.status = "failed"
+        row.error = "the queue was down"
+        session.commit()
+    before = _row(sessions, key)
+    before = (before.status, before.error, before.job_id, before.started_at, before.finished_at)
+    model = _script(monkeypatch, narrative_for(_facts(sessions, key)[1]))
+
+    run_interpretation_job(str(key))
+
+    row = _row(sessions, key)
+    assert model.calls == 0
+    assert (row.status, row.error, row.job_id, row.started_at, row.finished_at) == before
+
+
+def test_a_job_that_is_not_the_one_the_row_names_makes_no_model_call(
+    sessions, worker_env, redis_conn, monkeypatch
+):
+    from cp_worker.worker import make_worker
+    from rq import Queue
+
+    key = _analysed(sessions)
+    _queued(sessions, key)
+    model = _script(monkeypatch, narrative_for(_facts(sessions, key)[1]))
+    Queue(jobs_queue_name(), connection=redis_conn).enqueue(
+        "cp_worker.jobs.run_interpretation_job", str(key), job_id=f"interpretation-{key}-stale"
+    )
+
+    make_worker(redis_conn).work(burst=True)
+
+    row = _row(sessions, key)
+    assert model.calls == 0
+    assert (row.status, row.job_id) == ("queued", f"interpretation-{key}-1")
+    assert row.started_at is None and row.finished_at is None
+
+
+def jobs_queue_name() -> str:
+    from cp_api.app import QUEUE_NAME
+
+    return QUEUE_NAME

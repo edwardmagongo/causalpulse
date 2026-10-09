@@ -52,6 +52,7 @@ from cp_llm.interpret import (
 from cp_llm.model import Effort, ModelCallError, NarrativeModel
 from cp_llm.prompt import prompt_version
 from cp_report.pipeline import AnalysisOutcome
+from rq import get_current_job
 from sqlalchemy.orm import Session, sessionmaker
 
 from cp_worker.execute import execute
@@ -241,11 +242,31 @@ def _finish_interpretation(
         session.commit()
 
 
+def _owns(row: Interpretation) -> bool:
+    """Whether this job is the one the row is waiting on.
+
+    A job that is not -- the row was failed (queue down, worker lost) and
+    asked for again, so a newer job is queued or running -- must not make the
+    model call: it is paid for, and the newer job makes it.
+    """
+    current = get_current_job()
+    if row.status != "queued" or (current is not None and current.id != row.job_id):
+        logger.warning(
+            "interpretation job %s skipped: the row is %s, awaiting job %s",
+            current.id if current is not None else "(direct call)", row.status, row.job_id,
+        )
+        return False
+    return True
+
+
 def _interpret(sessions: sessionmaker[Session], key: uuid.UUID) -> None:
     with sessions() as session:
-        row = session.get(Interpretation, key)
+        # Locked, so two jobs for one row cannot both pass the check below.
+        row = session.get(Interpretation, key, with_for_update=True)
         if row is None:
             raise LookupError(f"no interpretation of analysis {key}")
+        if not _owns(row):
+            return
         summary = session.get(AnalysisSummary, key)
         if summary is None or summary.facts is None:
             raise LookupError(f"analysis {key} has no fact table")
