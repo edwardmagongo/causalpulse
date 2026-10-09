@@ -61,17 +61,18 @@ logger = logging.getLogger(__name__)
 
 
 def facts_of(analysis_id: uuid.UUID, outcome: AnalysisOutcome) -> dict[str, Any] | None:
-    """The outcome's fact table as JSON, or None if the extractor refuses it.
+    """The outcome's fact table as JSON, or None if it cannot be built.
 
     The extractor refuses, for example, a name the table cannot hold. That
     costs this analysis its interpretation, never its result.
     """
     try:
         loaded = json.loads(fact_table(outcome).to_json())
-    except ValueError:
+        if not isinstance(loaded, dict):
+            raise TypeError("a fact table must serialise to a JSON object")
+    except Exception:
         logger.exception("analysis %s: its fact table could not be built", analysis_id)
         return None
-    assert isinstance(loaded, dict)
     return loaded
 
 

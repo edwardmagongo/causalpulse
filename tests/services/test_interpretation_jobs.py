@@ -103,6 +103,23 @@ def test_a_fact_table_the_extractor_refuses_leaves_the_analysis_succeeded(
         assert session.get(AnalysisSummary, key).facts is None
 
 
+def test_any_error_building_the_fact_table_leaves_the_analysis_succeeded(
+    sessions, worker_env, monkeypatch
+):
+    def fail(outcome):
+        raise KeyError("unexpected")
+
+    monkeypatch.setattr(jobs, "fact_table", fail)
+
+    key = _analysed(sessions)
+
+    from cp_api.db import Analysis
+
+    with sessions() as session:
+        assert session.get(Analysis, key).status == "succeeded"
+        assert session.get(AnalysisSummary, key).facts is None
+
+
 def test_a_verified_interpretation_is_stored_with_its_sections_and_notice(
     sessions, worker_env, monkeypatch
 ):
