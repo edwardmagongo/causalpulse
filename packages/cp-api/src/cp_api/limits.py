@@ -1,9 +1,9 @@
 """Rate limits: fixed-window counters in Redis, each off unless its setting is present.
 
-Four limits, read once when the app is built (`limits_from_environment`):
+Five limits, read once when the app is built (`limits_from_environment`):
 
 - failed sign-ins, counted by client address (`SigninFailures`, a middleware);
-- uploads a day and analyses a day, counted by user (`FixedWindow.require`);
+- uploads a day, analyses a day and interpretations a day, counted by user (`FixedWindow.require`);
 - analyses queued or running, which is a count of rows the app reads, not a
   counter here; this module holds only its setting and its sentence.
 
