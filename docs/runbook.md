@@ -25,6 +25,11 @@ document is the commands.
 - **The AWS profile** is the one Terraform is applied with. `aws sts get-caller-identity` says
   who you are before anything is changed.
 - **A run-command is never used for anything secret.** See procedure 3.
+- **"Unverified until carried out."** These words mark a statement that rests on how a tool is
+  understood to behave and that no documentation was found to settle. A statement without them
+  was read from the repository's own files or from the tool's published documentation or help
+  text. Neither kind has been tried on the server: that is what "Not yet carried out." says of
+  a whole procedure.
 
 ## What exists and where
 
@@ -40,14 +45,15 @@ Everything in AWS is tagged `Project = causalpulse` where the resource takes tag
 | Security group | Ports 80 and 443 in over IPv4, everything out, nothing else. | `infra/network.tf` |
 | Server role and instance profile | Lets the machine be managed by Systems Manager and pull the two images. Denied the two Parameter Store reads. | `infra/machine.tf` |
 | Recovery alarm (CloudWatch) | Moves the machine to healthy hardware when its host fails the system status check. | `infra/machine.tf` |
-| Two image repositories (ECR), `causalpulse-app` and `causalpulse-web` | The images, tagged by commit SHA. Five images are kept in each. | `infra/images.tf` |
+| Two image repositories (ECR), `causalpulse-app` and `causalpulse-web` | The images, tagged by commit SHA. A tag is written once: the registry refuses a second push of a tag it has. Five images are kept in each. | `infra/images.tf` |
 | Snapshot policy (Data Lifecycle Manager) and its role | A snapshot of the data volume each night, started within the hour after 03:00 UTC; seven are kept. | `infra/backups.tf` |
-| Pipeline role, and GitHub's identity provider | What the deploy workflow assumes, from `main` only: push the two images, send the one deploy command to the one machine, read a command's result. | `infra/pipeline.tf` |
-| Deploy document (Systems Manager), `causalpulse-deploy` | The one command the pipeline can run on the server. Its one parameter is a 40-character SHA. | `infra/deploy-command.tf` |
+| Pipeline role, and GitHub's identity provider | What the deploy workflow assumes, from `main` only: push the two images, send the one deploy command to the one machine, read a command's result. Because that command runs a script from the image as root, the role amounts to root on the server ("Who is root on the server", below). | `infra/pipeline.tf` |
+| Deploy document (Systems Manager), `causalpulse-deploy` | The one command the pipeline can run on the server. Its one parameter is a 40-character SHA. It runs as root. | `infra/deploy-command.tf` |
 | Budget, `causalpulse-monthly` | E-mails at 80% of 50 US dollars a month, actual and forecast. It counts the whole AWS account, not this project alone. | `infra/budget.tf` |
-| First-boot script | Run once by cloud-init: the data volume, Docker, swap, the AWS CLI, the environment file, automatic upgrades. | `deploy/first-boot.sh.tftpl` |
+| First-boot script | Run once by cloud-init: the data volume, Docker, swap, the AWS CLI, the environment file, automatic upgrades. Its last act writes `/var/lib/causalpulse/first-boot-done` on the root disk, without which a deploy is refused. | `deploy/first-boot.sh.tftpl` |
 | Deploy script, compose override | What a deploy runs on the server, taken out of the app image. | `deploy/deploy.sh`, `deploy/compose.server.yml` |
 | Deploy workflow | Started by hand; builds, pushes, sends the command, asks the site from outside. | `.github/workflows/deploy.yml` |
+| Infrastructure workflow | Runs `make check-infra` on a pull request or a push to `main` that touches the Terraform, the deploy files, a workflow or the few other files the gate reads. It reaches no AWS account. | `.github/workflows/infra.yml` |
 | The site's A record | Points the site's name at the fixed address. Added by hand at the DNS host; Terraform does not manage DNS. | nowhere in the repository |
 | Five repository variables on GitHub | The identifiers the workflow reads. Set by hand from Terraform's outputs. | nowhere in the repository (procedure 1) |
 
@@ -56,16 +62,38 @@ On the server, under `/srv/causalpulse` (the data volume):
 | Path | What it is |
 |---|---|
 | `.env` | The environment file: the site's name, the database password, the session secret. Root only, mode 600. Written once at first boot and never replaced by a deploy. |
-| `release/` | The files of the last commit a deploy took out of its image: `docker-compose.prod.yml` and `deploy/` (the override, the Caddyfile, the deploy script). |
+| `release/` | The files a deploy took out of its image: `docker-compose.prod.yml` and `deploy/` (the override, the Caddyfile, the deploy script). They are those of the commit that is running, except in the three cases listed under "After a failed deploy" in procedure 2. |
+| `release.old/`, `release.new/` | There only while a deploy runs: the directory it set aside, and the one it is filling. One left behind by a run that was cut off is dealt with by the next run. |
 | `current-sha` | The commit recorded as running: written only after a deploy found every service well. |
 | `previous-sha` | The commit recorded before that one. |
+| `deploy.env` | The three settings the compose override needs (`CP_IMAGE_REGISTRY`, `CP_IMAGE_TAG`, `CP_CADDYFILE_DIGEST`), as they were for the last deploy that ended well. It holds no secret. It is for running Compose by hand (procedure 6); the deploy script writes it and never reads it. |
 | `deploy.log` | Every deploy's output, newest last, each under a line `==== <time> <sha>, exit status <n>`. Kept to about a megabyte. Root only. |
 | `deploy-run.log` | The whole output of the last deploy alone. Root only. |
 | `deploy.lock` | The lock that keeps two deploys apart. |
 | `docker-volumes/` | Docker's named volumes, bound onto `/var/lib/docker/volumes`. |
 
+On the server's root disk, and so gone when the machine is replaced:
+
+| Path | What it is |
+|---|---|
+| `/var/lib/causalpulse/first-boot-done` | Written as the last act of the first-boot script. The deploy document refuses, with status 76, a machine that does not have it (procedure 11). |
+
 The compose project is `causalpulse-prod`. Its services are `postgres`, `redis`, `migrate` (runs
 once and exits), `api`, `worker`, `web` and `proxy`.
+
+### Who is root on the server
+
+The deploy document takes `deploy/deploy.sh` out of the app image for the commit it is given and
+runs it as root. So whoever can push an app image under a new tag and send the command has root
+on the server: its environment file and the secrets in it, its database, and the server's own
+role. The pipeline's role can do both, and AWS gives that role to any job that runs on `main`
+and asks GitHub for an identity token, whichever workflow file the job is in. The repository
+has no enforced branch protection, so anyone who can push to `main` is, in effect, root on the
+server. That is the intended boundary while the repository is private and has one owner. A
+test (`tests/test_deploy_files.py`) holds that only the deploy workflow asks for the token and
+that it is started by hand only; that guards against doing it by accident, not against a person
+who can push. Before a second person is given the right to push, read §7 of the design for what
+has to change.
 
 ## When something is wrong
 
@@ -73,11 +101,12 @@ once and exits), `api`, `worker`, `web` and `proxy`.
 |---|---|
 | The site does not answer | Procedure 4, "From the Mac": is the machine running, and does Systems Manager see it? If it is stopped, procedure 8. If it runs, open a session and look at the services' state. If the name does not resolve to the fixed address, the `dig` checks of procedure 1. |
 | A certificate error in the browser | The `dig` checks of procedure 1 (an A record to the fixed address, and no AAAA record), then the proxy's log (procedure 4). The proxy can get a certificate only when the name already points at the server and ports 80 and 443 are reachable. |
-| A deploy failed with status N | The table of statuses in procedure 2, then `deploy-run.log` on the server (procedure 4). After any failure that follows the pull, read "After a failed deploy" in procedure 2 before anything restarts the machine. |
+| A deploy failed with status N | The table of statuses in procedure 2, then `deploy-run.log` on the server (procedure 4). After status 30, read "After a failed deploy" in procedure 2 before anything restarts the machine. |
+| A deploy failed with status 76 | Procedure 11: the machine's first boot did not finish, and the deploy touched nothing. |
 | The worker restarts in a loop | In a session: `sudo docker compose -p causalpulse-prod logs --tail 80 worker`. A worker that says a setting is a published demo value has a wrong environment file. One that is killed at its 2 GB limit shows `true` for `sudo docker inspect -f '{{.State.OOMKilled}}' "$(sudo docker compose -p causalpulse-prod ps -a -q worker)"`. |
-| The disk is full | In a session: `df -h / /srv/causalpulse` and `sudo docker system df`. On the root disk the usual cause is images: a failed deploy leaves its images until the next deploy that succeeds. `sudo docker image ls` lists them. |
+| The disk is full | A failed deploy's output ends with how full the two disks are. In a session: `df -h / /srv/causalpulse` and `sudo docker system df`. On the root disk the usual cause is images: a failed deploy leaves its images until the next deploy that succeeds. `sudo docker image ls` lists them. |
 | The budget e-mail arrived | The budget counts the whole account, which another project shares, so first see whose spending it is: the Billing console's Cost Explorer, grouped by service. If it is this project, procedure 8 (stop the machine) or procedure 10 (remove everything). |
-| The workflow says the command's result could not be read, or had not ended | The deploy may still be running: stopping a run does not stop it. Look at `deploy.log` on the server (procedure 4) before starting another. |
+| The workflow says the command's result could not be read, or had not ended, or its summary says the command was sent and its result was not read | The deploy may still be running: stopping a run does not stop it. Look at `deploy.log` on the server (procedure 4) before starting another. |
 
 ## 1. First-time setup
 
@@ -98,7 +127,8 @@ aws --version
 gh auth status
 ```
 
-The Session Manager plugin is what `aws ssm start-session` needs on the Mac. With Homebrew:
+The Session Manager plugin is what `aws ssm start-session` needs on the Mac. With Homebrew,
+whose cask of that name is "Session Manager Plugin for the AWS CLI":
 
 ```bash
 brew install --cask session-manager-plugin
@@ -179,7 +209,7 @@ terraform -chdir=infra plan -out tfplan
 What to look for:
 
 - Only additions: nothing to change and nothing to destroy. Counted from the configuration,
-  that is 28 resources, or 29 when the identity provider is created here. If the plan's number
+  that is 30 resources, or 31 when the identity provider is created here. If the plan's number
   differs, find out why before applying.
 - `aws_instance.server` is a `t3.medium` with no `key_name`, and `aws_security_group.server`
   has two inbound rules, ports 80 and 443.
@@ -203,9 +233,12 @@ How to tell it worked: a second plan proposes nothing.
 terraform -chdir=infra plan
 ```
 
-The machine then runs its first-boot script, which takes some minutes. It is done when Systems
-Manager reports the machine `Online` and, in a session (procedure 3 shows how to open one),
-cloud-init reports `done`:
+The machine then runs its first-boot script, which takes some minutes: how many has not been
+measured, and the script itself may wait several minutes for the package lists. **Check that it
+finished before the first deploy.** A deploy sent to a machine whose first boot did not finish
+is refused with status 76 and touches nothing. It is done when Systems Manager reports the
+machine `Online` and, in a session (procedure 3 shows how to open one), cloud-init reports
+`done` and the marker file is there:
 
 ```bash
 INSTANCE_ID=$(terraform -chdir=infra output -raw instance_id)
@@ -219,11 +252,13 @@ In a session:
 ```bash
 cloud-init status --long
 sudo tail -n 30 /var/log/cloud-init-output.log
+test -e /var/lib/causalpulse/first-boot-done && echo "the first boot finished"
 sudo test -s /srv/causalpulse/.env && echo "the environment file is there"
 ```
 
 The last line of the script's output is `first-boot: done`. It prints the names of the settings
-it wrote and never their values.
+it wrote and never their values. If cloud-init reports an error, the marker is missing, or the
+machine never comes `Online`, go to procedure 11 and not to the first deploy.
 
 **The budget's e-mail.** The budget sends its warnings straight to the address in
 `terraform.tfvars`. Check the budget exists, and if AWS sends that address a message asking it
@@ -248,7 +283,7 @@ Check it from the Mac. The first line must print `the A record is right`, and th
 print nothing at all.
 
 ```bash
-SITE_NAME=<the site's name, as in terraform.tfvars>
+SITE_NAME=$(terraform -chdir=infra output -raw site_name)
 [ "$(dig +short A "$SITE_NAME")" = "$(terraform -chdir=infra output -raw site_address)" ] && echo "the A record is right"
 dig +short AAAA "$SITE_NAME"
 ```
@@ -265,15 +300,14 @@ Do this before the first deploy. The proxy asks for the site's certificate as so
 starts, and it can only get one when the name already points at the server.
 
 **The repository's variables.** The workflow reads five, by these exact names. They are
-identifiers and not secrets. Four come from Terraform's outputs; `infra/` has no output for the
-site's name, so the fifth is the value from `terraform.tfvars`.
+identifiers and not secrets, and each comes from one of Terraform's outputs.
 
 ```bash
 gh variable set AWS_ROLE_ARN --body "$(terraform -chdir=infra output -raw pipeline_role_arn)"
 gh variable set INSTANCE_ID --body "$(terraform -chdir=infra output -raw instance_id)"
 gh variable set DEPLOY_DOCUMENT --body "$(terraform -chdir=infra output -raw deploy_document_name)"
 gh variable set REGISTRY --body "$(terraform -chdir=infra output -raw registry)"
-gh variable set SITE_NAME --body "$SITE_NAME"
+gh variable set SITE_NAME --body "$(terraform -chdir=infra output -raw site_name)"
 ```
 
 ```bash
@@ -289,7 +323,8 @@ subject of a run from `main`, and a job with an environment presents a different
 ## 2. Deploying and rolling back
 
 Use this to put a commit of `main` on the server, or to go back to an earlier one. It needs the
-five repository variables set (procedure 1) and the commit's CI to have passed.
+five repository variables set (procedure 1), a machine whose first boot finished (procedure 1,
+and procedure 11 if it did not), and the commit's gates to have passed.
 
 > **Not yet carried out.**
 
@@ -299,8 +334,16 @@ a merged pull request, and was not the last commit of that push, never has such 
 the merge commit, which has. A run of CI on a pull request, or on another branch that held the
 same commit, does not count.
 
-The check reads the `CI` workflow alone. The fast Python suite is a separate workflow
-(`fast.yml`) and the deploy does not look at it, so look yourself:
+Two more workflows are looked at in the same exact way. The fast Python suite (`fast.yml`)
+runs on every push to `main` and takes half an hour or more; the infrastructure gate
+(`infra.yml`) runs only for a push that touches what it checks. Where either has a run for the
+commit, one must have succeeded, and a run still in progress has not: after a merge, a deploy
+has to wait for the fast suite. Where the infrastructure gate has no run, the workflow says so
+and goes on, which is usual. Where the fast suite has none, it warns and goes on, and that is
+not expected: find out why. A run that was waiting on `main` when a later push took its place
+is cancelled by GitHub and counts as not succeeded; run it again from its page.
+
+To see where the commit stands before starting:
 
 ```bash
 git fetch origin
@@ -313,7 +356,7 @@ confirmation. Start it from `main`: a run started from another branch or a tag i
 role by AWS.
 
 ```bash
-SITE_NAME=<the site's name>
+SITE_NAME=$(terraform -chdir=infra output -raw site_name)
 gh workflow run deploy.yml --ref main -f sha="$SHA" -f confirm="$SITE_NAME"
 ```
 
@@ -332,25 +375,32 @@ gh run watch "$RUN_ID" --exit-status
 1. Refuses unless it was started from `main`, the SHA is forty lowercase hexadecimal digits, the
    five variables are set, and the confirmation equals `SITE_NAME`.
 2. Checks the commit out and refuses unless it is an ancestor of `origin/main`.
-3. Refuses unless CI succeeded for it, as above.
-4. Assumes the pipeline's role and asks the registry which of the two images it already has for
-   the SHA. It builds and pushes only what is missing: a second deploy of a commit, or a
-   rollback to one whose images are still in the registry, builds nothing.
+3. Refuses unless CI succeeded for it, and the fast suite and the infrastructure gate where
+   they ran for it, as above.
+4. Assumes the pipeline's role, for two hours, and asks the registry which of the two images it
+   already has for the SHA. It builds and pushes only what is missing: a second deploy of a
+   commit, or a rollback to one whose images are still in the registry, builds nothing. A run
+   that pushed one image and failed on the other is started again and pushes the other.
 5. Sends the deploy document to the server with the SHA and asks every ten seconds how it went.
 6. Asks the site three questions from outside, for up to two minutes: `https://<site>/study`
    answers 200 with a `Strict-Transport-Security` header; `https://<site>/` answers 307 to
    `/sign-in`; `http://<site>/` answers 301 or 308 to `https://<site>/`.
 
-A summary of the run, with the commit and the outcome of each part, is on the run's page.
+A summary of the run, with the commit and the outcome of each part, is on the run's page. The
+list of runs does not show which commit each deployed (the workflow sets no run name): the
+summary does, and so do the two lists under "Rolling back".
 
 **How long.** Not measured: the builds have never run on a runner. The limits are known. The
-job is stopped after 45 minutes. The server is given a minute to take the command and the
+job is stopped after 75 minutes, which is inside the two hours the role's credentials last. The
+server is given a minute to take the command and the
 document 30 minutes to run it; the deploy script waits up to 300 seconds for the services to be
 healthy and then looks again 25 seconds later. One deploy runs at a time: a second waits, and a
 third started while one runs and one waits replaces the waiting one.
 
 **Stopping a run does not stop a deploy the server has been sent.** The role cannot cancel a
-command, and the server finishes it. `deploy.log` on the server has how it went.
+command, and the server finishes it. `deploy.log` on the server has how it went. The summary of
+a run that was stopped, or timed out, while it waited says the command was sent and its result
+was not read.
 
 **Reading a failure.** `gh run view "$RUN_ID" --log-failed` shows the step that failed. A
 failure before the step "Deploy on the server" means the server was not touched. That step
@@ -362,45 +412,84 @@ taken out of it, and the exit status. The statuses of `deploy/deploy.sh`:
 | 0 | every service is well and `current-sha` holds the SHA |
 | 1 | a command failed where the script did not expect one to (`set -e`) |
 | 2 | the arguments or the deadline are not what the script's header describes |
-| 10 | the release directory cannot be entered; a file of the release or the environment file is missing; `current-sha` or `previous-sha` is there and is not a file; the Caddyfile's digest could not be computed; or an image could not be pulled or is not on the machine afterwards |
+| 10 | the release directory cannot be entered; a file of the release or the environment file is missing; `current-sha`, `previous-sha` or `deploy.env` is there and is not a file; the Caddyfile's digest could not be computed; or an image could not be pulled or is not on the machine afterwards |
 | 20 | the migration failed, or Postgres was not there for it to run against |
 | 30 | the stack did not come up, or was not well by the deadline |
-| 40 | the stack is well on the SHA and the SHA could not be recorded |
+| 40 | the stack is well on the SHA and `previous-sha`, `deploy.env` or `current-sha` could not be written |
 
-The script does not roll back. After 20 no application service has been replaced. After 30 or
-40 the stack is as the attempt left it, and `current-sha` still holds what it held before.
+The script does not roll back. After 2, 10 or 20 no application service has been replaced.
+After 30 or 40 the stack is as the attempt left it, and `current-sha` still holds what it held
+before.
 
 The document around the script has statuses of its own:
 
 | Status | Meaning |
 |---|---|
 | 75 | another deploy was running on the server; this one did nothing |
+| 76 | the machine's first boot did not finish: `/var/lib/causalpulse/first-boot-done` is missing. Nothing was touched, the lock included. Procedure 11. |
 | the failed command's own | the registry login, the pull of the app image, or the copy of the files out of it failed before the script was reached. The status is that command's and is not one of the script's own: it can be 1, which the script also uses, so read the output, which says what failed. |
 | -1, as the workflow reports it | Systems Manager has no exit status: the command was not run on the server, or was stopped there. |
 
-If the document cannot search its own output for the environment file's values, it keeps and
-shows none of the run and still returns the status.
+After any status but 0 the output ends with how full the two disks are (`df -h` for `/` and
+`/srv/causalpulse`). If the document cannot search its own output for the environment file's
+values, or the environment file is missing or cannot be read, it keeps and shows none of the
+run, says which of the two it was, and still returns the status.
 
-**After a failed deploy.** The document replaces `/srv/causalpulse/release` with the new
-commit's files before it runs the deploy script, and nothing puts the old files back when the
-script then fails. So after a failure with status 20, or with 10 for a reason other than the
-first pull, the release directory holds the new commit's compose file and Caddyfile while the
-containers running are the old commit's. After 30 the same is true of the files, and the
-containers are whatever the attempt left. If the proxy's container is then restarted, by a
-reboot for one, it starts on the new commit's Caddyfile. Before anything reboots the machine,
-either fix the fault and deploy again, or put the files back by running the workflow with the
-commit named in `current-sha`:
+**After a failed deploy.** The proxy's Caddyfile is mounted from `/srv/causalpulse/release` by
+its path, so the files there should be those of the commit that is running. The document
+copies the new commit's files to `release.new`, sets the directory in place aside as
+`release.old`, and when the deploy script has returned decides which stays. After 0, 30 and 40
+it is the new one. After anything else (1, 2, 10, 20) it puts back the one that was there,
+because by the script's contract nothing was replaced. A failed registry login, pull or copy
+ends the run before any directory is renamed. So after a failure with status 10 or 20 the
+release directory matches what is running, and nothing has to be put back by hand.
+
+Three cases are left where the directory does not match what is running:
+
+- **After status 30.** The directory holds the new commit's files, and the stack is as the
+  attempt left it: possibly some services on the new commit and some on the old.
+  `current-sha` and `deploy.env` still name the commit before. If the proxy's container is
+  restarted in this state, by a reboot for one, it starts on the new commit's Caddyfile. Before
+  anything reboots the machine, either fix the fault and deploy again, or go back by running
+  the workflow with the commit named in `current-sha`:
+
+  ```bash
+  gh workflow run deploy.yml --ref main -f sha="<the SHA in current-sha>" -f confirm="$SITE_NAME"
+  ```
+
+- **After a run that was cut off** while the deploy script ran (a reboot, or the document's
+  30-minute limit). It leaves both `release` and `release.old`, and the next run puts
+  `release.old` back before it does anything else, on the reasoning that a run is cut off in the
+  pulls or the migration more easily than after them. If that run had in fact replaced the
+  stack, the directory then holds the commit before the one running. In either case the answer
+  is the same: deploy the commit that should be running, and the directory and the stack agree
+  again when that deploy ends with 0.
+- **After a first deploy that failed.** There was no directory to put back, so the new files
+  stay whatever the status.
+
+After status 40 the stack is well on the new commit and only a record is missing. Find why the
+file could not be written (a full data volume is the likely cause), then run the workflow again
+with the new SHA: `previous-sha` and `current-sha` are both written again by that run.
+
+That Docker looks the Caddyfile's path up again at each start of the proxy's container on a
+Linux server, which is what all of this rests on, is unverified until carried out: the gate
+that tries it runs on Docker Desktop, which does not mount files as Linux does.
+
+**A bad image.** A tag is written once. The registry refuses a second push of a tag it has, and
+the pipeline's role may neither overwrite a tag nor delete an image. So an image that is bad
+under its SHA cannot be replaced by running the workflow again. The usual answer is a new
+commit, which has a new SHA. To build the same commit again, someone with an administrator's
+rights in the account deletes the tag, and the next deploy of that SHA finds it missing and
+builds it:
 
 ```bash
-gh workflow run deploy.yml --ref main -f sha="<the SHA in current-sha>" -f confirm="$SITE_NAME"
+REGION=eu-west-1
+aws ecr batch-delete-image --region "$REGION" --repository-name causalpulse-app --image-ids "imageTag=$SHA"
 ```
 
-After status 40 it is the other way round: the stack is well on the new commit and only the
-record is missing. Find why the file could not be written (a full data volume is the likely
-cause), then run the workflow again with the new SHA.
-
-A failed pull, the registry login or the copy fail before the directory is replaced, and leave
-it as it was.
+The dashboard's repository is `causalpulse-web`. Deleting an image the server is running does
+not stop the server, which has its own copy; it does mean that a machine replaced before the
+image is built again has nothing to pull.
 
 **Rolling back.** Run the same workflow with the earlier SHA. To find it, on the server
 `previous-sha` holds the commit recorded before the current one (in a session:
@@ -437,8 +526,8 @@ sudo docker compose -p causalpulse-prod exec -T postgres \
 If they differ, the earlier image's migration step meets a database stamped with a revision it
 does not have. What is expected, from how Alembic works and not from a trial, is that the step
 fails, the deploy ends with status 20, and no service is replaced: the rollback does not
-happen, and the release directory is left holding the earlier commit's files ("After a failed
-deploy", above). The choices are then a person's:
+happen, and the document puts the release directory back as it was ("After a failed deploy",
+above). Unverified until carried out. The choices are then a person's:
 
 - Fix forward: a new commit on `main` that repairs the fault, deployed in the usual way. This
   is the one that loses nothing.
@@ -464,7 +553,8 @@ A session can itself be recorded, if the account's Session Manager preferences s
 S3 or CloudWatch. This configuration sets no such preference, but the account is shared, so
 look once. An error saying the document does not exist means the defaults, which record
 nothing; if it prints a bucket's or a log group's name that is not empty, do not issue a key
-until that is understood.
+until that is understood. The document's name is from AWS's guide to Session Manager's
+preferences; that its absence means nothing is recorded is unverified until carried out.
 
 ```bash
 REGION=eu-west-1
@@ -479,7 +569,10 @@ aws ssm start-session --region "$REGION" --target "$INSTANCE_ID"
 ```
 
 In the session, create the user and issue a key. The first command prints `created user` and
-the name; the second prints the key, once.
+the name; the second prints the key, once. A session is the agent's own user, `ssm-user`, which
+AWS's guide says the agent creates with `sudo` rights. Compose is given the project's name and
+no file: its reference shows `ps` and `logs` used that way, and that `exec` works the same way
+is unverified until carried out.
 
 ```bash
 cd /
@@ -528,7 +621,7 @@ aws ssm describe-instance-information --region "$REGION" \
 And the site, as a visitor sees it:
 
 ```bash
-SITE_NAME=<the site's name>
+SITE_NAME=$(terraform -chdir=infra output -raw site_name)
 curl -sS -o /dev/null -w '%{http_code}\n' "https://$SITE_NAME/study"
 ```
 
@@ -550,11 +643,23 @@ sudo docker compose -p causalpulse-prod logs --tail 100 api
 sudo docker compose -p causalpulse-prod logs --tail 100 proxy
 ```
 
-The commit recorded as running, and the one before it:
+The commit recorded as running, and the one before it; then the settings of the last deploy
+that ended well, whose `CP_IMAGE_TAG` is the same commit:
 
 ```bash
 sudo cat /srv/causalpulse/current-sha /srv/causalpulse/previous-sha
+sudo cat /srv/causalpulse/deploy.env
 ```
+
+Whether the release directory's Caddyfile is the one that was deployed. It prints its sentence
+when it is; see "After a failed deploy" in procedure 2 when it does not.
+
+```bash
+[ "$(sudo sha256sum /srv/causalpulse/release/deploy/Caddyfile | cut -d' ' -f1)" = "$(sudo sed -n 's/^CP_CADDYFILE_DIGEST=//p' /srv/causalpulse/deploy.env)" ] && echo "the release's Caddyfile is the one deployed"
+ls -d /srv/causalpulse/release*
+```
+
+The second line should list `release` alone, unless a deploy is running.
 
 The deploys: one line for each, then the whole of the last one.
 
@@ -572,11 +677,13 @@ sudo docker system df
 sudo docker stats --no-stream
 ```
 
-After a first boot or a replacement, what the first-boot script did:
+After a first boot or a replacement, what the first-boot script did, and whether it finished
+(procedure 11 if it did not):
 
 ```bash
 cloud-init status --long
 sudo tail -n 60 /var/log/cloud-init-output.log
+ls -l /var/lib/causalpulse/first-boot-done
 ```
 
 ## 5. Restoring the data volume from a snapshot
@@ -605,11 +712,9 @@ Set the values, and note the commit that is running now:
 ```bash
 REGION=eu-west-1
 INSTANCE_ID=$(terraform -chdir=infra output -raw instance_id)
-SITE_NAME=<the site's name>
+SITE_NAME=$(terraform -chdir=infra output -raw site_name)
 SHA=<the commit running now: current-sha on the server, or the last successful deploy in procedure 2's list>
-OLD_VOLUME=$(aws ec2 describe-volumes --region "$REGION" \
-  --filters "Name=attachment.instance-id,Values=$INSTANCE_ID" Name=tag:Name,Values=causalpulse-data \
-  --query 'Volumes[0].VolumeId' --output text)
+OLD_VOLUME=$(terraform -chdir=infra output -raw data_volume_id)
 ZONE=$(aws ec2 describe-volumes --region "$REGION" --volume-ids "$OLD_VOLUME" \
   --query 'Volumes[0].AvailabilityZone' --output text)
 echo "$OLD_VOLUME $ZONE"
@@ -636,8 +741,12 @@ aws ec2 wait instance-stopped --region "$REGION" --instance-ids "$INSTANCE_ID"
 ```
 
 Make the new volume from the snapshot, in the machine's zone, with the tags the old one
-carries. The `Backup` tag is what the snapshot policy looks for. A volume made from an
-encrypted snapshot is encrypted; the last command must print `True`.
+carries. The `Backup` tag is what the snapshot policy looks for, and it finds volumes by that
+tag and by nothing else, so a volume without it is not snapshotted. The tags are also
+Terraform's: once the new volume has been imported below, an apply would put them on a volume
+that lacked them (unverified until carried out). They are given here all the same, so that the
+volume is never without the `Backup` tag. A volume made from an encrypted snapshot is expected
+to be encrypted (unverified until carried out); the last command must print `True`.
 
 ```bash
 NEW_VOLUME=$(aws ec2 create-volume --region "$REGION" --snapshot-id "$SNAPSHOT" \
@@ -662,7 +771,8 @@ aws ec2 create-tags --region "$REGION" --resources "$OLD_VOLUME" --tags Key=Name
 ```
 
 Start the machine. It mounts the volume by its file system's identifier, which the snapshot
-carries, and the services come back by their restart policy.
+carries, and the services come back by their restart policy (unverified until carried out). The
+first-boot marker is on the root disk, which was not touched, so a deploy is not refused.
 
 ```bash
 aws ec2 start-instances --region "$REGION" --instance-ids "$INSTANCE_ID"
@@ -670,7 +780,8 @@ aws ec2 wait instance-running --region "$REGION" --instance-ids "$INSTANCE_ID"
 ```
 
 Tell Terraform. Remove the old volume and its attachment from the state (this deletes nothing
-in AWS), import the new ones, and plan.
+in AWS), import the new ones, and plan. The attachment's import id has the form the AWS
+provider's documentation gives, `DEVICE_NAME:VOLUME_ID:INSTANCE_ID`.
 
 ```bash
 terraform -chdir=infra state rm aws_volume_attachment.data aws_ebs_volume.data
@@ -679,7 +790,10 @@ terraform -chdir=infra import aws_volume_attachment.data "/dev/sdf:$NEW_VOLUME:$
 terraform -chdir=infra plan
 ```
 
-The plan should propose nothing, or only changes in place. If it proposes to replace or destroy
+The plan should propose nothing, or only changes in place (to the volume's tags, if any was
+left off above). That a volume made from a snapshot imports with no replacement planned is
+unverified until carried out: the provider computes `snapshot_id` when the configuration does
+not give it, which is why none is expected. If the plan proposes to replace or destroy
 `aws_ebs_volume.data`, do not apply: Terraform would refuse in any case, and the difference it
 names has to be understood first.
 
@@ -691,7 +805,8 @@ gh workflow run deploy.yml --ref main -f sha="$SHA" -f confirm="$SITE_NAME"
 ```
 
 How to tell it worked: the deploy succeeds; the site shows the data as it was at the snapshot;
-`terraform -chdir=infra plan` proposes nothing; and the next morning the listing above, given
+`terraform -chdir=infra plan` proposes nothing; `terraform -chdir=infra output -raw
+data_volume_id` prints the new volume's id; and the next morning the listing above, given
 `$NEW_VOLUME`, shows a new snapshot.
 
 When you are satisfied, the old volume is still there and still billed, and Terraform no longer
@@ -710,19 +825,19 @@ last deploy succeeded.
 > **Not yet carried out.**
 
 **Set-up, in a session, for this procedure and the next.** A Compose command that creates a
-container needs the stack's configuration, and the override in it requires three values that
-only the deploy script normally sets. This takes the first two from the running API's image and
-computes the third as the script does, defines `stack` as the script's own Compose command, and
-defines `set_env`, which changes one line of the environment file without printing any of it.
+container needs the stack's configuration, and the override in it requires three values. The
+deploy script writes them to `/srv/causalpulse/deploy.env` each time a deploy ends well, so
+Compose is given two environment files: the server's own, then that one. (`docker compose
+--help` gives `--env-file` as a list.) This defines `stack` as the deploy script's own Compose
+command with the second file added, and `set_env`, which changes one line of the environment
+file without printing any of it.
 
 ```bash
 sudo -i
 cd /srv/causalpulse/release
-image=$(docker inspect -f '{{.Config.Image}}' "$(docker compose -p causalpulse-prod ps -q api)")
-export CP_IMAGE_REGISTRY="${image%/causalpulse-app:*}" CP_IMAGE_TAG="${image##*:}"
-export CP_CADDYFILE_DIGEST="$(sha256sum <deploy/Caddyfile | cut -d' ' -f1)"
 stack() {
     docker compose -p causalpulse-prod --env-file /srv/causalpulse/.env \
+        --env-file /srv/causalpulse/deploy.env \
         -f docker-compose.prod.yml -f deploy/compose.server.yml "$@"
 }
 set_env() {
@@ -736,13 +851,15 @@ set_env() {
 ```
 
 Before going on, check that the release directory's files are those of the commit that is
-running. The two lines printed must name the same SHA, and the second must end
-`exit status 0`. If they do not, the last deploy failed: put the files back first ("After a
-failed deploy", procedure 2).
+running. The first two lines printed must name the same SHA, and the third must be the
+sentence. If `deploy.env` is missing, no deploy has ended well on this server yet. If the lines
+disagree, the last deploy failed with status 30 or was cut off: see "After a failed deploy" in
+procedure 2 first.
 
 ```bash
-echo "$CP_IMAGE_TAG"
-grep '^====' /srv/causalpulse/deploy.log | tail -n 1
+cat /srv/causalpulse/current-sha
+sed -n 's/^CP_IMAGE_TAG=//p' /srv/causalpulse/deploy.env
+[ "$(sha256sum <deploy/Caddyfile | cut -d' ' -f1)" = "$(sed -n 's/^CP_CADDYFILE_DIGEST=//p' /srv/causalpulse/deploy.env)" ] && echo "the release's Caddyfile is the one deployed"
 ```
 
 Do not do any of this while a deploy is running.
@@ -756,7 +873,8 @@ stack up -d --no-build --no-deps web
 ```
 
 How to tell it worked: `stack ps web` reads `healthy` within a minute, the site's sign-in page
-answers, and a browser that was signed in is asked to sign in again.
+answers, and a browser that was signed in is asked to sign in again. That the proxy finds the
+new `web` container without being restarted itself is unverified until carried out.
 
 **The database password.** It is in two places: inside Postgres, as the role's password, and in
 the environment file, from which the API, the worker and the migration build their connection.
@@ -797,12 +915,13 @@ What breaks in the wrong order:
   status 20, because the migration cannot connect.
 - **The new value lost between the two steps** (the session closed, say). The database has a
   password nobody holds. Run the `ALTER ROLE` again with a fresh one: `psql` inside the
-  Postgres container connects over its local socket, which is expected not to ask for the
-  password.
+  Postgres container does not need the password, because the image sets up `trust`
+  authentication for connections from inside the container, as its documentation says.
 
 Afterwards the Postgres container's own settings differ from the file's, since it was created
-with the old value. The next deploy replaces that container for this reason; the data is on the
-volume and is kept, and the password in the database is not changed by it.
+with the old value. The next deploy is expected to replace that container for this reason
+(unverified until carried out); the data is on the volume and is kept, and the password in the
+database is not changed by it.
 
 ## 7. Changing a rate limit
 
@@ -850,8 +969,8 @@ Use this when the demo is not needed for a while. It needs only the Mac.
 
 What goes on costing while it is stopped: the two disks, the fixed address, the snapshots, the
 images and the state bucket, about 9 US dollars a month by the spec's estimate. The nightly
-snapshot policy stays on. The fixed address stays the machine's, so the DNS record is not
-touched.
+snapshot policy stays on. The fixed address is expected to stay the machine's, so that the DNS
+record is not touched (unverified until carried out; the check below shows it).
 
 ```bash
 REGION=eu-west-1
@@ -860,9 +979,11 @@ aws ec2 stop-instances --region "$REGION" --instance-ids "$INSTANCE_ID"
 aws ec2 wait instance-stopped --region "$REGION" --instance-ids "$INSTANCE_ID"
 ```
 
-Do not stop the services with Compose first. Every long-running service restarts unless it was
-stopped by hand, so a stack that was simply running when the machine stopped comes back when it
-starts, and one stopped with `docker compose stop` or `down` does not.
+Do not stop the services with Compose first. Every long-running service has the restart policy
+`unless-stopped`, and Docker's documentation says a container with it that was stopped by hand
+is not started again when Docker next starts. So a stack stopped with `docker compose stop` or
+`down` does not come back. That one which was simply running when the machine stopped does
+come back is unverified until carried out.
 
 To start it again:
 
@@ -874,7 +995,7 @@ aws ec2 wait instance-running --region "$REGION" --instance-ids "$INSTANCE_ID"
 What to check after, allowing a minute or two for the services:
 
 ```bash
-SITE_NAME=<the site's name>
+SITE_NAME=$(terraform -chdir=infra output -raw site_name)
 [ "$(dig +short A "$SITE_NAME")" = "$(terraform -chdir=infra output -raw site_address)" ] && echo "the A record is right"
 curl -sS -o /dev/null -w '%{http_code}\n' "https://$SITE_NAME/study"
 ```
@@ -894,8 +1015,11 @@ the end succeeds.
 `infra/machine.tf` tells Terraform to ignore changes to the machine's `user_data` (the rendered
 first-boot script) and its `ami`, so a plain plan proposes nothing for either: a running machine
 is never replaced by itself. The script runs once, at a machine's first boot, so the way to
-apply a change is to replace the machine on purpose. The new machine is created from the
-script as it stands in the working tree and from `ami_id` as it stands in `terraform.tfvars`.
+apply a change is to replace the machine on purpose. The new machine is expected to be created
+from the script as it stands in the working tree and from `ami_id` as it stands in
+`terraform.tfvars`: Terraform's documentation says `ignore_changes` is for planning updates to
+an object that exists, and `terraform plan -help` says `-replace` plans a replacement where an
+update or nothing would have been planned. Unverified until carried out.
 
 What a replacement keeps: the data volume, and with it the database, the certificates, the
 environment file, `current-sha`, `previous-sha`, the release files and the deploy logs; the
@@ -903,8 +1027,9 @@ fixed address; the images in the registry. The first-boot script on the new mach
 file system and the environment file and keeps both.
 
 What it loses: the root disk, and with it Docker's images and containers, the containers'
-logs, and what Redis held. The machine's id changes, so the repository variable that names it
-must be set again.
+logs, what Redis held, and the first-boot marker, so the new machine refuses a deploy (status
+76) until its own first boot has finished. The machine's id changes, so the repository variable
+that names it must be set again.
 
 Note the commit that is running (procedure 4, or the list in procedure 2), and check out the
 commit of `main` whose script you mean to apply. For a newer image, put its id in
@@ -912,7 +1037,7 @@ commit of `main` whose script you mean to apply. For a newer image, put its id i
 
 ```bash
 REGION=eu-west-1
-SITE_NAME=<the site's name>
+SITE_NAME=$(terraform -chdir=infra output -raw site_name)
 SHA=<the commit running now>
 terraform -chdir=infra plan -replace=aws_instance.server -out tfplan
 ```
@@ -928,8 +1053,10 @@ rm infra/tfplan
 gh variable set INSTANCE_ID --body "$(terraform -chdir=infra output -raw instance_id)"
 ```
 
-Wait for the first boot to finish, as in procedure 1 (`Online`, then `first-boot: done`). The
-new machine has no images and no containers, so deploy:
+Wait for the first boot to finish, as in procedure 1 (`Online`, then `first-boot: done` and the
+marker file); procedure 11 if it does not. The new machine has no images and no containers, so
+deploy. The registry must still hold both images for that commit, or the workflow builds them
+again:
 
 ```bash
 gh workflow run deploy.yml --ref main -f sha="$SHA" -f confirm="$SITE_NAME"
@@ -954,11 +1081,13 @@ go round each, in an order that leaves nothing pointing at something already gon
 REGION=eu-west-1
 INSTANCE_ID=$(terraform -chdir=infra output -raw instance_id)
 STATE_BUCKET=$(terraform -chdir=infra/bootstrap output -raw state_bucket)
-DATA_VOLUME=$(aws ec2 describe-volumes --region "$REGION" \
-  --filters "Name=attachment.instance-id,Values=$INSTANCE_ID" Name=tag:Name,Values=causalpulse-data \
-  --query 'Volumes[0].VolumeId' --output text)
-echo "$DATA_VOLUME $STATE_BUCKET"
+DATA_VOLUME=$(terraform -chdir=infra output -raw data_volume_id)
+SITE_NAME=$(terraform -chdir=infra output -raw site_name)
+echo "$DATA_VOLUME $STATE_BUCKET $SITE_NAME"
 ```
+
+Set these first: the outputs are read from the state, and the steps below take things out of
+it.
 
 **The DNS record.** At the DNS host, delete the site's A record first, so that the name does not
 go on pointing at an address that will be released to someone else.
@@ -991,7 +1120,9 @@ terraform -chdir=infra state rm 'aws_iam_openid_connect_provider.github[0]'
 
 **Everything Terraform will destroy.** Take the data volume out of the state, so the destroy
 leaves it alone, then plan the destroy, read it, and apply it. The plan should list every
-resource of `infra/` but the volume.
+resource of `infra/` but the volume. That Terraform plans a destroy without objecting to a
+volume its configuration still declares and its state no longer holds is unverified until
+carried out; the paragraph after the commands is for when it does object.
 
 ```bash
 terraform -chdir=infra state rm aws_ebs_volume.data
@@ -1059,9 +1190,93 @@ no longer resolves:
 aws resourcegroupstaggingapi get-resources --region "$REGION" \
   --tag-filters Key=Project,Values=causalpulse \
   --query 'ResourceTagMappingList[].ResourceARN' --output text
-dig +short A <the site's name>
+dig +short A "$SITE_NAME"
 ```
 
 Both should print nothing. The first does not see everything (the budget and the roles are not
 in the region's list), so also check that `aws budgets describe-budget` for
 `causalpulse-monthly` (procedure 1) now fails, and look at the next bill.
+
+## 11. The first boot did not finish
+
+Use this when a deploy ends with status 76, or when, after an apply or a replacement of the
+machine, cloud-init reports an error, the marker file is missing, or the machine never shows
+as `Online`. It needs the Mac, and a session if the machine can be reached.
+
+> **Not yet carried out.**
+
+The first-boot script runs once, when cloud-init first starts a new machine, and cloud-init
+does not run it again. Its last act writes `/var/lib/causalpulse/first-boot-done`. The file is
+on the root disk, so a replaced machine has none until its own first boot has finished. The
+deploy document looks for it before anything else and, without it, ends with status 76 having
+touched nothing: not the lock, not the release directory, not the stack. So a 76 never needs
+anything undone; it needs the first boot finished.
+
+**Find how far it got.** From the Mac, whether Systems Manager can reach the machine:
+
+```bash
+REGION=eu-west-1
+INSTANCE_ID=$(terraform -chdir=infra output -raw instance_id)
+aws ssm describe-instance-information --region "$REGION" \
+  --filters "Key=InstanceIds,Values=$INSTANCE_ID" \
+  --query 'InstanceInformationList[0].PingStatus' --output text
+```
+
+If it prints `Online`, open a session (procedure 3) and look:
+
+```bash
+cloud-init status --long
+sudo grep -n 'first-boot:' /var/log/cloud-init-output.log | tail -n 20
+sudo tail -n 60 /var/log/cloud-init-output.log
+ls -l /var/lib/causalpulse/first-boot-done
+```
+
+A status of `running` means it has not ended yet: the script may wait up to ten minutes for the
+data volume and several more for the package lists. Wait, and look again. A script that stopped
+itself says why in a line beginning `first-boot:` at the end of the log; one stopped by a
+command that failed ends with that command's own message.
+
+If it does not print `Online`, there is no way in (the machine has no SSH). The console's
+output, which holds what cloud-init printed, can be read from the Mac:
+
+```bash
+aws ec2 get-console-output --region "$REGION" --instance-id "$INSTANCE_ID" --latest --output text | tail -n 80
+```
+
+How much of the boot that output holds, and how soon after it, is unverified until carried
+out. A machine that cannot be reached and whose first boot failed is replaced: procedure 9,
+which gives a new machine a first boot of its own and keeps the data volume.
+
+**Finish it.** The script may be run again by hand, as root: every step looks at what is there
+before it acts, it formats the data volume only when two probes agree that the volume holds
+nothing, and it never replaces an environment file. First mend what stopped it, if the log
+names something that will not mend itself (a volume that holds something unexpected stops the
+script on purpose, and is a person's decision). Then, in a session, find the script as
+cloud-init kept it and run it. Where cloud-init keeps it is unverified until carried out; the
+first command shows what is there, and the script is the file that begins with a comment
+saying it is the server's first boot.
+
+```bash
+sudo ls -l /var/lib/cloud/instance/scripts/
+sudo head -n 3 /var/lib/cloud/instance/scripts/<the file listed>
+```
+
+```bash
+sudo bash /var/lib/cloud/instance/scripts/<the file listed>
+```
+
+If no copy can be found on the machine, replace the machine (procedure 9) and do not paste the
+script in by hand: the one on the machine has the site's name and the data volume's id written
+into it by Terraform.
+
+How to tell it worked: the script's last line is `first-boot: done`, and these three print
+their sentences.
+
+```bash
+test -e /var/lib/causalpulse/first-boot-done && echo "the first boot finished"
+sudo test -s /srv/causalpulse/.env && echo "the environment file is there"
+sudo docker compose version >/dev/null && echo "Docker and Compose are installed"
+```
+
+Then deploy (procedure 2). Do not make the marker file by hand to get a deploy through: it is
+the only thing that says Docker, the mounts and the environment file are all in place.

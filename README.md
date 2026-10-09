@@ -2061,8 +2061,8 @@ make check-llm  # one real interpretation (one or two model calls); needs ANTHRO
 
 GitHub Actions runs the same `make` targets a developer runs. A workflow sets a job up and calls
 one target; nothing a gate does is written a second time in YAML, so a gate means the same thing
-on a laptop and on a runner. Two things are not of that shape: the Infrastructure job runs one
-test file after its gate, and the Deploy workflow is not a gate at all ("Deployment" below).
+on a laptop and on a runner. One thing is not of that shape: the Deploy workflow is not a gate
+at all ("Deployment" below).
 
 | When | Job | Runs |
 |---|---|---|
@@ -2071,26 +2071,28 @@ test file after its gate, and the Deploy workflow is not a gate at all ("Deploym
 | | Web | `make check-web` |
 | | Browser | `make smoke-web` |
 | | Stack | `make smoke` |
-| | Infrastructure | `make check-infra`, then `tests/test_deploy_files.py`; only when the change touches what the gate reads |
 | Every push to `main`, and no pull request | Production | `make smoke-prod` |
 | A pull request that changes what it tests, and every push to `main` | Fast suite | `make test-fast WORKERS="$(nproc)"` |
+| A pull request or a push to `main` that changes what it checks | Infrastructure | `make check-infra` |
 | Monthly (the 1st, 03:00 UTC), and by hand | Slow tier | `make test-slow SHARD=I/8 SLOW_WORKERS="$(nproc)"`, eight shards in parallel |
 | By hand only | Live model call | `make check-llm` |
 | By hand only, from `main` | Deploy | no `make` target: it puts one commit of `main` on the server ("Deployment" below) |
 
 The repository is private, so its Actions minutes are counted against a monthly allowance, and
-the shape above is what fits it. The five quick jobs from Static to Stack, which with
-Infrastructure are all a pull request runs besides the fast suite, cost about ten billed minutes
-together (each job is rounded up to a whole minute).
-That figure was measured before the Infrastructure job existed. That job is in the same workflow
-(`ci.yml`) and starts on every pull request and every push to `main`, but its first step lists
-the files the change touches and every later step is skipped unless one is under `infra/`,
-`deploy/` or `.github/workflows/`, or is the `Makefile`, the `Dockerfile`, `.dockerignore` or
-`docker-compose.prod.yml`. A job that stops there is a few seconds long and is billed as one
-minute; when the step cannot tell what changed, the gate runs. What the job costs when it does
-run has not been measured on a runner. It runs `tests/test_deploy_files.py` after the gate
-because the fast suite's paths do not include `deploy/`, so a pull request that changed only the
-deploy script would otherwise run none of those tests.
+the shape above is what fits it. The five quick jobs from Static to Stack, which are all a pull
+request runs unless it touches what the fast suite or the infrastructure gate reads, cost about
+ten billed minutes together (each job is rounded up to a whole minute).
+The Infrastructure gate has a workflow of its own (`infra.yml`), because a workflow can be
+limited to the paths a change touches and a job cannot. It runs, on a pull request and on a
+push to `main` alike, only when a changed file is under `infra/`, `deploy/` or
+`.github/workflows/`, or is one of the two test files `tests/test_deploy_*.py`, the `Makefile`,
+the `Dockerfile`, `.dockerignore` or `docker-compose.prod.yml`; a change to the Python or the
+dashboard alone does not start it and is billed nothing for it. It installs one release of
+`shellcheck` and one of `actionlint`, each checked against its SHA-256, so that what the gate
+objects to does not change with the runner's image. `make check-infra` itself ends by running the
+two test files, which run the deploy script and the server's deploy command against stand-ins;
+the fast suite holds them too, but its pull-request paths do not include `deploy/` or `infra/`.
+What the workflow costs has not been measured on a runner: it has not run there yet.
 A push to `main` also runs Production, which builds the images the Browser job has already
 built and runs that job's browser tests a second time before its own, so it is kept off pull
 requests; what it costs has not been measured on a runner. A pull request that changes the
@@ -2400,6 +2402,8 @@ What this phase added:
   data volume (formatting it only when two probes agree it is empty), places Docker's named
   volumes on it, installs Docker and the AWS CLI, makes a 2 GB swap file, writes the environment
   file if there is none, and leaves Ubuntu's security upgrades on with a reboot at 04:00 UTC.
+  Its last act writes a marker file on the root disk, and a deploy is refused on a machine that
+  does not have it, so a first boot that failed is found out before a deploy and not by one.
 - **A deploy workflow** (`.github/workflows/deploy.yml`), started by hand.
 - **A deploy script** (`deploy/deploy.sh`) and a compose override (`deploy/compose.server.yml`).
   The app image now carries, under `/deploy`, the production compose file, the override, the
@@ -2409,7 +2413,11 @@ What this phase added:
   that commit's files. The script pulls the two images, runs the migration before any service is
   replaced, brings the stack up without building, waits for every service to be healthy and to be
   so again 25 seconds later in the same container, and only then records the commit. It does not
-  roll back by itself.
+  roll back by itself. The command that wraps it on the server keeps the previous commit's files
+  until the script has returned and puts them back when the script replaced nothing, so that the
+  proxy's Caddyfile on disk is the running commit's after a failed migration or a failed pull.
+- **Image tags that are written once.** Both repositories refuse a second push of a tag they
+  have, so a commit's SHA names one image for as long as the image is kept.
 
 ### Two gates, and what each proves
 
@@ -2422,28 +2430,37 @@ make smoke-deploy   # the real deploy script against a throwaway registry; not r
 the formatting; compares the resources declared with a committed list
 (`infra/tests/inventory.txt`), so that one added or removed is seen by a reviewer, and refuses
 certain text anywhere under `infra/` (a key pair, a rule for port 22, a wide AWS policy among
-them); validates both configurations; runs 23 tests against a mocked provider
+them); validates both configurations; runs 25 tests against a mocked provider
 (`infra/tests/*.tftest.hcl`), which assert, among other things, that the only inbound ports are
 80 and 443 over IPv4, that the machine has no key and requires version 2 of the metadata
 service, that the pipeline's role trusts exactly one repository's `main`, and what each role's
 policy names; renders the first-boot script and the deploy document's script and puts both
-through `shellcheck`; and runs `shellcheck` on the scripts and `actionlint` on the workflows. It
-is the Infrastructure job in CI. What it does not prove: the tests read a plan made against a
+through `shellcheck`; runs `shellcheck` on the scripts and `actionlint` on the workflows; and
+last runs two test files with `uv`: `tests/test_deploy_files.py`, which runs the deploy script
+against a stand-in for Docker, and `tests/test_deploy_command.py`, which runs the server's
+deploy command against stand-ins for Docker, the AWS CLI and the lock, and the first-boot
+script's writing of the environment file twice over. It is the Infrastructure workflow in CI.
+What it does not prove: the tests read a plan made against a
 mock and the checks read text, so AWS has parsed none of the policies, and nothing has been
 created. The first-boot script's steps that need the machine (the data volume, the mounts,
 Docker, the swap file) have not been run anywhere.
 
 `make smoke-deploy` builds both images, pushes them to a registry container on the developer's
-machine under made-up commit SHAs, and runs `deploy/deploy.sh`, taken out of the image as a
-server would take it, against local Docker. Five cases: a first deploy from nothing comes up
+machine under made-up commit SHAs, and runs the server's own deploy command, as Terraform
+would render it, against local Docker: so `deploy/deploy.sh` is taken out of the image by the
+lines that take it out on the server. Six cases: a first deploy from nothing comes up
 healthy; a second tag whose Caddyfile differs replaces the first, and the proxy is replaced
 while Postgres and Redis are not; the first tag deployed again creates no image and serves its
 own Caddyfile; a tag whose worker reads healthy and then dies fails with status 30 and leaves
 the recorded commit alone; and a deploy of the commit already recorded keeps the previous one's
 images, while a failed migration ends with status 20 and leaves every running container the one
-it was. What it does not prove: anything of AWS, the Systems Manager document that wraps the
-script on the server, or what Compose does when an image cannot be pulled (that path is tested
-against a stand-in for Docker in `tests/test_deploy_files.py`). It needs Docker, uses the ports
+it was; and a failed migration from an image whose Caddyfile differs leaves the running commit's
+Caddyfile on disk, so that the proxy, restarted, still serves it. What it does not prove:
+anything of AWS; the command under Systems Manager, as root, with the server's shell, lock and
+registry login (stand-ins answer for the last two); what Docker does with the Caddyfile's mount
+at a restart on a Linux server, since Docker Desktop does not mount files as Linux does; or what
+Compose does when an image cannot be pulled (that path is tested against a stand-in for Docker
+in `tests/test_deploy_files.py`). It needs Docker, uses the ports
 of `make smoke-prod`, so the two do not run together, and is not run in CI because it builds
 both images and the minutes are counted.
 
@@ -2455,9 +2472,13 @@ gh workflow run deploy.yml --ref main -f sha=<the commit's full SHA> -f confirm=
 
 Or from the Actions tab: "Deploy", "Run workflow", on `main`. Nothing deploys by itself. The
 workflow refuses unless the commit is on `main` and the `CI` workflow succeeded for it as the tip
-of a push to `main`; it builds and pushes the two images only if the registry does not already
+of a push to `main`. The fast suite and the Infrastructure workflow are asked for in the same
+way: where either ran for the commit, it must have succeeded, so a deploy straight after a merge
+waits for the fast suite. It builds and pushes the two images only if the registry does not already
 have them for that commit, so a rollback, which is the same workflow with an earlier SHA, builds
-nothing while the registry still holds the images. It then sends the deploy document to the
+nothing while the registry still holds the images. A tag is never pushed twice, and the registry
+would refuse it: an image that is bad under its SHA is answered by a new commit, or by an
+administrator deleting the tag (the runbook has the command). It then sends the deploy document to the
 server, waits for it, prints the end of its output, and asks the site three questions from
 outside. A deploy interrupts the site for the seconds the services take to restart.
 
@@ -2476,9 +2497,19 @@ one machine, and read a command's result. It cannot open a session, run any othe
 any other command, or touch any other resource. The document takes one parameter, which must be
 forty lowercase hexadecimal digits.
 
-What that does not stop, stated plainly: GitHub enforces no branch protection on this
-repository, so anyone who can push to `main` can deploy, and any workflow on `main` that asks
-for an identity token can assume the role. AWS offers no narrower form of the permission to read
+What that amounts to, stated plainly. The deploy document takes `deploy/deploy.sh` out of the
+app image for the commit it is given and runs it as root. So whoever can push an app image and
+send the command has root on the server: its environment file and the secrets in it, its
+database, and the server's own role. The pipeline's role can do both. The role's trust tells
+`main` from every other ref, and does not tell the deploy workflow from any other workflow file
+on `main`; GitHub enforces no branch protection on this repository. So anyone who can push to
+`main` has, in effect, root on the server. That is the intended boundary for a private
+repository with one owner. A test holds that the deploy workflow is the only one that asks
+GitHub for an identity token and that it is started by hand only, which guards against an
+accident and not against a person who can push. If a second person is ever given the right to
+push, the boundary has to move first: enforced branch protection on `main`, and the deploy job
+in a GitHub environment with required reviewers, with the role's trust changed to that
+environment's subject (the design's section 7). AWS offers no narrower form of the permission to read
 a command's result, so the role can read the output of any run-command in the account and
 region whose id it is given. The account is shared with another project.
 
@@ -2513,10 +2544,11 @@ charge. The budget's warning counts the whole AWS account, not this project alon
 
 ### Operating it
 
-`docs/runbook.md` has ten procedures as commands that can be pasted: the first-time setup,
+`docs/runbook.md` has eleven procedures as commands that can be pasted: the first-time setup,
 deploying and rolling back, issuing a key, looking at the server, restoring the data volume from
 a snapshot, rotating the two secrets, changing a rate limit, stopping and starting the machine,
-replacing the machine, and tearing everything down. It also lists what exists and where each
+replacing the machine, tearing everything down, and what to do when a machine's first boot did
+not finish. It also lists what exists and where each
 thing is defined, and where to start when something is wrong.
 
 `docs/specs/2026-10-08-hosting-phase3-server-and-deploy-design.md` is the design; its section 14
