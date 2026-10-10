@@ -1,6 +1,9 @@
 """Every reader of a dataset goes through `cp_core.reading.read_csv`."""
 
 import io
+import subprocess
+import sys
+import time
 from pathlib import Path
 
 import pandas as pd
@@ -216,3 +219,85 @@ def test_the_line_named_is_pandas_count_in_which_a_quoted_line_break_is_no_new_l
     # row is on the fourth line of this file.
     with pytest.raises(ValueError, match="line 3 of the CSV has 3 fields"):
         read('a,b\n1,"x\ny"\n2,3,4\n')
+
+
+# pandas' compiled tokeniser misreads a file whose lines end in a carriage return
+# alone (old Mac line endings): `b"a,b\r\r 1"` makes it allocate without limit when
+# the file is read in one piece, which is how `read_csv` reads, and on 2026-10-09 a
+# probe of it took a 16 GB machine down. So any test that parses such a file does it
+# in a child process, killed when its resident memory passes this.
+GUARD_KB = 1_000_000
+
+
+def read_in_a_guarded_child(content: bytes) -> str:
+    """`read_csv(content)` in a child process: its frame as a dict, or why it stopped.
+
+    Returns the frame's `to_dict("list")` as printed, "RUNAWAY" if the child had
+    to be killed for its memory, or "TIMEOUT" if it ran past a minute. The
+    child's output is not read until it ends, so it must stay small.
+    """
+    code = (
+        "import sys; from cp_core.reading import read_csv; "
+        "print(read_csv(sys.stdin.buffer.read()).to_dict('list'))"
+    )
+    child = subprocess.Popen(
+        [sys.executable, "-c", code],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    assert child.stdin is not None
+    child.stdin.write(content)
+    child.stdin.close()
+    deadline = time.monotonic() + 60
+    try:
+        while child.poll() is None:
+            rss = subprocess.run(
+                ["ps", "-o", "rss=", "-p", str(child.pid)], capture_output=True, text=True
+            ).stdout.strip()
+            stopped = "RUNAWAY" if rss and int(rss) > GUARD_KB else None
+            if stopped is None and time.monotonic() > deadline:
+                stopped = "TIMEOUT"
+            if stopped is not None:
+                return stopped
+            time.sleep(0.02)
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.communicate()
+    out, err = child.communicate()
+    assert child.returncode == 0, err.decode()
+    return out.decode().strip()
+
+
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        # Unbounded memory in one piece; about 262,000 invented rows in pieces.
+        pytest.param(b"a,b\r\r 1", "{'a': [1], 'b': [nan]}", id="blank-then-space"),
+        pytest.param(b"a,b\r\r 1\r2,3\r", "{'a': [1, 2], 'b': [nan, 3.0]}", id="more-rows"),
+        # No blank line, no runaway: the header comes back as a data row and every
+        # column is text.
+        pytest.param(
+            b"u,t,y\r 1,0,2.0\r2,1,3.0\r",
+            "{'u': [1, 2], 't': [0, 1], 'y': [2.0, 3.0]}",
+            id="header-read-again",
+        ),
+        pytest.param(b"a,b\r\n\r\n 1\r\n", "{'a': [1], 'b': [nan]}", id="crlf"),
+    ],
+)
+def test_a_carriage_return_alone_ends_a_line_as_a_line_feed_does(content, expected):
+    assert read_in_a_guarded_child(content) == expected
+
+
+def test_a_carriage_return_inside_a_quoted_value_becomes_a_line_feed():
+    assert read_in_a_guarded_child(b'a,b\n"x\ry",1\n"x\r\ny",2\n') == (
+        "{'a': ['x\\ny', 'x\\ny'], 'b': [1, 2]}"
+    )
+
+
+def test_a_wide_row_in_a_file_of_carriage_returns_is_refused_naming_its_line():
+    # Read in this process: measured safe without the fix (pandas refuses it,
+    # naming the same line), so this pins the line count, not the fix.
+    with pytest.raises(ValueError, match="line 3 of the CSV has 3 fields"):
+        read("a,b\r1,2\r3,4,5\r")

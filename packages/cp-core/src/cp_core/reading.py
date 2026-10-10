@@ -65,12 +65,23 @@ def read_csv(content: bytes, *, nrows: int | None = None) -> pd.DataFrame:
     the refusal is pandas' count, in which a quoted value that runs over
     several lines is one line.
 
+    Every carriage return is made a line feed first (see the comment in the
+    body), one inside a quoted value included: pandas misreads a file whose
+    lines end in a carriage return alone.
+
     A row with fewer fields than the header is filled with missing values, as
     pandas does. A file pandas cannot read at all raises what pandas raises,
     for example `EmptyDataError`, `ParserError` or `UnicodeDecodeError`. The
     bytes are not decompressed, and the compressed files tried were among
     those.
     """
+    # Every line ending made a line feed, before pandas sees the bytes. Its
+    # compiled tokeniser misreads lines ended by a carriage return alone (old
+    # Mac line endings): `b"a,b\r\r 1"` makes it allocate without limit
+    # when read in one piece, as here, and `b"u,t,y\r 1,0,2.0\r2,1,3.0\r"`
+    # reads the header again as a data row. A carriage return inside a quoted
+    # value becomes a line feed as well.
+    content = content.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
     try:
         # Text and nothing inferred: only the count of fields is wanted.
         pd.read_csv(
