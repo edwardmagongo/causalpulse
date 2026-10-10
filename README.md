@@ -1262,10 +1262,14 @@ ways.
   is pandas' count, in which a quoted value that runs over several lines is one line.
 - **A large file is read whole,** not in pieces whose types are settled separately, which left a
   column that was numbers in one piece and text in another holding both.
-- **The bytes are read as they are.** Given a path pandas decides from the file's name whether to
+- **The bytes are read as they are, line endings aside.** Given a path pandas decides from the file's name whether to
   decompress it, so the same bytes could be read two ways under two names. A compressed file is
   therefore not read by anything here, `causalpulse analyze --data` included, which used to
-  decompress one: decompress it first.
+  decompress one: decompress it first. The one change made to the bytes is that every carriage
+  return, alone or before a line feed, is made a line feed, so one inside a quoted value changes
+  too. pandas' tokeniser misreads lines ended by a carriage return alone (old Mac line endings):
+  on the 7-byte `a,b\r\r 1` it allocated memory without limit (a probe of it took a 16 GB
+  machine down), and on others it read the header again as a data row, so every column was text.
 
 The two real datasets in this repository are read exactly as before.
 
