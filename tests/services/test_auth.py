@@ -36,7 +36,14 @@ ROUTES = sorted(_routes())
 
 def _client(sessions, redis_conn, key=None):
     headers = {} if key is None else {"Authorization": f"Bearer {key}"}
-    return TestClient(create_app(sessions=sessions, redis=redis_conn), headers=headers)
+    # Interpretations on, so that their route is reached and its owner check
+    # is the one tested, not the 403 a server without them answers first.
+    app = create_app(sessions=sessions, redis=redis_conn, interpretation=True)
+    return TestClient(app, headers=headers)
+
+
+# What the owner gets from a route that accepts work rather than returning a resource.
+ACCEPTED = {("POST", "/v1/analyses/{analysis_id}/interpretation"): 202}
 
 
 @pytest.fixture
@@ -71,7 +78,7 @@ def alices_analysis(sessions, redis_conn, worker_env, api_key_for):
     for method, path in ROUTES:
         if _names_a_resource(path):
             response = _request(alice, method, path, fixture)
-            assert response.status_code == 200, (
+            assert response.status_code == ACCEPTED.get((method, path), 200), (
                 f"fixture is broken: alice got {response.status_code} on {method} {path}"
             )
     return fixture
@@ -149,6 +156,7 @@ def test_the_route_table_holds_no_surprises():
         ("GET", "/v1/healthz"),
         ("GET", "/v1/me"),
         ("POST", "/v1/analyses"),
+        ("POST", "/v1/analyses/{analysis_id}/interpretation"),
         ("POST", "/v1/datasets"),
     ]) == ROUTES
 

@@ -18,7 +18,18 @@ from cp_llm.prompt import facts_message, prompt_version, system_prompt, violatio
 from cp_llm.render import substitute
 from cp_llm.verify import Violation, verify
 
-_HEADINGS = {
+# What "verified" establishes, and what it does not (phase 1 design, §11).
+# Shown beside every interpretation the server writes, so a reader is told by
+# the system, not by the model, how far a verified narrative can be trusted.
+VERIFIED_MEANS = (
+    "A verified interpretation means: every value shown is the system's own, every "
+    "controlled word is backed by a fact, nothing required was omitted, and the prose "
+    "passes the language lint. It does not mean the narrative is a correct reading of "
+    "the analysis."
+)
+
+# The heading each section is shown under, in the markdown and on the dashboard.
+SECTION_HEADINGS = {
     "summary": "Summary",
     "estimates": "Estimates",
     "validity": "Validity",
@@ -95,7 +106,7 @@ class RenderedNarrative:
         for section, statements in self.sections:
             if not statements:
                 continue
-            lines.extend([f"## {_HEADINGS[section]}", ""])
+            lines.extend([f"## {SECTION_HEADINGS[section]}", ""])
             # A `text` fact may hold newlines; one in a bullet would end it, and a
             # line starting `## ` would read as a heading the system did not write.
             lines.extend(f"- {' '.join(statement.split())}" for statement in statements)

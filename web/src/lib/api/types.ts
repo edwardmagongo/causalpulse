@@ -20,3 +20,5 @@ export type RoutingDecision = Schemas["RoutingDecision"];
 export type ComparisonGroup = Schemas["ComparisonGroup"];
 export type Summary = Schemas["Summary"];
 export type AnalysisRequest = Schemas["AnalysisRequest"];
+export type InterpretationDetail = Schemas["InterpretationDetail"];
+export type InterpretationStatus = InterpretationDetail["status"];

@@ -1097,6 +1097,7 @@ source = { editable = "packages/cp-worker" }
 dependencies = [
     { name = "cp-api" },
     { name = "cp-core" },
+    { name = "cp-llm" },
     { name = "cp-report" },
     { name = "redis" },
     { name = "rq" },
@@ -1106,6 +1107,7 @@ dependencies = [
 requires-dist = [
     { name = "cp-api", editable = "packages/cp-api" },
     { name = "cp-core", editable = "packages/cp-core" },
+    { name = "cp-llm", editable = "packages/cp-llm" },
     { name = "cp-report", editable = "packages/cp-report" },
     { name = "redis", specifier = ">=5.0" },
     { name = "rq", specifier = ">=2.0" },

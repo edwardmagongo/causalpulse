@@ -15,6 +15,7 @@ import type {
   DatasetDetail,
   DatasetPage,
   EstimatorEntry,
+  InterpretationDetail,
   Me,
   Summary,
 } from "./types";
@@ -197,6 +198,13 @@ export function createAnalysis(body: AnalysisRequest): Promise<AnalysisCreated> 
 
 export function getAnalysis(id: string): Promise<AnalysisDetail> {
   return json<AnalysisDetail>(`/v1/analyses/${encodeURIComponent(id)}`);
+}
+
+/** Ask for the analysis's interpretation; the API answers with it, queued. */
+export function requestInterpretation(id: string): Promise<InterpretationDetail> {
+  return json<InterpretationDetail>(`/v1/analyses/${encodeURIComponent(id)}/interpretation`, {
+    method: "POST",
+  });
 }
 
 export function getSummary(id: string): Promise<Summary> {

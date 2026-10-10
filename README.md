@@ -1539,7 +1539,8 @@ All routes are under `/v1`. Every route except `GET /healthz` needs an `Authoriz
 | `GET /datasets` | Your datasets, newest first, without their columns. `limit` (1 to 200, default 50) and `cursor`, the previous page's `next_cursor`. |
 | `GET /datasets/{id}` | One dataset with its columns. |
 | `GET /analyses` | Your analyses, newest first, paged like the datasets. An in-flight analysis whose job is gone is marked `failed` here, as on the single read. |
-| `GET /analyses/{id}` | Status, `partial`, error, the dataset's id and `dataset_filename`, routing decisions, and per estimate its method, band, error, and `summary` (point, standard error, intervals, the bootstrap interval's level, p-value, group sizes). |
+| `GET /analyses/{id}` | Status, `partial`, error, the dataset's id and `dataset_filename`, routing decisions, and per estimate its method, band, error, and `summary` (point, standard error, intervals, the bootstrap interval's level, p-value, group sizes). It also carries `interpretation` (null until one is asked for), `interpretable` and `interpretable_reason` (why it cannot be, when it cannot). |
+| `POST /analyses/{id}/interpretation` | Asks for a model-written interpretation of a finished analysis. 202 with the interpretation, queued. 403 if the server has interpretations off; 409 if the analysis has not finished or has no fact table, if an interpretation is already being written, or if one is already verified or refused (only a failed one can be asked for again); 429 over the daily limit. |
 | `GET /analyses/{id}/estimates/{method}/report.html` | One estimate's evidence report, figures inlined. |
 | `GET /analyses/{id}/estimates/{method}/report.md` | The Markdown report. Its relative figure links resolve against the next route. |
 | `GET /analyses/{id}/estimates/{method}/{filename}` | One Markdown figure, from `report_assets`. |
@@ -1812,6 +1813,30 @@ lists can still reach the narrative as the model's own free text.
 `make check` never calls the model: every test but two runs against a scripted model or a mock of
 the SDK's transport. `make check-llm` runs those two against the real API: this interpretation, and
 `cp-llm-eval`'s judge (below).
+
+### On the server and in the dashboard (phase 3)
+
+A server can offer the same interpretation for an analysis run through the API. It is off unless
+`CP_INTERPRETATION=on` is set for both the API and the worker. When it is on, the worker also needs
+`ANTHROPIC_API_KEY`, and refuses to start without it. The API never reads the key.
+
+- **The fact table is stored when the analysis runs.** The worker writes it beside the outcome. This
+  calls no model and costs nothing. If the extractor cannot build it, the analysis still succeeds,
+  and it simply cannot be interpreted. Analyses run before this existed have no fact table and are
+  not refitted to get one.
+- **An interpretation is written only when someone asks.** `POST /v1/analyses/{id}/interpretation`
+  answers 202 and queues a separate job, so an analysis never waits on the model.
+  `CP_LIMIT_INTERPRETATIONS_PER_DAY` caps the requests per user, counted when accepted. The
+  production stack defaults to 5.
+- **A result is final.** A verified or refused interpretation cannot be asked for again: re-asking
+  until something passes would cost money and lower the bar. Only a failed one can be retried,
+  such as a model that could not be reached, a job that ran out of time, or a worker that was lost.
+- **What the reader sees.** On the analysis page, a verified interpretation is shown under
+  "Interpretation (model-written, verified against the facts)". Beside it are the system's limits
+  text, a fixed note on what "verified" establishes and what it does not, and the model and prompt
+  version. A refused one is not shown; the page says so and gives the number of attempts.
+- **How often a verified interpretation still misreads its analysis is not yet measured.** Phase 2's
+  study, below, measures it, and its paid run is paused.
 
 ## Measuring misreadings (sub-project 4, phase 2)
 
@@ -2188,7 +2213,7 @@ production file runs the same services from the same two images and differs in t
 - **`CP_ENV=production`** is set on the API, the worker, the migration and the dashboard, here and
   nowhere else. Everything it switches on is off without it.
 - **The session cookie is `Secure`** (`CP_COOKIE_SECURE=true`).
-- **The four rate limits are set**, each to a default.
+- **The five rate limits are set**, each to a default.
 - **Every long-running service** restarts unless stopped and has a health check; the dashboard
   waits for the API to be healthy and the proxy for the dashboard. Each service's log is kept to
   three files of 10 MB.
@@ -2210,7 +2235,9 @@ secrets; `.env` itself is ignored by git.
 | `CP_SITE_ADDRESS` | The site's address, as Caddy reads it. A public name gets a public certificate; `localhost` gets one from Caddy's own local authority. Required. |
 | `POSTGRES_PASSWORD` | The database's password, placed in `DATABASE_URL` as it is, so letters and digits only. Required. |
 | `CP_SESSION_SECRET` | What the dashboard seals its session cookie with, at least 32 characters. Required. |
-| `CP_LIMIT_SIGNIN_FAILURES`, `CP_LIMIT_UPLOADS_PER_DAY`, `CP_LIMIT_ANALYSES_PER_DAY`, `CP_LIMIT_ANALYSES_ACTIVE` | The rate limits, below. Optional. |
+| `CP_LIMIT_SIGNIN_FAILURES`, `CP_LIMIT_UPLOADS_PER_DAY`, `CP_LIMIT_ANALYSES_PER_DAY`, `CP_LIMIT_ANALYSES_ACTIVE`, `CP_LIMIT_INTERPRETATIONS_PER_DAY` | The rate limits, below. Optional. `CP_LIMIT_INTERPRETATIONS_PER_DAY` is per user and defaults to 5 in the production file. |
+| `CP_INTERPRETATION` | `on`, exactly, turns model-written interpretations on; anything else, or nothing, leaves them off. The API and the worker both read it and must agree; the production compose file feeds both from this one setting. Optional. |
+| `ANTHROPIC_API_KEY` | The model's key. Read by the worker only, never by the API. Required when `CP_INTERPRETATION=on`. |
 | `CP_HTTP_PORT`, `CP_HTTPS_PORT` | The host ports the proxy listens on. Empty on a server (80 and 443); `make smoke-prod` sets them. |
 
 `DATABASE_URL` and `REDIS_URL` are assembled in the compose file. Redis has no password: it is on
@@ -2235,6 +2262,8 @@ beside the code that reads each setting, and two tests (`tests/api/test_settings
 `web/` too, and fail if a password or session secret written there is missing from its list.
 Without `CP_ENV=production` none of this runs.
 
+One refusal applies in every environment: the worker exits at start-up if `CP_INTERPRETATION=on` and `ANTHROPIC_API_KEY` is not set.
+
 The API also stops at start-up, in any environment, on a rate limit whose setting is not a whole
 number greater than zero.
 
@@ -2248,6 +2277,7 @@ Counters in Redis, in fixed windows, kept by the API.
 | `CP_LIMIT_UPLOADS_PER_DAY` | 20 | uploads received | user |
 | `CP_LIMIT_ANALYSES_PER_DAY` | 30 | analyses accepted | user |
 | `CP_LIMIT_ANALYSES_ACTIVE` | 3 | the user's analyses queued or running | user |
+| `CP_LIMIT_INTERPRETATIONS_PER_DAY` | 5 | interpretations accepted | user |
 
 - **Uploads are counted when received**, after the key is checked and before any of the body is
   read, and the count is kept whatever becomes of the upload: one refused as too large or as not
@@ -2255,6 +2285,7 @@ Counters in Redis, in fixed windows, kept by the API.
   reading, and only a count taken first can refuse without it.
 - **Analyses are counted when accepted.** A submission answered 404 or 422, or refused by the
   active limit, is not one of the day's.
+- **Interpretations are counted when accepted**, after every refusal check: a request answered 403, 404 or 409 is not one of the day's. A request that is accepted counts whatever becomes of the interpretation, including one that later fails.
 - **A day is 24 hours from the first request counted**, not a calendar day, and the 15 minutes
   likewise. A refused request does not push the window's end back.
 - **Failed sign-ins** are every 401 on a `/v1` route, the upload route included, counted against

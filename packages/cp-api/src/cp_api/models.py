@@ -100,6 +100,37 @@ class Estimate(BaseModel):
     error: str | None
 
 
+InterpretationStatus = Literal["queued", "running", "verified", "refused", "failed"]
+
+
+class InterpretationSection(BaseModel):
+    name: str
+    heading: str
+    statements: list[str]
+
+
+class InterpretationDetail(BaseModel):
+    """An analysis's interpretation. Which fields are filled depends on `status`.
+
+    `verified`: `sections`, `limits` and `notice`. `refused`: `attempts` and
+    `reason`; a refused narrative is not served. `failed`: `error`.
+    """
+
+    status: InterpretationStatus
+    model: str
+    returned_model: str | None
+    prompt_version: str | None
+    created_at: str | None
+    started_at: str | None
+    finished_at: str | None
+    sections: list[InterpretationSection] | None
+    limits: str | None
+    notice: str | None
+    attempts: int | None
+    reason: str | None
+    error: str | None
+
+
 class AnalysisDetail(BaseModel):
     id: str
     dataset_id: str
@@ -112,6 +143,12 @@ class AnalysisDetail(BaseModel):
     finished_at: str | None
     routing: list[RoutingDecision]
     estimates: list[Estimate]
+    interpretation: InterpretationDetail | None
+    # Whether an interpretation can be asked for at all: the server writes
+    # them, the analysis succeeded, and its fact table is stored.
+    interpretable: bool
+    # Why not, when the server writes interpretations and this one cannot.
+    interpretable_reason: str | None
 
 
 class AnalysisItem(BaseModel):

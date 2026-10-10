@@ -2,7 +2,7 @@
 name = "cp-worker"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["cp-core", "cp-report", "cp-api", "rq>=2.0", "redis>=5.0"]
+dependencies = ["cp-core", "cp-report", "cp-api", "cp-llm", "rq>=2.0", "redis>=5.0"]
 
 [build-system]
 requires = ["hatchling"]
@@ -15,3 +15,4 @@ packages = ["src/cp_worker"]
 cp-core = { workspace = true }
 cp-report = { workspace = true }
 cp-api = { workspace = true }
+cp-llm = { workspace = true }
