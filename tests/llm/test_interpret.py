@@ -200,3 +200,12 @@ def test_an_attempt_serialises_as_the_record_does(good, facts):
     result = interpret(facts, ScriptedModel([BARE, good]))
 
     assert [attempt.to_dict() for attempt in result.attempts] == result.to_dict()["attempts"]
+
+
+def test_what_verified_means_passes_the_language_lint():
+    from cp_core.language import causal_language_lint
+    from cp_llm.interpret import VERIFIED_MEANS
+
+    assert VERIFIED_MEANS.startswith("A verified interpretation means:")
+    assert "does not mean the narrative is a correct reading" in VERIFIED_MEANS
+    assert causal_language_lint(VERIFIED_MEANS) == ()

@@ -40,9 +40,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
-
 from cp_core.dataset import CausalDataset, CausalSchema, schema_from_dict
+from cp_core.reading import read_csv
 from cp_core.values import EstimatorConfig
 
 MANIFEST_SCHEMA_VERSION = 1
@@ -104,7 +103,9 @@ def resolve_fixture_reference(reference: FixtureReference, schema: CausalSchema)
             f"expected sha256 {reference.content_sha256}, got {actual}. "
             "The file changed after this reference was built."
         )
-    frame = pd.read_csv(path)
+    # The bytes that were hashed, not the path again: pandas would decide from
+    # the file's name whether to decompress it, which the analysis did not do.
+    frame = read_csv(content)
     return CausalDataset(frame=frame, schema=schema)
 
 

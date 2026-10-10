@@ -245,6 +245,9 @@ test("Proposition 99: panel fields, no covariates, synthetic control", async ({ 
   await expect(page.getByRole("region", { name: "Comparison across methods" })).toContainText(
     "only one method estimated",
   );
+  // The stack the browser tests run against writes no interpretations, so a
+  // finished analysis has no interpretation section at all.
+  await expect(page.getByRole("region", { name: /Interpretation/ })).toHaveCount(0);
 });
 
 test("a 12 MB upload arrives whole", async ({ page }) => {

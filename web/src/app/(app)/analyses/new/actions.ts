@@ -3,21 +3,11 @@
 import { redirect } from "next/navigation";
 
 import { createAnalysis, getDataset } from "@/lib/api/client";
-import { ApiError, ApiUnavailable, Unauthorized } from "@/lib/api/errors";
+import { refusal } from "@/lib/refusal";
 import type { SchemaJson } from "@/lib/schema-form";
 
 export type ColumnsResult = { columns: string[] } | { error: string };
 export type SubmitResult = { error: string };
-
-const UNAVAILABLE = "The service is unavailable. Try again in a moment.";
-
-/** What an action answers for a refusal; a 401 leaves for sign-out instead. */
-function refusal(error: unknown): { error: string } {
-  if (error instanceof Unauthorized) redirect("/sign-out");
-  if (error instanceof ApiUnavailable) return { error: UNAVAILABLE };
-  if (error instanceof ApiError) return { error: error.detail };
-  throw error;
-}
 
 /** The columns of an earlier upload, for the schema form. */
 export async function datasetColumns(datasetId: string): Promise<ColumnsResult> {

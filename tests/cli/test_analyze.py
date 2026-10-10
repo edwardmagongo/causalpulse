@@ -109,3 +109,16 @@ def test_a_csv_missing_a_declared_column_is_refused_naming_it(tmp_path):
               "--treatment", "nonexistent", "--outcome", "outcome",
               "--covariates", "", "--outcome-type", "binary",
               "--estimators", "difference_in_means", "--out", str(tmp_path / "r")])
+
+
+def test_a_csv_with_an_extra_field_holding_data_is_refused_by_the_reader(tmp_path):
+    # Left to pandas, an extra field on every line would shift the columns or
+    # drop the field without a word; `analyze --data` has to read the file
+    # through the shared reader, which refuses it.
+    data = _simulate(tmp_path)
+    header, *rows = data.read_text().splitlines()
+    data.write_text("\n".join([header, *(f"{row},9" for row in rows)]) + "\n")
+    with pytest.raises(ValueError, match="line 2 of the CSV has"):
+        main(["analyze", "--data", str(data), "--unit", "unit_id", "--treatment", "treated",
+              "--outcome", "outcome", "--covariates", "x1,x2", "--outcome-type", "binary",
+              "--estimators", "difference_in_means", "--out", str(tmp_path / "r")])

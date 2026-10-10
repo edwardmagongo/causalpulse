@@ -92,7 +92,13 @@ def panel_arrays(dataset: CausalDataset) -> PanelArrays:
     units = np.asarray(np.sort(np.unique(frame[schema.unit].to_numpy())))
     periods = np.asarray(np.sort(np.unique(frame[schema.time].to_numpy())))
 
-    if not np.issubdtype(periods.dtype, np.number) or periods.min() <= 0:
+    if not np.issubdtype(periods.dtype, np.number):
+        raise ValueError(
+            f"panel periods must be whole numbers, and the time column {schema.time!r} "
+            f"holds {frame[schema.time].dtype} values. Number the periods (1, 2, 3, ... "
+            "or the year) before fitting a panel estimator."
+        )
+    if periods.min() <= 0:
         raise ValueError(
             "panel periods must be strictly positive; 0 is reserved as the "
             f"never-treated cohort sentinel, and this panel's periods start at "

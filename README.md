@@ -1240,40 +1240,81 @@ the choice is recorded (`CompleteCaseRecord`, which rows were dropped and which 
 Complete-case is a starting point offered for convenience, not a recommendation — the error message
 that points to it says so, rather than presenting it as the fix.
 
-### A dataset whose numbers are not numbers, or are infinite, is refused when it is built
+### What is refused before anything is fitted
 
-A missing value is refused in a different place from the two refusals here, on purpose. A dataset
-with gaps has to be constructible, because `complete_cases` and imputation take one, so a missing
-outcome or covariate value is refused only when an estimator is fitted. Nothing can use a column of
-text where numbers belong, or an infinity, so `CausalDataset` refuses both when the dataset is
-built, each with one message naming the columns, before anything is routed or fitted:
+An upload is read, checked and analysed in different places, and a file that one of them reads
+differently from another is analysed as something its owner did not send. So there is one reader,
+and the dataset built from what it reads refuses, by name, whatever the estimators cannot use.
 
+**The reader** (`cp_core.reading.read_csv`) is the one function that turns the bytes of a dataset
+someone supplies into a frame. The API's check of an upload, the worker, `causalpulse analyze
+--data` and the replay of a manifest all hand it the file's bytes and pass pandas nothing of their
+own. (The evaluation corpus reads this repository's own two fixtures with pandas directly; a test
+holds those two files to read the same either way.) It differs from pandas' defaults in three
+ways.
+
+- **A row with more fields than the header names is refused, naming the line,** whether or not
+  the extra field holds anything. pandas reads such a file in more than one way; when the first
+  data row is the wide one it takes as many leading columns as there are extra fields for an
+  index and moves the rest along. A file whose every line ends in a comma is refused too: it
+  reads the same as a stray comma inside a value before an empty last column (`3,5,` is `3` then
+  `5`, or the decimal `3,5` then nothing), and nothing in the file says which was meant. The line
+  is pandas' count, in which a quoted value that runs over several lines is one line.
+- **A large file is read whole,** not in pieces whose types are settled separately, which left a
+  column that was numbers in one piece and text in another holding both.
+- **The bytes are read as they are, line endings aside.** Given a path pandas decides from the file's name whether to
+  decompress it, so the same bytes could be read two ways under two names. A compressed file is
+  therefore not read by anything here, `causalpulse analyze --data` included, which used to
+  decompress one: decompress it first. The one change made to the bytes is that every carriage
+  return, alone or before a line feed, is made a line feed, so one inside a quoted value changes
+  too. pandas' tokeniser misreads lines ended by a carriage return alone (old Mac line endings):
+  on the 7-byte `a,b\r\r 1` it allocated memory without limit (a probe of it took a 16 GB
+  machine down), and on others it read the header again as a data row, so every column was text.
+
+The two real datasets in this repository are read exactly as before.
+
+**`CausalDataset`** then refuses, when the dataset is built, each with one message naming the
+column:
+
+- **A column the schema names appearing twice** in the frame.
+- **A unit column with a missing value, or one mixing numbers and text.** pandas reads `NA`,
+  `N/A`, `n/a`, `NaN`, `null`, `NULL`, `None` and an empty cell as missing, so a unit with one of
+  those names (a country coded `NA`) has to be renamed; the message says so.
 - **A column that must be numeric and was not read as numbers.** The treatment, the outcome, the
   covariates, the cohort, the negative-control outcome and the auxiliary columns must have a
-  numeric dtype. The unit may be text, and the time column may be dates.
+  numeric dtype. The unit may be text.
 - **An infinite value**, `inf` or `-inf`, in any of those columns or in a numeric unit or time
   column. Text such as `1e400`, which pandas reads as infinite, is refused the same way.
+- **A numeric period that is not a whole number, or is larger than 2**53.** Periods are used as
+  integers. A time column may hold dates and the dataset is built, but a panel estimator needs
+  numbered periods and says so.
 
-The analysis of an upload, `cp analyze` and `cp replay` all go through both; the upload itself is
-accepted, and its analysis fails with the message.
+**A missing value** in the outcome or a covariate is different, on purpose. A dataset with gaps
+has to be constructible, because `complete_cases` and imputation take one. It is refused when it
+is analysed: once, before anything is fitted, for an analysis that goes through the pipeline (an
+upload, `causalpulse analyze --report`), and by each estimator for itself when one is fitted
+directly.
 
-The first rule exists because `read_csv` and Python's `float()` disagree about what a number is.
-One cell of `1_000`, or of `inf` followed by a space, makes pandas read the column as text (in a
-large file, as a mix of numbers and text), and yet every cell converts when an estimator asks for
-floats. Measured on LaLonde before the rule: a covariate cell of `1_000` was analysed as the number
-1000 with no warning, and a covariate cell of `inf ` went past the infinity check, which looks only
-at numeric columns, and reached the estimators. Nothing is cleaned on the user's behalf: write
-`1000`.
+The analysis of an upload, `cp analyze` and `cp replay` all go through these. A file the reader
+refuses is refused when it is uploaded; a dataset `CausalDataset` refuses is accepted as an upload,
+and its analysis fails with the message. Nothing is cleaned on the user's behalf.
 
-Before this, measured on the real datasets with one cell changed: an infinite covariate gave a
-partial analysis (`difference_in_means` succeeded and the other four failed, each with a library's
-own message naming no column); an infinite outcome failed every estimator the same way; and an
-infinite period in Prop 99 was **fitted**, with `hierarchical_did` returning an estimate.
+Why each exists, measured on the real datasets before it did. `read_csv` and Python's `float()`
+disagree about what a number is: one covariate cell of `1_000` made pandas read the column as
+text, and it was analysed as the number 1000 with no warning; a cell of `inf ` (a trailing space)
+went past the infinity check, which looks only at numeric columns. An infinite covariate gave a
+partial analysis, an infinite outcome failed every estimator with a library's own message, and an
+infinite period in Prop 99 was **fitted**. LaLonde with a comma ending every line was read with
+every column shifted by one. Prop 99 with a state renamed `NA` crashed while it was being routed.
+Prop 99 with each year moved by half a period gave a cohort that is not in the data.
 
-Not covered: a value that is finite and absurdly large. One covariate cell of `1e39` in LaLonde
-gives `aipw` and `causal_forest` estimates near -1e36, and `1e155` leaves the causal forest without
-an answer after a minute. That is a question of magnitude with no threshold to justify yet; it is
-recorded in `docs/specs/2026-10-05-refuse-infinite-values-design.md`, section 8.
+Not refused, by decision (2026-10-06): a value that is finite and absurdly large. One covariate
+cell of `1e39` in LaLonde gives `aipw` and `causal_forest` estimates near -1e36, and `1e155`
+leaves the causal forest without an answer after a minute. There is no threshold with a reason
+behind it, the estimate is arithmetic on the user's own data, and the worker's time limit bounds a
+fit that does not finish. An integer above 2**53 in an outcome or covariate is rounded when it is
+converted, by about one part in 1e16. Both are recorded in
+`docs/specs/2026-10-06-input-followups-design.md`, section 10.
 
 ### What a wide bound means
 
@@ -1498,7 +1539,8 @@ All routes are under `/v1`. Every route except `GET /healthz` needs an `Authoriz
 | `GET /datasets` | Your datasets, newest first, without their columns. `limit` (1 to 200, default 50) and `cursor`, the previous page's `next_cursor`. |
 | `GET /datasets/{id}` | One dataset with its columns. |
 | `GET /analyses` | Your analyses, newest first, paged like the datasets. An in-flight analysis whose job is gone is marked `failed` here, as on the single read. |
-| `GET /analyses/{id}` | Status, `partial`, error, the dataset's id and `dataset_filename`, routing decisions, and per estimate its method, band, error, and `summary` (point, standard error, intervals, the bootstrap interval's level, p-value, group sizes). |
+| `GET /analyses/{id}` | Status, `partial`, error, the dataset's id and `dataset_filename`, routing decisions, and per estimate its method, band, error, and `summary` (point, standard error, intervals, the bootstrap interval's level, p-value, group sizes). It also carries `interpretation` (null until one is asked for), `interpretable` and `interpretable_reason` (why it cannot be, when it cannot). |
+| `POST /analyses/{id}/interpretation` | Asks for a model-written interpretation of a finished analysis. 202 with the interpretation, queued. 403 if the server has interpretations off; 409 if the analysis has not finished or has no fact table, if an interpretation is already being written, or if one is already verified or refused (only a failed one can be asked for again); 429 over the daily limit. |
 | `GET /analyses/{id}/estimates/{method}/report.html` | One estimate's evidence report, figures inlined. |
 | `GET /analyses/{id}/estimates/{method}/report.md` | The Markdown report. Its relative figure links resolve against the next route. |
 | `GET /analyses/{id}/estimates/{method}/{filename}` | One Markdown figure, from `report_assets`. |
@@ -1771,6 +1813,30 @@ lists can still reach the narrative as the model's own free text.
 `make check` never calls the model: every test but two runs against a scripted model or a mock of
 the SDK's transport. `make check-llm` runs those two against the real API: this interpretation, and
 `cp-llm-eval`'s judge (below).
+
+### On the server and in the dashboard (phase 3)
+
+A server can offer the same interpretation for an analysis run through the API. It is off unless
+`CP_INTERPRETATION=on` is set for both the API and the worker. When it is on, the worker also needs
+`ANTHROPIC_API_KEY`, and refuses to start without it. The API never reads the key.
+
+- **The fact table is stored when the analysis runs.** The worker writes it beside the outcome. This
+  calls no model and costs nothing. If the extractor cannot build it, the analysis still succeeds,
+  and it simply cannot be interpreted. Analyses run before this existed have no fact table and are
+  not refitted to get one.
+- **An interpretation is written only when someone asks.** `POST /v1/analyses/{id}/interpretation`
+  answers 202 and queues a separate job, so an analysis never waits on the model.
+  `CP_LIMIT_INTERPRETATIONS_PER_DAY` caps the requests per user, counted when accepted. The
+  production stack defaults to 5.
+- **A result is final.** A verified or refused interpretation cannot be asked for again: re-asking
+  until something passes would cost money and lower the bar. Only a failed one can be retried,
+  such as a model that could not be reached, a job that ran out of time, or a worker that was lost.
+- **What the reader sees.** On the analysis page, a verified interpretation is shown under
+  "Interpretation (model-written, verified against the facts)". Beside it are the system's limits
+  text, a fixed note on what "verified" establishes and what it does not, and the model and prompt
+  version. A refused one is not shown; the page says so and gives the number of attempts.
+- **How often a verified interpretation still misreads its analysis is not yet measured.** Phase 2's
+  study, below, measures it, and its paid run is paused.
 
 ## Measuring misreadings (sub-project 4, phase 2)
 
@@ -2162,7 +2228,7 @@ production file runs the same services from the same two images and differs in t
 - **`CP_ENV=production`** is set on the API, the worker, the migration and the dashboard, here and
   nowhere else. Everything it switches on is off without it.
 - **The session cookie is `Secure`** (`CP_COOKIE_SECURE=true`).
-- **The four rate limits are set**, each to a default.
+- **The five rate limits are set**, each to a default.
 - **Every long-running service** restarts unless stopped and has a health check; the dashboard
   waits for the API to be healthy and the proxy for the dashboard. Each service's log is kept to
   three files of 10 MB.
@@ -2184,7 +2250,9 @@ secrets; `.env` itself is ignored by git.
 | `CP_SITE_ADDRESS` | The site's address, as Caddy reads it. A public name gets a public certificate; `localhost` gets one from Caddy's own local authority. Required. |
 | `POSTGRES_PASSWORD` | The database's password, placed in `DATABASE_URL` as it is, so letters and digits only. Required. |
 | `CP_SESSION_SECRET` | What the dashboard seals its session cookie with, at least 32 characters. Required. |
-| `CP_LIMIT_SIGNIN_FAILURES`, `CP_LIMIT_UPLOADS_PER_DAY`, `CP_LIMIT_ANALYSES_PER_DAY`, `CP_LIMIT_ANALYSES_ACTIVE` | The rate limits, below. Optional. |
+| `CP_LIMIT_SIGNIN_FAILURES`, `CP_LIMIT_UPLOADS_PER_DAY`, `CP_LIMIT_ANALYSES_PER_DAY`, `CP_LIMIT_ANALYSES_ACTIVE`, `CP_LIMIT_INTERPRETATIONS_PER_DAY` | The rate limits, below. Optional. `CP_LIMIT_INTERPRETATIONS_PER_DAY` is per user and defaults to 5 in the production file. |
+| `CP_INTERPRETATION` | `on`, exactly, turns model-written interpretations on; anything else, or nothing, leaves them off. The API and the worker both read it and must agree; the production compose file feeds both from this one setting. Optional. |
+| `ANTHROPIC_API_KEY` | The model's key. Read by the worker only, never by the API. Required when `CP_INTERPRETATION=on`. |
 | `CP_HTTP_PORT`, `CP_HTTPS_PORT` | The host ports the proxy listens on. Empty on a server (80 and 443); `make smoke-prod` sets them. |
 
 `DATABASE_URL` and `REDIS_URL` are assembled in the compose file. Redis has no password: it is on
@@ -2209,6 +2277,8 @@ beside the code that reads each setting, and two tests (`tests/api/test_settings
 `web/` too, and fail if a password or session secret written there is missing from its list.
 Without `CP_ENV=production` none of this runs.
 
+One refusal applies in every environment: the worker exits at start-up if `CP_INTERPRETATION=on` and `ANTHROPIC_API_KEY` is not set.
+
 The API also stops at start-up, in any environment, on a rate limit whose setting is not a whole
 number greater than zero.
 
@@ -2222,6 +2292,7 @@ Counters in Redis, in fixed windows, kept by the API.
 | `CP_LIMIT_UPLOADS_PER_DAY` | 20 | uploads received | user |
 | `CP_LIMIT_ANALYSES_PER_DAY` | 30 | analyses accepted | user |
 | `CP_LIMIT_ANALYSES_ACTIVE` | 3 | the user's analyses queued or running | user |
+| `CP_LIMIT_INTERPRETATIONS_PER_DAY` | 5 | interpretations accepted | user |
 
 - **Uploads are counted when received**, after the key is checked and before any of the body is
   read, and the count is kept whatever becomes of the upload: one refused as too large or as not
@@ -2229,6 +2300,7 @@ Counters in Redis, in fixed windows, kept by the API.
   reading, and only a count taken first can refuse without it.
 - **Analyses are counted when accepted.** A submission answered 404 or 422, or refused by the
   active limit, is not one of the day's.
+- **Interpretations are counted when accepted**, after every refusal check: a request answered 403, 404 or 409 is not one of the day's. A request that is accepted counts whatever becomes of the interpretation, including one that later fails.
 - **A day is 24 hours from the first request counted**, not a calendar day, and the 15 minutes
   likewise. A refused request does not push the window's end back.
 - **Failed sign-ins** are every 401 on a `/v1` route, the upload route included, counted against

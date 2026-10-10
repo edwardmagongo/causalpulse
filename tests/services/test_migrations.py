@@ -37,8 +37,12 @@ def test_downgrade_removes_every_table_and_upgrade_restores_them(migrated):
         engine.dispose()
 
 
+# The newest revision: what `upgrade` leaves the database at.
+HEAD = "0003"
+
 ALL_TABLES = (
-    "analysis_summaries, estimates, routing_decisions, analyses, datasets, api_keys, users"
+    "interpretations, analysis_summaries, estimates, routing_decisions, analyses, datasets, "
+    "api_keys, users"
 )
 
 
@@ -105,10 +109,10 @@ def test_downgrade_refuses_when_two_owners_hold_the_same_bytes(migrated):
         with pytest.raises(RuntimeError, match="more than one owner"):
             downgrade(migrated, "0001")
 
-        # The refusal happened before any change, so the schema is still at 0002.
+        # The refusal rolled the whole downgrade back, so the schema is still at the head.
         with engine.connect() as connection:
             version = connection.execute(text("SELECT version_num FROM alembic_version"))
-            assert version.scalar_one() == "0002"
+            assert version.scalar_one() == HEAD
     finally:
         upgrade(migrated)
         _truncate(engine)
@@ -166,4 +170,28 @@ def test_downgrade_succeeds_when_no_two_owners_share_bytes_and_upgrade_restores_
     finally:
         upgrade(migrated)
         _truncate(engine)
+        engine.dispose()
+
+
+def test_the_head_is_the_newest_revision(migrated):
+    engine = make_engine(migrated)
+    try:
+        with engine.connect() as connection:
+            version = connection.execute(text("SELECT version_num FROM alembic_version"))
+            assert version.scalar_one() == HEAD
+    finally:
+        engine.dispose()
+
+
+def test_downgrading_to_0002_drops_the_facts_and_the_interpretations(migrated):
+    engine = make_engine(migrated)
+    try:
+        _truncate(engine)
+        downgrade(migrated, "0002")
+        with engine.connect() as connection:
+            assert "interpretations" not in inspect(connection).get_table_names()
+            columns = {c["name"] for c in inspect(connection).get_columns("analysis_summaries")}
+            assert "facts" not in columns
+    finally:
+        upgrade(migrated)
         engine.dispose()

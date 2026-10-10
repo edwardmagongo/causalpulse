@@ -71,3 +71,12 @@ def test_the_json_routes_that_predate_the_models_declare_their_responses():
     for (method, path), status in declared.items():
         schema = paths[path][method]["responses"][status]["content"]["application/json"]["schema"]
         assert "$ref" in schema, (method, path)
+
+
+def test_the_database_and_the_api_list_the_same_interpretation_statuses():
+    import typing
+
+    from cp_api.db import INTERPRETATION_STATUSES
+    from cp_api.models import InterpretationStatus
+
+    assert set(INTERPRETATION_STATUSES) == set(typing.get_args(InterpretationStatus))

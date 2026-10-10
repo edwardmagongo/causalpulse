@@ -114,3 +114,29 @@ def test_resolve_fixture_reference_refuses_a_tampered_file(tmp_path: Path) -> No
     path.write_text(path.read_text() + "5,1,5.0\n")  # mutate after building the reference
     with pytest.raises(ValueError, match="does not match its recorded content"):
         resolve_fixture_reference(reference, _tiny_schema())
+
+
+def test_resolve_fixture_reference_refuses_what_the_shared_reader_refuses(tmp_path: Path) -> None:
+    # A comma ending every line: pandas left to itself shifts every column by
+    # one, and `treat` would then hold the outcome.
+    path = tmp_path / "tiny.csv"
+    path.write_text("unit_id,treat,y\n1,1,1.0,\n2,0,2.0,\n3,1,3.0,\n4,0,4.0,\n")
+    reference = FixtureReference.from_path(str(path))
+
+    with pytest.raises(ValueError, match="line 2 of the CSV has 4 fields and its header names 3"):
+        resolve_fixture_reference(reference, _tiny_schema())
+
+
+def test_resolve_fixture_reference_reads_the_bytes_whatever_the_file_is_called(
+    tmp_path: Path,
+) -> None:
+    # An upload named `x.csv.gz` that is plain CSV is analysed from its bytes.
+    # Read by path on replay, pandas would try to decompress it and fail.
+    plain = _write_tiny_csv(tmp_path)
+    path = tmp_path / "tiny.csv.gz"
+    path.write_bytes(plain.read_bytes())
+    reference = FixtureReference.from_path(str(path))
+
+    dataset = resolve_fixture_reference(reference, _tiny_schema())
+
+    assert dataset.frame["y"].tolist() == [1.0, 2.0, 3.0, 4.0]

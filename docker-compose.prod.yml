@@ -26,6 +26,9 @@ x-app-environment: &app-environment
   DATABASE_URL: "postgresql+psycopg://causalpulse:${POSTGRES_PASSWORD:?set it in the environment file, see .env.example}@postgres:5432/causalpulse"
   # No password: Redis is on the stack's network only, with no port on the host.
   REDIS_URL: redis://redis:6379/0
+  # Model-written interpretations of analyses: `on` to offer them. The API
+  # offers them and the worker writes them, so both read the same value.
+  CP_INTERPRETATION: ${CP_INTERPRETATION:-off}
 
 # Every service's log is kept to three files of 10 MB, so that a small disk
 # is not filled by logs.
@@ -104,6 +107,7 @@ services:
       CP_LIMIT_UPLOADS_PER_DAY: ${CP_LIMIT_UPLOADS_PER_DAY:-20}
       CP_LIMIT_ANALYSES_PER_DAY: ${CP_LIMIT_ANALYSES_PER_DAY:-30}
       CP_LIMIT_ANALYSES_ACTIVE: ${CP_LIMIT_ANALYSES_ACTIVE:-3}
+      CP_LIMIT_INTERPRETATIONS_PER_DAY: ${CP_LIMIT_INTERPRETATIONS_PER_DAY:-5}
     restart: unless-stopped
     depends_on:
       migrate: {condition: service_completed_successfully}
@@ -117,6 +121,11 @@ services:
   worker:
     <<: *app
     command: ["python", "-m", "cp_worker"]
+    environment:
+      <<: *app-environment
+      # The model's key, which only the worker reads, and only with
+      # CP_INTERPRETATION=on, when it refuses to start without one.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     # RQ moves a dead worker's job to FAILED only when a live worker cleans
     # its registries, so a worker that dies must come back.
     restart: unless-stopped

@@ -79,6 +79,31 @@
             "title": "Id",
             "type": "string"
           },
+          "interpretable": {
+            "title": "Interpretable",
+            "type": "boolean"
+          },
+          "interpretable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interpretable Reason"
+          },
+          "interpretation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InterpretationDetail"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "partial": {
             "title": "Partial",
             "type": "boolean"
@@ -123,7 +148,10 @@
           "started_at",
           "finished_at",
           "routing",
-          "estimates"
+          "estimates",
+          "interpretation",
+          "interpretable",
+          "interpretable_reason"
         ],
         "title": "AnalysisDetail",
         "type": "object"
@@ -752,6 +780,193 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "InterpretationDetail": {
+        "description": "An analysis's interpretation. Which fields are filled depends on `status`.\n\n`verified`: `sections`, `limits` and `notice`. `refused`: `attempts` and\n`reason`; a refused narrative is not served. `failed`: `error`.",
+        "properties": {
+          "attempts": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attempts"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "limits": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limits"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notice"
+          },
+          "prompt_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Version"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "returned_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Returned Model"
+          },
+          "sections": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/InterpretationSection"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sections"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "verified",
+              "refused",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "model",
+          "returned_model",
+          "prompt_version",
+          "created_at",
+          "started_at",
+          "finished_at",
+          "sections",
+          "limits",
+          "notice",
+          "attempts",
+          "reason",
+          "error"
+        ],
+        "title": "InterpretationDetail",
+        "type": "object"
+      },
+      "InterpretationSection": {
+        "properties": {
+          "heading": {
+            "title": "Heading",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "statements": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Statements",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "heading",
+          "statements"
+        ],
+        "title": "InterpretationSection",
+        "type": "object"
+      },
       "Me": {
         "properties": {
           "name": {
@@ -1235,6 +1450,62 @@
           }
         },
         "summary": "Report Asset"
+      }
+    },
+    "/v1/analyses/{analysis_id}/interpretation": {
+      "post": {
+        "operationId": "request_interpretation_v1_analyses__analysis_id__interpretation_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "analysis_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Analysis Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InterpretationDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Request Interpretation"
       }
     },
     "/v1/analyses/{analysis_id}/manifest": {
