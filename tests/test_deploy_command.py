@@ -83,6 +83,18 @@ echo "flock $*" >>"$STUB_LOG"
 exit "${STUB_LOCK_HELD:-0}"
 """
 
+# `mv` is the machine's own, and does one thing more when a test asks: just
+# after `release` has been renamed to `release.new`, which only the two
+# put-backs do, it makes the path again as empty directories. That is what
+# Docker does when the proxy starts while its Caddyfile's path is missing.
+MV = """#!/bin/sh
+/bin/mv "$@" || exit
+case "${STUB_PROXY_STARTS:-}:$1:$2" in
+    yes:*/release:*/release.new) mkdir -p "$1/deploy/Caddyfile" ;;
+esac
+exit 0
+"""
+
 # What the release's `deploy/deploy.sh` is here. Like the real one it says
 # everything on standard error.
 DEPLOY_SH = """#!/bin/sh
@@ -113,7 +125,7 @@ class Server:
         deploy_sh = tmp_path / "deploy.sh"
         deploy_sh.write_text(DEPLOY_SH, encoding="utf-8")
         self.deploy_sh = deploy_sh
-        for name, text in (("docker", DOCKER), ("aws", AWS), ("flock", FLOCK)):
+        for name, text in (("docker", DOCKER), ("aws", AWS), ("flock", FLOCK), ("mv", MV)):
             stub = bin_directory / name
             stub.write_text(text, encoding="utf-8")
             stub.chmod(0o755)
@@ -388,13 +400,46 @@ def test_whatever_a_cut_off_run_left_the_next_run_ends_with_one_usable_release(
     assert server.releases() == (["release"] if expected else [])
 
 
+def test_a_proxy_that_starts_during_a_put_back_does_not_keep_the_old_release_out(server):
+    # After a status at which the old release is put back: `release` is
+    # renamed away, the proxy starts and Docker makes the path, and the old
+    # release must still end up at the path and not inside what Docker made.
+    server.release()
+
+    result = server.run(20, STUB_PROXY_STARTS="yes")
+
+    assert result.returncode == 20
+    assert "holds again the files it held before this run" in result.stdout
+    assert server.caddyfile() == OLD
+    assert server.releases() == ["release"]
+    assert sorted(path.name for path in (server.root / "release").iterdir()) == ["deploy"]
+
+
+def test_a_proxy_that_starts_while_a_cut_off_run_is_mended_does_not_keep_it_out(server):
+    # The same instant in the put-back a run does at its start, when it finds
+    # what a run that was cut off left.
+    server.release("release", caddyfile="the Caddyfile of the run that was cut off\n")
+    server.release("release.old")
+
+    result = server.run(STUB_FAIL="login", STUB_PROXY_STARTS="yes")
+
+    assert result.returncode == 1
+    assert server.caddyfile() == OLD
+    assert server.releases() == ["release"]
+    assert sorted(path.name for path in (server.root / "release").iterdir()) == ["deploy"]
+
+
 def test_a_release_set_aside_is_never_removed_where_it_stands(server):
     # `release.old` is whole whenever it exists because it only ever leaves by
     # a rename. Were it removed in place, a run cut off during the removal
     # would have the next run put back half a directory.
     script = server.script.read_text(encoding="utf-8")
 
-    removed = [line for line in script.splitlines() if re.search(r"\brm\b.*release\.old", line)]
+    # A line may remove one thing and then rename `release.old`: what is
+    # looked for is the name among the arguments of an `rm`.
+    removed = [
+        line for line in script.splitlines() if re.search(r"\brm\b[^;&|]*release\.old", line)
+    ]
 
     assert removed == []
 
@@ -623,3 +668,91 @@ def test_a_volume_with_any_signature_is_never_formatted():
     # And the volume is only formatted when it is not already mounted: the
     # early return for a mounted volume comes before the decision.
     assert code.index('if mountpoint -q "$root"; then') < code.index(FORMAT_DECISION)
+
+
+def _install_packages(
+    tmp_path: Path, succeeds_at: int
+) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    """Run the template's `install_packages` with a package tool that fails
+    until the try numbered `succeeds_at`, and no waiting. What was called is
+    returned beside the result."""
+    calls = tmp_path / "calls"
+    script = tmp_path / "install-packages.sh"
+    script.write_text(
+        "set -euo pipefail\n"
+        f"calls='{calls}'\n"
+        "tries=0\n"
+        'apt_get() {\n    echo "apt_get $*" >>"$calls"\n'
+        '    case $* in *update*) tries=$((tries + 1)) ;; esac\n'
+        f'    [ "$tries" -ge {succeeds_at} ]\n}}\n'
+        'dpkg() {\n    echo "dpkg $*" >>"$calls"\n    return 1\n}\n'
+        'sleep() {\n    echo "sleep $*" >>"$calls"\n}\n'
+        + _function("say")
+        + _function("die")
+        + _function("install_packages")
+        + "install_packages one two\n"
+        + "say 'the script went on'\n",
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        ["bash", str(script)],
+        env={"PATH": os.environ["PATH"]},
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    return result, calls.read_text(encoding="utf-8").splitlines()
+
+
+def test_packages_that_cannot_be_installed_stop_the_first_boot_after_ten_tries(tmp_path):
+    # A retry that gave up and returned would let the script go on to its
+    # last lines, and the marker would say that a first boot which installed
+    # nothing had finished.
+    result, calls = _install_packages(tmp_path, succeeds_at=11)
+
+    assert result.returncode == 1
+    assert "the script went on" not in result.stdout
+    assert "the packages could not be installed in 10 tries: one two" in result.stderr
+    assert calls.count("apt_get -o APT::Update::Error-Mode=any update -q") == 10
+    # Between two tries dpkg is asked to finish what it left, and its failure
+    # is not the script's.
+    assert calls.count("dpkg --configure -a") == 9
+    assert calls.count("sleep 30") == 9
+
+
+def test_packages_that_install_at_a_later_try_let_the_first_boot_go_on(tmp_path):
+    result, calls = _install_packages(tmp_path, succeeds_at=5)
+
+    assert result.returncode == 0, result.stderr
+    assert "the script went on" in result.stdout
+    assert calls.count("apt_get -o APT::Update::Error-Mode=any update -q") == 5
+    # The lists are fetched before each install, and the fifth fetch is the
+    # first that is followed by one.
+    assert calls[-2:] == [
+        "apt_get -o APT::Update::Error-Mode=any update -q",
+        "apt_get install -y -q one two",
+    ]
+    assert calls.count("apt_get install -y -q one two") == 1
+
+
+# Docker's drop-in, whole. `RequiresMountsFor` has Docker wait for the mount
+# and `nofail` in the mount's own line lets the machine boot without it, so
+# it is `AssertPathIsMountPoint` that stops Docker starting on the bare
+# directory, where it would make an empty database on the root disk.
+DOCKER_DROP_IN = """\
+    cat >/etc/systemd/system/docker.service.d/10-causalpulse-volumes.conf <<UNIT
+[Unit]
+RequiresMountsFor=$volumes
+AssertPathIsMountPoint=$volumes
+UNIT
+"""
+
+
+def test_docker_does_not_start_when_its_volumes_directory_is_not_the_data_volume():
+    text = FIRST_BOOT.read_text(encoding="utf-8")
+
+    assert DOCKER_DROP_IN in text
+    assert "\nvolumes=/var/lib/docker/volumes\n" in text
+    # The drop-in is written before Docker is installed and started.
+    assert text.index("\n    mount_docker_volumes\n") < text.index("\n    install_docker\n")

@@ -38,7 +38,11 @@
 # off in the pulls or the migration, which have no limit of their own, more
 # easily than in the few minutes after them. If that run had in fact
 # replaced the stack, the directory then holds the commit before the one
-# running, until the next deploy that ends with 0, 30 or 40. None of this
+# running, until the next deploy that ends with 0, 30 or 40. A run cut off
+# by a reboot is the other way about: the proxy restarts on the files in
+# `release` as they stand, and a later deploy of the commit that was running
+# does not recreate it, so it keeps the Caddyfile it read at boot until the
+# runbook's `docker restart`. None of this
 # was tried on the server: `tests/test_deploy_command.py` (beside the
 # repository's root) runs this script against stand-ins, each of these
 # states among them, and `make smoke-deploy` runs it against a real Docker,
@@ -101,10 +105,13 @@ locals {
     (
         set -eu
         umask 022
-        # What a run that was cut off left: see the top of this file.
+        # What a run that was cut off left: see the top of this file. As in
+        # the swap below, whatever Docker made at the path between the two
+        # renames is removed, or the second would move the release inside it.
         if [ -e "$root/release.old" ]; then
             rm -rf "$root/release.new"
             if [ -e "$root/release" ]; then mv "$root/release" "$root/release.new"; fi
+            rm -rf "$root/release"
             mv "$root/release.old" "$root/release"
             echo "deploy-command: an earlier run was cut off; the release directory it had set aside is back in place"
         fi
@@ -131,16 +138,18 @@ locals {
     ) >"$run" 2>&1
     status=$?
     # Which release directory stays: see the top of this file. `release.old`
-    # leaves by a rename, never by being removed where it is.
+    # leaves by a rename, never by being removed where it is. Where it is put
+    # back, `release` has just been renamed away, so the `rm -rf` between the
+    # two renames finds nothing, or what Docker made there in that instant.
     {
         rm -rf "$root/release.new"
         case $status in
             0 | 30 | 40)
-                if [ -e "$root/release.old" ]; then mv "$root/release.old" "$root/release.new"; fi
+                if [ -e "$root/release.old" ]; then mv "$root/release.old" "$root/release.new" || echo "deploy-command: the release directory set aside could not be renamed; the next run puts it back"; fi
                 ;;
             *)
                 if [ -e "$root/release.old" ]; then
-                    if { [ ! -e "$root/release" ] || mv "$root/release" "$root/release.new"; } && mv "$root/release.old" "$root/release"; then
+                    if { [ ! -e "$root/release" ] || mv "$root/release" "$root/release.new"; } && rm -rf "$root/release" && mv "$root/release.old" "$root/release"; then
                         echo "deploy-command: the release directory holds again the files it held before this run"
                     else
                         echo "deploy-command: the release directory this run set aside could not be put back; the next run tries again"

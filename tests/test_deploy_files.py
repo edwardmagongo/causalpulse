@@ -7,6 +7,7 @@ called and fails where a test tells it to.
 """
 
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -1080,25 +1081,294 @@ def test_the_script_writes_the_settings_file_and_never_reads_it():
 WORKFLOWS = ROOT / ".github" / "workflows"
 
 
+def _workflow(name: str) -> dict[object, object]:
+    loaded = yaml.safe_load((WORKFLOWS / name).read_text(encoding="utf-8"))
+    assert isinstance(loaded, dict), name
+    return loaded
+
+
+def _triggers(workflow: dict[object, object]) -> object:
+    # YAML 1.1 reads the key `on` as the boolean true.
+    return workflow[True] if True in workflow else workflow["on"]
+
+
+def _jobs(workflow: dict[object, object]) -> dict[str, dict[str, object]]:
+    jobs = workflow["jobs"]
+    assert isinstance(jobs, dict) and jobs
+    assert all(isinstance(job, dict) for job in jobs.values())
+    return jobs
+
+
 def test_only_the_deploy_workflow_asks_for_an_identity_token():
     # The pipeline's role is given to any job on `main` that presents GitHub's
-    # identity token (`infra/pipeline.tf`), and a job gets the token only by
-    # asking for the `id-token` permission. The role is root on the server,
-    # so a second workflow that asks is a second way to it. The word is looked
-    # for anywhere in a file, a comment included: a new mention is a decision.
+    # identity token (`infra/pipeline.tf`), and a job gets the token only
+    # through the `id-token` permission. The role is root on the server, so a
+    # second workflow that has the permission is a second way to it.
+    #
+    # Each file is parsed, and not searched for the word: `permissions:
+    # write-all` gives every permission, this one among them, without naming
+    # it. So a `permissions` here is a mapping wherever it stands, and the
+    # workflow has one of its own: without it the jobs get the repository's
+    # default, which is a setting this test cannot read.
     files = sorted([*WORKFLOWS.glob("*.yml"), *WORKFLOWS.glob("*.yaml")])
-    asking = [file.name for file in files if "id-token" in file.read_text(encoding="utf-8")]
+    asking = []
+    for file in files:
+        workflow = _workflow(file.name)
+        assert "permissions" in workflow, f"{file.name} has no permissions of its own"
+        places = {"the workflow": workflow["permissions"]}
+        for name, job in _jobs(workflow).items():
+            if "permissions" in job:
+                places[f"the job {name}"] = job["permissions"]
+        for place, permissions in places.items():
+            assert isinstance(permissions, dict), (
+                f"{file.name}: the permissions of {place} are {permissions!r}, not a list of names"
+            )
+            if "id-token" in permissions:
+                asking.append((file.name, place))
 
     assert len(files) > 1
-    assert asking == ["deploy.yml"]
+    assert asking == [("deploy.yml", "the workflow")]
 
 
 def test_the_deploy_workflow_is_started_by_hand_and_in_no_other_way():
-    loaded = yaml.safe_load((WORKFLOWS / "deploy.yml").read_text(encoding="utf-8"))
-    assert isinstance(loaded, dict)
-    # YAML 1.1 reads the key `on` as the boolean true.
-    triggers = loaded[True] if True in loaded else loaded["on"]
+    loaded = _workflow("deploy.yml")
+    triggers = _triggers(loaded)
 
     assert isinstance(triggers, dict)
     assert list(triggers) == ["workflow_dispatch"]
-    assert loaded["permissions"]["id-token"] == "write"
+    assert loaded["permissions"] == {"contents": "read", "actions": "read", "id-token": "write"}
+
+
+# ---- The deploy workflow's own promises ----
+
+
+def _deploy_job() -> dict[str, object]:
+    return _jobs(_workflow("deploy.yml"))["deploy"]
+
+
+def _deploy_step(key: str, value: str) -> dict[str, object]:
+    """The one step of the deploy job whose `key` is, or begins with, `value`."""
+    steps = _deploy_job()["steps"]
+    assert isinstance(steps, list)
+    found = [step for step in steps if str(step.get(key, "")).split("@")[0] == value]
+    assert len(found) == 1, value
+    return found[0]
+
+
+def _number(pattern: str, file: Path) -> int:
+    """The one number `pattern` finds in the file."""
+    found = re.findall(pattern, file.read_text(encoding="utf-8"), re.MULTILINE)
+    assert len(found) == 1, (pattern, file.name)
+    return int(found[0])
+
+
+def test_the_deploy_job_ends_before_its_credentials_do():
+    # The role is taken before the images are built and is still needed for
+    # the last look at the command. A job that could outlive the session
+    # would have that look refused, and say nothing of a deploy that ran.
+    job = _deploy_job()
+    credentials = _deploy_step("uses", "aws-actions/configure-aws-credentials")["with"]
+    assert isinstance(credentials, dict)
+    asked = credentials["role-duration-seconds"]
+    allowed = _number(r"^\s*max_session_duration\s*=\s*(\d+)$", ROOT / "infra" / "pipeline.tf")
+
+    assert isinstance(job["timeout-minutes"], int)
+    assert isinstance(asked, int)
+    assert job["timeout-minutes"] * 60 < asked <= allowed
+
+
+def test_that_the_command_was_sent_is_written_down_before_its_result_is_waited_for():
+    # A run stopped while it waits must leave "sent" for the summary, so the
+    # output is written by the line after the one that sends, in the step the
+    # summary reads.
+    step = _deploy_step("name", "Deploy on the server")
+    script = step["run"]
+    assert isinstance(script, str)
+    lines = [line.strip() for line in script.splitlines() if line.strip()]
+    sending = [index for index, line in enumerate(lines) if "aws ssm send-command" in line]
+    assert len(sending) == 1
+    end = sending[0]
+    while lines[end].endswith("\\"):
+        end += 1
+    waiting = min(index for index, line in enumerate(lines) if "get-command-invocation" in line)
+
+    assert lines[end + 1] == 'echo "status=Sent; its result was not read" >>"$GITHUB_OUTPUT"'
+    assert end + 1 < waiting
+    assert step["id"] == "deploy"
+    summary = _deploy_step("name", "Summarise")
+    read = summary["env"]
+    assert isinstance(read, dict)
+    assert summary["if"] == "always()"
+    assert read["DEPLOY"] == "${{ steps.deploy.outputs.status }}"
+
+
+def test_the_server_is_given_time_to_finish_and_the_workflow_waits_longer_than_that():
+    # The document's limit is the only one on the pulls and the migration.
+    # It has to cover the deploy script's two waits for health, each of which
+    # may last the deadline, the settling time after the second, and an
+    # allowance for the pulls and the migration, taken here as ten minutes.
+    # And the workflow must wait longer than the server may take, delivery
+    # included, or it reports a deploy as still running that then ends.
+    allowance = 600
+    limit = _number(r'^\s*timeoutSeconds\s*=\s*"(\d+)"$', ROOT / "infra" / "deploy-command.tf")
+    deadline = _number(r"^deadline=\$\{CP_DEPLOY_HEALTH_DEADLINE:-(\d+)\}$", SCRIPT)
+    settle = _number(r"^settle=(\d+)$", SCRIPT)
+    minutes = _deploy_job()["timeout-minutes"]
+    waits = _deploy_step("name", "Deploy on the server")["env"]
+    assert isinstance(minutes, int)
+    assert isinstance(waits, dict)
+
+    assert settle == SETTLE
+    assert limit >= 2 * deadline + settle + allowance
+    assert waits["DELIVERY_SECONDS"] + limit <= waits["WAIT_SECONDS"]
+    assert waits["WAIT_SECONDS"] < minutes * 60
+
+
+# ---- The gates a commit must have passed ----
+
+# What `gh run list` is here. It answers with the file a test wrote for the
+# workflow asked about, whatever else it was asked: GitHub does the choosing
+# by event, branch and commit on its side, and the step checks what came back
+# again, which is what the tests of a run for another branch or event try.
+GH = r"""#!/bin/sh
+echo "gh $*" >>"$STUB_GH/calls"
+workflow=
+while [ "$#" -gt 0 ]; do
+    if [ "$1" = --workflow ]; then workflow=$2; fi
+    shift
+done
+if [ -e "$STUB_GH/$workflow.fails" ]; then
+    echo "gh: could not reach GitHub, as the test asked" >&2
+    exit 1
+fi
+if [ -e "$STUB_GH/$workflow" ]; then cat "$STUB_GH/$workflow"; else echo "[]"; fi
+"""
+
+GATE_NAMES = {"ci.yml": "CI", "fast.yml": "Fast suite", "infra.yml": "Infrastructure"}
+
+
+def _run_of(file: str, conclusion: str | None = "success", **changed: str) -> dict[str, object]:
+    """One run as `gh run list --json` gives it. A run that has not ended has
+    the conclusion "" there."""
+    run: dict[str, object] = {
+        "workflowName": GATE_NAMES[file],
+        "event": "push",
+        "headBranch": "main",
+        "headSha": SHA,
+        "status": "completed",
+        "conclusion": conclusion,
+    }
+    run.update(changed)
+    return run
+
+
+PASSED = {"ci.yml": [_run_of("ci.yml")]}
+
+# What GitHub answers for each workflow, and whether the step goes on.
+GATES = {
+    "CI passed and the fast suite has no run": (PASSED, True),
+    "CI and the fast suite passed": (PASSED | {"fast.yml": [_run_of("fast.yml")]}, True),
+    "all three passed": (
+        PASSED | {"fast.yml": [_run_of("fast.yml")], "infra.yml": [_run_of("infra.yml")]},
+        True,
+    ),
+    "a second run of the fast suite passed": (
+        PASSED | {"fast.yml": [_run_of("fast.yml", "failure"), _run_of("fast.yml")]},
+        True,
+    ),
+    "CI has no run": ({}, False),
+    "CI failed": ({"ci.yml": [_run_of("ci.yml", "failure")]}, False),
+    "CI is in progress": ({"ci.yml": [_run_of("ci.yml", "", status="in_progress")]}, False),
+    "CI has no conclusion": ({"ci.yml": [_run_of("ci.yml", None, status="in_progress")]}, False),
+    "CI passed for another branch": ({"ci.yml": [_run_of("ci.yml", headBranch="other")]}, False),
+    "CI passed for a pull request": ({"ci.yml": [_run_of("ci.yml", event="pull_request")]}, False),
+    "CI passed for another commit": ({"ci.yml": [_run_of("ci.yml", headSha=PREVIOUS)]}, False),
+    "another workflow passed under CI's file": (
+        {"ci.yml": [_run_of("ci.yml", workflowName="Fast suite")]},
+        False,
+    ),
+    "GitHub cannot be asked about CI": ({"ci.yml": None}, False),
+    "GitHub answers something that is not JSON": ({"ci.yml": "<html>"}, False),
+    "the fast suite failed": (PASSED | {"fast.yml": [_run_of("fast.yml", "failure")]}, False),
+    "the fast suite is in progress": (
+        PASSED | {"fast.yml": [_run_of("fast.yml", "", status="in_progress")]},
+        False,
+    ),
+    "the fast suite is queued": (
+        PASSED | {"fast.yml": [_run_of("fast.yml", "", status="queued")]},
+        False,
+    ),
+    "the fast suite was cancelled": (
+        PASSED | {"fast.yml": [_run_of("fast.yml", "cancelled")]},
+        False,
+    ),
+    "the fast suite was skipped": (PASSED | {"fast.yml": [_run_of("fast.yml", "skipped")]}, False),
+    "GitHub cannot be asked about the fast suite": (PASSED | {"fast.yml": None}, False),
+    "the infrastructure gate failed": (
+        PASSED | {"infra.yml": [_run_of("infra.yml", "failure")]},
+        False,
+    ),
+    "GitHub cannot be asked about the infrastructure gate": (PASSED | {"infra.yml": None}, False),
+}
+
+
+@pytest.mark.skipif(
+    shutil.which("bash") is None or shutil.which("jq") is None, reason="needs bash and jq"
+)
+@pytest.mark.parametrize("case", GATES)
+def test_a_commit_is_deployed_only_when_the_gates_that_ran_for_it_passed(tmp_path, case):
+    # The step's own script, taken out of the workflow and run as the runner
+    # runs it (`bash -e`), with a stand-in `gh` first on the search path.
+    answers, goes_on = GATES[case]
+    step = _deploy_step("name", "Check the gates passed for the commit")
+    script = tmp_path / "gates.sh"
+    script.write_text(str(step["run"]), encoding="utf-8")
+    bin_directory = tmp_path / "bin"
+    bin_directory.mkdir()
+    gh = bin_directory / "gh"
+    gh.write_text(GH, encoding="utf-8")
+    gh.chmod(0o755)
+    stub = tmp_path / "github"
+    stub.mkdir()
+    for file, answer in answers.items():
+        if answer is None:
+            (stub / f"{file}.fails").touch()
+        elif isinstance(answer, str):
+            (stub / file).write_text(answer, encoding="utf-8")
+        else:
+            (stub / file).write_text(json.dumps(answer), encoding="utf-8")
+
+    result = subprocess.run(
+        ["bash", "-e", str(script)],
+        env={
+            "PATH": f"{bin_directory}{os.pathsep}{os.environ['PATH']}",
+            "GH_TOKEN": "not-a-token",
+            "REPOSITORY": "owner/name",
+            "SHA": SHA,
+            "STUB_GH": str(stub),
+        },
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+
+    calls = (stub / "calls").read_text(encoding="utf-8").splitlines()
+    # Each workflow is asked for by its file, for a push to `main` with this
+    # commit at its tip.
+    assert all(f"--event push --branch main --commit {SHA} " in call for call in calls)
+    if goes_on:
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert [call.split("--workflow ")[1].split()[0] for call in calls] == list(GATE_NAMES)
+        assert "CI succeeded for this commit on main." in result.stdout
+        if "fast.yml" not in answers:
+            assert "::warning::The fast suite has no run for this commit" in result.stdout
+    else:
+        assert result.returncode != 0, result.stdout + result.stderr
+        # An answer that cannot be read is refused with `jq`'s own words and
+        # no sentence of the step's.
+        if not any(isinstance(answer, str) for answer in answers.values()):
+            assert "::error::" in result.stdout + result.stderr
+        # Nothing after the gate that refused is asked about.
+        asked = [call.split("--workflow ")[1].split()[0] for call in calls]
+        assert asked == list(GATE_NAMES)[: len(asked)]

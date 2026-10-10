@@ -372,6 +372,11 @@ run "a_deploy_returns_its_reason_and_its_status" {
   }
 
   assert {
+    condition     = aws_ssm_document.deploy.content == jsonencode(local.deploy_document) && local.deploy_document.mainSteps[0].inputs.timeoutSeconds == "1800"
+    error_message = "The document's time-out is the only limit on the pulls and the migration: 1,800 seconds, as the workflow's wait and the deploy script's deadlines are sized for."
+  }
+
+  assert {
     condition     = contains(local.deploy_script_lines, "docker pull --quiet \"$registry/causalpulse-app:$sha\"")
     error_message = "The document's own pull must be quiet."
   }
@@ -416,6 +421,7 @@ run "one_deploy_at_a_time_and_nothing_of_the_records_is_removed" {
       "exec 9>\"$root/deploy.lock\"",
       "rm -rf \"$root/release.new\"",
       "if [ -e \"$root/release\" ]; then mv \"$root/release\" \"$root/release.new\"; fi",
+      "rm -rf \"$root/release\"",
       "mv \"$root/release.old\" \"$root/release\"",
       "rm -rf \"$root/release.new\"",
       "aws ecr get-login-password --region \"eu-west-1\" | docker login --username AWS --password-stdin \"$registry\" >/dev/null",
@@ -427,8 +433,8 @@ run "one_deploy_at_a_time_and_nothing_of_the_records_is_removed" {
       "mv \"$root/release.new\" \"$root/release\"",
       ") >\"$run\" 2>&1",
       "rm -rf \"$root/release.new\"",
-      "if [ -e \"$root/release.old\" ]; then mv \"$root/release.old\" \"$root/release.new\"; fi",
-      "if { [ ! -e \"$root/release\" ] || mv \"$root/release\" \"$root/release.new\"; } && mv \"$root/release.old\" \"$root/release\"; then",
+      "if [ -e \"$root/release.old\" ]; then mv \"$root/release.old\" \"$root/release.new\" || echo \"deploy-command: the release directory set aside could not be renamed; the next run puts it back\"; fi",
+      "if { [ ! -e \"$root/release\" ] || mv \"$root/release\" \"$root/release.new\"; } && rm -rf \"$root/release\" && mv \"$root/release.old\" \"$root/release\"; then",
       "rm -rf \"$root/release.new\"",
       "} >>\"$run\" 2>&1",
       "' \"$run\" >\"$run.clean\"; then",
@@ -441,15 +447,20 @@ run "one_deploy_at_a_time_and_nothing_of_the_records_is_removed" {
   }
 
   # `release.old` is whole whenever it exists only because it is made by a
-  # rename and leaves by one. The one `rm -rf` of `release` itself stands
-  # between the two renames of the swap, where a release cannot be.
+  # rename and leaves by one. `release` itself is removed in three places and
+  # no other, each between two renames, where a release cannot be: in the
+  # swap, and in the two put-backs, where it has just been renamed away.
   assert {
     condition = (
       length([for line in local.deploy_script_code : line if length(regexall("rm -[rf]+ [^;&|]*release\\.old", line)) > 0]) == 0
+      && length(regexall("rm -[rf]+ \"\\$root/release\"", join("\n", local.deploy_script_code))) == 3
+      && index(local.deploy_script_lines, "if [ -e \"$root/release\" ]; then mv \"$root/release\" \"$root/release.new\"; fi") + 1 == index(local.deploy_script_lines, "rm -rf \"$root/release\"")
+      && index(local.deploy_script_lines, "rm -rf \"$root/release\"") + 1 == index(local.deploy_script_lines, "mv \"$root/release.old\" \"$root/release\"")
+      && length(regexall("mv \"\\$root/release\" \"\\$root/release\\.new\"; \\} && rm -rf \"\\$root/release\" && mv \"\\$root/release\\.old\" \"\\$root/release\"; then", join("\n", local.deploy_script_code))) == 1
       && index(local.deploy_script_lines, "if [ -e \"$root/release\" ]; then mv \"$root/release\" \"$root/release.old\"; fi") + 1 == index(local.deploy_script_lines, "if [ -e \"$root/release\" ]; then rm -rf \"$root/release\"; fi")
       && index(local.deploy_script_lines, "if [ -e \"$root/release\" ]; then rm -rf \"$root/release\"; fi") + 1 == index(local.deploy_script_lines, "mv \"$root/release.new\" \"$root/release\"")
     )
-    error_message = "release.old must never be removed in place, and release itself only between the two renames that put the new one there."
+    error_message = "release.old must never be removed in place, and release itself only between two renames: the swap's, and each put-back's."
   }
 
   # The statuses after which the new release directory stays. Every other
