@@ -1,0 +1,315 @@
+#!/bin/bash
+# The server's first boot, run once by cloud-init as root. Terraform renders
+# this template (`infra/machine.tf`), so a dollar sign followed by a brace is
+# Terraform's unless it is doubled.
+#
+# It may be run again by hand, as root, when it stopped half-way: every step
+# looks at what is there before it acts. It formats the data volume only when
+# two probes agree that the volume holds nothing, and it never replaces an
+# environment file. It prints the names of the settings it writes and never
+# their values.
+#
+# Its last act is to write `/var/lib/causalpulse/first-boot-done`. The file is
+# on the root disk and not on the data volume, so a machine that replaces
+# this one has none until its own first boot has finished. The deploy command
+# (`infra/deploy-command.tf`) refuses a machine without it: cloud-init runs
+# this script once, and a run that failed is otherwise found out only when a
+# deploy fails for want of Docker or of the environment file.
+#
+# CP_FIRST_BOOT_SKIP_DEVICES=1 leaves out the steps that need the machine
+# itself (the data volume, Docker, the swap file, the time zone), so that the
+# rest can be tried in a container. cloud-init does not set it, and the script
+# refuses it on an EC2 instance.
+set -euo pipefail
+
+site_name='${site_name}'
+volume_id='${volume_id}'
+root=/srv/causalpulse
+volumes=/var/lib/docker/volumes
+marker=/var/lib/causalpulse/first-boot-done
+skip_devices=$${CP_FIRST_BOOT_SKIP_DEVICES:-0}
+
+export DEBIAN_FRONTEND=noninteractive
+
+say() {
+    echo "first-boot: $*"
+}
+
+die() {
+    echo "first-boot: $*" >&2
+    exit 1
+}
+
+# retry COMMAND...: five attempts. The machine's public address changes once,
+# when Terraform associates the fixed one, and a download may be cut by it.
+retry() {
+    local attempt=1
+    until "$@"; do
+        if [ "$attempt" -ge 5 ]; then
+            return 1
+        fi
+        sleep $((attempt * 5))
+        attempt=$((attempt + 1))
+    done
+}
+
+# apt_get ARGUMENT...: the package tool, told to wait up to five minutes for
+# dpkg's lock. Ubuntu's own unattended upgrade may hold it when this starts,
+# and a failure here stops the script for good: cloud-init does not run it a
+# second time. Every call below goes through this.
+apt_get() {
+    apt-get -o DPkg::Lock::Timeout=300 "$@"
+}
+
+# install_packages PACKAGE...: the package lists fetched and the packages
+# installed, as one unit that is tried again whole. Two things at boot make
+# the first tries fail, and neither is waited for by the option above:
+#   - the address change `retry` speaks of. Cut that way, a fetch of the
+#     lists ends with warnings and status 0 unless it is told that any
+#     failure is an error, which is what `APT::Update::Error-Mode=any` is
+#     for; and an install that follows a half-fetched list fails for a
+#     package the list does not hold, which fetching again is what mends.
+#   - Ubuntu's own daily fetch of the lists, which holds the lists' lock
+#     while it runs. The option above is for dpkg's lock, and a fetch that
+#     meets the other one is believed to be refused and not made to wait.
+# Ten tries, thirty seconds apart: four and a half minutes of waiting, on top
+# of the time the tries themselves take. The address changes once, when
+# Terraform has seen the machine start, and the daily fetch is one fetch of
+# the same lists; the span is meant to be several times either, and neither
+# was measured on a server. After a failed try dpkg is asked to finish anything
+# it left half-configured, which is what a try that was itself cut short
+# (or an earlier run of this script that was) leaves, and which stops every
+# later install until it is done.
+install_packages() {
+    local attempt=1
+    until apt_get -o APT::Update::Error-Mode=any update -q && apt_get install -y -q "$@"; do
+        if [ "$attempt" -ge 10 ]; then
+            die "the packages could not be installed in 10 tries: $*"
+        fi
+        say "the package lists or the packages could not be had (try $attempt of 10); trying again in 30 seconds"
+        dpkg --configure -a || true
+        sleep 30
+        attempt=$((attempt + 1))
+    done
+}
+
+# add_fstab MOUNT_POINT LINE: the line, unless the mount point has one. A
+# different line for the same mount point is somebody's decision, and stops
+# the script.
+add_fstab() {
+    local existing
+    existing=$(awk -v where="$1" '$1 !~ /^#/ && $2 == where' /etc/fstab)
+    if [ -z "$existing" ]; then
+        echo "$2" >>/etc/fstab
+    elif [ "$existing" != "$2" ]; then
+        die "/etc/fstab already mounts $1 another way; left alone"
+    fi
+}
+
+mount_data_volume() {
+    local link device waited status fstype uuid wipe_status signatures
+    # NVMe device names are given in the order the kernel finds the disks.
+    # The link under by-id carries the volume's id, without its hyphen.
+    link=/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_$(printf %s "$volume_id" | tr -d -)
+    # Terraform attaches the volume after the instance has started.
+    waited=0
+    until [ -b "$link" ]; do
+        if [ "$waited" -ge 600 ]; then
+            die "the data volume $volume_id did not appear in 600 seconds"
+        fi
+        sleep 5
+        waited=$((waited + 5))
+    done
+    udevadm settle || true
+    device=$(readlink -f "$link")
+    [ -b "$device" ] || die "$link does not lead to a block device"
+
+    if mountpoint -q "$root"; then
+        [ "$(findmnt -n -o SOURCE "$root")" = "$device" ] ||
+            die "$root is mounted from something other than $volume_id"
+        return 0
+    fi
+
+    status=0
+    fstype=$(blkid -p -s TYPE -o value "$device") || status=$?
+    if [ "$status" -eq 0 ] && [ "$fstype" = ext4 ]; then
+        say "the data volume holds a file system, which is kept"
+    elif [ "$status" -eq 0 ]; then
+        die "the data volume holds '$fstype', not ext4; left alone"
+    elif [ "$status" -eq 2 ] && [ -z "$fstype" ]; then
+        # blkid found no file system. wipefs must also have run to its end
+        # and found no signature of any kind, a partition table included: a
+        # wipefs that fails prints nothing either, and that is not "empty".
+        # Only then is the volume formatted.
+        wipe_status=0
+        signatures=$(wipefs "$device") || wipe_status=$?
+        if [ "$wipe_status" -ne 0 ]; then
+            die "wipefs could not read the data volume (status $wipe_status); left alone"
+        fi
+        if [ -n "$signatures" ]; then
+            die "the data volume holds something that is not a file system; left alone"
+        fi
+        say "the data volume is empty; formatting it"
+        mkfs.ext4 -q -L causalpulse-data "$device"
+    else
+        die "could not tell what the data volume holds (blkid: $status); left alone"
+    fi
+
+    uuid=$(blkid -p -s UUID -o value "$device")
+    [ -n "$uuid" ] || die "the data volume's file system has no UUID"
+    mkdir -p "$root"
+    # nofail: a machine whose volume is missing still boots, and can be
+    # reached through Systems Manager. Docker does not start on it (below).
+    add_fstab "$root" "UUID=$uuid $root ext4 defaults,nofail,x-systemd.device-timeout=120s 0 2"
+    systemctl daemon-reload
+    mount "$root"
+    [ "$(findmnt -n -o SOURCE "$root")" = "$device" ] ||
+        die "$root did not mount from $volume_id"
+}
+
+# Docker's named volumes live on the data volume: the database and the
+# proxy's certificates outlive the machine. Images stay on the root disk.
+mount_docker_volumes() {
+    mkdir -p "$root/docker-volumes"
+    chmod 701 "$root/docker-volumes"
+    if ! mountpoint -q "$volumes"; then
+        if [ -d "$volumes" ] && [ -n "$(ls -A "$volumes")" ]; then
+            die "$volumes holds files and is not on the data volume; left alone"
+        fi
+        install -d -m 710 /var/lib/docker
+        mkdir -p "$volumes"
+        add_fstab "$volumes" "$root/docker-volumes $volumes none bind,nofail,x-systemd.requires-mounts-for=$root 0 0"
+        systemctl daemon-reload
+        mount "$volumes"
+    fi
+    [ "$(findmnt -n -o SOURCE "$volumes" | sed 's/\[.*//')" = "$(findmnt -n -o SOURCE "$root")" ] ||
+        die "$volumes is not on the data volume"
+
+    # Docker waits for the mount, and does not start without it: started on
+    # the bare directory it would make an empty database on the root disk.
+    install -d -m 755 /etc/systemd/system/docker.service.d
+    cat >/etc/systemd/system/docker.service.d/10-causalpulse-volumes.conf <<UNIT
+[Unit]
+RequiresMountsFor=$volumes
+AssertPathIsMountPoint=$volumes
+UNIT
+    systemctl daemon-reload
+}
+
+install_docker() {
+    local codename
+    if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1; then
+        install -d -m 755 /etc/apt/keyrings
+        retry curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+        chmod a+r /etc/apt/keyrings/docker.asc
+        # shellcheck source=/dev/null
+        codename=$(. /etc/os-release && echo "$VERSION_CODENAME")
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $codename stable" \
+            >/etc/apt/sources.list.d/docker.list
+        install_packages docker-ce docker-ce-cli containerd.io docker-compose-plugin
+    fi
+    systemctl enable --now docker
+    say "Docker is installed"
+}
+
+make_swap() {
+    if [ -n "$(swapon --show --noheadings)" ]; then
+        # A run that stopped between turning this script's swap file on and
+        # writing its line would otherwise leave a machine with no swap after its
+        # next boot.
+        if swapon --show=NAME --noheadings | grep -q -x /swapfile; then
+            add_fstab none "/swapfile none swap sw 0 0"
+        fi
+        return 0
+    fi
+    if [ ! -e /swapfile ]; then
+        rm -f /swapfile.new
+        (umask 077 && fallocate -l 2G /swapfile.new)
+        mkswap /swapfile.new >/dev/null
+        mv /swapfile.new /swapfile
+    fi
+    swapon /swapfile
+    add_fstab none "/swapfile none swap sw 0 0"
+    say "a 2 GB swap file is in use"
+}
+
+install_aws_cli() {
+    local work
+    if command -v aws >/dev/null 2>&1; then
+        return 0
+    fi
+    work=$(mktemp -d)
+    retry curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -o "$work/awscli.zip"
+    unzip -q "$work/awscli.zip" -d "$work"
+    # --update: a run that was cut short leaves the installation's directory
+    # without the command, and the installer refuses that directory otherwise.
+    "$work/aws/install" --update >/dev/null
+    rm -rf "$work"
+    say "the AWS CLI is installed"
+}
+
+# The settings `docker-compose.prod.yml` requires. The two secrets are made
+# here and stay here. The file is on the data volume beside the database that
+# was created with its password, so a replaced machine finds both.
+write_environment_file() {
+    local file=$root/.env password secret partial
+    if [ -e "$file" ]; then
+        say "$file exists and is kept"
+        return 0
+    fi
+    password=$(openssl rand -hex 32)
+    secret=$(openssl rand -hex 32)
+    if [ "$(printf %s "$password" | wc -c)" -ne 64 ] || [ "$(printf %s "$secret" | wc -c)" -ne 64 ]; then
+        die "openssl did not give two secrets of 64 characters"
+    fi
+    partial=$(umask 077 && mktemp "$root/.env.XXXXXX")
+    printf 'CP_SITE_ADDRESS=%s\nPOSTGRES_PASSWORD=%s\nCP_SESSION_SECRET=%s\n' \
+        "$site_name" "$password" "$secret" >"$partial"
+    chown root:root "$partial"
+    chmod 600 "$partial"
+    mv "$partial" "$file"
+    say "wrote $file: CP_SITE_ADDRESS, POSTGRES_PASSWORD, CP_SESSION_SECRET"
+}
+
+# Ubuntu's unattended security upgrades stay on. When one needs a reboot it
+# happens at 04:00 by the machine's clock, which this script sets to UTC.
+configure_upgrades() {
+    install -d -m 755 /etc/apt/apt.conf.d
+    cat >/etc/apt/apt.conf.d/52causalpulse-upgrades <<'CONF'
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+Unattended-Upgrade::Automatic-Reboot "true";
+Unattended-Upgrade::Automatic-Reboot-Time "04:00";
+CONF
+}
+
+[ "$(id -u)" -eq 0 ] || die "run it as root"
+
+if [ "$skip_devices" = 1 ]; then
+    case $(cat /sys/devices/virtual/dmi/id/sys_vendor 2>/dev/null || true) in
+        *Amazon*) die "CP_FIRST_BOOT_SKIP_DEVICES is for a container, and this is an EC2 instance" ;;
+    esac
+    say "leaving out the data volume, Docker, the swap file and the time zone"
+fi
+
+install_packages ca-certificates curl unzip openssl unattended-upgrades
+
+if [ "$skip_devices" = 1 ]; then
+    mkdir -p "$root"
+else
+    timedatectl set-timezone Etc/UTC
+    mount_data_volume
+    mount_docker_volumes
+    install_docker
+    make_swap
+    mountpoint -q "$root" || die "$root is not the data volume"
+fi
+install_aws_cli
+write_environment_file
+configure_upgrades
+
+# Last, and whole or not at all: see the top of this file.
+install -d -m 755 "$(dirname "$marker")"
+date -u +%Y-%m-%dT%H:%M:%SZ >"$marker.new"
+mv "$marker.new" "$marker"
+say "done"

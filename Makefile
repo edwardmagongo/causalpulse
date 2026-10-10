@@ -1,4 +1,4 @@
-.PHONY: install fmt lint types imports test test-fast test-slow cov check check-services check-llm check-web smoke smoke-web smoke-prod openapi
+.PHONY: install fmt lint types imports test test-fast test-slow cov check check-services check-llm check-web smoke smoke-web smoke-prod smoke-deploy check-infra openapi
 
 install:
 	uv sync
@@ -204,3 +204,60 @@ smoke-prod:
 	&& retry logged api 'published as a demo value' && retry restarted api ); status=$$?; \
 	[ $$status -eq 0 ] || $(PROD_SMOKE_STACK) logs --no-color --tail 60; \
 	$(PROD_SMOKE_STACK) down -v; exit $$status
+
+# The deploy, as a server does it: the script of the deploy command in
+# `infra/deploy-command.tf`, which takes `deploy/deploy.sh` out of the app
+# image and runs it, against a throwaway registry on 127.0.0.1:5005 and its
+# own compose project. It proves that a first deploy from nothing comes up
+# healthy, that a second tag replaces the first, that the first tag can be
+# deployed again without an image being created, that a broken image fails
+# and leaves the recorded SHA alone, that a failed migration leaves the
+# running containers running, and that it leaves the release directory
+# holding the running commit's files. The script says how, what it does not
+# prove, and removes what it made.
+#
+# The proxy is on 8091 and 8444, as in `smoke-prod`: not at the same time.
+# CI does not run this: it creates both images, and the minutes are counted.
+smoke-deploy:
+	sh deploy/smoke-deploy.sh
+
+# The infrastructure, checked without an account: Terraform's formatting, its
+# validation, and its tests against a mocked provider (`infra/tests/`), then
+# the first-boot script as Terraform renders it, the deploy document's
+# script, the deploy scripts and the workflows, and last the two test files
+# that run the deploy script and the deploy document's script against
+# stand-ins for Docker. Nothing is planned against AWS and nothing is
+# created. It needs `terraform`, `shellcheck`, `actionlint` and `uv`.
+#
+# A test reads the resources it names and no other. `infra/tests/inventory.sh`
+# is what fails when a resource is added that `infra/tests/inventory.txt`
+# does not list, or when one of the texts it refuses appears (a key pair,
+# port 22, IPv6, a policy the tests do not read). It comes after the
+# formatting check because it reads the files as that leaves them.
+#
+# Terraform is run with every source of AWS credentials taken away, so a
+# developer who is signed in reaches nothing through this target. `init`
+# downloads the provider, which needs the network and no account, and refuses
+# to change the lock file.
+TERRAFORM_NO_AWS = env -u AWS_PROFILE -u AWS_DEFAULT_PROFILE -u AWS_ACCESS_KEY_ID \
+	-u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN -u AWS_ROLE_ARN \
+	-u AWS_WEB_IDENTITY_TOKEN_FILE -u AWS_CONTAINER_CREDENTIALS_RELATIVE_URI \
+	-u AWS_CONTAINER_CREDENTIALS_FULL_URI AWS_EC2_METADATA_DISABLED=true \
+	AWS_SHARED_CREDENTIALS_FILE=/dev/null AWS_CONFIG_FILE=/dev/null terraform
+
+check-infra:
+	$(TERRAFORM_NO_AWS) -chdir=infra fmt -check -recursive
+	sh infra/tests/inventory.sh
+	$(TERRAFORM_NO_AWS) -chdir=infra init -backend=false -input=false -lockfile=readonly
+	$(TERRAFORM_NO_AWS) -chdir=infra validate
+	$(TERRAFORM_NO_AWS) -chdir=infra test
+	$(TERRAFORM_NO_AWS) -chdir=infra/bootstrap init -backend=false -input=false -lockfile=readonly
+	$(TERRAFORM_NO_AWS) -chdir=infra/bootstrap validate
+	rendered=$$(mktemp -d) && trap 'rm -rf "$$rendered"' EXIT && \
+	sh infra/tests/render-first-boot.sh >"$$rendered/first-boot.sh" && \
+	bash -n "$$rendered/first-boot.sh" && shellcheck "$$rendered/first-boot.sh" && \
+	sh infra/tests/render-deploy-command.sh >"$$rendered/deploy-command.sh" && \
+	sh -n "$$rendered/deploy-command.sh" && shellcheck -s sh "$$rendered/deploy-command.sh"
+	shellcheck deploy/*.sh infra/tests/*.sh
+	actionlint
+	env -u DATABASE_URL -u REDIS_URL uv run pytest tests/test_deploy_files.py tests/test_deploy_command.py -q -p no:cacheprovider

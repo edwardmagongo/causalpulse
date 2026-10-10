@@ -1,0 +1,20 @@
+# On the server the two images come from the registry, by the commit's SHA,
+# and are never built there. Used with `docker-compose.prod.yml`, after it:
+# `deploy/deploy.sh` is what does that.
+x-app-image: &app-image
+  image: ${CP_IMAGE_REGISTRY:?the registry the images are pulled from}/causalpulse-app:${CP_IMAGE_TAG:?the commit SHA to run}
+
+services:
+  migrate: *app-image
+  api: *app-image
+  worker: *app-image
+  web:
+    image: ${CP_IMAGE_REGISTRY:?the registry the images are pulled from}/causalpulse-web:${CP_IMAGE_TAG:?the commit SHA to run}
+  # The proxy's image is the same for every commit and its Caddyfile is
+  # mounted by path, so nothing in its settings would change when the file's
+  # content does. This label does: `deploy/deploy.sh` sets it to the SHA-256
+  # of `deploy/Caddyfile`, and Compose replaces a container whose labels are
+  # not the ones it was created with.
+  proxy:
+    labels:
+      causalpulse.caddyfile-sha256: ${CP_CADDYFILE_DIGEST:?the SHA-256 of deploy/Caddyfile, which deploy/deploy.sh sets}
