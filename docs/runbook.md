@@ -92,8 +92,11 @@ has no enforced branch protection, so anyone who can push to `main` is, in effec
 server. That is the intended boundary while the repository is private and has one owner. A
 test (`tests/test_deploy_files.py`) holds that only the deploy workflow asks for the token and
 that it is started by hand only; that guards against doing it by accident, not against a person
-who can push. Before a second person is given the right to push, read §7 of the design for what
-has to change.
+who can push. The same holds on AWS's side: any principal in the account with
+`ssm:SendCommand` or `ssm:StartSession` on the instance, or with rights over IAM, is root on
+the server too, and the sessions this runbook opens are one of those. Before a second person is
+given the right to push, or access to the account, read §7 of the design for what has to
+change.
 
 ## When something is wrong
 
@@ -430,7 +433,7 @@ The document around the script has statuses of its own:
 | the failed command's own | the registry login, the pull of the app image, or the copy of the files out of it failed before the script was reached. The status is that command's and is not one of the script's own: it can be 1, which the script also uses, so read the output, which says what failed. |
 | -1, as the workflow reports it | Systems Manager has no exit status: the command was not run on the server, or was stopped there. |
 
-After any status but 0 the output ends with how full the two disks are (`df -h` for `/` and
+After any status of the script but 0 the output ends with how full the two disks are (`df -h` for `/` and
 `/srv/causalpulse`). If the document cannot search its own output for the environment file's
 values, or the environment file is missing or cannot be read, it keeps and shows none of the
 run, says which of the two it was, and still returns the status.
@@ -439,12 +442,16 @@ run, says which of the two it was, and still returns the status.
 its path, so the files there should be those of the commit that is running. The document
 copies the new commit's files to `release.new`, sets the directory in place aside as
 `release.old`, and when the deploy script has returned decides which stays. After 0, 30 and 40
-it is the new one. After anything else (1, 2, 10, 20) it puts back the one that was there,
-because by the script's contract nothing was replaced. A failed registry login, pull or copy
+it is the new one. After anything else (1, 2, 10, 20) it puts back the one that was there:
+by the script's contract nothing was replaced after 2, 10 or 20, and 1, which the script does
+not expect to give, is treated as not deployed. A failed registry login, pull or copy
 ends the run before any directory is renamed. So after a failure with status 10 or 20 the
 release directory matches what is running, and nothing has to be put back by hand.
 
-Three cases are left where the directory does not match what is running:
+Three cases are left where the directory does not match what is running, and a fourth is
+possible if a status the script did not choose (1 after the stack was replaced, or 137 from a
+kill) puts the old directory back over a stack that is new; the remedy is the same, to deploy
+the commit that should be running:
 
 - **After status 30.** The directory holds the new commit's files, and the stack is as the
   attempt left it: possibly some services on the new commit and some on the old.
@@ -462,8 +469,16 @@ Three cases are left where the directory does not match what is running:
   `release.old` back before it does anything else, on the reasoning that a run is cut off in the
   pulls or the migration more easily than after them. If that run had in fact replaced the
   stack, the directory then holds the commit before the one running. In either case the answer
-  is the same: deploy the commit that should be running, and the directory and the stack agree
-  again when that deploy ends with 0.
+  is the same: deploy the commit that should be running, and the files of the directory and
+  the stack agree again when that deploy ends with 0. If the run was cut off by a reboot, the
+  proxy was restarted while `release` held the new commit's files, and a deploy of the commit
+  that was running does not recreate it, because Compose sees the label the proxy was created
+  with. So when that deploy has ended with 0, restart the proxy so that it reads the Caddyfile
+  now in place:
+
+  ```bash
+  sudo docker restart "$(sudo docker compose -p causalpulse-prod ps -q proxy)"
+  ```
 - **After a first deploy that failed.** There was no directory to put back, so the new files
   stay whatever the status.
 
@@ -480,7 +495,9 @@ the pipeline's role may neither overwrite a tag nor delete an image. So an image
 under its SHA cannot be replaced by running the workflow again. The usual answer is a new
 commit, which has a new SHA. To build the same commit again, someone with an administrator's
 rights in the account deletes the tag, and the next deploy of that SHA finds it missing and
-builds it:
+builds it. The build reads the layer cache (`cache-from: type=gha`), so a bad layer that was
+cached comes back the same: when the image itself was the fault, delete the cache first with
+`gh cache delete --all`.
 
 ```bash
 REGION=eu-west-1
@@ -491,7 +508,10 @@ The dashboard's repository is `causalpulse-web`. Deleting an image the server is
 not stop the server, which has its own copy; it does mean that a machine replaced before the
 image is built again has nothing to pull.
 
-**Rolling back.** Run the same workflow with the earlier SHA. To find it, on the server
+**Rolling back.** Run the same workflow with the earlier SHA. The deploy waits for the
+continuous integration run and the fast suite of that commit to have succeeded. A run of
+either that was cancelled can be run again for 30 days only, so a commit older than that whose
+run was cancelled cannot be a rollback target. To find it, on the server
 `previous-sha` holds the commit recorded before the current one (in a session:
 `sudo cat /srv/causalpulse/previous-sha`), and from the Mac the deploy commands that were sent
 are listed with the SHA in each one's comment. Systems Manager keeps that list for a limited
@@ -651,10 +671,14 @@ sudo cat /srv/causalpulse/current-sha /srv/causalpulse/previous-sha
 sudo cat /srv/causalpulse/deploy.env
 ```
 
-Whether the release directory's Caddyfile is the one that was deployed. It prints its sentence
-when it is; see "After a failed deploy" in procedure 2 when it does not.
+Whether the last deploy ended well, and then whether the release directory's Caddyfile is the
+one that was deployed. Each prints its sentence when it holds; see "After a failed deploy" in
+procedure 2 when one does not. The first is the one that tells a status 30 from a deploy that
+ended well: after a 30 the Caddyfile's digest, like the two SHAs above, still names the commit
+before, and the directory holds the new commit's files.
 
 ```bash
+[ "$(sudo grep '^==== ' /srv/causalpulse/deploy.log | tail -n 1 | sed 's/^==== [^ ]* //')" = "$(sudo cat /srv/causalpulse/current-sha), exit status 0" ] && echo "the last deploy ended with status 0 for the running commit"
 [ "$(sudo sha256sum /srv/causalpulse/release/deploy/Caddyfile | cut -d' ' -f1)" = "$(sudo sed -n 's/^CP_CADDYFILE_DIGEST=//p' /srv/causalpulse/deploy.env)" ] && echo "the release's Caddyfile is the one deployed"
 ls -d /srv/causalpulse/release*
 ```
@@ -851,10 +875,18 @@ set_env() {
 ```
 
 Before going on, check that the release directory's files are those of the commit that is
-running. The first two lines printed must name the same SHA, and the third must be the
-sentence. If `deploy.env` is missing, no deploy has ended well on this server yet. If the lines
-disagree, the last deploy failed with status 30 or was cut off: see "After a failed deploy" in
-procedure 2 first.
+running. First the history: the last deploy that got as far as the script must have ended with
+status 0 for the commit in `current-sha`. After a status 30, or a 40 from the record of
+`deploy.env`, both files still name the commit before, so the next three lines agree whether the
+last deploy succeeded or not, and only this line tells the two apart. If it does not print its
+sentence, stop and see "After a failed deploy" in procedure 2.
+
+```bash
+[ "$(grep '^==== ' /srv/causalpulse/deploy.log | tail -n 1 | sed 's/^==== [^ ]* //')" = "$(cat /srv/causalpulse/current-sha), exit status 0" ] && echo "the last deploy ended with status 0 for the running commit"
+```
+
+Then the files. The first two lines printed must name the same SHA, and the third must be the
+sentence. If `deploy.env` is missing, no deploy has ended well on this server yet.
 
 ```bash
 cat /srv/causalpulse/current-sha
