@@ -106,8 +106,9 @@ locals {
         set -eu
         umask 022
         # What a run that was cut off left: see the top of this file. As in
-        # the swap below, whatever Docker made at the path between the two
-        # renames is removed, or the second would move the release inside it.
+        # the swap below, whatever Docker made at the path before the second
+        # rename is removed; a path made between that `rm` and the `mv` is
+        # not (the window is narrowed to that instant, not closed).
         if [ -e "$root/release.old" ]; then
             rm -rf "$root/release.new"
             if [ -e "$root/release" ]; then mv "$root/release" "$root/release.new"; fi
@@ -129,7 +130,8 @@ locals {
         # to copy or remove a directory tree. A proxy that starts in that
         # moment has Docker make the path as empty directories, which are
         # not a release and would have the second rename move the new files
-        # inside them: so whatever is at the path by then is removed.
+        # inside them: so whatever is at the path by then is removed (a path
+        # made between that `rm` and the `mv` is not).
         if [ -e "$root/release" ]; then mv "$root/release" "$root/release.old"; fi
         if [ -e "$root/release" ]; then rm -rf "$root/release"; fi
         mv "$root/release.new" "$root/release"

@@ -1312,6 +1312,20 @@ GATES = {
 }
 
 
+def test_the_gate_step_cannot_be_passed_over_and_comes_before_the_credentials():
+    # The cases below run the step's script, not its YAML, so a step that
+    # carried `continue-on-error` or an `if` would refuse a commit and the job
+    # would go on to ask for the role regardless.
+    steps = _deploy_job()["steps"]
+    assert isinstance(steps, list)
+    gate = _deploy_step("name", "Check the gates passed for the commit")
+    credentials = _deploy_step("uses", "aws-actions/configure-aws-credentials")
+
+    assert "continue-on-error" not in gate
+    assert "if" not in gate
+    assert steps.index(gate) < steps.index(credentials)
+
+
 @pytest.mark.skipif(
     shutil.which("bash") is None or shutil.which("jq") is None, reason="needs bash and jq"
 )

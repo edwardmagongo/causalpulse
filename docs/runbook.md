@@ -93,8 +93,8 @@ server. That is the intended boundary while the repository is private and has on
 test (`tests/test_deploy_files.py`) holds that only the deploy workflow asks for the token and
 that it is started by hand only; that guards against doing it by accident, not against a person
 who can push. The same holds on AWS's side: any principal in the account with
-`ssm:SendCommand` or `ssm:StartSession` on the instance, or with rights over IAM, is root on
-the server too, and the sessions this runbook opens are one of those. Before a second person is
+`ssm:SendCommand` or `ssm:StartSession` on the instance, or with rights over IAM, or with EC2 rights over the machine or its volumes, is root on
+the server or can read its secrets too, and the sessions this runbook opens are one of those. Before a second person is
 given the right to push, or access to the account, read §7 of the design for what has to
 change.
 
@@ -479,6 +479,10 @@ the commit that should be running:
   ```bash
   sudo docker restart "$(sudo docker compose -p causalpulse-prod ps -q proxy)"
   ```
+  The same happens when a deploy ended with 0, 30 or 40 but its rename of `release.old` out of
+  the way failed (the log says "could not be renamed"): `release.old` is still there, and the
+  next run puts it back, which sets `release` to the commit before the one running. If that
+  is not wanted, remove it by hand from a session (`sudo rm -rf /srv/causalpulse/release.old`) before the next run.
 - **After a first deploy that failed.** There was no directory to put back, so the new files
   stay whatever the status.
 
@@ -508,8 +512,9 @@ The dashboard's repository is `causalpulse-web`. Deleting an image the server is
 not stop the server, which has its own copy; it does mean that a machine replaced before the
 image is built again has nothing to pull.
 
-**Rolling back.** Run the same workflow with the earlier SHA. The deploy waits for the
-continuous integration run and the fast suite of that commit to have succeeded. A run of
+**Rolling back.** Run the same workflow with the earlier SHA. The deploy requires the
+continuous integration run of that commit, and its fast suite and infrastructure gate where
+they ran, to have succeeded; a run still in progress or queued is refused. A run of
 either that was cancelled can be run again for 30 days only, so a commit older than that whose
 run was cancelled cannot be a rollback target. To find it, on the server
 `previous-sha` holds the commit recorded before the current one (in a session:
@@ -671,7 +676,7 @@ sudo cat /srv/causalpulse/current-sha /srv/causalpulse/previous-sha
 sudo cat /srv/causalpulse/deploy.env
 ```
 
-Whether the last deploy ended well, and then whether the release directory's Caddyfile is the
+Whether the last deploy run ended well, and then whether the release directory's Caddyfile is the
 one that was deployed. Each prints its sentence when it holds; see "After a failed deploy" in
 procedure 2 when one does not. The first is the one that tells a status 30 from a deploy that
 ended well: after a 30 the Caddyfile's digest, like the two SHAs above, still names the commit
@@ -683,7 +688,7 @@ before, and the directory holds the new commit's files.
 ls -d /srv/causalpulse/release*
 ```
 
-The second line should list `release` alone, unless a deploy is running.
+The last line should list `release` alone, unless a deploy is running.
 
 The deploys: one line for each, then the whole of the last one.
 
@@ -875,14 +880,18 @@ set_env() {
 ```
 
 Before going on, check that the release directory's files are those of the commit that is
-running. First the history: the last deploy that got as far as the script must have ended with
-status 0 for the commit in `current-sha`. After a status 30, or a 40 from the record of
-`deploy.env`, both files still name the commit before, so the next three lines agree whether the
-last deploy succeeded or not, and only this line tells the two apart. If it does not print its
-sentence, stop and see "After a failed deploy" in procedure 2.
+running. First the history, and that no run was cut off: the last deploy run (every run past
+the lock writes one line) must have ended with status 0 for the commit in `current-sha`, and
+`release.old` must not exist. After a status 30, or a 40 from `previous-sha` or the record of
+`deploy.env`, both files still name the commit before, so the three lines after this one
+agree whether the last deploy succeeded or not; the history line tells those apart. A run that
+was cut off writes no line, so the history line alone cannot tell it: it leaves `release.old`
+beside `release`, and the first test in the line below sees that. If the line does not print
+its sentence, stop and see "After a failed deploy" in procedure 2; a cut-off run is a case to
+stop on.
 
 ```bash
-[ "$(grep '^==== ' /srv/causalpulse/deploy.log | tail -n 1 | sed 's/^==== [^ ]* //')" = "$(cat /srv/causalpulse/current-sha), exit status 0" ] && echo "the last deploy ended with status 0 for the running commit"
+[ ! -e /srv/causalpulse/release.old ] && [ "$(grep '^==== ' /srv/causalpulse/deploy.log | tail -n 1 | sed 's/^==== [^ ]* //')" = "$(cat /srv/causalpulse/current-sha), exit status 0" ] && echo "the last deploy ended with status 0 for the running commit, and no run was cut off"
 ```
 
 Then the files. The first two lines printed must name the same SHA, and the third must be the
