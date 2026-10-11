@@ -196,13 +196,8 @@ run "the_machine_has_no_key_no_ipv6_and_version_2_metadata" {
   }
 
   assert {
-    condition     = aws_instance.server.credit_specification[0].cpu_credits == "standard"
-    error_message = "The CPU credit mode must be standard: unlimited is billed."
-  }
-
-  assert {
-    condition     = aws_instance.server.instance_type == "t3.medium"
-    error_message = "The instance must be a t3.medium."
+    condition     = aws_instance.server.instance_type == "c7i-flex.large"
+    error_message = "The instance must be a c7i-flex.large."
   }
 
   assert {
@@ -562,8 +557,8 @@ run "the_budget_warns_twice_at_80_percent_of_50_dollars" {
   command = plan
 
   assert {
-    condition     = aws_budgets_budget.monthly.limit_amount == "50" && aws_budgets_budget.monthly.limit_unit == "USD" && aws_budgets_budget.monthly.time_unit == "MONTHLY"
-    error_message = "The budget must be 50 US dollars a month."
+    condition     = aws_budgets_budget.monthly.limit_amount == "100" && aws_budgets_budget.monthly.limit_unit == "USD" && aws_budgets_budget.monthly.time_unit == "MONTHLY"
+    error_message = "The budget must be 100 US dollars a month."
   }
 
   assert {

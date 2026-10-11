@@ -38,7 +38,7 @@ Everything in AWS is tagged `Project = causalpulse` where the resource takes tag
 | Resource | What it is for | Where it is defined |
 |---|---|---|
 | State bucket (S3) | Holds Terraform's state for `infra/`. Versioned, encrypted, private, TLS only; a replaced version is removed after 90 days. | `infra/bootstrap/main.tf` (its own state is a local file, ignored by git) |
-| The server (EC2, `t3.medium`, Ubuntu 24.04, `standard` CPU credits) | Runs the stack with Docker Compose. | `infra/machine.tf` |
+| The server (EC2, `c7i-flex.large`, Ubuntu 24.04) | Runs the stack with Docker Compose. | `infra/machine.tf` |
 | Root disk, 30 GB | The system and Docker's images and containers. Lost when the machine is replaced. | `infra/machine.tf` |
 | Data volume, 20 GB, mounted at `/srv/causalpulse` | Docker's named volumes (the database, the proxy's certificates), the environment file, the release files, the deploy records and logs. Kept when the machine is replaced; Terraform refuses to destroy it. | `infra/machine.tf` |
 | Fixed address (Elastic IP) | What the site's A record names. Kept across a stop, a start and a replacement. | `infra/network.tf` |
@@ -49,7 +49,7 @@ Everything in AWS is tagged `Project = causalpulse` where the resource takes tag
 | Snapshot policy (Data Lifecycle Manager) and its role | A snapshot of the data volume each night, started within the hour after 03:00 UTC; seven are kept. | `infra/backups.tf` |
 | Pipeline role, and GitHub's identity provider | What the deploy workflow assumes, from `main` only: push the two images, send the one deploy command to the one machine, read a command's result. Because that command runs a script from the image as root, the role amounts to root on the server ("Who is root on the server", below). | `infra/pipeline.tf` |
 | Deploy document (Systems Manager), `causalpulse-deploy` | The one command the pipeline can run on the server. Its one parameter is a 40-character SHA. It runs as root. | `infra/deploy-command.tf` |
-| Budget, `causalpulse-monthly` | E-mails at 80% of 50 US dollars a month, actual and forecast. It counts the whole AWS account, not this project alone. | `infra/budget.tf` |
+| Budget, `causalpulse-monthly` | E-mails at 80% of 100 US dollars a month, actual and forecast. It counts the whole AWS account, not this project alone. | `infra/budget.tf` |
 | First-boot script | Run once by cloud-init: the data volume, Docker, swap, the AWS CLI, the environment file, automatic upgrades. Its last act writes `/var/lib/causalpulse/first-boot-done` on the root disk, without which a deploy is refused. | `deploy/first-boot.sh.tftpl` |
 | Deploy script, compose override | What a deploy runs on the server, taken out of the app image. | `deploy/deploy.sh`, `deploy/compose.server.yml` |
 | Deploy workflow | Started by hand; builds, pushes, sends the command, asks the site from outside. | `.github/workflows/deploy.yml` |
@@ -214,7 +214,7 @@ What to look for:
 - Only additions: nothing to change and nothing to destroy. Counted from the configuration,
   that is 30 resources, or 31 when the identity provider is created here. If the plan's number
   differs, find out why before applying.
-- `aws_instance.server` is a `t3.medium` with no `key_name`, and `aws_security_group.server`
+- `aws_instance.server` is a `c7i-flex.large` with no `key_name`, and `aws_security_group.server`
   has two inbound rules, ports 80 and 443.
 - `aws_iam_openid_connect_provider.github[0]` is there only if you answered `true`.
 - The plan stops with a sentence of its own if the subnet does not give a public IPv4 address

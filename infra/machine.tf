@@ -12,9 +12,13 @@ locals {
   }
 }
 
+# A c7i-flex.large, not the t3.medium first chosen: the account is on AWS's
+# Free plan, which launches only the types it lists as free-tier eligible, and
+# this is the one of them with t3.medium's 4 GB. It is not a T-family machine,
+# so it has no CPU credits to run out and takes no `credit_specification`.
 resource "aws_instance" "server" {
   ami           = var.ami_id
-  instance_type = "t3.medium"
+  instance_type = "c7i-flex.large"
   subnet_id     = data.aws_subnet.server.id
 
   vpc_security_group_ids = [aws_security_group.server.id]
@@ -31,11 +35,6 @@ resource "aws_instance" "server" {
     http_endpoint               = "enabled"
     http_tokens                 = "required"
     http_put_response_hop_limit = 1
-  }
-
-  # A burst beyond the earned credits is throttled, not billed.
-  credit_specification {
-    cpu_credits = "standard"
   }
 
   # The system and Docker's images. The provider's default tags do not reach

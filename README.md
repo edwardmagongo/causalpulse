@@ -2463,11 +2463,11 @@ procedures, each marked as not yet carried out.
 What this phase added:
 
 - **Terraform under `infra/`**, applied by hand from a developer's machine and never by the
-  pipeline: one `t3.medium` in `eu-west-1` with a fixed IPv4 address, ports 80 and 443 open and
+  pipeline: one `c7i-flex.large` in `eu-west-1` with a fixed IPv4 address, ports 80 and 443 open and
   nothing else, no SSH key and no port 22; a 30 GB root disk and a separate 20 GB data volume
   that holds the database, the certificates and the environment file, and that Terraform refuses
   to destroy; two private image repositories; a nightly snapshot of the data volume, seven kept;
-  a budget that e-mails at 80% of 50 US dollars a month; a role for the pipeline; and the one
+  a budget that e-mails at 80% of 100 US dollars a month; a role for the pipeline; and the one
   Systems Manager document the pipeline can run. Its state is in a private S3 bucket made by
   `infra/bootstrap/`. DNS is not in Terraform: the site's one A record is added by hand.
 - **A first-boot script** (`deploy/first-boot.sh.tftpl`), run once by cloud-init: it mounts the
@@ -2604,15 +2604,17 @@ estimates; nothing has been billed yet.
 
 | Item | US dollars a month |
 |---|---|
-| `t3.medium` | 33 |
+| `c7i-flex.large` | 66 |
 | 50 GB of disk | 4.40 |
 | Public IPv4 address | 3.65 |
 | Snapshots, image storage, the state bucket | under 1.50 |
-| Total | about 42 |
+| Total | about 76 |
 
-Stopped, the machine costs its disks and its address: about 9. The instance's CPU credits are
-in `standard` mode, so a long fit is slowed down when the credits run out and cannot add a
-charge. The budget's warning counts the whole AWS account, not this project alone.
+Stopped, the machine costs its disks and its address: about 9. It is a `c7i-flex.large` and not
+the cheaper `t3.medium` first chosen because the AWS account is on the Free plan, which launches
+only the instance types it lists as free-tier eligible; this one has the same 4 GB. While the
+account is on that plan the charge is taken from its credits. The budget's warning, at 80% of
+100 US dollars, counts the whole AWS account, not this project alone.
 
 ### Operating it
 
