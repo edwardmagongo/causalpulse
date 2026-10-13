@@ -347,10 +347,13 @@ def test_a_failure_before_the_deploy_script_stops_the_run_with_the_release_as_it
     assert server.caddyfile() == OLD
     assert server.releases() == ["release"]
     # Nothing after the step that failed was run, the deploy script least of
-    # all.
+    # all. The registry's password is fetched in a pipeline into the login, so
+    # `aws` and `docker login` run at once and either may write its line last:
+    # the fetch is the login's own half, not a step after it.
     calls = server.calls()
-    assert calls[-1].startswith(f"docker {failing} ") or (
-        failing in ("create", "cp") and calls[-1].startswith("docker rm ")
+    steps = [call for call in calls if not call.startswith("aws ecr get-login-password ")]
+    assert steps[-1].startswith(f"docker {failing} ") or (
+        failing in ("create", "cp") and steps[-1].startswith("docker rm ")
     )
     assert not [call for call in calls if call.startswith("deploy.sh ")]
 
