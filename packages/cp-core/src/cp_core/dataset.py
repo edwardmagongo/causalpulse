@@ -11,6 +11,13 @@ from typing import Any, Literal
 import numpy as np
 import pandas as pd
 
+# The largest magnitude a numeric value may have. Float64 holds up to about
+# 1.8e308, and a variance or a sum of squares adds n squares of the data: at
+# 1e150 a square is 1e300, so up to about 1e8 rows stay finite. Measured on
+# LaLonde on 2026-10-14, every estimator computed a finite result with one
+# value at 1e150 and failed at 1e155 with a library's message naming no column.
+MAGNITUDE_BOUND = 1e150
+
 OutcomeType = Literal["binary", "continuous"]
 _VALID_OUTCOME_TYPES: tuple[str, ...] = ("binary", "continuous")
 
@@ -311,6 +318,7 @@ class CausalDataset:
         self._validate_unit_column()
         self._validate_numeric_roles()
         self._validate_finite_values()
+        self._validate_magnitude()
         self._validate_treatment_missing_values()
         self._validate_treatment_is_binary()
         self._validate_outcome_type()
@@ -452,6 +460,38 @@ class CausalDataset:
                 f"columns {offending} contain infinite values (inf or -inf), and no "
                 "estimator here can use them. Correct those values or remove those "
                 "rows, and supply the data again."
+            )
+
+    def _validate_magnitude(self) -> None:
+        """Refuse a value too large in magnitude to compute with.
+
+        Every numeric column the schema names, except the unit, the treatment
+        and the time column, which have stricter rules of their own and keep
+        their messages: the unit is a label, the treatment is 0 or 1, and a
+        period is a whole number no larger than 2**53. An infinity has been
+        refused by `_validate_finite_values` before this runs; a missing value
+        is not compared.
+        """
+        schema = self.schema
+        own_rule = {schema.unit, schema.treatment, schema.time}
+        declared = (*schema.required_columns, *schema.auxiliary_columns)
+        found: dict[str, float] = {}
+        for column in dict.fromkeys(declared):
+            if column in own_rule or column not in self.frame.columns:
+                continue
+            if not pd.api.types.is_numeric_dtype(self.frame[column]):
+                continue
+            values = self.frame[column].to_numpy(dtype=float, na_value=np.nan)
+            over = np.flatnonzero(np.abs(values) > MAGNITUDE_BOUND)
+            if over.size:
+                found[column] = float(values[over[0]])
+        if found:
+            offending = sorted(found)
+            listed = ", ".join(f"{column}: {found[column]!r}" for column in offending)
+            raise ValueError(
+                f"columns {offending} hold values too large to compute with ({listed}); "
+                "every value must be at most 1e150 in magnitude. Check the column's units, "
+                "or correct those values, and supply the data again."
             )
 
     def _validate_treatment_missing_values(self) -> None:
