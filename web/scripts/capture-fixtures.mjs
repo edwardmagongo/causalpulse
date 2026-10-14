@@ -91,12 +91,12 @@ await save("refused.analysis.json", await analyse(lalonde.id, LALONDE, ["twfe"])
 // The partial analysis is not recorded any more. It was made from LaLonde with
 // one covariate of 1e200, which made lin_regression fail while difference in
 // means succeeded; since 2026-10-14 a value above 1e150 is refused when the
-// dataset is built. A partial analysis is still possible from other data (an
-// event study on a panel with one outcome of 1e10 fails while did_2x2 and
-// twfe succeed), but this script does not record one. partial.analysis.json
-// and partial.summary.json, and analyses.json (whose list holds the partial
-// row), are kept as they were recorded before that change, and are not
-// written here.
+// dataset is built. A partial analysis is still possible from other data: on
+// panel scenario P1 (60 units, 8 periods) with one outcome of 1e10, the event
+// study fails while did_2x2 and twfe succeed. This script does not record one.
+// partial.analysis.json and partial.summary.json, and analyses.json (whose
+// list holds the partial row), are kept as they were recorded before that
+// change, and are not written here.
 
 await save("estimators.json", await get("/v1/estimators"));
 await save("lalonde.dataset.json", await get(`/v1/datasets/${lalonde.id}`));
