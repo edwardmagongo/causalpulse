@@ -801,7 +801,7 @@ def test_a_scenario_not_in_the_summary_is_refused_naming_what_is_available():
 def test_a_scenario_outside_the_registry_still_gets_a_profile():
     # The declaration guard's `scenario in SCENARIO_AXES` conjunct lets a
     # scenario absent from the registry skip the declaration check rather
-    # than raising -- spec section 5 documents this as deliberate: this
+    # than raising -- this is deliberate: this
     # function cannot vouch for a scenario the registry does not know. No
     # other test reaches that branch:
     # test_a_scenario_not_in_the_summary_is_refused_naming_what_is_available

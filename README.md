@@ -167,28 +167,27 @@ generating real data rather than by estimate. Phase 18 itself shipped that as 42
 closed it, so the four randomly-assigning scenarios that never read that axis contribute one
 baseline strength each instead of three, and both ends of the range fall by 16.
 
-**Benchmark study, part 1** built what a study-grade run needs and the analysis that reads it. `bench
-run --tier study` runs `full`'s grid at 50 replications into a directory of one Parquet shard per cell
-plus a ledger, so an interrupted run resumes (`--resume`) and a finished one extends (`--resume
---replications N`); a parallel executor fits cells through the same `fit_cell` the serial `run_grid`
-does. `bench study` turns a finished run into the headline tables, pooled over each scenario's
-baseline slice with Monte Carlo standard errors, and scores eight expectations that were written down
-before any result existed. That study run does not
-cover `synthetic_control`, `bsts`, the CATE metrics or scenario P7 (the donor-pool arm below adds the
-first two to the tier definition, not to the run already in progress). Results are not committed
-(`benchmarks/runs/` is ignored).
+**Benchmark study, part 1** built what a study-grade run needs and the analysis that reads it.
+`bench run --tier study` runs `full`'s grid at 50 replications into a directory of one Parquet shard
+per cell plus a ledger, so an interrupted run resumes (`--resume`) and a finished one extends
+(`--resume --replications N`); a parallel executor fits cells through the same `fit_cell` the serial
+`run_grid` does. `bench study` turns a finished run into the headline tables, pooled over each
+scenario's baseline slice with Monte Carlo standard errors, and scores eight expectations that were
+written down before any result existed. That study run does not cover `synthetic_control`, `bsts`,
+the CATE metrics or scenario P7 (the donor-pool arm below adds the first two to the tier definition,
+not to the run already in progress). Results are not committed (`benchmarks/runs/` is ignored).
 
 **The 4,000-cell run completed 2026-09-23** (ten estimators, thirteen scenarios). Seven of eight
 pre-registered expectations were met. The eighth -- `hierarchical_did`'s pooled panel coverage not
 below 0.90 -- failed at 0.625, and reading it per scenario rather than pooled found two different
-things underneath one number: on P5 ("parallel trends violated"), every DiD-family estimator collapses
-identically, exactly as that scenario is documented to do; on P6 ("binary panel"), `hierarchical_did`
-alone collapses (0.01 coverage) while its peers stay near nominal (0.89-0.93) on the same data --
-traced to its NumPyro model's outcome likelihood being unconditionally Gaussian, with nothing in its
-declared requirements restricting it away from binary outcomes. Recorded as a finding rather than
-fixed here, with a fix left for its own follow-up rather than done inside this analysis. The other seven
-expectations, including the false-positive rate under the null scenario and confounding bias on the
-scenarios built to show it, measured as expected.
+things underneath one number: on P5 ("parallel trends violated"), every DiD-family estimator
+collapses identically, exactly as that scenario is documented to do; on P6 ("binary panel"),
+`hierarchical_did` alone collapses (0.01 coverage) while its peers stay near nominal (0.89-0.93) on
+the same data -- traced to its NumPyro model's outcome likelihood being unconditionally Gaussian,
+with nothing in its declared requirements restricting it away from binary outcomes. Recorded as a
+finding; the fix is left for its own follow-up. The other seven expectations, including the
+false-positive rate under the null scenario and confounding bias on the scenarios built to show it,
+measured as expected.
 
 **The donor-pool benchmark arm** closed the second of the four open causal-core items. The grid gained
 a third cell shape, `DonorPoolCell`, which is just a scenario and a replication index: `DONOR_SCENARIOS`
@@ -888,7 +887,7 @@ immediately.
 
 Candidate specifications are filtered through each estimator's own `Requirements.unmet()` rather
 than a hard-coded rule, which is what drops the empty covariate subset: all three declare
-`needs_covariates`, so the "full power set" the design called for is in practice every *non-empty*
+`needs_covariates`, so the "full power set" of covariate subsets is in practice every *non-empty*
 subset. On the two-covariate cross-sectional scenarios that gives **6** specifications for
 `lin_regression` (3 subsets × 2 outlier rules) and **18** for `ipw` and `aipw` (× 3 trim values).
 The 256-specification cap cannot bind on any scenario in this repository — it is reachable only at
@@ -912,7 +911,7 @@ Recorded here as a decision, not left as a silent gap.
 
 ### Randomization inference detects a real effect 30% of the time, and that is recorded
 
-Section 7.1's design pre-registered the expectation in both directions before the harness was run:
+The expectation was pre-registered in both directions before the harness was run:
 on a genuinely null scenario the real estimate should sit unremarkably inside the permutation
 distribution, and on a scenario with a strong true effect it should sit in the tail, "near 1.0".
 Measured over 20 seeds × 200 permutations at `n_units=800` on `lin_regression`:
@@ -1211,13 +1210,14 @@ claim made only there would also have succeeded under the wrong formula.
   answer, so the check declines instead.
 - **Differential misclassification.** Named above — a harder analysis that this phase's tractable,
   non-differential model does not attempt.
-- **Missing data.** Moves to Phase 11, the last of the five original concerns.
+- **Missing data.** Moves to Phase 11, the last of the five concerns the causal core set out to
+  cover.
 
 ## Missing outcomes: complete-case analysis and tipping-point bounds (Phase 11)
 
-The last of the five original concerns. `CausalDataset` has always permitted missing outcomes,
-but no estimator handled one — before this phase, a dataset with a missing outcome failed late and
-differently per estimator (`ValueError: cannot convert float NaN to integer`,
+The last of the five concerns the causal core set out to cover. `CausalDataset` has always permitted
+missing outcomes, but no estimator handled one — before this phase, a dataset with a missing outcome
+failed late and differently per estimator (`ValueError: cannot convert float NaN to integer`,
 `Interval bounds must be finite, got lower=nan`, `Input y contains NaN` from scikit-learn, or an
 unrelated `LinAlgError` from a missing covariate), naming no column and suggesting no fix.
 
@@ -1344,8 +1344,8 @@ their own reason string, checked by the language walk the same way Phase 9 and 1
 ### Imputation is Phase 12
 
 This phase builds the missingness mechanism, complete-case analysis as an explicit baseline, and the
-tipping-point bounds — two of the three pieces the original "complete-case vs
-imputation comparison, tipping-point analysis" row called for. **Imputation, and any comparison
+tipping-point bounds — two of the three pieces the "complete-case vs imputation
+comparison, tipping-point analysis" item called for. **Imputation, and any comparison
 between complete-case and imputed estimates, is Phase 12.** Tipping-point analysis needs no model
 for the missing values, which is the point of it, so it does not depend on what Phase 12 builds.
 
@@ -1387,8 +1387,8 @@ that the tolerance needs widening.
 
 ## Imputation, and where it stops helping (Phase 12)
 
-The other two of the original "complete-case vs imputation comparison, tipping-point
-analysis" row. `impute_once` fills missing outcomes from a logistic model of treatment, covariates
+The other two of the "complete-case vs imputation comparison, tipping-point
+analysis" item. `impute_once` fills missing outcomes from a logistic model of treatment, covariates
 and an optional declared `auxiliary_columns` (schema fields an imputation model may see but no
 estimator may adjust for, since an auxiliary built from the outcome is a descendant of it);
 `multiple_impute` draws `m` such completions, bootstrap-resampling the observed rows before each
@@ -1410,7 +1410,7 @@ gets edited after seeing the data stops being one:
   loses nothing. The naive expectation that "any imputation helps" is the one to distrust.
 - **Under MNAR, MI was expected to leave the complete-case gap roughly unchanged. Measured: it
   repairs about two thirds of it** and leaves a residual that is unambiguously nonzero. The
-  mechanism the spec missed: this project's `OutcomeProxy` is built from the *complete* outcome, so
+  mechanism: this project's `OutcomeProxy` is built from the *complete* outcome, so
   it carries information about the missing values themselves, which makes MNAR partially ignorable
   *given the proxy*. Imputation is still not a general fix for MNAR — a proxy that carried no
   outcome information would not repair anything — but an auxiliary correlated with why data is
@@ -2479,7 +2479,6 @@ above).
 The compose file by itself still builds its two images where it runs. On the server an override
 (`deploy/compose.server.yml`) names images pulled from a registry in their place.
 
-
 ## Deployment
 
 Everything needed to put the production stack on one small AWS server and to deploy a commit to
@@ -2608,8 +2607,8 @@ GitHub for an identity token and that it is started by hand only, which guards a
 accident and not against a person who can push. If a second person is ever given the right to
 push, the boundary has to move first: enforced branch protection on `main`, and the deploy job
 in a GitHub environment with required reviewers, with the role's trust changed to that
-environment's subject (the design's section 7). AWS offers no narrower form of the permission to read
-a command's result, so the role can read the output of any run-command in the account and
+environment's subject. AWS offers no narrower form of the permission to read a
+command's result, so the role can read the output of any run-command in the account and
 region whose id it is given. The account is shared with another project.
 
 ### Secrets
@@ -2626,7 +2625,7 @@ account's number and the budget's e-mail address, which is why its bucket is pri
 
 ### What it costs
 
-Approximate, on-demand prices in `eu-west-1`, running all the time. These are the design's
+Approximate, on-demand prices in `eu-west-1`, running all the time. These are
 estimates; nothing has been billed yet.
 
 | Item | US dollars a month |
@@ -2651,4 +2650,3 @@ a snapshot, rotating the two secrets, changing a rate limit, stopping and starti
 replacing the machine, tearing everything down, and what to do when a machine's first boot did
 not finish. It also lists what exists and where each
 thing is defined, and where to start when something is wrong.
-

@@ -1,6 +1,6 @@
 """Does complete-case analysis go wrong the way theory says, and do the bounds hold?
 
-Spec section 7.3 pre-registered four expectations before this harness existed.
+Four expectations were pre-registered before this harness existed.
 Three are rates and are asserted over seeds. The fourth -- that the worst-case
 bounds contain the complete-data estimate -- is an identity, so it is asserted
 without tolerance: one violation means the bounds are wrong.

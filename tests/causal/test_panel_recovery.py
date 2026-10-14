@@ -189,7 +189,7 @@ def test_null_scenario_produces_no_systematic_significance():
 
 
 def test_clustering_matters_and_the_estimators_do_it():
-    # Section 6.1's trap, pinned. This MUST run at error_rho = 0.8 - at rho = 0
+    # The clustering trap, pinned. This MUST run at error_rho = 0.8 - at rho = 0
     # the clustered/unclustered ratio is close to 1 and the test would pass
     # whether or not clustering were wired up at all.
     # Measured clustered_se_ratio on P1 at error_rho=0.8, seed 0: 1.9094.

@@ -418,7 +418,7 @@ def test_a_scenario_is_not_crossed_against_an_axis_it_does_not_declare():
     # `increment` for that axis to scale). Perturbing heterogeneity_scale in
     # the axes must not generate a single cell for B at a non-default value
     # -- without this, the grid would report the axis as varied for B when
-    # every cell it produced was identical (spec section 5.1's
+    # every cell it produced was identical (the
     # absent-versus-zero confusion).
     assert "heterogeneity_scale" not in SCENARIOS["B"].axes
 
@@ -449,9 +449,8 @@ def test_a_scenario_is_not_crossed_against_a_confounding_strength_it_does_not_de
     # was crossed against every strength, declared or not. Scenarios A, B, C
     # and F assign at random, so their builders never read the axis, and those
     # cells differed from each other only in RNG stream -- while `summarise`
-    # grouped them as though the strength had been varied. That is spec
-    # section 5.1's absent-versus-zero shape, for the axis section 5 left
-    # ungated.
+    # grouped them as though the strength had been varied. That is the
+    # absent-versus-zero shape, for the axis that was left ungated.
     #
     # A declares none of it and D declares it, so one config shows both sides
     # of the rule and neither can pass by accident of the other.
@@ -530,9 +529,9 @@ def test_the_new_axes_do_not_multiply_the_grid():
     # value at a time, only for the scenarios that declare it
     # (SCENARIOS[id].axes).
     #
-    # Deliberately not "spec section 5's rule": section 5 states that
-    # cross-product ungated, which the confounding_strength follow-up
-    # superseded (see that section's own banner, and section 12). This config
+    # Deliberately not the original rule, which left that
+    # cross-product ungated and which the confounding_strength follow-up
+    # superseded. This config
     # cannot tell the two apart -- its confounding axis is the single default
     # value, where gated and ungated agree -- so citing the superseded rule
     # here would go unflagged by the test itself.

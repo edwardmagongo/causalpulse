@@ -1,10 +1,9 @@
 """The study's pre-registered expectations, scored against a finished run.
 
-Written down before
-any result existed, so a result cannot be fitted to them afterwards. Each is scored
-**met**, **failed** or **inconclusive**, and a failed one is reported with its
-measurement, never loosened. Tolerances are in pooled MCSE, and no verdict is
-offered on fewer than `MIN_N_USED` pooled rows.
+Written down before any result existed, so a result cannot be fitted to them
+afterwards. Each is scored **met**, **failed** or **inconclusive**, and a failed
+one is reported with its measurement, never loosened. Tolerances are in pooled MCSE, and no verdict
+is offered on fewer than `MIN_N_USED` pooled rows.
 """
 
 from __future__ import annotations

@@ -218,7 +218,7 @@ def build_model_inputs(panel: PanelArrays) -> ModelInputs:
     `cohort_by_unit` derived adoption from) is already False on every one of
     their rows, so `-1` is never used to index into `tau_g`.
 
-    Small-cohort policy (spec section 5.2): a cohort with very few treated
+    Small-cohort policy: a cohort with very few treated
     units is neither merged into a neighbouring cohort nor dropped. It is left
     to the model's own hierarchical shrinkage -- `tau_g = mu_tau + sigma_tau *
     z_g` pools every cohort toward `mu_tau`, and a cohort with little data

@@ -78,7 +78,7 @@ def test_the_asymmetric_case_does_not_match_the_naive_factor():
 
 
 def test_the_design_docs_verified_table_reproduces():
-    # Spec section 4.3, verified by simulation at 4,000,000 units per row.
+    # Verified by simulation at 4,000,000 units per row.
     # Given an observed estimate and share, the correction must return the
     # true effect of 2.0. `q` is supplied through the arm counts.
     for q, se, sp, b_obs in [

@@ -402,8 +402,8 @@ def _group_seed(root_seed: int, group_columns: list[str], key: tuple[object, ...
     itself is stable. `group_columns` is not part of a group's identity, and
     widening it (as Phase 18 did, adding the four new axis columns to every
     group's key) changes what gets hashed for every group at once, even
-    groups whose own data and axis values did not change. That reseed happens
-    once.
+    groups whose own data and axis values did not change. Phase 18's widening reseeded
+    every group once.
     """
     payload: dict[str, object] = {"root_seed": root_seed}
     payload.update(

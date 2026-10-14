@@ -458,7 +458,7 @@ class BenchmarkEvidence:
 
 def _exploratory_note(by_size: pd.DataFrame) -> str:
     """Describe the analytic-versus-bootstrap comparison with no direction claimed --
-    the study design's "deliberately not pre-registered" honoured literally: this
+    the "deliberately not pre-registered" status honoured literally: this
     states what is in the table, not a conclusion about it."""
     if by_size.empty:
         return (

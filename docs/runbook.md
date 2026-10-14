@@ -1,8 +1,7 @@
 # Runbook: the CausalPulse server
 
 How to create, deploy to, look at, repair and remove the one small AWS server that runs the
-demo. This
-document is the commands.
+demo. This document is the commands.
 
 > **Nothing here has been carried out yet.** At the time of writing the server does not exist:
 > Terraform has not been applied and the workflow has never run. Every procedure below was

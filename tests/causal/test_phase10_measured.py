@@ -4,7 +4,7 @@ The routing and formulas are covered by the fast tests. That the checks
 *mean* something is an empirical claim, and this project's standard is that
 empirical claims are measured.
 
-Spec section 7.3 pre-registered three expectations before this harness
+Three expectations were pre-registered before this harness
 existed. Each is a rate, so each is asserted as a rate over seeds rather than
 demonstrated on one.
 

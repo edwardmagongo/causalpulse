@@ -112,8 +112,8 @@ def residualize(
 
     Both nuisance models are cross-fitted (out-of-fold predictions only) --
     reusing in-sample predictions would reintroduce the same overfitting
-    bias AIPW's own cross-fitting exists to remove. This is the "R-learner-
-    style local centering": residuals orthogonal
+    bias AIPW's own cross-fitting exists to remove. This is the R-learner-
+    style local centering: residuals orthogonal
     to X on average mean a split on the residualized pseudo-effect isn't
     confounded by X's direct effect on Y.
     """

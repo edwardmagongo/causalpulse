@@ -3,7 +3,7 @@
 `ReportFigure` holds a caption and a draw callable, not a pre-rendered
 `Axes`, so `cp_report.figures` controls figure size and output format
 rather than screen-scraping an `Axes` someone else already built. Phase
-16 section 10 anticipated exactly this split: every `cp_figures` figure is
+16 anticipated exactly this split: every `cp_figures` figure is
 a pure data function plus a drawing function that takes an `Axes` and
 returns it, never creating a `Figure` or touching global pyplot state --
 which is what lets `cp_report.figures` reuse those data functions directly

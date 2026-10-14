@@ -158,7 +158,7 @@ def test_an_intercept_that_empties_the_control_arm_leaves_every_estimator_inelig
 
 @pytest.mark.parametrize("noise_scale", [2.0, 8.0, 1e6])
 def test_a_saturating_noise_scale_stays_describable(noise_scale):
-    # Spec section 4.2 promised the `[0.05, 0.85]` clip would make a large
+    # It was expected that the `[0.05, 0.85]` clip would make a large
     # noise_scale "saturate rather than produce degenerate cells". MEASURED:
     # it holds all the way to 1e6 -- both arms stay populated, the treated
     # share does not move, and because the clip bounds p0 away from 1 the
@@ -240,7 +240,7 @@ def test_an_absurd_effect_scale_makes_the_label_advertise_an_impossible_effect()
 
 
 def test_heterogeneity_scale_zero_removes_the_spread_and_keeps_the_mean():
-    # Spec section 4.4's whole point: heterogeneity_scale moves the spread,
+    # The whole point: heterogeneity_scale moves the spread,
     # not the level. At zero the spread must vanish *exactly* while the mean
     # stays put -- an implementation that scaled `increment` without
     # compensating `base_tau` would move the mean here, which is hazard 3 of

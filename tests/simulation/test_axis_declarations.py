@@ -1,6 +1,6 @@
 """The checked axis declarations -- `ScenarioSpec.axes`.
 
-Spec section 5.1: a scenario whose builder ignores a grid axis still produces
+A scenario whose builder ignores a grid axis still produces
 one cell per value of that axis, all identical -- the same absent-versus-zero
 confusion Phase 16's benchmark heatmaps were built to avoid. `axes` is the
 declaration that says which axes a scenario actually responds to, and this

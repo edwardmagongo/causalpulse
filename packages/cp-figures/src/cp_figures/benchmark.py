@@ -532,7 +532,7 @@ def _tick_labels(data: AxisProfileData) -> list[str]:
 
     Only that axis. `effect_scale` does not touch assignment at all, and
     annotating every tick of every axis with a constant would be noise
-    rather than the mitigation section 4.1 asks for. A missing or non-finite
+    rather than a mitigation. A missing or non-finite
     share falls back to the bare value rather than printing "nan% treated".
     """
     bare = [f"{value:g}" for value in data.axis_values]

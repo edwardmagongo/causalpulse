@@ -1,6 +1,6 @@
 """A lint over the language the system uses to describe causal findings.
 
-Section 6.3 requires conditional phrasing and forbids asserting proof. The rule
+The lint requires conditional phrasing and forbids asserting proof. The rule
 that makes this hard is not the banned words -- it is that the honest form of
 this codebase's prose *contains* those words under negation: "a balance table
 does not prove unconfoundedness" is exactly what we want written. So both rule

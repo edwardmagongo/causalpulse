@@ -26,7 +26,7 @@ from cp_evaluation.store import RunStatus
 
 STATUS_COLUMNS: tuple[str, ...] = ("n_fitted", "n_ineligible", "n_refused")
 
-# Each headline table's metrics, in the original design's order.
+# Each headline table's metrics, in the order the study reports them.
 TABLE_METRICS: dict[str, tuple[str, ...]] = {
     "accuracy": ("bias", "relative_bias", "rmse", "mae"),
     "coverage": (
@@ -137,7 +137,7 @@ def markdown_table(frame: pd.DataFrame) -> str:
     return "\n".join([header, rule, *body]) + "\n"
 
 
-# What the study did not run, and why. The original design's grid has arms the
+# What the study did not run, and why. The full grid has arms the
 # shipped `full` tier leaves out; the study reports them by name rather than
 # letting a reader assume they were covered.
 _DONOR_POOL = "the donor-pool arm has no grid or metrics yet (a causal-core item still open)"

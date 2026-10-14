@@ -1,7 +1,7 @@
 """Degenerate inputs: the shapes a real analysis produces and a happy-path
 test never sees.
 
-Spec section 7 requires one degenerate case per section, decided one of two
+One degenerate case is required per section, decided one of two
 ways -- a clear refusal naming the problem, or a correct, non-empty
 rendering -- never a section that quietly renders nothing while the rest of
 the document reports success. Phase 16's equivalent task found three real

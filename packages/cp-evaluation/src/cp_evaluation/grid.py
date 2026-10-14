@@ -85,7 +85,7 @@ SCENARIO_AXES: Mapping[str, frozenset[str]] = MappingProxyType(
 
 # The four axes Phase 18 adds, in the order `ScenarioParams`/`AXIS_NAMES`
 # already declares them, minus `confounding_strength` -- that one is crossed
-# against `n_units` rather than varied one value at a time (spec section 5), so
+# against `n_units` rather than varied one value at a time, so
 # it is handled separately from the "one axis at a time" loop the other four go
 # through. Separately, but not exempt from declaration: like the four, it is
 # only crossed against a scenario that declares it. See `_confounding_values`.
@@ -182,8 +182,8 @@ Cell = CrossSectionCell | PanelCell | DonorPoolCell | CateCell | LongPanelCell
 class CrossSectionAxes:
     """The cross-sectional grid's axes.
 
-    `n_units` x `confounding_strength` stays a full cross-product (spec
-    section 5) -- that interaction is what lets the study show where
+    `n_units` x `confounding_strength` stays a full cross-product --
+    that interaction is what lets the study show where
     asymptotic approximations fail. The four axes below default to a single
     value, `ScenarioParams()`'s own default for each: at that default,
     `expand_cells` produces exactly the pre-Phase-18 grid (see
@@ -373,8 +373,8 @@ def _confounding_values(axes: CrossSectionAxes, scenario: str) -> tuple[float, .
     A, B, C and F assign at random, so nothing their builders do reads this
     axis. Crossing them against three strengths produced three cells per
     `n_units` differing only in RNG stream, which `summarise` then reported as
-    though the strength had been varied: spec section 5.1's absent-versus-zero
-    hazard, for the one axis section 5 had left ungated. The gating removes 16
+    though the strength had been varied: the absent-versus-zero
+    hazard, for the one axis that had been left ungated. The gating removes 16
     such cells from `full_config()`.
 
     **The single strength is the default even when the config's axis does not
@@ -476,7 +476,7 @@ def _check_the_anchor_is_on_the_grid(axes: CrossSectionAxes) -> None:
 def _expand_cross_section(
     axes: CrossSectionAxes, replications: int
 ) -> Iterator[CrossSectionCell]:
-    """One-at-a-time enumeration for the four axes Phase 18 adds (spec section 5).
+    """One-at-a-time enumeration for the four axes Phase 18 adds.
 
     `n_units` x `confounding_strength` is generated first, as a cross-product
     over the strengths this scenario is actually crossed against
@@ -504,7 +504,7 @@ def _expand_cross_section(
     A scenario is only varied against an axis it declares
     (`SCENARIOS[id].axes`): crossing it against an axis its builder ignores
     would add cells that are all identical to the baseline, reporting the
-    axis as varied when nothing moved (spec section 5.1, the same
+    axis as varied when nothing moved (the same
     absent-versus-zero confusion Phase 16's heatmaps were built to avoid).
     That holds for `confounding_strength` as well as for the four axes this
     loop varies -- the baseline block above reads `_confounding_values`, not
@@ -641,7 +641,7 @@ def cell_rng(cell: Cell, root_entropy: int) -> np.random.Generator:
     """The generator for one cell, derived from the cell's own identity.
 
     Deliberately not `SeedSequence(root).spawn(i)` indexed by position in the
-    grid, which the original design suggested. Position-indexed spawning
+    grid, which was suggested originally. Position-indexed spawning
     gives order-independence but not configuration-stability: adding one value
     to one axis renumbers every index, so every other cell's data changes even
     though nothing about those cells did. Deriving from identity gives both,

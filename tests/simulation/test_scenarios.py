@@ -95,7 +95,7 @@ _HETEROGENEITY_SCALES = (0.0, 1.0, 3.0)
 def test_scenario_f_declared_effect_matches_measured_across_heterogeneity_scale(
     heterogeneity_scale,
 ):
-    # Hazard 3 (spec section 4.4): scaling `increment` by `heterogeneity_scale`
+    # Hazard 3: scaling `increment` by `heterogeneity_scale`
     # without compensating `base_tau` moves the population mean CATE, silently
     # turning `heterogeneity_scale` into a second `effect_scale`.
     # `declared_effect` does not take `heterogeneity_scale` as an input at all

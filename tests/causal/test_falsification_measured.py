@@ -4,7 +4,7 @@ The routing and shape of these results are covered by test_falsification.py.
 That the p-value *means* something is a different, empirical claim, and this
 project's standard is that empirical claims are measured against known truth.
 
-Spec section 7.3 pre-registered the expectation in both directions: on a
+The expectation was pre-registered in both directions: on a
 genuinely null scenario the real estimate should sit unremarkably inside the
 permutation distribution; on a scenario with a strong true effect it should
 sit in the tail. Both directions are asserted below, and both numbers were
@@ -21,7 +21,7 @@ MEASURED 2026-08-28, 20 seeds x 200 permutations, n_units=800, lin_regression:
               nominal 0.05 -- the permutation is well-calibrated.
   Effect (A): share of seeds at p<=0.05 = 0.300 (MCSE 0.102).
 
-**The effect direction did NOT match section 7.3's pre-registered expectation
+**The effect direction did NOT match the pre-registered expectation
 of "near 1.0", and this is recorded rather than patched (following the
 precedent Phase 6 gave TWFE-on-P4 and Phase 7 gave its credible-interval
 undercoverage).** This is not a broken permutation: the null direction above
@@ -157,7 +157,7 @@ def in_time_p_values(scenario_id: str) -> np.ndarray:
 
 def test_a_true_effect_is_detected_above_chance_but_not_near_certainty():
     # MEASURED: share of seeds at p <= 0.05 was 0.300 (MCSE 0.102) on scenario
-    # A (declared_effect=0.05). Section 7.3 pre-registered "near 1.0"; that
+    # A (declared_effect=0.05). The pre-registered expectation was "near 1.0"; that
     # did not hold (see module docstring for why -- real, modest power at
     # this effect/noise ratio, not a broken permutation). Floor set with
     # headroom below the measured mean: 0.300 - 2*MCSE = 0.300 - 0.204 =
