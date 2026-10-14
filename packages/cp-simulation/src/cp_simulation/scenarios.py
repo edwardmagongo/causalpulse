@@ -250,7 +250,7 @@ def _confounded(scenario_id: str, tau: float) -> Callable[[ScenarioParams], Cros
 def _missing_data(scenario_id: str, tau: float) -> Callable[[ScenarioParams], CrossSectionDGP]:
     """Scenario D's confounding, plus missingness that depends on the outcome.
 
-    MNAR rather than MAR: the parent spec allows either, and MNAR is the case
+    MNAR rather than MAR: either would do, and MNAR is the case
     complete-case analysis cannot be adjusted out of, which is what makes it
     worth a scenario of its own.
 

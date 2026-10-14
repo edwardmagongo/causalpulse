@@ -2,7 +2,7 @@
 
 `run_analysis` is the orchestration Phase 15's `analyze` CLI command will
 eventually wrap; building it now is what makes `AnalysisManifest.to_json` and
-`replay` (§9 of the parent spec) testable at all, rather than early CLI work.
+`replay` testable at all, rather than early CLI work.
 """
 
 from __future__ import annotations

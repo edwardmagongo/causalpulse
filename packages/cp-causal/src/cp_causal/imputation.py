@@ -312,7 +312,7 @@ def _pool_estimator_diagnostics(
 ) -> dict[str, Diagnostic]:
     """The estimator's own diagnostics, averaged over the completions.
 
-    §5.3 says the pooled diagnostics *gain* the pooling fields; replacing the
+    The pooled diagnostics must *gain* the pooling fields; replacing the
     mapping wholesale left the multiple-imputation arm the least inspectable
     of the report's three -- no trimming count, no fold count, no overlap --
     even though `compare()` may select it as the highest-validity line.

@@ -1,6 +1,6 @@
 """The benchmark study's research report: data, sections and renderers.
 
-Sub-project 2, part 2 (`docs/specs/2026-09-23-benchmark-study-report-design.md`).
+Sub-project 2, part 2.
 Mirrors `cp_report.evidence`/`sections`/`html`/`markdown` for a different document
 shape: aggregate performance across many estimators and scenarios rather than one
 analysis's assumption checks. `BenchmarkEvidence` plays `Evidence`'s role -- the one
@@ -53,8 +53,7 @@ from cp_report.language import require_clean_prose
 # summary, in a synthetic `coverage_primary` column (see `_primary_values`). A bias heatmap
 # was tried and dropped: two scenarios built to break the DiD family (P4, P5) have biases
 # hundreds of times the rest, so the colour scale left every other cell one colour, and the
-# bias table already gives the numbers. The choice is recorded in the design doc's
-# "As built" section.
+# bias table already gives the numbers.
 REPORT_HEATMAP_METRICS: tuple[str, ...] = ("coverage_primary",)
 REPORT_PROFILE_SELECTIONS: tuple[tuple[str, str, str], ...] = (
     ("D", "confounding_strength", "bias"),
@@ -283,7 +282,7 @@ def limitations_data(
 
 # Fixed prose, linted with the rest of the document. It states what each figure
 # measures and how to read a calibration slope; it claims nothing about why an
-# estimator scores as it does (design §6.3).
+# estimator scores as it does.
 CATE_NOTE = (
     "Each number in this table compares the per-unit effect an estimator reports with the "
     "true per-unit effect of the same simulated units, and is a mean over the fits counted "
@@ -537,7 +536,7 @@ def _split_status(status: RunStatus) -> tuple[RunStatus, RunStatus, RunStatus]:
     """`status` as an (ATE part, CATE part, long-panel part) triple, split by scenario.
 
     A study store that carries the CATE or P7 arm counts its cells in one ledger; the
-    overview counts ATE cells and each section counts its own (design §6.1).
+    overview counts ATE cells and each section counts its own.
     Orphan shards are not attributable to a scenario, so they stay on the ATE part.
     It classifies by scenario name (`CATE_SCENARIOS` and `PANEL_PROTOCOLS` keys), so an
     ATE scenario that someone later names RICH, NULL, NOISY or P7 would be misfiled.
@@ -579,8 +578,7 @@ def benchmark_evidence_from_run(
 
     Every existing view is built from the study's rows whose `shape` is not `"cate"`:
     the expectations, tables and figures are ATE views registered on the ATE grid,
-    the precedent expectation E7 follows (design
-    `docs/specs/2026-09-30-cate-report-section-design.md` §6.2). CATE rows feed only
+    the precedent expectation E7 follows. CATE rows feed only
     the CATE section. They come from the study itself or, when `cate_directory` is
     given, from a complete `cate`-tier run; both at once is refused, since that
     would average two protocols together. The same holds for the fixed-protocol

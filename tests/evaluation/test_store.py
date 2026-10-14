@@ -165,7 +165,7 @@ def test_a_grid_without_a_cate_arm_keeps_the_identity_it_always_had():
 
     assert set(identity.grid) == {"cross_section", "panel"}
 
-    # Design doc section 9: a `GridConfig` without `cate` must serialise to a
+    # A `GridConfig` without `cate` must serialise to a
     # byte-identical identity to the one it produced before this phase added
     # the CATE arm. Pinned from the pre-branch code at merge-base e4a2aaa
     # (not from this branch, which would make the check self-consistent):

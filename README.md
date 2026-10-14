@@ -106,7 +106,7 @@ the ground-truth firewall stays closed to everything below it. `run_grid` fits t
 twelve estimators — cross-sectional and panel, not yet donor-pool — across the four DGP axes that
 exist, and `summarise` reports bias, coverage, and calibration with Monte Carlo standard error
 rather than a point number that cannot distinguish 94% from 95%. A gating `ci` tier runs in about
-100 seconds; the reviews that shipped it found six defects, four of them in the plan's own draft
+100 seconds; the reviews that shipped it found six defects, four of them in the first draft
 code, including a benchmark whose cells were not order-independent and a false-positive test that
 could not fail.
 
@@ -143,9 +143,8 @@ never persisted.
 The causal core is complete. Phase 17 recorded four items deliberately left open rather than
 built, and all four are now closed: the missing grid axes (Phase 18, below), the donor-pool
 benchmark arm (below), `SyntheticControl`'s CI half-width and `donor_contamination_check`'s
-threshold recalibrated against the convex-hull-aware placebo spread `falsify` uses
-(`docs/specs/2026-09-28-synthetic-control-ci-calibration.md`), and the CATE arm of the benchmark
-grid (`docs/specs/2026-09-27-cate-metrics-arm-design.md`). The CATE arm is a fourth cell shape over
+threshold recalibrated against the convex-hull-aware placebo spread `falsify` uses,
+and the CATE arm of the benchmark grid. The CATE arm is a fourth cell shape over
 the RICH, NULL and NOISY scenarios, scoring `causal_forest`'s per-unit CATE by correlation, RMSE and
 calibration slope in the `full` and `study` tiers. `bench run --tier cate` runs that arm alone at
 the study's 50 replications (150 cells, about 35 minutes), and `bench study-report --cate-run DIR`
@@ -166,18 +165,15 @@ to cover three measured points per new axis — a low, a baseline, and a high va
 generating real data rather than by estimate. Phase 18 itself shipped that as 42 to 84, holding
 `confounding_strength` exempt from the declaration rule as a named, tracked exemption; a follow-up
 closed it, so the four randomly-assigning scenarios that never read that axis contribute one
-baseline strength each instead of three, and both ends of the range fall by 16. See
-`docs/specs/2026-09-13-causal-core-phase18-design.md` section 12 for the measured values, the
-values considered and rejected, and the defects a whole-branch review found before any of it
-shipped.
+baseline strength each instead of three, and both ends of the range fall by 16.
 
 **Benchmark study, part 1** built what a study-grade run needs and the analysis that reads it. `bench
 run --tier study` runs `full`'s grid at 50 replications into a directory of one Parquet shard per cell
 plus a ledger, so an interrupted run resumes (`--resume`) and a finished one extends (`--resume
 --replications N`); a parallel executor fits cells through the same `fit_cell` the serial `run_grid`
 does. `bench study` turns a finished run into the headline tables, pooled over each scenario's
-baseline slice with Monte Carlo standard errors, and scores eight expectations that were written into
-`docs/specs/2026-09-21-benchmark-study-design.md` before any result existed. That study run does not
+baseline slice with Monte Carlo standard errors, and scores eight expectations that were written down
+before any result existed. That study run does not
 cover `synthetic_control`, `bsts`, the CATE metrics or scenario P7 (the donor-pool arm below adds the
 first two to the tier definition, not to the run already in progress). Results are not committed
 (`benchmarks/runs/` is ignored).
@@ -190,8 +186,7 @@ identically, exactly as that scenario is documented to do; on P6 ("binary panel"
 alone collapses (0.01 coverage) while its peers stay near nominal (0.89-0.93) on the same data --
 traced to its NumPyro model's outcome likelihood being unconditionally Gaussian, with nothing in its
 declared requirements restricting it away from binary outcomes. Recorded as a finding rather than
-fixed here; see `docs/specs/2026-09-21-benchmark-study-design.md` section 13.7 for the full diagnosis
-and why a fix was left for its own follow-up rather than done inside this analysis. The other seven
+fixed here, with a fix left for its own follow-up rather than done inside this analysis. The other seven
 expectations, including the false-positive rate under the null scenario and confounding bias on the
 scenarios built to show it, measured as expected.
 
@@ -212,7 +207,7 @@ identity never recorded the donor arm, so a `study` run would have reported "400
 `synthetic_control` and `bsts` appearing only as ineligible rows and no mention in the coverage
 document; `longest_first` raised on a donor cell; and the `hierarchical_did` eligibility above. Every
 wall-clock figure in the tier docstrings was measured while another job ran on the machine and should
-be re-measured on an idle one. See `docs/specs/2026-09-23-donor-pool-benchmark-arm-design.md`.
+be re-measured on an idle one.
 
 No CLI command currently produces an evidence report, either: the report generator built in Phase 17
 takes live result objects, the same as the figures do, because the arrays six of the eight figures
@@ -1173,7 +1168,7 @@ rather than approximated.
 
 ### What the measured harness found
 
-All three of spec §7.3's pre-registered expectations held as stated. Measured 2026-08-29, 20 seeds
+All three pre-registered expectations held as stated. Measured 2026-08-29, 20 seeds
 at `n_units=2000`:
 
 | check | scenario | result |
@@ -1216,11 +1211,11 @@ claim made only there would also have succeeded under the wrong formula.
   answer, so the check declines instead.
 - **Differential misclassification.** Named above — a harder analysis that this phase's tractable,
   non-differential model does not attempt.
-- **Missing data.** Moves to Phase 11, the last of §7.1's five original concerns.
+- **Missing data.** Moves to Phase 11, the last of the five original concerns.
 
 ## Missing outcomes: complete-case analysis and tipping-point bounds (Phase 11)
 
-The last of §7.1's five original concerns. `CausalDataset` has always permitted missing outcomes,
+The last of the five original concerns. `CausalDataset` has always permitted missing outcomes,
 but no estimator handled one — before this phase, a dataset with a missing outcome failed late and
 differently per estimator (`ValueError: cannot convert float NaN to integer`,
 `Interval bounds must be finite, got lower=nan`, `Input y contains NaN` from scikit-learn, or an
@@ -1313,8 +1308,7 @@ cell of `1e39` in LaLonde gives `aipw` and `causal_forest` estimates near -1e36,
 leaves the causal forest without an answer after a minute. There is no threshold with a reason
 behind it, the estimate is arithmetic on the user's own data, and the worker's time limit bounds a
 fit that does not finish. An integer above 2**53 in an outcome or covariate is rounded when it is
-converted, by about one part in 1e16. Both are recorded in
-`docs/specs/2026-10-06-input-followups-design.md`, section 10.
+converted, by about one part in 1e16.
 
 ### What a wide bound means
 
@@ -1350,14 +1344,14 @@ their own reason string, checked by the language walk the same way Phase 9 and 1
 ### Imputation is Phase 12
 
 This phase builds the missingness mechanism, complete-case analysis as an explicit baseline, and the
-tipping-point bounds — two of the three pieces the parent spec's original "complete-case vs
+tipping-point bounds — two of the three pieces the original "complete-case vs
 imputation comparison, tipping-point analysis" row called for. **Imputation, and any comparison
 between complete-case and imputed estimates, is Phase 12.** Tipping-point analysis needs no model
 for the missing values, which is the point of it, so it does not depend on what Phase 12 builds.
 
 ### What the measured harness found
 
-All four of spec §7.3's pre-registered expectations held as stated. Measured 2026-08-30, 20 seeds at
+All four pre-registered expectations held as stated. Measured 2026-08-30, 20 seeds at
 `n_units=2000`, `difference_in_means`, scenario D unless noted, MNAR at `rate=0.25, strength=2.0`:
 
 | check | scenario | result |
@@ -1393,7 +1387,7 @@ that the tolerance needs widening.
 
 ## Imputation, and where it stops helping (Phase 12)
 
-The other two of the parent spec's original "complete-case vs imputation comparison, tipping-point
+The other two of the original "complete-case vs imputation comparison, tipping-point
 analysis" row. `impute_once` fills missing outcomes from a logistic model of treatment, covariates
 and an optional declared `auxiliary_columns` (schema fields an imputation model may see but no
 estimator may adjust for, since an auxiliary built from the outcome is a descendant of it);
@@ -1954,7 +1948,7 @@ reliably. That misreading is now refused: the verifier's rule `insufficient_cave
 the interpretation core, PR #16) requires a statement citing such an estimate to cite its band,
 and the system prompt states it, so `prompt_version` moved from `a28f0812170d` to `5b08e57994d4`.
 The baseline figures above were measured under `a28f0812170d`, and `cite-each-status` under its
-own `5d1427d1ea82`. Design §15.5 records the details.
+own `5d1427d1ea82`.
 
 ## Web dashboard (sub-project 5)
 
@@ -2107,8 +2101,6 @@ does not expect fails `make check-web`, which type-checks the import. The Python
 (the metric definitions, each family's metrics, the levels and each estimator's family) to the code.
 Neither check can show that the rest of the bundle is what the current code would write; only
 running the command shows that.
-`docs/specs/2026-10-04-dashboard-phase2-explorer-design.md` section 12 records what changed while
-building it.
 
 ### Its API types cannot drift
 
@@ -2487,8 +2479,6 @@ above).
 The compose file by itself still builds its two images where it runs. On the server an override
 (`deploy/compose.server.yml`) names images pulled from a registry in their place.
 
-`docs/specs/2026-10-07-hosting-phase2-production-stack-design.md` section 13 records what changed
-while building it, and what is left open.
 
 ## Deployment
 
@@ -2662,5 +2652,3 @@ replacing the machine, tearing everything down, and what to do when a machine's 
 not finish. It also lists what exists and where each
 thing is defined, and where to start when something is wrong.
 
-`docs/specs/2026-10-08-hosting-phase3-server-and-deploy-design.md` is the design; its section 14
-records what changed while building it, and what is left open.

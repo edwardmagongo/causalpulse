@@ -90,9 +90,9 @@ def make_benchmark_evidence() -> BenchmarkEvidence:
         estimators_run=("difference_in_means", "lin_regression"),
         # Ends with a period on purpose. The real `NOT_COVERED` reasons do not, and
         # `causal_language_lint` only splits sentences on `.!?`, so an unpunctuated
-        # fragment merges with the next one for negation and hedge purposes (design
-        # doc §7.1). This fixture avoids that so the lint-refusal tests exercise this
-        # module's own plumbing, not that separate defect.
+        # fragment merges with the next one for negation and hedge purposes. This fixture avoids
+        # that so the lint-refusal tests exercise this module's own plumbing, not that separate
+        # defect.
         not_covered=(("donor_pool", "Not yet implemented."),),
         figures=(ReportFigure(caption="bias by method and scenario.", draw=draw),),
         limitations=("hierarchical_did is excluded from scenario P6.",),

@@ -18,7 +18,7 @@ from cp_llm.prompt import facts_message, prompt_version, system_prompt, violatio
 from cp_llm.render import substitute
 from cp_llm.verify import Violation, verify
 
-# What "verified" establishes, and what it does not (phase 1 design, §11).
+# What "verified" establishes, and what it does not.
 # Shown beside every interpretation the server writes, so a reader is told by
 # the system, not by the model, how far a verified narrative can be trusted.
 VERIFIED_MEANS = (

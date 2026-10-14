@@ -170,7 +170,7 @@ def test_the_published_worked_example_reproduces():
     # by VanderWeele's group): `evalue(RR(0.80), 0.71, 0.91)`. RR = 0.80
     # (protective) with a 95% CI of (0.71, 0.91).
     #
-    # The plan's original version of this test asserted E == 1.98 for RR =
+    # The original version of this test asserted E == 1.98 for RR =
     # 1.61, attributed to this same paper. Neither `1.61 + sqrt(1.61*0.61)`
     # (2.601) nor the CI-bound reading `1.30 + sqrt(1.30*0.30)` (1.925) lands
     # on 1.98, so that recollection was wrong and has been replaced with this

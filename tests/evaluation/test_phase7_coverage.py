@@ -1,8 +1,8 @@
 """Phase 15 Task 10: the measurement Phase 14 claimed but never took.
 
-Phase 14's §9 listed "Phase 7's credible-interval coverage is measured with
-MCSE and the number is recorded" as a definition-of-done item, and its §11
-claimed the phase had done so. Neither was true: `hierarchical_did` is a
+Phase 14 listed "Phase 7's credible-interval coverage is measured with
+MCSE and the number is recorded" as a definition-of-done item, and claimed
+the phase had done so. Neither was true: `hierarchical_did` is a
 NumPyro/NUTS sampler and was excluded from that phase's `ci` gating tier on
 cost (see `cp_evaluation.tiers`), so nothing in that phase ever fitted it.
 The false claim was corrected on `main` in `d3d0fd0`. This module takes the

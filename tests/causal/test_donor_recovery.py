@@ -102,18 +102,17 @@ def test_convex_hull_check_fires_reliably_on_s3():
 
 
 def test_donor_contamination_check_discriminates_clean_from_contaminated():
-    # Recalibrated during the SyntheticControl CI/contamination-check phase (design doc
-    # 2026-09-28-synthetic-control-ci-calibration.md): donor_rmspe_ratios moved from
-    # placebo_runs (plain simplex) to hull_aware_placebo_runs, whose ridge-augmented fallback
-    # genuinely widens this statistic's null distribution -- the old threshold=5.5 gave
-    # 34/100 false positives against this file's original 100-seed protocol, well outside its
-    # own bound. Measured directly on the new statistic at 200 seeds (three separate 200-seed
-    # windows checked for stability, not just this one): threshold=7.0, false-positive rate
-    # ~12-18% (25-35/200) on clean S1, true-positive rate ~85-88% (169-176/200) on
-    # contaminated S4 -- see donor_contamination_check's own docstring for the full sweep and
-    # why these margins are real but thinner than the pre-hull-aware 7%/96%. Bounds below give
-    # roughly 3 MCSE of headroom on both sides at n=200, not the tighter margin the 100-seed
-    # protocol would have left at this threshold.
+    # Recalibrated during the SyntheticControl CI/contamination-check phase:
+    # donor_rmspe_ratios moved from placebo_runs (plain simplex) to hull_aware_placebo_runs, whose
+    # ridge-augmented fallback genuinely widens this statistic's null distribution -- the old
+    # threshold=5.5 gave 34/100 false positives against this file's original 100-seed protocol,
+    # well outside its own bound. Measured directly on the new statistic at 200 seeds (three
+    # separate 200-seed windows checked for stability, not just this one): threshold=7.0,
+    # false-positive rate ~12-18% (25-35/200) on clean S1, true-positive rate ~85-88%
+    # (169-176/200) on contaminated S4 -- see donor_contamination_check's own docstring for the
+    # full sweep and why these margins are real but thinner than the pre-hull-aware 7%/96%. Bounds
+    # below give roughly 3 MCSE of headroom on both sides at n=200, not the tighter margin the
+    # 100-seed protocol would have left at this threshold.
     def contamination_status(scenario_id: str, seed: int) -> str:
         result = SyntheticControl().fit(generate(scenario_id, seed).dataset, CONFIG)
         return {c.name: c.status for c in result.assumptions}["donor_contamination"]
@@ -151,22 +150,20 @@ def test_null_scenario_permutation_p_value_stays_under_a_quarter_significant():
 
 
 def test_fit_ci_coverage_is_measured_on_the_hull_aware_placebo_distribution():
-    # Measured during the SyntheticControl CI/contamination-check phase (design doc
-    # 2026-09-28-synthetic-control-ci-calibration.md §7, 200 seeds, MCSE ~0.015): switching
-    # fit()'s CI half-width from the plain-simplex placebo distribution to the hull-aware one
-    # narrowed it substantially on scenarios where the ridge fallback fires often (mean width
-    # 1.142 -> 0.793 on S0/S1/S3), which pulled coverage down from a consistently
-    # over-nominal 0.970-0.995 to 0.900-0.990, closer to but sometimes just under nominal
-    # 0.95 (S0/S1 0.920, S2 0.900, S3 0.905, S4 0.990). This is recorded, not chased further:
-    # the CI's own construction (a quantile of the placebo spread, following the same
-    # permutation logic as the p-value) carries no formal coverage guarantee to begin with,
-    # and the fix's purpose was internal consistency with the point estimate -- the same
-    # form building both, on every unit -- not a coverage target. S0 and S1 measure
-    # identically here (and always will, at any seed): both share the same donor pool and
-    # pre-period noise at a given seed, differing only in the treated unit's constant true
-    # effect (tau=0 vs tau=1), and this CI's construction never reads the treated unit's own
-    # placebo entry (`point_estimates[1:]` excludes index 0), so tau cancels out of both the
-    # width and the bias `point - true_att` exactly.
+    # Measured during the SyntheticControl CI/contamination-check phase (200 seeds, MCSE ~0.015):
+    # switching fit()'s CI half-width from the plain-simplex placebo distribution to the
+    # hull-aware one narrowed it substantially on scenarios where the ridge fallback fires often
+    # (mean width 1.142 -> 0.793 on S0/S1/S3), which pulled coverage down from a consistently
+    # over-nominal 0.970-0.995 to 0.900-0.990, closer to but sometimes just under nominal 0.95
+    # (S0/S1 0.920, S2 0.900, S3 0.905, S4 0.990). This is recorded, not chased further: the CI's
+    # own construction (a quantile of the placebo spread, following the same permutation logic as
+    # the p-value) carries no formal coverage guarantee to begin with, and the fix's purpose was
+    # internal consistency with the point estimate -- the same form building both, on every unit
+    # -- not a coverage target. S0 and S1 measure identically here (and always will, at any seed):
+    # both share the same donor pool and pre-period noise at a given seed, differing only in the
+    # treated unit's constant true effect (tau=0 vs tau=1), and this CI's construction never reads
+    # the treated unit's own placebo entry (`point_estimates[1:]` excludes index 0), so tau
+    # cancels out of both the width and the bias `point - true_att` exactly.
     #
     # The bound below is a loose sanity floor, not a tight recalibration target -- it exists
     # to catch a genuine regression (coverage collapsing), not to assert precision this

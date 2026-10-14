@@ -262,7 +262,7 @@ def test_scenario_h_produces_missing_outcomes():
 
 
 def test_scenario_h_inherits_scenario_ds_confounding():
-    # H is D plus missingness, per the parent spec, so its assignment
+    # H is D plus missingness, so its assignment
     # mechanism must be D's -- not randomised.
     from cp_simulation.scenarios import build_scenario
 

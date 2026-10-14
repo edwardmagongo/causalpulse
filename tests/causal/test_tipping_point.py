@@ -53,7 +53,7 @@ def test_the_worked_example_reproduces():
     #   complete-case  = 240/400 - 168/420 = 0.600 - 0.400 = 0.200
     #   adverse bound  = 240/500 - (168+80)/500 = 0.480 - 0.496 = -0.016
     #   favourable     = (240+100)/500 - 168/500 = 0.680 - 0.336 =  0.344
-    # Re-derived here rather than copied: the plan's Task 6 header states a
+    # Re-derived here rather than copied: an earlier draft stated a
     # favourable bound of 0.400, which its own test contradicts. 0.344 is the
     # value the stated formula produces.
     adverse, favourable = _worst_case_bounds(

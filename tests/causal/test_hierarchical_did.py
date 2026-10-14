@@ -347,8 +347,7 @@ def test_hierarchical_did_is_ineligible_on_a_binary_panel():
     # the router's default (`{"binary", "continuous"}`) treated this as
     # eligible for P6 ("Binary panel") -- measured at 0.01 credible-interval coverage
     # against a nominal 0.95, worse than every peer DiD estimator on the
-    # identical generated data (docs/specs/2026-09-21-benchmark-study-design.md
-    # §13.7). P6's own scenario is used rather than a hand-built fixture
+    # identical generated data. P6's own scenario is used rather than a hand-built fixture
     # so the dataset is genuinely binary, not just panel-shaped.
     dataset = _panel_fixture("P6").dataset
     assert dataset.schema.outcome_type == "binary"

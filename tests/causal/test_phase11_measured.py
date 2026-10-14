@@ -18,8 +18,8 @@ scenario D unless noted, missingness MNAR(rate=0.25, strength=2.0):
   scenario D: 0 violations of 20, mean bound width 0.4850. The bounds
   routinely span zero for this scenario's own effect size -- expected, not a
   defect: a 25% MNAR missing rate at strength 2.0 is a genuinely severe
-  missingness pattern, and the spec's section 9 anticipates that a bound this
-  wide is a property of the data, not of the bound.
+  missingness pattern, and a bound this
+  wide is expected to be a property of the data, not of the bound.
 
   Tipping fraction (tipping_point), same MNAR settings:
     scenario B (null)    survived worst case 0/20   fraction mean 0.00675  MCSE 0.00423

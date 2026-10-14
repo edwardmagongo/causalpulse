@@ -2,7 +2,7 @@
 
 MEASURED 2026-09-01 (Task 9), 40 seeds at n_units=2000, m=20, scenario D,
 MAR/MNAR(rate=0.25, strength=2.0), OutcomeProxy(noise_sd=...), through
-SHIPPED code -- not the design document's discarded prototype, whose figures
+SHIPPED code -- not the discarded prototype, whose figures
 are wrong in several places. All numbers below come from that run; "gap" =
 arm's point estimate minus the complete-data estimate on the same seed, and
 "paired" statistics are per-seed differences, which is the powerful comparison

@@ -14,9 +14,7 @@ scenario with an `increment` for it to scale). Declaring only what is
 actually wired keeps this suite meaningful: a scenario's declaration -- and
 this test's "must move" branch for it -- reflects what its builder reads.
 See `cp_simulation.scenarios.SCENARIOS`'s own per-scenario comments for how
-each axis is wired into each scenario's builder, and
-`docs/specs/2026-09-13-causal-core-phase18-design.md` section 12 for the
-full per-axis measured-headroom table backing every threshold below.
+each axis is wired into each scenario's builder.
 """
 
 from dataclasses import replace
@@ -28,8 +26,7 @@ from cp_simulation.scenarios import SCENARIOS
 
 # Every generated comparison in this module uses the same size and seed, so
 # the measured thresholds below (captured at this exact configuration) stay
-# valid. See docs/specs/2026-09-13-causal-core-phase18-design.md section 12
-# for the sweep that produced them.
+# valid.
 _N_UNITS = 10_000
 _SEED = 0
 
@@ -143,9 +140,7 @@ _PERTURBED_VALUE = {
 # Phase 18 adds, plus the pre-existing confounding_strength) and all seven
 # scenarios, tightest at confounding_strength against scenario H (2.41x).
 # That is a different quantity from headroom at the values full_config()
-# actually ships, which is thinner -- see
-# docs/specs/2026-09-13-causal-core-phase18-design.md section 12 for the
-# full per-axis table, covering both.
+# actually ships, which is thinner.
 _MOVE_THRESHOLD = {
     "confounding_strength": 0.02,
     "treatment_intercept": 0.05,
@@ -290,8 +285,7 @@ def test_heterogeneity_scale_increases_scenario_fs_cate_spread():
 # though the builder still reads it. `heterogeneity_scale` is present only for
 # F: every other scenario's effect is `ConstantEffect`, which has no
 # `increment` for that axis to scale, so its CATE spread is structurally zero
-# regardless -- see docs/specs/2026-09-13-causal-core-phase18-design.md
-# section 12.
+# regardless.
 _EXPECTED_AXES = {
     "A": frozenset({"effect_scale", "treatment_intercept", "noise_scale"}),
     "B": frozenset({"treatment_intercept", "noise_scale"}),

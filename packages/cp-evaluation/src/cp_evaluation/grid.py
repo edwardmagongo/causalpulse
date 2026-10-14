@@ -199,10 +199,9 @@ class CrossSectionAxes:
     `n_units`, rather than varied one value at a time -- and not whether
     declaration gates it: A, B, C and F declare none of it, so each
     contributes a single baseline strength per `n_units` (`ScenarioParams`'
-    own default) instead of one cell per value. Spec section 5's "exactly as
-    today", which left that cross-product ungated through Phase 18, is
-    superseded; section 12 of
-    `docs/specs/2026-09-13-causal-core-phase18-design.md` records the change.
+    own default) instead of one cell per value. The earlier "exactly as
+    today" rule, which left that cross-product ungated through Phase 18, is
+    superseded.
     """
 
     scenarios: Sequence[str]
@@ -642,7 +641,7 @@ def cell_rng(cell: Cell, root_entropy: int) -> np.random.Generator:
     """The generator for one cell, derived from the cell's own identity.
 
     Deliberately not `SeedSequence(root).spawn(i)` indexed by position in the
-    grid, which the parent spec's §8.1 suggests. Position-indexed spawning
+    grid, which the original design suggested. Position-indexed spawning
     gives order-independence but not configuration-stability: adding one value
     to one axis renumbers every index, so every other cell's data changes even
     though nothing about those cells did. Deriving from identity gives both,

@@ -114,8 +114,8 @@ def _model(
 
     Note the signature: a *shared* slope, not one per cohort. This is the
     smallest extension that lets the effect move with exposure at all, and
-    it deliberately stops short of the full cohort-by-exposure surface the
-    design document considered and rejected on complexity grounds. It cannot
+    it deliberately stops short of the full cohort-by-exposure surface,
+    which was considered and rejected on complexity grounds. It cannot
     represent a non-linear ramp or cohorts whose effects grow at different
     rates; `delta` shrinks toward 0 when the effect is constant, so the
     constant case is nested inside it.
@@ -435,7 +435,7 @@ class HierarchicalDiD:
 
     **What it cannot represent.** Effects grow with exposure at ONE shared
     rate (`delta`). Cohorts whose effects grow at different rates, or grow
-    non-linearly, are outside the model; the design document's rejected
+    non-linearly, are outside the model; the rejected
     cohort-by-exposure surface is where that would live.
 
     The credible interval is a posterior interval and is never a confidence
@@ -463,8 +463,7 @@ class HierarchicalDiD:
         # estimator eligible for a binary panel its own likelihood cannot
         # represent; measured on P6 ("Binary panel"), analytic coverage was
         # 0.01 against a nominal 0.95, worse than every peer DiD estimator on
-        # the identical generated data (docs/specs/2026-09-21-benchmark-study
-        # -design.md §13.7). Restricted to continuous until a real
+        # the identical generated data. Restricted to continuous until a real
         # binary-outcome likelihood is built and validated on its own terms.
         supports_outcome_types=frozenset({"continuous"}),
     )

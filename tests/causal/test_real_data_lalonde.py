@@ -54,7 +54,7 @@ def _observational_dataset(frame: pd.DataFrame) -> CausalDataset:
 #   lin_regression        -3680.60   gap  -5474.94
 #   aipw                  -3487.35   gap  -5281.69
 #
-# The pre-registered expectation (design doc §4.4) was that the naive estimator
+# The pre-registered expectation was that the naive estimator
 # would show a large, badly-signed gap and that adjustment would close some of
 # it. Half of that held and half did not, and the half that did not is the
 # finding worth recording rather than tuning away: adjustment closes between

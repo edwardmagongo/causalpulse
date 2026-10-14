@@ -1,6 +1,6 @@
 """The judge: a model that reads a verified narrative against its facts.
 
-It grades the misreadings no program can find (design §4.3), one call per
+It grades the misreadings no program can find, one call per
 narrative, and names a category and a reason for each statement it flags. It
 is not trusted: its error is measured against labels (`cp_llm_eval.labels`),
 and the report never shows a judge-graded rate without that error.

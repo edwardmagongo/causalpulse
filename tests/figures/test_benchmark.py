@@ -1376,9 +1376,8 @@ def test_the_slice_rule_refuses_an_axis_the_real_grid_never_varies():
     # fixture. This is the declaration refusal, not the single-value one:
     # heterogeneity_scale being undeclared is caught before the pins ever
     # run, which for one of the four Phase 18 axes happens to agree with
-    # what the single-value check alone would have found anyway (see §3 of
-    # the design doc for why that agreement does not extend to
-    # confounding_strength, exercised below).
+    # what the single-value check alone would have found anyway (that agreement does
+    # not extend to confounding_strength, exercised below).
     summary = _summary_over_the_full_grids_cells()
 
     with pytest.raises(ValueError, match="does not declare"):

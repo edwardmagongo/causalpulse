@@ -37,7 +37,7 @@ def test_recovers_the_effect_on_a_clean_two_by_two():
     #
     # Measured here at seeds=10, n_units=400 (this module's `generate`
     # default): mean deviation -0.0579, SEM 0.0226 (std 0.0716 / sqrt(10)).
-    # abs=0.15 -- the plan's originally mandated tolerance -- leaves
+    # abs=0.15 -- the originally planned tolerance -- leaves
     # (0.15 - 0.0579) / 0.0226 = 4.07 SEM of headroom, comfortably above this
     # project's four-SEM bar, while still catching a genuinely broken
     # estimator (wrong sign, wrong scale, or one that ignores treatment).

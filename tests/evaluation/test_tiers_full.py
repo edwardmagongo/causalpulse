@@ -115,7 +115,7 @@ def test_every_named_estimator_is_registered(name):
 
 
 def test_full_config_produces_the_designs_measured_68_cross_sectional_cells():
-    # docs/specs/2026-09-13-causal-core-phase18-design.md section 12. Derived
+    # Derived
     # from the enumeration rule by hand, per scenario, not read off the code:
     #
     #   |n_units| x (|confounding_strength| if declared else 1)

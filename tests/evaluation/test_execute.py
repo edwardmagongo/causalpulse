@@ -201,7 +201,7 @@ def test_cells_are_scheduled_by_measured_cost_class_then_size():
 
     # Long panel (529.7s) before panel (35-62s a cell) before donor (5.5-32.6s,
     # straddling CATE's ~15s) before CATE before cross-section (8.7-12.3s), as
-    # measured in the design doc's section 9.1,
+    # measured,
     # whatever their unit counts: a 2,000-unit CATE cell no longer jumps the queue.
     assert [type(c) for c in ordered] == [
         LongPanelCell, PanelCell, DonorPoolCell, CateCell, CrossSectionCell, CrossSectionCell

@@ -24,7 +24,7 @@ def r_hat_check(samples: Mapping[str, np.ndarray], threshold: float = 1.01) -> A
     site determines whether the fit is trustworthy, not an arbitrary one: the
     same max-over-many reasoning `donor_contamination_check`
     (`panel_checks.py`) already applies to donors, applied here to parameters.
-    Threshold 1.01 is the parent spec's own stated bound (design doc §5.8).
+    Threshold is 1.01.
     """
     worst_name, worst = max(
         (
@@ -64,8 +64,8 @@ def effective_sample_size_check(
     """Worst (minimum) effective sample size across every sampled site.
 
     Threshold is a conservative floor, not a precisely calibrated one:
-    prototype fits at this repository's production MCMC configuration (design
-    doc §2 item 7) measured minimum ESS in the 800+ range on clean fits and
+    prototype fits at this repository's production MCMC configuration
+    measured minimum ESS in the 800+ range on clean fits and
     as low as 2.5 on a fit whose R-hat and divergence rate also independently
     flagged it as unreliable (S2 seed 9: worst R-hat 2.35, ESS 2.47,
     divergence rate 26.85%). 200 sits with wide margin below the former and
@@ -106,9 +106,9 @@ def divergent_transitions_check(
     """Fraction of post-warmup draws NUTS flagged as divergent.
 
     A divergence is a direct symptom of the funnel geometry the regularised
-    horseshoe (design doc §2 item 4) exists to avoid, so this check is also
+    horseshoe exists to avoid, so this check is also
     an indirect check on that prior choice. Threshold 0.10 is measured
-    (design doc §2 item 7 prototype) to separate clean donor-pool fits
+    on a prototype to separate clean donor-pool fits
     (`S1` mean divergence rate 4.22% over 15 seeds, `S2` mean 7.25%) from a
     fit independently flagged bad by R-hat and ESS (`S2` seed 9: 26.85%) --
     with real headroom, not a tight cut. Final calibration is the recovery

@@ -374,8 +374,7 @@ def test_panel_rows_carry_nan_for_the_new_axis_columns_and_realised_share():
 
 
 def test_a_perturbed_row_traces_back_to_its_own_cell_and_its_own_rng_stream():
-    # See docs/specs/2026-09-13-causal-core-phase18-design.md section 12,
-    # "Findings from the whole-branch review": `resolve_cell`'s seam had no
+    # A finding of the Phase 18 whole-branch review: `resolve_cell`'s seam had no
     # guard. `resolve_cell` (resolve.py:51-60) omitting one of
     # `noise_scale=`/`effect_scale=`/`heterogeneity_scale=` from the
     # `ScenarioParams` it builds, `_cell_columns` (run.py:104-137) writing one
@@ -473,8 +472,7 @@ def test_a_perturbed_row_traces_back_to_its_own_cell_and_its_own_rng_stream():
 
 
 def test_realised_treated_share_is_not_the_undisturbed_sigmoid_of_the_intercept():
-    # See docs/specs/2026-09-13-causal-core-phase18-design.md section 12,
-    # "Findings from the whole-branch review": `resolve_cell`'s seam had no
+    # A finding of the Phase 18 whole-branch review: `resolve_cell`'s seam had no
     # guard. A `_realised_treated_share` mutated to
     # `sigmoid(cell.treatment_intercept)` was "killed only by accident" --
     # only the empty-control test's `== 1.0` check happened to fail, because

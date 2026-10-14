@@ -4,7 +4,7 @@ motivated it.
 The formula's whole point is that the widely quoted `(se + sp - 1)` factor is
 incomplete: it holds only when the true and observed treated shares coincide.
 The parametrised case below is the one that discriminates the two forms, and
-it is taken from the design doc's own verified table.
+it is taken from a verified table.
 """
 
 import pytest

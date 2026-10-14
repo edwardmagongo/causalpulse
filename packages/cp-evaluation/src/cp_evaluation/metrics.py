@@ -1,6 +1,6 @@
 """Metrics over a grid's rows, each with a Monte Carlo standard error.
 
-The parent spec's §8.2 is explicit about why the MCSE is not optional: a
+The MCSE is not optional: a
 coverage table without one cannot distinguish 94% from 95%, and a benchmark
 that cannot do that is not a study.
 
@@ -306,8 +306,8 @@ def detection_metrics(frame: pd.DataFrame) -> dict[str, MetricValue]:
 
     The same underlying share, split by whether the truth is zero, because the
     two answer different questions and only one of them is meaningful per cell.
-    The design document calls the false-positive rate under the null scenarios
-    the falsifiability test of the whole system: it must come out near 0.05.
+    The false-positive rate under the null scenarios
+    is the falsifiability test of the whole system: it must come out near 0.05.
     """
     rows = _fitted(frame)
     hits = _significant(rows)
@@ -402,9 +402,8 @@ def _group_seed(root_seed: int, group_columns: list[str], key: tuple[object, ...
     itself is stable. `group_columns` is not part of a group's identity, and
     widening it (as Phase 18 did, adding the four new axis columns to every
     group's key) changes what gets hashed for every group at once, even
-    groups whose own data and axis values did not change. That one-time
-    reseed is recorded in
-    `docs/specs/2026-09-13-causal-core-phase18-design.md` section 12.
+    groups whose own data and axis values did not change. That reseed happens
+    once.
     """
     payload: dict[str, object] = {"root_seed": root_seed}
     payload.update(
@@ -438,12 +437,11 @@ def summarise(
     `_group_seed`); it does not otherwise affect any metric.
 
     The output also carries `realised_treated_share` (plus its `_mcse` and
-    `_n_used`), the per-group mean of `run._realised_treated_share` (see
-    `docs/specs/2026-09-13-causal-core-phase18-design.md` section 12,
-    "Findings from the whole-branch review"): `treatment_intercept` is a
+    `_n_used`), the per-group mean of `run._realised_treated_share` (a finding of
+    the Phase 18 whole-branch review): `treatment_intercept` is a
     logit-scale parameter, not a quantity a reader of a summary table thinks
     in, and before this the
-    measured share -- spec section 4.1's mitigation for exactly that -- never
+    measured share -- the mitigation for exactly that -- never
     reached `summarise`'s output at all, so a `bench report` table showed the
     intercept axis with no share to read it against. It is computed over
     every row in the group, not just `_fitted` ones: it is a property of the

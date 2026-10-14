@@ -5,7 +5,7 @@ narrative, because an omission is not in any one statement. Each is
 registered by name so that a test can remove one and show its own planted
 defect then passes -- no rule is covered only by another.
 
-What these rules do not establish is stated in the design document and the
+What these rules do not establish is stated in the
 README: qualitative wording outside the controlled lists, a wrong
 relationship between two correctly cited facts, and emphasis.
 """

@@ -9,9 +9,9 @@ genuinely null scenario the real estimate should sit unremarkably inside the
 permutation distribution; on a scenario with a strong true effect it should
 sit in the tail. Both directions are asserted below, and both numbers were
 measured under exactly this protocol -- same seed count, same permutation
-count, same scenarios, same estimator -- not copied from the design document.
+count, same scenarios, same estimator -- not copied from a prior estimate.
 
-Scenario substitution: section 7.3 names P1/P2, which are panel scenarios.
+Scenario substitution: P1/P2 are panel scenarios.
 Randomization inference is cross-sectional this phase, so the analogues are
 A (declared_effect=0.05, true_ate measured at 0.05) and B (declared_effect=0.0,
 a genuine null).

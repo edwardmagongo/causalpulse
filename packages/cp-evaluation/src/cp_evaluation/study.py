@@ -26,7 +26,7 @@ from cp_evaluation.store import RunStatus
 
 STATUS_COLUMNS: tuple[str, ...] = ("n_fitted", "n_ineligible", "n_refused")
 
-# Each headline table's metrics, in the parent design's section 8.2 order.
+# Each headline table's metrics, in the original design's order.
 TABLE_METRICS: dict[str, tuple[str, ...]] = {
     "accuracy": ("bias", "relative_bias", "rmse", "mae"),
     "coverage": (
@@ -44,8 +44,7 @@ TABLE_METRICS: dict[str, tuple[str, ...]] = {
 }
 
 # One sentence per headline metric, for a reader of the tables. Each restates
-# the definition in `docs/specs/2026-09-05-causal-core-phase14-design.md`
-# section 6 and the docstrings of `cp_evaluation.metrics`; none adds to them.
+# the docstrings of `cp_evaluation.metrics`; none adds to them.
 METRIC_DEFINITIONS: dict[str, str] = {
     "bias": "Mean of the estimate minus the truth.",
     "relative_bias": "Bias divided by the truth. Undefined where the truth is zero.",
@@ -138,7 +137,7 @@ def markdown_table(frame: pd.DataFrame) -> str:
     return "\n".join([header, rule, *body]) + "\n"
 
 
-# What the study did not run, and why. The parent design's grid has arms the
+# What the study did not run, and why. The original design's grid has arms the
 # shipped `full` tier leaves out; the study reports them by name rather than
 # letting a reader assume they were covered.
 _DONOR_POOL = "the donor-pool arm has no grid or metrics yet (a causal-core item still open)"

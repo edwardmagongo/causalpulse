@@ -147,7 +147,7 @@ def compute_cells(
 
             # The two arms are independent samples of unit-level changes, so
             # the variance of their difference is the sum of the two means'
-            # variances. Analytic and cluster-robust, per design section 6.5;
+            # variances. Analytic and cluster-robust;
             # the AGGREGATE standard error is bootstrap-based instead, because
             # cells share control units and are not independent of each other.
             standard_error = float(

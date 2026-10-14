@@ -276,8 +276,8 @@ def test_a_different_root_changes_every_stream():
 
 
 def test_a_cell_s_stream_does_not_depend_on_the_rest_of_the_grid():
-    # This is what the spec's spawn(cell_index) scheme could not deliver, and
-    # is why this plan deviates from it: adding a value to any axis renumbers
+    # This is what a spawn(cell_index) scheme could not deliver, and
+    # is why it is not used: adding a value to any axis renumbers
     # every index and silently changes every other cell's data.
     small = GridConfig(
         cross_section=CrossSectionAxes(

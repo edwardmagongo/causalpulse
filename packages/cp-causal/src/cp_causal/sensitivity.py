@@ -348,7 +348,7 @@ _PROPENSITY_CURVE_ESTIMATORS: frozenset[str] = frozenset({"ipw", "aipw"})
 _UNSUPPORTED_CURVE_REASON = (
     "specification_curve is built for {supported} this phase; {name} is not "
     "one of them. This is a scope limit, not a statement that the analysis "
-    "would be meaningless -- see the phase 9 design note."
+    "would be meaningless."
 )
 
 # The scope-limit wording above is true of the panel and donor-pool families,
@@ -685,8 +685,7 @@ def misclassification_curve(
     The attenuation is not the widely quoted `se + sp - 1`. That factor is
     correct only when the true and observed treated shares coincide, which
     needs symmetric rates and a balanced share; otherwise the prevalence terms
-    below do not cancel. See the phase 10 design note for the derivation and
-    its empirical check.
+    below do not cancel.
 
     A rate pair is dropped rather than reported when it is uninformative,
     when it implies a true share outside the unit interval, or when its

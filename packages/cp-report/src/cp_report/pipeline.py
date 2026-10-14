@@ -224,14 +224,12 @@ def render_estimate_report(
         markdown = document.read_text(encoding="utf-8")
         # `write_markdown_report` writes each figure via `figure_to_file`, which
         # (unlike `figure_to_inline_svg`) keeps the XML declaration and DOCTYPE,
-        # since the file it writes is a whole standalone document. Per spec §6,
-        # this same asset is later served one-per-URL as `image/svg+xml` and
-        # written back to disk by `causalpulse analyze --report` -- so the
-        # preamble is stripped here with `strip_xml_preamble` so a stored asset
-        # has one shape whether it is served, written, or inlined. The result
-        # is still a valid standalone SVG file: the root `<svg>` element
-        # declares its own namespaces, so dropping the XML declaration and
-        # DOCTYPE in front of it loses nothing a consumer needs.
+        # since the file it writes is a whole standalone document. This same asset is later served
+        # one-per-URL as `image/svg+xml` and written back to disk by `causalpulse analyze
+        # --report` -- so the preamble is stripped here with `strip_xml_preamble` so a stored
+        # asset has one shape whether it is served, written, or inlined. The result is still a
+        # valid standalone SVG file: the root `<svg>` element declares its own namespaces, so
+        # dropping the XML declaration and DOCTYPE in front of it loses nothing a consumer needs.
         assets = {
             path.name: strip_xml_preamble(path.read_text(encoding="utf-8"))
             for path in sorted(directory.iterdir())

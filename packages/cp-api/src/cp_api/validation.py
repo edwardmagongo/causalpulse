@@ -1,7 +1,7 @@
 """What the API can refuse before queueing anything, using `cp_core` alone.
 
 Routing needs `cp_causal`, which this package may not import, so an unknown
-or ineligible estimator is the worker's to refuse (spec §11.3). Everything
+or ineligible estimator is the worker's to refuse. Everything
 here is a pure function of the request, which is what keeps it in the fast
 test tier.
 """

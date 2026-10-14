@@ -1,6 +1,6 @@
 """The event study: per-horizon coefficients around a structural reference.
 
-The hazard this module exists to close off (Phase 16 design, section 6): the
+The hazard this module exists to close off: the
 reference period is normalised to zero *by construction*, not estimated.
 `cp_causal.estimators.event_study.EventStudy.fit` initialises the coefficient
 and standard-error arrays with `np.zeros` and never writes to the reference

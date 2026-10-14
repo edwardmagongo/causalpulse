@@ -68,7 +68,7 @@ def test_every_committed_band_holds(key, summary):
 
 
 def test_the_null_scenario_false_positive_rate_is_near_nominal(summary):
-    # Design doc's falsifiability test of the whole system: under a scenario
+    # The falsifiability test of the whole system: under a scenario
     # with no effect, a 95% interval must exclude zero about 5% of the time.
     #
     # Two bounds are asserted, and the assertion is only as tight as the

@@ -427,7 +427,7 @@ def create_app(
         return summary
 
     def _fail_if_lost(session: Session, analysis: Analysis) -> None:
-        """Mark an in-flight analysis `failed` when its job is gone (spec §11.4).
+        """Mark an in-flight analysis `failed` when its job is gone.
 
         Shared by the single read and the list, so a dead job never shows as
         `running` in one and `failed` in the other; and by a submission the

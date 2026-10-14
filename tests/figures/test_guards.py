@@ -45,7 +45,7 @@ def test_it_raises_when_the_interval_is_missing():
     # successfully despite the static type. That is exactly the hand-built /
     # mutated object the guard exists to catch: a figure drawing a bare point
     # would show a number with no indication of how well it is known, which
-    # is the one thing the parent spec forbids.
+    # is the one thing the figures forbid.
     estimate = dataclasses.replace(_estimate(), ci=None)
 
     with pytest.raises(ValueError, match="without an interval"):

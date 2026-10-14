@@ -337,10 +337,9 @@ def test_drawing_draws_a_zero_reference_line(ax):
 
 
 def test_drawing_names_the_interval_level_in_the_legend(ax):
-    # An unlabelled band leaves a reader unable to say what was rendered
-    # (design section 11). The legend must name the actual level drawn, not
-    # just say "estimated" -- and must change when the level does, which is
-    # what distinguishes this from a hardcoded "95%" string in the label.
+    # An unlabelled band leaves a reader unable to say what was rendered. The legend must name the
+    # actual level drawn, not just say "estimated" -- and must change when the level does, which
+    # is what distinguishes this from a hardcoded "95%" string in the label.
     data_95 = event_study_data(_event_study_estimate(level=0.95))
     draw_event_study(data_95, ax)
     labels_95 = [t.get_text() for t in ax.get_legend().get_texts()]

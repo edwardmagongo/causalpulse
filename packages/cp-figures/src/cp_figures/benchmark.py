@@ -5,7 +5,7 @@ The axis profile draws one line per method along one axis of the grid, for
 one scenario -- the figure `heatmap_data`'s duplicate refusal tells a caller
 to build rather than widening the heatmap into.
 
-The hazard both exist to close off (Phase 16 design, section 6): a
+The hazard both exist to close off: a
 cell with no fitted rows is not a cell with a value of zero.
 `cp_evaluation.metrics.summarise` carries `n_fitted`, `n_ineligible` and
 `n_refused` alongside every metric for exactly this reason -- its own module
@@ -124,8 +124,7 @@ def heatmap_data(summary: pd.DataFrame, metric: str) -> HeatmapData:
     only the last row it happened to see and reports whatever that row's
     `n_fitted` was for the whole (method, scenario) cell -- exactly the
     absent-versus-zero confusion this module's docstring exists to prevent
-    (see `docs/specs/2026-09-13-causal-core-phase18-design.md` section 12,
-    "Findings from the whole-branch review": a measured example collapsed
+    (a measured example from the Phase 18 whole-branch review collapsed
     three scenario-C cells, n_fitted 10/10/0, into one cell marked absent).
     A per-axis view is `axis_profile_data`/`draw_axis_profile`, elsewhere in
     this module: one scenario's one-at-a-time slice along one axis, drawn as
@@ -343,10 +342,9 @@ def axis_profile_data(
     module's docstring for why those are different conditions.
 
     **The realised treated share** travels alongside, per axis value, because
-    section 4.1 of `docs/specs/2026-09-13-causal-core-phase18-design.md` says
-    the `treatment_intercept` axis "sets the intercept, not a target share",
-    and that the realised share is recorded beside it "because an intercept
-    is not a quantity a reader of the eventual research report thinks in". A
+    the `treatment_intercept` axis sets the intercept, not a target share,
+    and the realised share is recorded beside it because an intercept
+    is not a quantity a reader of the eventual research report thinks in. A
     profile labelled only `-1.5, 0.0, 1.5` reproduces exactly the gap Phase
     18's review found in `bench report`. Taking the mean across the rows at
     one axis value is exact rather than an aggregation hiding disagreement:
@@ -526,11 +524,10 @@ def _rug_positions(n_methods: int) -> np.ndarray:
 def _tick_labels(data: AxisProfileData) -> list[str]:
     """One x tick label per axis value, annotated where the raw number does not read.
 
-    `treatment_intercept` is a logit-scale parameter. Section 4.1 of
-    `docs/specs/2026-09-13-causal-core-phase18-design.md` says the axis
-    "sets the intercept, not a target share", and records the realised share
-    beside it "because an intercept is not a quantity a reader of the
-    eventual research report thinks in" -- so the share goes on the tick,
+    `treatment_intercept` is a logit-scale parameter. The axis
+    sets the intercept, not a target share, and the realised share is recorded
+    beside it because an intercept is not a quantity a reader of the
+    eventual research report thinks in -- so the share goes on the tick,
     where a reader meets the number.
 
     Only that axis. `effect_scale` does not touch assignment at all, and

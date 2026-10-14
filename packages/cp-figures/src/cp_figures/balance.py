@@ -34,7 +34,7 @@ effect estimate, so `cp_figures.guards.require_interval` does not apply here
 The |SMD| reference line is read from `cp_causal.propensity.BALANCE_THRESHOLD`
 rather than a literal `0.1`, so this figure and the balance assumption check
 in `cp_causal` cannot silently drift apart. This is a deliberate, accepted
-deviation from Phase 16 design doc section 3, which says `cp_figures` "does
+deviation from the original expectation that `cp_figures` "does
 not need `cp_causal`" -- the layers contract (`cp_figures` sits above
 `cp_causal`) permits the import, and it is the only way to avoid duplicating
 the threshold literal.

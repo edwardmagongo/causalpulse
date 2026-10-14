@@ -1,7 +1,7 @@
 # Runbook: the CausalPulse server
 
 How to create, deploy to, look at, repair and remove the one small AWS server that runs the
-demo. The design is `docs/specs/2026-10-08-hosting-phase3-server-and-deploy-design.md`; this
+demo. This
 document is the commands.
 
 > **Nothing here has been carried out yet.** At the time of writing the server does not exist:
@@ -95,7 +95,7 @@ that it is started by hand only; that guards against doing it by accident, not a
 who can push. The same holds on AWS's side: any principal in the account with
 `ssm:SendCommand` or `ssm:StartSession` on the instance, or with rights over IAM, or with EC2 rights over the machine or its volumes, is root on
 the server or can read its secrets too, and the sessions this runbook opens are one of those. Before a second person is
-given the right to push, or access to the account, read §7 of the design for what has to
+given the right to push, or access to the account, that boundary has to
 change.
 
 ## When something is wrong
@@ -1009,7 +1009,7 @@ Use this when the demo is not needed for a while. It needs only the Mac.
 > **Not yet carried out.**
 
 What goes on costing while it is stopped: the two disks, the fixed address, the snapshots, the
-images and the state bucket, about 9 US dollars a month by the spec's estimate. The nightly
+images and the state bucket, about 9 US dollars a month by estimate. The nightly
 snapshot policy stays on. The fixed address is expected to stay the machine's, so that the DNS
 record is not touched (unverified until carried out; the check below shows it).
 

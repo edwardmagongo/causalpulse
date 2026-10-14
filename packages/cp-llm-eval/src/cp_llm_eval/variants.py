@@ -35,8 +35,7 @@ def _with_sentence_after(anchor: str, sentence: str) -> Callable[[], str]:
     return build
 
 
-# Rule 8's last sentence. The variant's sentence joins rule 8, as the design
-# states (§6.3).
+# Rule 8's last sentence. The variant's sentence joins rule 8.
 _RULE_8_END = "unless the same sentence states the assumption the claim rests on."
 CITE_EACH_STATUS_SENTENCE = "Do not summarise check statuses; cite each status you mention."
 
