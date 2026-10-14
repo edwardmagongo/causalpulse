@@ -31,8 +31,10 @@ test:
 # runners a private repository is given.
 WORKERS ?= auto
 
+# With SHARD=I/N it runs only shard I of N, split by test file as for
+# `test-slow`: CI runs the fast suite as four shards at once.
 test-fast:
-	$(ONE_THREAD) uv run pytest -v -m "not slow" -n $(WORKERS) --durations=25
+	$(ONE_THREAD) uv run pytest -v -m "not slow" -n $(WORKERS) --durations=25 $(if $(SHARD),--shard $(SHARD))
 
 # The slow tier that needs no services and no model API, as CI runs it: one
 # shard of the slow test files per job (`make test-slow SHARD=3/8`), each

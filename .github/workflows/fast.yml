@@ -1,7 +1,13 @@
 name: Fast suite
 
-# The fast Python suite, `make test-fast`: about half an hour on a hosted
-# runner, most of what a pull request would cost. The repository is private
+# The fast Python suite, `make test-fast`, as four shards that run at once,
+# split by test file (`make test-fast SHARD=I/4`). Measured locally on
+# 2026-10-14 the suite is about 63 minutes of test time, and the largest shard
+# about 19 of them (the panel and donor recovery files, 12 and 9 minutes, fall
+# in different shards), so a pull request waits for its slowest shard, not for
+# the whole suite. Each shard repeats the checkout and `uv sync`, so the four
+# cost a little more runner time than one job did; the suite is still most of
+# what a pull request costs. The repository is private
 # and its Actions minutes are counted, so this runs on a pull request only
 # when something the suite tests has changed, and on every push to `main`,
 # where it is the net under whatever a path filter let through.
@@ -13,9 +19,10 @@ name: Fast suite
 # Makefile). GitHub looks at the first 300 changed files only; the push to
 # `main` is the net under that too.
 #
-# If branch protection is ever enforced again, "Fast suite" must not be a
-# required check as it stands: a pull request this filter skips would wait
-# for it for ever.
+# If branch protection is ever enforced again, none of the "Fast suite (shard
+# I of 4)" checks may be required as they stand: a pull request this filter
+# skips would wait for them for ever. `deploy.yml` reads this workflow's run
+# by its name, "Fast suite"; a run succeeds only when all four shards do.
 on:
   push:
     branches: [main]
@@ -48,12 +55,18 @@ permissions:
 
 jobs:
   fast:
-    name: Fast suite
+    name: Fast suite (shard ${{ matrix.shard }} of 4)
     runs-on: ubuntu-latest
-    # Hosted runners differ by more than a factor of two on this suite: the same
-    # tree has taken 17 and 35 minutes, and a later one ran past 60 at 93% with
-    # nothing failing. The limit leaves room for a slow one.
-    timeout-minutes: 90
+    # Hosted runners differ by more than a factor of two on this suite: the
+    # whole of it has taken 17, 35 and over 60 minutes on one job. A shard is
+    # about a third of the slowest of those; the limit leaves room for a slow
+    # runner.
+    timeout-minutes: 60
+    strategy:
+      # One shard's failure must not hide what the others would have found.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
@@ -65,4 +78,4 @@ jobs:
       - run: uv sync --frozen
       # One test worker for each CPU the runner has: two, on the runners a
       # private repository is given. More workers than CPUs only contend.
-      - run: make test-fast WORKERS="$(nproc)"
+      - run: make test-fast SHARD=${{ matrix.shard }}/4 WORKERS="$(nproc)"

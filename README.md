@@ -2173,7 +2173,7 @@ at all ("Deployment" below).
 | | Browser | `make smoke-web` |
 | | Stack | `make smoke` |
 | Every push to `main`, and no pull request | Production | `make smoke-prod` |
-| A pull request that changes what it tests, and every push to `main` | Fast suite | `make test-fast WORKERS="$(nproc)"` |
+| A pull request that changes what it tests, and every push to `main` | Fast suite | `make test-fast SHARD=I/4 WORKERS="$(nproc)"`, four shards in parallel |
 | A pull request or a push to `main` that changes what it checks | Infrastructure | `make check-infra` |
 | Monthly (the 1st, 03:00 UTC), and by hand | Slow tier | `make test-slow SHARD=I/8 SLOW_WORKERS="$(nproc)"`, eight shards in parallel |
 | By hand only | Live model call | `make check-llm` |
