@@ -51,7 +51,9 @@ _STRUCTURE = """\
 4. When a statement cites a fact whose subject is not null, the same statement \
 must also cite that subject: {est.aipw.method} alongside {est.aipw.point}.
 5. A statement that cites a point estimate must also cite its ci_lower and its \
-ci_upper.
+ci_upper. A statement that cites the point, ci_lower, ci_upper, se or p_value of \
+an estimate whose band is INSUFFICIENT must also cite that band: \
+{score.aipw.band} alongside {est.aipw.point}.
 6. Cite at least once: every est point, every score band, every cmp agreement \
 or cmp not_compared_reason, every fail error, and the status of every check \
 whose status is FAIL or WARN.

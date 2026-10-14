@@ -91,6 +91,9 @@ def test_the_prompt_states_the_rules_the_word_lists_cannot_carry():
     assert "directly against it with no space before it" in prompt
     assert "on both sides of every placeholder" not in prompt
     assert "on one line" in prompt
+    # The verifier refuses a number from an INSUFFICIENT estimate quoted
+    # without its band, so the model is told so.
+    assert "whose band is INSUFFICIENT" in prompt
 
 
 def test_the_default_version_is_the_version_of_the_default_prompt():

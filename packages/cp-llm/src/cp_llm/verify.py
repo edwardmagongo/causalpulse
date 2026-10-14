@@ -1,6 +1,6 @@
 """The refusal to accept a narrative that cannot be traced to its facts.
 
-Nine rules. Eight read one statement at a time; the ninth reads the whole
+Ten rules. Nine read one statement at a time; the tenth reads the whole
 narrative, because an omission is not in any one statement. Each is
 registered by name so that a test can remove one and show its own planted
 defect then passes -- no rule is covered only by another.
@@ -42,6 +42,7 @@ _REQUIRED = (
     re.compile(r"cmp\.[a-z0-9_]+\.[a-z0-9_]+\.(agreement|not_compared_reason)"),
     re.compile(r"fail\.[a-z0-9_]+\.error"),
 )
+_ESTIMATE_NUMBER = re.compile(r"est\.([a-z0-9_]+)\.(point|ci_lower|ci_upper|se|p_value)")
 _CHECK_STATUS = re.compile(r"check\.[a-z0-9_]+\.[a-z0-9_]+\.status")
 _REPORTABLE_STATUSES = frozenset({"FAIL", "WARN"})
 
@@ -99,6 +100,29 @@ def _bare_point(statement: str, facts: FactTable) -> Iterator[str]:
         bounds = {f"est.{match.group(1)}.ci_lower", f"est.{match.group(1)}.ci_upper"}
         if not bounds <= cited:
             yield f"{{{fact_id}}} appears without both of its interval bounds"
+
+
+def _insufficient_caveat(statement: str, facts: FactTable) -> Iterator[str]:
+    """A number from an estimate whose band is INSUFFICIENT comes with that band.
+
+    The caveat is the band itself, cited in the same statement, so the reader
+    sees INSUFFICIENT beside the number: a hedge word could not be checked, and
+    a band cited elsewhere in the narrative is not beside it.
+    """
+    cited = set(placeholder_ids(statement))
+    methods = dict.fromkeys(
+        match.group(1)
+        for fact_id in placeholder_ids(statement)
+        if (match := _ESTIMATE_NUMBER.fullmatch(fact_id)) is not None
+    )
+    for method in methods:
+        band_id = f"score.{method}.band"
+        band = facts.get(band_id)
+        if band is not None and band.value == "INSUFFICIENT" and band_id not in cited:
+            yield (
+                f"{{est.{method}.method}}'s estimate is quoted without {{{band_id}}}, "
+                "which is INSUFFICIENT"
+            )
 
 
 _NUMERIC_KINDS = frozenset({"number", "count", "level", "p_value"})
@@ -227,6 +251,7 @@ STATEMENT_RULES: dict[str, StatementRule] = {
     "vocabulary": _vocabulary,
     "attribution": _attribution,
     "bare_point": _bare_point,
+    "insufficient_caveat": _insufficient_caveat,
     "language": _language,
     "delimiters": _delimiters,
     "one_line": _one_line,
