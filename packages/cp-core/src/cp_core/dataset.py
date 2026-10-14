@@ -435,7 +435,7 @@ class CausalDataset:
         auxiliary column absent from the frame. A unit column of dtype `object`
         that holds only numbers is not inspected, so an infinity in one is not
         seen: the unit is used as a label and never as a number. A time column
-        that is neither numeric nor dates is refused by `_validate_time_column`.
+        that is not integer or float is refused by `_validate_time_column`.
         """
         declared = (*self.schema.required_columns, *self.schema.auxiliary_columns)
         offending = sorted(
@@ -443,9 +443,7 @@ class CausalDataset:
             for column in dict.fromkeys(declared)
             if column in self.frame.columns
             and pd.api.types.is_numeric_dtype(self.frame[column])
-            # Through float, with a gap as nan, so a nullable column is read
-            # the same way as a plain one: a gap is not an infinity.
-            and np.isinf(self.frame[column].to_numpy(dtype=float, na_value=np.nan)).any()
+            and np.isinf(self._as_numbers(self.frame[column])).any()
         )
         if offending:
             raise ValueError(
@@ -453,6 +451,18 @@ class CausalDataset:
                 "estimator here can use them. Correct those values or remove those "
                 "rows, and supply the data again."
             )
+
+    @staticmethod
+    def _as_numbers(column: pd.Series) -> np.ndarray:
+        """A numeric column's values, with a gap as nan, as plain numpy numbers.
+
+        Through float, so a nullable column is read the same way as a plain
+        one and a gap is not an infinity. A complex column is kept complex:
+        cast to float it would lose its imaginary part, with a warning, and an
+        infinity there would not be seen.
+        """
+        dtype = complex if pd.api.types.is_complex_dtype(column) else float
+        return column.to_numpy(dtype=dtype, na_value=np.nan)
 
     def _validate_treatment_missing_values(self) -> None:
         if self.frame[self.schema.treatment].isna().any():
@@ -491,7 +501,7 @@ class CausalDataset:
             )
 
     def _validate_time_column(self) -> None:
-        """Structural check only: the time column must be orderable, complete and exact.
+        """Structural check only: the time column must be complete, numbered and exact.
 
         Panel *balance* and whether treatment is absorbing are deliberately not
         validated here. Both are legitimate real-data conditions — attrition
@@ -505,9 +515,12 @@ class CausalDataset:
         panel code turns periods and cohorts into integers: a fractional
         period was truncated to one that is not in the data, and a period
         beyond the integer range became 9223372036854775807 with a warning.
-        2**53 is where whole numbers stop being exact as floats. A column of
-        dates is not checked here; it constructs, and the panel code says what
-        it needs.
+        2**53 is where whole numbers stop being exact as floats.
+
+        Only an integer or float column is accepted. Every panel estimator
+        numbers its periods; a column of dates used to construct here and then
+        be refused by each of them when fitted. Booleans and complex numbers,
+        which pandas counts as numeric, are refused with dates and text.
         """
         if self.schema.time is None:
             return
@@ -516,32 +529,33 @@ class CausalDataset:
             raise ValueError(
                 f"time column {self.schema.time!r} contains missing values"
             )
-        if not (
-            pd.api.types.is_numeric_dtype(column)
-            or pd.api.types.is_datetime64_any_dtype(column)
-        ):
+        # Booleans count as integers to pandas, and complex numbers as numbers.
+        is_integer = pd.api.types.is_integer_dtype(column) and not pd.api.types.is_bool_dtype(
+            column
+        )
+        if not (is_integer or pd.api.types.is_float_dtype(column)):
             raise ValueError(
-                f"time column {self.schema.time!r} must be orderable "
-                f"(numeric or datetime), got dtype {column.dtype}"
+                f"time column {self.schema.time!r} must hold whole-numbered periods, and "
+                f"holds {column.dtype} values. Number the periods (1, 2, 3, ... or the "
+                "year) before building the dataset."
             )
-        if pd.api.types.is_numeric_dtype(column):
-            # Integers are compared as integers: as floats, one just above the
-            # limit rounds down onto it and would pass.
-            if pd.api.types.is_integer_dtype(column):
-                unusable = (column > MAX_EXACT_PERIOD) | (column < -MAX_EXACT_PERIOD)
-            else:
-                values = column.to_numpy(dtype=float)
-                unusable = (values != np.floor(values)) | (np.abs(values) > MAX_EXACT_PERIOD)
-            if unusable.any():
-                found = column[unusable].iloc[0]
-                # A numpy scalar prints as `np.float64(1989.5)`; one from another
-                # backend may already be a plain number, with no `item`.
-                shown = found.item() if hasattr(found, "item") else found
-                raise ValueError(
-                    f"time column {self.schema.time!r} must hold whole-numbered periods "
-                    f"no larger than 2**53; found {shown!r}. Periods are used as "
-                    "integers, so a fractional or very large value would be changed."
-                )
+        # Integers are compared as integers: as floats, one just above the
+        # limit rounds down onto it and would pass.
+        if is_integer:
+            unusable = (column > MAX_EXACT_PERIOD) | (column < -MAX_EXACT_PERIOD)
+        else:
+            values = column.to_numpy(dtype=float)
+            unusable = (values != np.floor(values)) | (np.abs(values) > MAX_EXACT_PERIOD)
+        if unusable.any():
+            found = column[unusable].iloc[0]
+            # A numpy scalar prints as `np.float64(1989.5)`; one from another
+            # backend may already be a plain number, with no `item`.
+            shown = found.item() if hasattr(found, "item") else found
+            raise ValueError(
+                f"time column {self.schema.time!r} must hold whole-numbered periods "
+                f"no larger than 2**53; found {shown!r}. Periods are used as "
+                "integers, so a fractional or very large value would be changed."
+            )
 
     def _require_panel(self) -> str:
         if self.schema.time is None:

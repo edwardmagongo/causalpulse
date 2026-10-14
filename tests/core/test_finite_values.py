@@ -138,19 +138,10 @@ def test_a_nullable_float_column_holding_an_infinity_is_refused():
     assert "columns ['x1'] contain" in str(refusal.value)
 
 
-def test_a_datetime_time_column_and_a_text_unit_column_construct():
+def test_a_text_unit_column_constructs():
     changed = frame()
     changed["unit_id"] = changed["unit_id"].map(lambda unit: f"unit-{unit}")
-    changed["period"] = pd.to_datetime(changed["period"].map({1: "2024-01-01", 2: "2024-02-01"}))
-    schema = CausalSchema(
-        unit="unit_id",
-        treatment="treated",
-        outcome="outcome",
-        covariates=("x1", "x2"),
-        outcome_type="continuous",
-        time="period",
-    )
-    CausalDataset(frame=changed, schema=schema)
+    CausalDataset(frame=changed, schema=SCHEMA)
 
 
 def test_a_declared_auxiliary_column_absent_from_the_frame_is_not_required():

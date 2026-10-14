@@ -1280,9 +1280,9 @@ column:
   numeric dtype. The unit may be text.
 - **An infinite value**, `inf` or `-inf`, in any of those columns or in a numeric unit or time
   column. Text such as `1e400`, which pandas reads as infinite, is refused the same way.
-- **A numeric period that is not a whole number, or is larger than 2**53.** Periods are used as
-  integers. A time column may hold dates and the dataset is built, but a panel estimator needs
-  numbered periods and says so.
+- **A period that is not a whole number, or is larger than 2**53.** Periods are used as integers,
+  so the time column must be an integer or float column: dates, text, booleans and complex numbers
+  are refused, and so is a fractional or very large value.
 
 **A missing value** in the outcome or a covariate is different, on purpose. A dataset with gaps
 has to be constructible, because `complete_cases` and imputation take one. It is refused when it
