@@ -338,7 +338,7 @@ the merge commit, which has. A run of CI on a pull request, or on another branch
 same commit, does not count.
 
 Two more workflows are looked at in the same exact way. The fast Python suite (`fast.yml`)
-runs on every push to `main` and takes half an hour or more; the infrastructure gate
+runs on every push to `main`, as four shards that each take a while; the infrastructure gate
 (`infra.yml`) runs only for a push that touches what it checks. Where either has a run for the
 commit, one must have succeeded, and a run still in progress has not: after a merge, a deploy
 has to wait for the fast suite. Where the infrastructure gate has no run, the workflow says so

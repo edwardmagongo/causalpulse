@@ -32,7 +32,8 @@ test:
 WORKERS ?= auto
 
 # With SHARD=I/N it runs only shard I of N, split by test file as for
-# `test-slow`: CI runs the fast suite as four shards at once.
+# `test-slow`: CI runs the fast suite as four shards at once. SHARD is shared
+# with `test-slow` and read from the environment, so leave it unexported.
 test-fast:
 	$(ONE_THREAD) uv run pytest -v -m "not slow" -n $(WORKERS) --durations=25 $(if $(SHARD),--shard $(SHARD))
 

@@ -2,10 +2,11 @@ name: Fast suite
 
 # The fast Python suite, `make test-fast`, as four shards that run at once,
 # split by test file (`make test-fast SHARD=I/4`). Measured locally on
-# 2026-10-14 the suite is about 63 minutes of test time, and the largest shard
-# about 19 of them (the panel and donor recovery files, 12 and 9 minutes, fall
-# in different shards), so a pull request waits for its slowest shard, not for
-# the whole suite. Each shard repeats the checkout and `uv sync`, so the four
+# 2026-10-14, summing each test's duration, the suite is about 63 minutes of
+# test time and the largest shard about 19 of them (the panel and donor
+# recovery files, 12 and 9 minutes, fall in shards 1 and 4), so a pull request
+# waits for its slowest shard, not for the whole suite. Wall-clock time per
+# shard on a hosted runner has not been measured yet. Each shard repeats the checkout and `uv sync`, so the four
 # cost a little more runner time than one job did; the suite is still most of
 # what a pull request costs. The repository is private
 # and its Actions minutes are counted, so this runs on a pull request only

@@ -2199,16 +2199,18 @@ built and runs that job's browser tests a second time before its own, so it is k
 requests; what it costs has not been measured on a runner. A pull request that changes the
 production stack is checked with `make smoke-prod` on a developer's machine before it is merged,
 by convention, and by that job once it is.
-The fast suite cost about 45 minutes on the two-CPU runners a private repository is given, so on
-a pull request it runs only when the packages, the
+The fast suite cost about 45 minutes as one job on the two-CPU runners a private repository is
+given. It now runs as four shards at once, split by test file; measured locally, the largest shard
+holds about 19 of the suite's 63 minutes of summed test time, and the shards' time on a runner has
+not been measured yet. Each shard repeats the checkout and `uv sync`, so the four cost a little
+more runner time than the one job did. On a pull request it runs only when the packages, the
 tests, the dependency pins or a committed file the tests check or read has changed: the OpenAPI
 document, the study bundle, the published reports, the import contracts, the `Dockerfile`, the
 compose files at the root and the Makefile
 (`.github/workflows/fast.yml` lists the paths); a pull request that touches only the dashboard or
 the documentation does not pay for it. Every push to `main` runs it regardless. The 45 minutes
-were measured with four test workers on two CPUs. The workflows now ask for one worker for each
-CPU the runner reports (`nproc`), for the fast suite and for each slow shard, and neither has
-been timed that way yet. Locally the defaults are unchanged: `auto` for the fast suite and four
+were measured with four test workers on two CPUs, in one job. The workflows now ask for one worker
+for each CPU the runner reports (`nproc`), for each fast and slow shard. Locally the defaults are unchanged: `auto` for the fast suite and four
 for the slow tier.
 
 GitHub does not enforce branch protection on a private repository under the free plan. Changes
