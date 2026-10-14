@@ -32,8 +32,8 @@ def test_the_committed_bundle_was_written_with_the_committed_report():
     bundle = json.loads(BUNDLE.read_text(), parse_constant=_no_constants)
 
     assert bundle["report_sha256"] == hashlib.sha256(REPORT.read_bytes()).hexdigest(), (
-        "regenerate the report and the bundle together: see the README's benchmark explorer "
-        "section"
+        "regenerate the report and the bundle together: see the benchmark explorer section of "
+        "docs/dashboard.md"
     )
 
 
@@ -45,7 +45,7 @@ def test_the_committed_bundle_carries_the_constants_the_code_declares_today():
     bundle = json.loads(BUNDLE.read_text())
     regenerate = (
         "the committed bundle no longer matches the code's constants: regenerate the report "
-        "and the bundle together, see the README's benchmark explorer section"
+        "and the bundle together, see the benchmark explorer section of docs/dashboard.md"
     )
 
     assert bundle["metric_definitions"] == dict(METRIC_DEFINITIONS), regenerate
