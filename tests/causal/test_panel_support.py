@@ -278,13 +278,16 @@ def test_min_units_per_arm_is_the_shared_threshold():
 
 
 def test_periods_that_are_dates_are_refused_as_dates_and_not_as_non_positive():
-    # A column of dates constructs, by design. It used to be refused here with
-    # the "strictly positive" message, which is about a different problem.
-    frame = dataset().frame.copy()
-    frame["period"] = pd.to_datetime("2024-01-01") + pd.to_timedelta(frame["period"], unit="D")
+    # A dataset is refused dates when it is built; this is the panel code's own
+    # guard, for a frame changed after that. It used to answer dates with the
+    # "strictly positive" message, which is about a different problem.
+    built = dataset()
+    built.frame["period"] = pd.to_datetime("2024-01-01") + pd.to_timedelta(
+        built.frame["period"], unit="D"
+    )
 
     with pytest.raises(ValueError) as refusal:
-        panel_arrays(CausalDataset(frame=frame, schema=SCHEMA))
+        panel_arrays(built)
 
     message = str(refusal.value)
     assert message.startswith(

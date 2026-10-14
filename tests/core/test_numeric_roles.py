@@ -124,7 +124,9 @@ def test_a_text_unit_column_constructs():
     CausalDataset(frame=changed, schema=SCHEMA)
 
 
-def test_a_datetime_time_column_constructs():
+def test_a_time_column_of_dates_is_not_this_rules_business():
+    # The time column has its own rule, which refuses dates with its own
+    # message; this rule must not claim it as a column that must hold numbers.
     changed = frame().drop(columns="cohort")
     changed["period"] = pd.to_datetime(changed["period"].map({1: "2024-01-01", 2: "2024-02-01"}))
     schema = CausalSchema(
@@ -135,7 +137,10 @@ def test_a_datetime_time_column_constructs():
         outcome_type="continuous",
         time="period",
     )
-    CausalDataset(frame=changed, schema=schema)
+    with pytest.raises(ValueError) as refusal:
+        CausalDataset(frame=changed, schema=schema)
+    assert str(refusal.value).startswith("time column 'period' must hold whole-numbered periods")
+    assert "must hold numbers" not in str(refusal.value)
 
 
 def test_a_boolean_treatment_constructs():

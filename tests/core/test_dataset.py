@@ -240,11 +240,11 @@ def test_absorbing_treatment_is_the_normal_case():
     assert dataset.treatment_is_absorbing
 
 
-def test_panel_rejects_a_non_orderable_time_column():
+def test_panel_rejects_a_time_column_of_text():
     frame = panel_frame()
     frame["period"] = frame["period"].astype(str) + "-label"
 
-    with pytest.raises(ValueError, match="orderable"):
+    with pytest.raises(ValueError, match="must hold whole-numbered periods"):
         CausalDataset(frame=frame, schema=PANEL_SCHEMA)
 
 
