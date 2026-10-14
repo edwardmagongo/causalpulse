@@ -62,8 +62,7 @@ logger = logging.getLogger(__name__)
 
 # Stored on an interpretation this worker will not write (`CP_INTERPRETATION` off).
 WORKER_INTERPRETATIONS_OFF = (
-    "interpretations are turned off on the worker (CP_INTERPRETATION is not on), so this "
-    "one was not written"
+    "interpretations are turned off on this server's worker, so this one was not written"
 )
 
 

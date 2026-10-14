@@ -108,14 +108,17 @@ ALREADY_REFUSED = "This analysis already has an interpretation that could not be
 # reason a refused interpretation gives. `cp_llm.verify` names the rules; the
 # API may not import it, so a test checks the two lists agree.
 RULE_DESCRIPTIONS: dict[str, str] = {
-    "resolves": "cited a fact the analysis does not have",
+    "resolves": "cited a fact the analysis does not have, or wrote a stray brace",
     "bare_value": "wrote a number in its own words instead of citing it",
-    "vocabulary": "stated a band, status or verdict in its own words instead of citing it",
+    "vocabulary": (
+        "stated a band, a check status, an agreement, a direction, significance, a zero result "
+        "or eligibility in its own words instead of citing it"
+    ),
     "attribution": "cited a method's result without naming the method",
     "bare_point": "gave an estimate without its interval",
     "insufficient_caveat": "quoted an estimate rated INSUFFICIENT without saying so",
     "language": "used causal wording the system does not allow",
-    "delimiters": "joined a number to the text around it",
+    "delimiters": "ran a cited value into the words or signs around it",
     "one_line": "broke a statement across lines or used a hidden character",
     "completeness": (
         "left out a result it must report: an estimate, a band, a comparison, a fit failure, "
