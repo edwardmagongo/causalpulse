@@ -6,9 +6,8 @@
 // agree with a component tests the one case that cannot fail. Run this again
 // whenever a response model changes, and commit what it writes.
 //
-// Record against a freshly created user: the list fixture, and the test that
-// reads it, assume the four analyses this script makes and no other, newest
-// first. Needs Node 20 or later (`Array.prototype.with`).
+// Record against a freshly created user. This script makes three analyses and
+// does not write the list fixture (analyses.json), which is kept as recorded.
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -59,33 +58,6 @@ async function save(name, value) {
   console.log(`wrote ${name}`);
 }
 
-// The CSV text with one cell replaced: `column` of the first data row becomes
-// `value`. The column is found by the header, and the result is compared with
-// the original cell by cell: the same shape, and exactly one cell different.
-function withCell(text, column, value) {
-  if (text.includes('"')) throw new Error("the CSV has quoted fields; splitting on commas would be wrong");
-  const cells = (csv) => csv.split("\n").map((line) => line.split(","));
-  const before = cells(text);
-  const at = before[0].indexOf(column);
-  if (at === -1 || before[0].lastIndexOf(column) !== at) {
-    throw new Error(`the CSV's header does not name ${column} exactly once`);
-  }
-  if (before.length < 2 || before[1].length !== before[0].length) {
-    throw new Error("the CSV's first data row does not match its header");
-  }
-  const after = cells(
-    before.map((row, index) => (index === 1 ? row.with(at, value) : row).join(",")).join("\n"),
-  );
-  if (after.length !== before.length || after.some((row, index) => row.length !== before[index].length)) {
-    throw new Error("replacing the cell changed the CSV's shape");
-  }
-  const changed = after.flatMap((row, r) => row.flatMap((cell, c) => (cell === before[r][c] ? [] : [[r, c]])));
-  if (changed.length !== 1 || changed[0][0] !== 1 || changed[0][1] !== at || after[1][at] !== value) {
-    throw new Error(`expected exactly one changed cell, ${column} of the first data row; got ${changed.length}`);
-  }
-  return after.map((row) => row.join(",")).join("\n");
-}
-
 const LALONDE = {
   unit: "unit_id",
   treatment: "treat",
@@ -116,54 +88,15 @@ await save("prop99.summary.json", await get(`/v1/analyses/${single.id}/summary`)
 // A panel estimator on a cross-section: the router refuses, and the analysis fails.
 await save("refused.analysis.json", await analyse(lalonde.id, LALONDE, ["twfe"]));
 
-// One huge finite covariate value (1e200): difference in means uses no
-// covariate and succeeds, Lin regression overflows while fitting and fails,
-// and the analysis is partial. An infinite value no longer serves: the engine
-// refuses a dataset that holds one before anything is fitted. The Python suite
-// pins this request too (tests/worker/test_execute.py). The CSV is built in
-// memory from the real file. This is requested before analyses.json is saved,
-// on purpose: the list fixture then holds a partial row.
-function notPartial(answer) {
-  console.error(
-    "the engine no longer turns a huge finite covariate into a partial analysis " +
-      "(wanted succeeded, partial, a summary for difference_in_means and an error for " +
-      `lin_regression); the partial fixture needs another source. The answer was: ${answer}`,
-  );
-  process.exit(1);
-}
-const hugeCsv = withCell(await readFile(resolve(data, "lalonde.csv"), "utf8"), "re75", "1e200");
-// A refusal of the upload or of the request is the same news as a clean answer.
-const partial = await upload("lalonde-huge.csv", hugeCsv)
-  .then((huge) => analyse(huge.id, LALONDE, ["difference_in_means", "lin_regression"]))
-  .catch((error) => notPartial(error.message));
-const estimate = (method) => (partial.estimates ?? []).find((row) => row.method === method);
-if (
-  partial.status !== "succeeded" ||
-  partial.partial !== true ||
-  !estimate("difference_in_means")?.summary ||
-  estimate("difference_in_means").error ||
-  typeof estimate("lin_regression")?.error !== "string" ||
-  !estimate("lin_regression").error ||
-  estimate("lin_regression").summary
-) {
-  notPartial(
-    JSON.stringify({
-      status: partial.status,
-      partial: partial.partial,
-      error: partial.error,
-      estimates: (partial.estimates ?? []).map((row) => ({
-        method: row.method,
-        summary: row.summary ? "present" : row.summary,
-        error: row.error,
-      })),
-    }),
-  );
-}
-// Both are in hand before either is written: a failed read of the summary leaves no unpaired file.
-const partialSummary = await get(`/v1/analyses/${partial.id}/summary`);
-await save("partial.analysis.json", partial);
-await save("partial.summary.json", partialSummary);
+// The partial analysis is not recorded any more. It was made from LaLonde with
+// one covariate of 1e200, which made lin_regression fail while difference in
+// means succeeded; since 2026-10-14 a value above 1e150 is refused when the
+// dataset is built. A partial analysis is still possible from other data: on
+// panel scenario P1 (60 units, 8 periods) with one outcome of 1e10, the event
+// study fails while did_2x2 and twfe succeed. This script does not record one.
+// partial.analysis.json and partial.summary.json, and analyses.json (whose
+// list holds the partial row), are kept as they were recorded before that
+// change, and are not written here.
 
 await save("estimators.json", await get("/v1/estimators"));
-await save("analyses.json", await get("/v1/analyses"));
 await save("lalonde.dataset.json", await get(`/v1/datasets/${lalonde.id}`));

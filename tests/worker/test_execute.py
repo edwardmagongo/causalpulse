@@ -89,19 +89,17 @@ def test_an_infinite_period_is_refused_where_it_used_to_be_fitted():
         execute(content, "prop99.csv", PROP99, None, 0)
 
 
-def test_a_huge_finite_covariate_still_gives_a_partial_analysis():
-    # The dashboard's recorded partial fixture (web/scripts/capture-fixtures.mjs)
-    # is made from exactly this request. If this fails, that fixture has lost
-    # its source and needs another before it can be recorded again.
+def test_a_huge_finite_covariate_is_refused_naming_its_column():
+    # Before 2026-10-14 this upload gave a partial analysis (difference in
+    # means succeeded, lin_regression failed with a library's message), and the
+    # dashboard's committed partial fixture was recorded from it. A value above
+    # 1e150 is now refused when the dataset is built.
     content = with_first_cell("lalonde.csv", "re75", "1e200")
 
-    outcome = execute(
-        content, "lalonde-huge.csv", LALONDE, ["difference_in_means", "lin_regression"], 0
-    )
-
-    assert [report.estimate.method for report in outcome.reports] == ["difference_in_means"]
-    assert [failure.method for failure in outcome.failures] == ["lin_regression"]
-    assert outcome.failures[0].error
+    with pytest.raises(ValueError, match=r"columns \['re75'\] hold values too large"):
+        execute(
+            content, "lalonde-huge.csv", LALONDE, ["difference_in_means", "lin_regression"], 0
+        )
 
 
 @pytest.mark.parametrize("column", ["re75", "re78"])

@@ -1,8 +1,10 @@
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
 from cp_causal.estimators.regression import LinRegressionAdjustment
-from cp_core.dataset import CausalDataset, CausalSchema
+from cp_core.dataset import CausalDataset, CausalSchema, schema_from_dict
 from cp_core.values import EstimatorConfig
 
 
@@ -97,3 +99,32 @@ def test_null_effect_is_not_reported_as_significant():
     result = LinRegressionAdjustment().fit(make_dataset(effect=0.0), config())
 
     assert result.is_significant is False
+
+
+REAL_DATA = Path(__file__).parents[1] / "fixtures" / "real_data"
+LALONDE_SCHEMA = {
+    "unit": "unit_id",
+    "treatment": "treat",
+    "outcome": "re78",
+    "covariates": ["age", "educ", "black", "hisp", "marr", "nodegree", "re74", "re75"],
+    "outcome_type": "continuous",
+}
+
+
+def lalonde_with_earnings_times(factor: float) -> CausalDataset:
+    frame = pd.read_csv(REAL_DATA / "lalonde.csv")
+    frame = frame.assign(re74=frame["re74"] * factor, re75=frame["re75"] * factor)
+    return CausalDataset(frame=frame, schema=schema_from_dict(LALONDE_SCHEMA))
+
+
+def test_earnings_in_cents_give_lin_regression_the_same_answer_as_in_dollars():
+    # Measured before the fix: [-9,360.08, 2,167.04] in dollars and
+    # [-4,423.35, -2,769.68] with re74 and re75 in cents, an interval that
+    # excluded zero.
+    estimator = LinRegressionAdjustment()
+    dollars = estimator.fit(lalonde_with_earnings_times(1.0), EstimatorConfig())
+    cents = estimator.fit(lalonde_with_earnings_times(100.0), EstimatorConfig())
+
+    assert cents.point == pytest.approx(dollars.point, rel=1e-9)
+    assert cents.ci.lower == pytest.approx(dollars.ci.lower, rel=1e-9)
+    assert cents.ci.upper == pytest.approx(dollars.ci.upper, rel=1e-9)

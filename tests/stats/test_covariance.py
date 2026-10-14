@@ -120,3 +120,52 @@ def test_cluster_covariance_rejects_a_single_cluster(small_sample_correction: bo
             fit, np.zeros(fit.n, dtype=int),
             small_sample_correction=small_sample_correction,
         )
+
+
+def wide_design(n: int = 300, seed: int = 3) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """A design with a binary column, two continuous ones, and clusters of ten."""
+    rng = np.random.default_rng(seed)
+    x = rng.normal(size=n)
+    z = rng.normal(size=n)
+    w = rng.integers(0, 2, size=n).astype(float)
+    X = np.column_stack([np.ones(n), w, x, z])
+    y = 1.0 + 0.5 * w + 2.0 * x - z + rng.normal(size=n) * (1.0 + np.abs(x))
+    clusters = np.repeat(np.arange(n // 10), 10)
+    return X, y, clusters
+
+
+@pytest.mark.parametrize("factor", [1e2, 1e8, 1e140])
+def test_a_column_in_other_units_changes_nothing_but_its_own_coefficient(factor):
+    # A column multiplied by `factor` is the same covariate in other units:
+    # its coefficient divides by `factor` and nothing else moves. Before the
+    # columns were scaled, `pinv(X'X)` cut the small directions once one
+    # column dwarfed the rest, and the covariance was the first casualty.
+    X, y, clusters = wide_design()
+    rescaled = X.copy()
+    rescaled[:, 2] *= factor
+    units = np.ones(X.shape[1])
+    units[2] = factor
+
+    a, b = ols_fit(X, y), ols_fit(rescaled, y)
+
+    np.testing.assert_allclose(b.beta * units, a.beta, rtol=1e-9)
+    np.testing.assert_allclose(b.residuals, a.residuals, rtol=1e-9, atol=1e-9)
+    np.testing.assert_allclose(b.leverage, a.leverage, rtol=1e-9)
+    np.testing.assert_allclose(b.xtx_inv * np.outer(units, units), a.xtx_inv, rtol=1e-8)
+    for covariance in (
+        lambda fit: robust_covariance(fit, kind="HC2"),
+        lambda fit: cluster_robust_covariance(fit, clusters),
+    ):
+        np.testing.assert_allclose(
+            covariance(b) * np.outer(units, units), covariance(a), rtol=1e-8
+        )
+
+
+def test_a_column_of_zeros_is_left_at_scale_one():
+    X, y, _ = wide_design()
+    X[:, 3] = 0.0
+
+    fit = ols_fit(X, y)
+
+    assert fit.scale[3] == 1.0
+    assert np.all(np.isfinite(robust_covariance(fit, kind="HC1")))

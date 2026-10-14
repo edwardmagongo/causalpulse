@@ -21,6 +21,8 @@ from cp_core.results import EffectEstimate, FitMetadata
 from cp_core.values import Diagnostic, EstimatorConfig
 from scipy.stats import norm
 from sklearn.linear_model import LinearRegression
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
 
 from cp_causal._panel import outcome_scale
 from cp_causal._support import arrays, config_hash, normal_p_value, wald_interval
@@ -48,6 +50,9 @@ def cross_fitted_outcome_model(
     `doubly_robust.py`'s `_cross_fitted_outcome_models` doesn't fit this
     shape, since AIPW needs potential outcomes per arm and the R-learner
     needs one combined regression to residualize against.
+    The regression standardises the covariates on the rows it is fitted to, as the
+    propensity model does, so the predictions do not depend on the units a covariate
+    is in.
     """
     n = covariates.shape[0]
     if cross_fit_folds > 1 and rng is None:
@@ -63,10 +68,12 @@ def cross_fitted_outcome_model(
         for fold in range(cross_fit_folds):
             held_out = order[fold::cross_fit_folds]
             train = np.setdiff1d(order, held_out)
-            model = LinearRegression().fit(covariates[train], outcome[train])
+            model = make_pipeline(StandardScaler(), LinearRegression()).fit(
+                covariates[train], outcome[train]
+            )
             predictions[held_out] = model.predict(covariates[held_out])
     else:
-        model = LinearRegression().fit(covariates, outcome)
+        model = make_pipeline(StandardScaler(), LinearRegression()).fit(covariates, outcome)
         predictions = model.predict(covariates)
     return predictions
 
