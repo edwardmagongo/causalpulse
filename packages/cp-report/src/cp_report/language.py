@@ -1,6 +1,6 @@
 """The report's refusal to emit prose that asserts more than it can support.
 
-The parent design document requires the generated report to pass this
+The generated report must pass this
 project's language lint. That lint has been in force since Phase 8 over every
 non-docstring string constant under `packages/`, so the prose this package
 hardcodes is already covered before a line of it is written.

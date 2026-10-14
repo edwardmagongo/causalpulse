@@ -2,7 +2,7 @@
 
 All three libraries are ORACLES here, not engines: each appears in the dev
 dependency group only, is imported only by this module, and no shipped
-package may depend on any of them. Settled decision #1 of the parent spec is
+package may depend on any of them. A settled decision is
 that estimators are implemented from primitives and *validated* against
 reference implementations.
 

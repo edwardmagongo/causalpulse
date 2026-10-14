@@ -53,7 +53,7 @@ def test_a_constant_estimate_has_no_slope_or_correlation():
 
 
 def test_a_declared_constant_truth_is_scored_on_rmse_only():
-    # NULL's realised truth has sd ~3e-17, not 0 (design section 1): the
+    # NULL's realised truth has sd ~3e-17, not 0: the
     # declaration, not a variance test, is what turns correlation off.
     truth = CateTruth(values=np.full(5, 0.05) + np.array([0, 1e-17, 0, -1e-17, 0]),
                       heterogeneous=False)

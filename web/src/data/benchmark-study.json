@@ -60093,7 +60093,7 @@
   "limitations": {
     "not_covered": [],
     "statements": [
-      "hierarchical_did is excluded from scenario P6 (binary outcomes); its Gaussian likelihood cannot represent them (docs/specs/2026-09-21-benchmark-study-design.md \u00a713.7/\u00a713.10)",
+      "hierarchical_did is excluded from scenario P6 (binary outcomes); its Gaussian likelihood cannot represent them",
       "The donor-pool arm (scenarios S0 to S4, one treated unit against 17 donors) was fitted for the first time in this study, for synthetic_control, bsts and hierarchical_did. bsts's credible interval covers the true effect in nearly every fit (0.98 to 1.00 across S0 to S4), which comes from an interval that is often 1.5 to 3 times wider than synthetic_control's rather than from unusually accurate point estimates -- the two are not on equal footing here. synthetic_control's own permutation interval stays close to nominal on the clean and moderately adversarial scenarios (0.86 to 0.98) and its bias stays under 0.27 in absolute terms on every scenario it was fitted on. hierarchical_did was not built for a single-treated-unit design; it is fitted here only because its eligibility rule admits any panel shape with at least one treated unit and one pre-period, not because this phase chose it for the arm, and its coverage there is poor (0.36 to 0.84, and 0 on S2, the divergent-pre-trend scenario, where its bias reaches 3.75 against a true effect of 1.0). This is recorded as a mismatch between the model and the data it was asked to fit, not a defect in the model itself; E5 and E7 exclude these rows from their pooled and ranked figures for exactly this reason."
     ]
   },
@@ -60208,7 +60208,7 @@
       "tier": "p7"
     }
   ],
-  "report_sha256": "fe2ceed392e1ef96392ea4b0411a4e83884698770d56cd102c885a9f8658f7c2",
+  "report_sha256": "2e4954928eb4ef2ecef25f7293bdf36447b05698cbb4811d58411bb7741a0f48",
   "report_tables": {
     "coverage_note": "Each coverage value is how often the interval an estimator reports as its primary one contains the true effect, and the interval column names that interval's kind: analytic for standard-error intervals, posterior for the credible interval hierarchical_did reports, bootstrap_se for the Wald interval callaway_santanna builds from a cluster-bootstrap standard error, and permutation for the interval synthetic_control builds from its placebo distribution.",
     "exploratory_note": "Analytic and bootstrap interval coverage were also compared across the two cross-sectional sample sizes the grid varies; that comparison is the coverage__scenario_by_size table in the study's own output and is not reproduced here. It was not pre-registered as an expectation, and no direction is claimed.",

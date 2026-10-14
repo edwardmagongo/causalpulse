@@ -321,7 +321,7 @@ def pre_treatment_fit_check(
 ) -> AssumptionCheck:
     """Pre-treatment fit quality, relative to the outcome's own dispersion.
 
-    Threshold measured (design doc §2 item 5), 100 seeds each: on the clean
+    Threshold measured over 100 seeds each: on the clean
     S1 scenario the ratio's mean is 0.65 and its max is 1.53; on S3 (the
     convex-hull-violation scenario, before the ridge fallback) the mean is
     4.76 and the min is 2.04. 1.75 sits cleanly between the two.
@@ -351,9 +351,9 @@ def pre_treatment_fit_check(
 def convex_hull_check(treated_pre_mean: float, donor_pre_means: np.ndarray) -> AssumptionCheck:
     """Whether the treated unit's pre-period mean lies within the donor range.
 
-    Interpolation bias is synthetic control's principal failure mode (parent
-    spec §5.4): a simplex-constrained combination of donors can only ever
-    reproduce values inside their convex hull, so a treated unit outside it
+    Interpolation bias is synthetic control's principal failure mode: a
+    simplex-constrained combination of donors can only ever reproduce values
+    inside their convex hull, so a treated unit outside it
     cannot be matched by construction, not merely by chance.
     """
     lower = float(donor_pre_means.min())
@@ -407,8 +407,7 @@ def donor_contamination_check(
     never measured the max-over-all-donors statistic's real null
     distribution.
 
-    **Threshold 7.0, not the original 5.5 (design doc
-    `2026-09-28-synthetic-control-ci-calibration.md`).** `donor_rmspe_ratios`
+    **Threshold 7.0, not the original 5.5.** `donor_rmspe_ratios`
     moved from `placebo_runs` (plain simplex) to `hull_aware_placebo_runs`,
     which refits each donor exactly as `fit()` would, including the
     ridge-augmented fallback -- and that fallback genuinely widens this

@@ -1,6 +1,6 @@
 """Does complete-case analysis go wrong the way theory says, and do the bounds hold?
 
-Spec section 7.3 pre-registered four expectations before this harness existed.
+Four expectations were pre-registered before this harness existed.
 Three are rates and are asserted over seeds. The fourth -- that the worst-case
 bounds contain the complete-data estimate -- is an identity, so it is asserted
 without tolerance: one violation means the bounds are wrong.
@@ -18,8 +18,8 @@ scenario D unless noted, missingness MNAR(rate=0.25, strength=2.0):
   scenario D: 0 violations of 20, mean bound width 0.4850. The bounds
   routinely span zero for this scenario's own effect size -- expected, not a
   defect: a 25% MNAR missing rate at strength 2.0 is a genuinely severe
-  missingness pattern, and the spec's section 9 anticipates that a bound this
-  wide is a property of the data, not of the bound.
+  missingness pattern, and a bound this
+  wide is expected to be a property of the data, not of the bound.
 
   Tipping fraction (tipping_point), same MNAR settings:
     scenario B (null)    survived worst case 0/20   fraction mean 0.00675  MCSE 0.00423

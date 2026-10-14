@@ -231,7 +231,7 @@ def test_reports_dual_uncertainty_with_a_bootstrap_aggregate_interval():
 
 
 def test_per_cell_standard_errors_are_analytic_and_positive():
-    # Design section 6.5 splits the inference deliberately: per-cell standard
+    # The inference is split deliberately: per-cell standard
     # errors are analytic and cluster-robust, the aggregate is bootstrapped
     # because cells share control units.
     result = CallawaySantAnna().fit(generate("P3").dataset, CONFIG)

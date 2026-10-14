@@ -110,7 +110,7 @@ class ScenarioSpec:
     Without it, a scenario that ignores an axis still produces one cell per
     value of that axis in the benchmark grid, all identical: the same
     absent-versus-zero confusion Phase 16's benchmark heatmaps were built to
-    avoid (spec section 5.1). It is checked, not trusted: see
+    avoid. It is checked, not trusted: see
     `tests/simulation/test_axis_declarations.py`, which measures a property of
     each scenario's output at a perturbed value of every axis and fails if a
     declared axis's property does not move or an undeclared one's does.
@@ -180,8 +180,8 @@ def _heterogeneous_declared_effect(
     very label against measured ground truth -- generates and measures.
 
     `heterogeneity_scale` does not appear in this formula, and that is by
-    construction rather than an omission: spec section 4.4 compensates
-    `base_tau` whenever `increment` is scaled by `heterogeneity_scale`
+    construction rather than an omission: `base_tau` is compensated
+    whenever `increment` is scaled by `heterogeneity_scale`
     (`base_tau' = base_tau - (k - 1) * increment * P(x = 1)`), specifically so
     the population mean is invariant to it --
     `base_tau' + increment' * P(x = 1) == base_tau + increment * P(x = 1)`
@@ -250,7 +250,7 @@ def _confounded(scenario_id: str, tau: float) -> Callable[[ScenarioParams], Cros
 def _missing_data(scenario_id: str, tau: float) -> Callable[[ScenarioParams], CrossSectionDGP]:
     """Scenario D's confounding, plus missingness that depends on the outcome.
 
-    MNAR rather than MAR: the parent spec allows either, and MNAR is the case
+    MNAR rather than MAR: either would do, and MNAR is the case
     complete-case analysis cannot be adjusted out of, which is what makes it
     worth a scenario of its own.
 
@@ -278,7 +278,7 @@ def _heterogeneous(
     flag: new users gain 8pp, returning users 1pp.
 
     `heterogeneity_scale` scales `increment` and compensates `base_tau` in the
-    same motion (spec section 4.4), so the population mean CATE this
+    same motion, so the population mean CATE this
     generates is unaffected by it -- only the spread across x2 moves. Only
     this scenario's effect has an `increment` to scale at all: every other
     scenario uses `ConstantEffect`, whose CATE is the same for every unit

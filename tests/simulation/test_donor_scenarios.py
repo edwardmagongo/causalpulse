@@ -28,7 +28,7 @@ def test_measured_truth_matches_the_declared_label(scenario_id):
         )
         deviations.append(abs(panel.truth.true_att_by_cohort[DONOR_START] - spec.declared_effect))
     # The continuous, unclipped scale makes per-seed truth numerically equal
-    # to the input tau by construction (Phase 3 design doc §3.4's stated
+    # to the input tau by construction (a stated Phase 3
     # limitation, inherited here) -- this asserts consistency, not that truth
     # is independently measured. S0-S4 all adopt at DONOR_START with a
     # constant effect, so `true_att_by_cohort[DONOR_START]` is well-defined

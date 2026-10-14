@@ -8,7 +8,7 @@ than test recovery.
 
 Tolerances are set from measurements taken at exactly this protocol - 400
 units, 8 periods, 60 seeds, matching PANEL_N_UNITS/PANEL_N_PERIODS/PANEL_SEEDS
-- run against the real merged estimators (not the plan's own prototype
+- run against the real merged estimators (not the earlier prototype
 figures, which predate this code and drifted in several places already
 corrected earlier in this phase). Each tolerance states its measured mean,
 its Monte Carlo standard error (MCSE), and the headroom arithmetic in a
@@ -56,7 +56,7 @@ def mean_bias(estimator, scenario_id, seeds=PANEL_SEEDS):
 @pytest.mark.parametrize("scenario_id", ["P1", "P2"])
 def test_every_estimator_recovers_a_clean_two_by_two(scenario_id):
     # Measured at 400 units / 8 periods / 60 seeds against the real merged
-    # estimators (not the plan's prototype figures): 2x2 and TWFE both
+    # estimators (not the earlier prototype figures): 2x2 and TWFE both
     # -0.0143 (MCSE 0.0088) on P1 and P2 (identical, as expected -- the
     # estimation error depends only on the Y(0) noise, and P2's tau=0 cannot
     # move it).
@@ -134,7 +134,7 @@ def test_p4_rests_heavily_on_already_treated_comparisons():
     # The mechanism behind the bias above, measured rather than asserted.
     # Measured already_treated_share on P4 over 60 seeds: mean 0.2624,
     # min 0.2363 (seed 0's own draw: 0.2567). Threshold set to roughly half
-    # the measured minimum, per the plan's own instruction, leaving every one
+    # the measured minimum, leaving every one
     # of the 60 sampled seeds with more than double the required margin.
     decomposition = goodman_bacon_decomposition(generate("P4").dataset)
 
@@ -189,7 +189,7 @@ def test_null_scenario_produces_no_systematic_significance():
 
 
 def test_clustering_matters_and_the_estimators_do_it():
-    # Section 6.1's trap, pinned. This MUST run at error_rho = 0.8 - at rho = 0
+    # The clustering trap, pinned. This MUST run at error_rho = 0.8 - at rho = 0
     # the clustered/unclustered ratio is close to 1 and the test would pass
     # whether or not clustering were wired up at all.
     # Measured clustered_se_ratio on P1 at error_rho=0.8, seed 0: 1.9094.

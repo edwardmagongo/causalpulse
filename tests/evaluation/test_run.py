@@ -176,11 +176,10 @@ def test_results_do_not_depend_on_the_order_cells_are_evaluated_in():
     # property under test is the totality of the sort key, which every row
     # exercises equally, so the whole registry buys nothing here and costs
     # ~327s against ~7s -- a 46x difference, on a suite whose full gate already
-    # runs over two and a half hours (2h33m at the last recorded run, design
-    # doc section 12's "Gate"). `twfe` is kept deliberately: it is ineligible
-    # on every cross-sectional cell, so the ineligible-row path stays inside
-    # the frame comparison rather than being dropped along with the
-    # estimators.
+    # runs over two and a half hours (2h33m at the last recorded run). `twfe` is kept
+    # deliberately: it is ineligible on every cross-sectional cell, so the
+    # ineligible-row path stays inside the frame comparison rather than being
+    # dropped along with the estimators.
     #
     # MEASURED 2026-09-19, this tree, warm after a discarded warm-up run, with
     # both `run_grid` calls below timed together: 327.2s for the whole registry
@@ -302,7 +301,7 @@ def test_cross_section_rows_carry_the_new_axis_columns_at_their_cell_values():
 
 
 def test_cross_section_rows_carry_the_realised_treated_share_not_the_intercept():
-    # Spec section 4.1: treatment_intercept sets a logit-scale intercept, but
+    # treatment_intercept sets a logit-scale intercept, but
     # a reader of the results thinks in a treated fraction, not a logit
     # shift. This must be a real, measured value in [0, 1] -- not the raw
     # intercept relabelled.
@@ -374,8 +373,7 @@ def test_panel_rows_carry_nan_for_the_new_axis_columns_and_realised_share():
 
 
 def test_a_perturbed_row_traces_back_to_its_own_cell_and_its_own_rng_stream():
-    # See docs/specs/2026-09-13-causal-core-phase18-design.md section 12,
-    # "Findings from the whole-branch review": `resolve_cell`'s seam had no
+    # A finding of the Phase 18 whole-branch review: `resolve_cell`'s seam had no
     # guard. `resolve_cell` (resolve.py:51-60) omitting one of
     # `noise_scale=`/`effect_scale=`/`heterogeneity_scale=` from the
     # `ScenarioParams` it builds, `_cell_columns` (run.py:104-137) writing one
@@ -473,8 +471,7 @@ def test_a_perturbed_row_traces_back_to_its_own_cell_and_its_own_rng_stream():
 
 
 def test_realised_treated_share_is_not_the_undisturbed_sigmoid_of_the_intercept():
-    # See docs/specs/2026-09-13-causal-core-phase18-design.md section 12,
-    # "Findings from the whole-branch review": `resolve_cell`'s seam had no
+    # A finding of the Phase 18 whole-branch review: `resolve_cell`'s seam had no
     # guard. A `_realised_treated_share` mutated to
     # `sigmoid(cell.treatment_intercept)` was "killed only by accident" --
     # only the empty-control test's `== 1.0` check happened to fail, because

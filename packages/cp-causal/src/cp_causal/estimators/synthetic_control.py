@@ -45,8 +45,8 @@ def solve_donor_weights(treated_pre: np.ndarray, donor_pre: np.ndarray) -> np.nd
     Predictors are the standardised pre-treatment outcome values themselves,
     weighted uniformly -- no nested optimisation over a separate
     predictor-importance matrix. Abadie's original method nests two
-    optimisations; skipping the outer one is a documented simplification
-    (design doc §5.1), not an oversight, and stays correct as long as the
+    optimisations; skipping the outer one is a documented simplification,
+    not an oversight, and stays correct as long as the
     donor pool is small relative to the pre-period length: an underdetermined
     fit (more donors than pre-periods) lets SLSQP drive pre-period error to
     near zero by overfitting noise, at the cost of the post-period
@@ -103,11 +103,11 @@ def ridge_augmented_weights(
     """Ridge-regularised weights with an intercept, for a convex-hull violation.
 
     A documented simplification of Ben-Michael/Feller/Rothstein's augmented
-    synthetic control (design doc §5.4): fits an intercept plus L2-penalised,
+    synthetic control: fits an intercept plus L2-penalised,
     unconstrained donor coefficients directly, rather than the residual-
     correction form of the original method. Simplex weights cannot reproduce
     a value outside the donor pool's range by construction; an intercept plus
-    unconstrained coefficients can. Measured (design doc §2 item 5), 300
+    unconstrained coefficients can. Measured over 300
     seeds on the convex-hull-violation scenario: plain simplex SC bias +1.21
     against ridge-augmented (penalty=1.0) bias +0.0223 -- and an earlier,
     no-intercept version of this ridge fit was *worse* than plain SC
@@ -273,7 +273,7 @@ class HullAwarePlacebos:
     `rmspe_ratios[0]` there keeps meaning "this unit's own simplex fit". This type's
     `rmspe_ratios`, by contrast, is read by `SyntheticControl.fit()`'s CI and
     `donor_contamination_check` -- both quantities the ridge/simplex choice genuinely changes
-    (design doc `2026-09-28-synthetic-control-ci-calibration.md` §1.1: `rmspe_ratios` is post/pre
+    (`rmspe_ratios` is post/pre
     RMSPE, sensitive to which form built the post-period counterfactual, unlike
     `fit_donor_pool_point`'s own pre-period-only `pre_rmspe`).
 
@@ -551,7 +551,7 @@ class SyntheticControl:
         runs = placebo_runs(treated_series, donor_series, pre_mask, post_mask)
         p_value = permutation_p_value(runs.rmspe_ratios)
         # The CI and donor_contamination_check read hull_aware_placebo_runs instead of `runs`
-        # above (design doc 2026-09-28-synthetic-control-ci-calibration.md §1.1, §5, §6):
+        # above:
         # both are sensitive to which form built the post-period counterfactual, so each unit's
         # entry should come from the same fit form `fit()` itself would use for that unit, not
         # uniformly from the simplex one. `p_value` stays on `runs` deliberately -- Abadie's
@@ -577,8 +577,8 @@ class SyntheticControl:
         pointwise_effect = treated_series - synthetic
         # Measured from the *simplex* fit always, regardless of which form
         # produced `synthetic` above. `pre_treatment_fit_check`'s threshold
-        # is calibrated against exactly this quantity (design doc §2 item 5:
-        # S1 vs S3 *before* the ridge fallback) precisely because it answers
+        # is calibrated against exactly this quantity (S1 vs S3
+        # *before* the ridge fallback) precisely because it answers
         # "could the donor weights find a good match on their own" -- a
         # question the ridge fallback exists to route around, not to
         # answer differently. Reading it from the post-fallback `synthetic`
@@ -593,8 +593,8 @@ class SyntheticControl:
         # A permutation-based interval from the placebo distribution's own
         # spread, following the same logic as the p-value: donors' point
         # estimates under "no true effect on them" are the reference
-        # distribution `point`'s own uncertainty is judged against. Hull-aware
-        # (§1.1 above): each donor's point estimate comes from that donor's
+        # distribution `point`'s own uncertainty is judged against. Hull-aware:
+        # each donor's point estimate comes from that donor's
         # own hull check, matching how the real unit's `point` was built.
         placebo_spread = hull_aware.point_estimates[1:]
         half_width = float(np.quantile(np.abs(placebo_spread), config.ci_level))

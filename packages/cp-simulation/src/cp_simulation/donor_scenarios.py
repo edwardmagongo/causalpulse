@@ -2,8 +2,6 @@
 
 A third registry, distinct from both the cross-sectional `SCENARIOS` and the
 panel `PANEL_SCENARIOS`: donor-pool scenarios are not points on either grid.
-See the design doc (`docs/specs/2026-08-15-causal-core-phase4-design.md`)
-§3.2 for the full rationale per scenario.
 """
 
 from __future__ import annotations

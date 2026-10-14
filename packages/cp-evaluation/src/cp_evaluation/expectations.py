@@ -1,10 +1,9 @@
 """The study's pre-registered expectations, scored against a finished run.
 
-Written into `docs/specs/2026-09-21-benchmark-study-design.md` (section 8) before
-any result existed, so a result cannot be fitted to them afterwards. Each is scored
-**met**, **failed** or **inconclusive**, and a failed one is reported with its
-measurement, never loosened. Tolerances are in pooled MCSE, and no verdict is
-offered on fewer than `MIN_N_USED` pooled rows.
+Written down before any result existed, so a result cannot be fitted to them
+afterwards. Each is scored **met**, **failed** or **inconclusive**, and a failed
+one is reported with its measurement, never loosened. Tolerances are in pooled MCSE, and no verdict
+is offered on fewer than `MIN_N_USED` pooled rows.
 """
 
 from __future__ import annotations
@@ -192,12 +191,11 @@ def _slowest_is_hierarchical(frame: pd.DataFrame) -> ExpectationResult:
             f"fitted methods: {', '.join(fitted_methods) or 'none'}."
         )
     if len(cate_rows):
-        # The CATE arm postdates the pre-registration (design section 4): E7 is
+        # The CATE arm postdates the pre-registration: E7 is
         # scored over the grid it was registered on.
         notes.append(f"{len(cate_rows)} CATE-arm rows excluded.")
     if len(long_rows):
-        # P7 runs at its own 600 by 20 protocol and postdates the pre-registration
-        # (design docs/specs/2026-10-01-p7-benchmark-arm-design.md section 3).
+        # P7 runs at its own 600 by 20 protocol and postdates the pre-registration.
         notes.append(f"{len(long_rows)} P7-arm rows excluded.")
     note = " ".join(notes)
     if ranked_rows.empty:
@@ -243,7 +241,7 @@ RANDOMISATION_ESTIMATORS = ("difference_in_means", "lin_regression", "ipw", "aip
 
 
 def evaluate_expectations(frame: pd.DataFrame, status: RunStatus) -> tuple[ExpectationResult, ...]:
-    """Score E1 to E8 against a finished run. See the design document's section 8."""
+    """Score E1 to E8 against a finished run."""
     baseline = baseline_slice(frame)
     pooled = summarise(baseline, by=["scenario"])
     return (

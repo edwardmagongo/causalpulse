@@ -70,7 +70,7 @@ def test_a_clean_fit_lands_on_its_design_ceiling(provenance: str, expected: str)
 
 
 def test_an_observational_design_cannot_reach_strong():
-    # Section 6.2's design-based ceiling. Every check passing does not lift it.
+    # The design-based ceiling. Every check passing does not lift it.
     clean = estimate(*(check(kind, "PASS") for kind in KINDS))
     assert score_validity(clean, provenance="observational").band == "MODERATE"
 

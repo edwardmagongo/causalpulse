@@ -2,7 +2,7 @@
 
 MEASURED 2026-09-01 (Task 9), 40 seeds at n_units=2000, m=20, scenario D,
 MAR/MNAR(rate=0.25, strength=2.0), OutcomeProxy(noise_sd=...), through
-SHIPPED code -- not the design document's discarded prototype, whose figures
+SHIPPED code -- not the discarded prototype, whose figures
 are wrong in several places. All numbers below come from that run; "gap" =
 arm's point estimate minus the complete-data estimate on the same seed, and
 "paired" statistics are per-seed differences, which is the powerful comparison
@@ -72,7 +72,7 @@ the 2026-09-01 figures and should be read as stale, not as confirmed.
 Single imputation is more dishonest as the imputation grows less certain, and
 the prototype's 0.959 / 0.995 / 0.843 was non-monotone. But the strict
 three-term ordering is NOT well determined at 40 seeds, and the original claim
-that this "supports a stronger claim than the spec pre-registered" overstated
+that this "supports a stronger claim than was pre-registered" overstated
 it. Paired bootstrap over the shared seeds (B=4000), which is the right
 comparison because all three levels share seeds and datasets:
 
@@ -98,7 +98,7 @@ Measured, MNAR, noise_sd=0.5, 40 seeds:
 `mi_no_aux` repairs a little too: paired +0.01166 (MCSE 0.00063) and
 +0.00366 (MCSE 0.00052).
 
-Mechanism (missed by the spec, real and correct): `OutcomeProxy` is built
+Mechanism (missed by the pre-registration, real and correct): `OutcomeProxy` is built
 from the *complete* outcome, so it carries information about Y exactly
 where Y is missing. That makes MNAR partially ignorable given the proxy.
 Imputation removes roughly two thirds of the MNAR bias and leaves a residual

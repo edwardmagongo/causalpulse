@@ -473,9 +473,8 @@ def test_summarise_carries_status_counts_so_absence_is_visible():
 
 
 def test_summarise_reports_the_mean_realised_treated_share_per_group():
-    # See docs/specs/2026-09-13-causal-core-phase18-design.md section 12,
-    # "Findings from the whole-branch review": the measured share -- spec
-    # section 4.1's mitigation for treatment_intercept being a logit-scale
+    # A finding of the Phase 18 whole-branch review: the measured share -- the
+    # mitigation for treatment_intercept being a logit-scale
     # parameter, not a quantity a reader thinks in -- must reach summarise's
     # own output, not just sit unread in the results frame.
     frame = _frame([1.0, 1.0], truth=1.0, realised_treated_share=[0.40, 0.60])

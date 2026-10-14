@@ -122,7 +122,7 @@ def _missing_a_required_column(dataset: CausalDataset) -> bool:
 def _realised_treated_share(resolved: ResolvedCell) -> float:
     """The measured treated fraction of this cell's own generated dataset.
 
-    Spec section 4.1: `treatment_intercept` sets a logit-scale intercept, but
+    `treatment_intercept` sets a logit-scale intercept, but
     an intercept is not a quantity a reader of the results thinks in. This is
     measured from the realised data -- the same property
     `tests/simulation/test_axis_declarations.py::_treated_share` checks the

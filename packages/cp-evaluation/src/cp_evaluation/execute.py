@@ -55,8 +55,7 @@ from cp_evaluation.store import LedgerEntry, RunStore, write_shard
 # 2 passes both clauses (1.86x, +0 MB). 4 also passes both, though its speedup
 # over 2 (1.31x) clears the 1.3x bar narrowly: rerunning it would not be
 # surprising to land the other side of 1.30. The rule takes the largest count
-# that passes, so the default is 4. See the design document's section 13.2 for
-# the full record.
+# that passes, so the default is 4.
 DEFAULT_WORKERS = 4
 
 _THREAD_VARIABLES = (
@@ -98,13 +97,11 @@ TaskFunction = Callable[[CellTask], LedgerEntry]
 
 
 # Dearest shape first, from measured per-cell costs: a long-panel cell (P7 at
-# its 600 by 20 protocol) 529.7s, measured 2026-10-01 (design
-# `docs/specs/2026-10-01-p7-benchmark-arm-design.md` §1), a panel cell 35-62s (P4
+# its 600 by 20 protocol) 529.7s, measured 2026-10-01, a panel cell 35-62s (P4
 # and P1 at n_units=150, n_periods=10, dominated by hierarchical_did),
 # a donor-pool cell 5.5-32.6s (S5 and S1, dominated by bsts), a CATE cell ~15s,
 # a cross-sectional cell 8.7-12.3s. The panel and donor figures were measured
-# on 2026-10-01 and are in the benchmark follow-ups design doc's section 9.1
-# ("As built"); the CATE and cross-section figures are in
+# on 2026-10-01; the CATE and cross-section figures are in
 # `cp_evaluation.tiers`. A shape missing here raises in `longest_first` rather
 # than being scheduled somewhere by accident.
 SHAPE_COST_RANK: Mapping[type, int] = MappingProxyType(

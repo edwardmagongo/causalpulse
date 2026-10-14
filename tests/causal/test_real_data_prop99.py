@@ -27,10 +27,10 @@ def _dataset() -> CausalDataset:
 
 
 # Measured 2026-09-04, after the donor-solve conditioning fix (commit fd9e944); CI re-measured
-# 2026-09-28 after the CI/donor_contamination_check hull-aware fix (design doc
-# 2026-09-28-synthetic-control-ci-calibration.md) -- point, p-value and the year-2000 gap are
-# unchanged (California's own fit passes its own convex-hull check, so `point` never used the
-# ridge fallback either before or after), only the CI moved:
+# 2026-09-28 after the CI/donor_contamination_check hull-aware fix --
+# point, p-value and the year-2000 gap are unchanged (California's own fit passes its own
+# convex-hull check, so `point` never used the ridge fallback either before or after), only the CI
+# moved:
 #
 #   average post-treatment gap (this is `point`)   -19.5136
 #   permutation CI, pre-fix                        (-36.5439, -2.4833)
@@ -68,7 +68,7 @@ def _dataset() -> CausalDataset:
 # replication and is not asserted as one. Abadie et al. nest a second
 # optimisation over predictor importance and use lnincome, beer, age15to24,
 # retprice and three lagged sales years; this implementation deliberately uses
-# the pre-treatment outcome path alone (design doc §5.1). That the two land
+# the pre-treatment outcome path alone. That the two land
 # within half a pack of each other is the finding.
 ABADIE_AVERAGE_GAP = -20.0
 ABADIE_YEAR_2000_GAP = -26.0
@@ -91,7 +91,7 @@ def test_consumption_fell_rather_than_rose():
     # Proposition 99 cannot have raised cigarette sales.
     #
     # This asserts the point estimate's sign only, not the CI's. It asserted `ci.upper < 0.0`
-    # too until the hull-aware CI fix (design doc 2026-09-28-synthetic-control-ci-calibration.md):
+    # too until the hull-aware CI fix:
     # that additional assertion was never actually implied by the test's own stated intent above
     # -- "the true effect cannot be positive" is a substantive, independently-known fact about
     # Proposition 99, not a claim that any one sample's 95% CI must exclude non-negative values,

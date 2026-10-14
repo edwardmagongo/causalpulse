@@ -101,7 +101,7 @@ class Analysis(Base):
     # Always equal to its dataset's owner; the API enforces that at creation.
     owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     dataset_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("datasets.id"))
-    # The column is `schema`, the spec's name; the attribute is not, so it
+    # The column is named `schema`; the attribute is not, so it
     # never reads as SQLAlchemy's own `schema` concept.
     causal_schema: Mapped[dict[str, Any]] = mapped_column("schema", JSONB)
     requested_estimators: Mapped[list[str] | None] = mapped_column(ARRAY(Text))

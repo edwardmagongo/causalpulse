@@ -1,6 +1,6 @@
 """Lint the text real fits actually produce, not just the literals in source.
 
-Section 6.3's rule has to hold on the path a user sees. The source scan in
+The language rule has to hold on the path a user sees. The source scan in
 tests/core/test_language.py cannot see text assembled at run time from
 fragments, which is exactly how the validity rationale and the comparison
 verdict are built. This walks the objects instead.

@@ -2,7 +2,7 @@
 
 The band scores observable diagnostics. It is not a probability that the effect
 is causal, and no arrangement of clean diagnostics lifts an observational design
-to the top band -- that is the design-based ceiling of section 6.2, and it is
+to the top band -- that is the design-based ceiling, and it is
 the reason this function takes provenance as an argument rather than reading it
 off the estimator.
 

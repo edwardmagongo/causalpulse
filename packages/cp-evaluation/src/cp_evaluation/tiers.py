@@ -2,7 +2,7 @@
 
 The `ci` tier is small enough to gate every change and large enough that its
 bands mean something. Both halves are set by measurement rather than by
-estimate -- the parent spec's "approximately 2,000 fits" predates any of this
+estimate -- the original "approximately 2,000 fits" estimate predates any of this
 code, and the numbers in TOLERANCE_BANDS come from a real run whose date and
 values are recorded beside them.
 
@@ -128,7 +128,7 @@ from cp_evaluation.grid import (
 _ALL_DONOR_POOL_SCENARIOS: tuple[str, ...] = ("S0", "S1", "S2", "S3", "S4", "S5")
 
 # Every CATE scenario, sorted as `expand_cells` sorts them. NULL included: its
-# RMSE measures invented heterogeneity (design decision 3).
+# RMSE measures invented heterogeneity.
 _ALL_CATE_SCENARIOS: tuple[str, ...] = ("NOISY", "NULL", "RICH")
 
 
@@ -190,7 +190,7 @@ def ci_config() -> GridConfig:
 # and the band's width in MCSE units.
 #
 # Discriminating-power check (the reason two candidate bands below are
-# missing rather than present): the design document requires that a band be
+# missing rather than present): a band must be
 # narrow enough to fail. The reference defect is Task 9's `seeded_biased`
 # estimator, which adds a constant +0.25 to the point estimate regardless of
 # scale (`tests/evaluation/test_instrument.py`, `BIAS = 0.25`). Because that
@@ -469,11 +469,11 @@ def full_config() -> GridConfig:
     at `bootstrap_reps=1000`, run on demand rather than on every change.
 
     This grid was measured in this tree (2026-09-05/06), not copied from the
-    parent spec's own §5 proposal, because running that proposal exposed three
+    original proposal, because running that proposal exposed three
     problems in it:
 
     1. **`n_periods=6` is invalid for four of the seven panel scenarios.**
-       The spec proposes `periods in {6, 10}` uniformly. Probing each
+       The grid originally proposed `periods in {6, 10}` uniformly. Probing each
        scenario's registry found the minimum viable `n_periods` is 5 for P1,
        P2, and P6, but 7 for P3, P4, and P5, and 16 for P7. At
        `n_periods=6`, P3/P4/P5 raise `ValueError: adoption periods must each
@@ -497,13 +497,13 @@ def full_config() -> GridConfig:
        That is ~5,300s serial at this tier's 10 replications (~26,500s at
        `study_config()`'s 50), on top of the ~3.10-hour total documented below.
 
-    3. **The spec's 50 replications, n_units=(150, 500), and n_periods=(6, 10)
+    3. **The originally proposed 50 replications, n_units=(150, 500), and n_periods=(6, 10)
        do not fit inside a reasonable on-demand budget.** Measured per-fit
        cost at `bootstrap_reps=1000` in this tree: most estimators are
        sub-second to ~2s/fit, but `aipw` is 6.47s, `causal_forest` 2.01s,
        `twfe` 11.92s, `event_study` 12.32s, and `hierarchical_did` (a NUTS
        sampler) is 24.8s/fit at panel n_units=150 and 79.7s/fit at
-       n_units=500. Extrapolating the spec's proposed grid from these
+       n_units=500. Extrapolating the originally proposed grid from these
        per-fit numbers puts one full run at roughly 35 hours, about 30 of
        them from the panel arm alone. Two axes were reduced in response:
 
@@ -512,16 +512,14 @@ def full_config() -> GridConfig:
          24.8s/fit at n_units=150 -- more than tripling the panel arm's cost
          for one axis value, on top of already keeping P7 out of `PanelAxes` and moving to
          `n_periods=(7, 10)`.
-       - **Replications is 10, not the spec's 50.** This was chosen as the
+       - **Replications is 10, not the originally proposed 50.** This was chosen as the
          largest round number that kept the tier's runtime to a self-chosen
          few hours, not because a ceiling is owed to it -- see the "no
          runtime ceiling" paragraph below.
 
     **The four axes Phase 18 adds** (`treatment_intercept`, `noise_scale`,
     `effect_scale`, `heterogeneity_scale`) are set here at three measured
-    points each -- a low, a baseline, and a high value. See
-    `docs/specs/2026-09-13-causal-core-phase18-design.md` section 12 for the
-    full measurement record, including the values rejected along the way.
+    points each -- a low, a baseline, and a high value.
     One value was respaced after the first measurement pass: `noise_scale`'s
     high point is **1.3**, not the 1.0 first adopted. 0.9 and 1.0 move
     residual outcome variation by +0.011 and +0.012 respectively -- a gap
@@ -541,9 +539,8 @@ def full_config() -> GridConfig:
     floor exists to verify an axis is *wired*, and is measured against that
     test's own deliberately large `_PERTURBED_VALUE` of 3.0, not against any
     grid value; a 1.5pp effect on C is a legitimate thing for a benchmark to
-    probe, not a degenerate cell. The design doc's section 12 records why
-    0.5 shipped anyway and names the alternative considered (~0.3, which
-    would clear the floor for both C and F but was not taken).
+    probe, not a degenerate cell. 0.5 shipped anyway; the alternative considered
+    was ~0.3, which would clear the floor for both C and F but was not taken.
 
     Each axis is varied **one at a time** against the other three sitting at their
     `ScenarioParams` default (see `grid._expand_cross_section`), and only for
@@ -564,12 +561,9 @@ def full_config() -> GridConfig:
 
     Phase 18 itself shipped this as 42 to 84, because `confounding_strength`
     was then exempt from the declaration rule and all 7 scenarios were crossed
-    against all 3 of its values. A follow-up closed that exemption (design doc
-    section 12): A, B, C and F assign at random and never read the axis, so
-    each now contributes one baseline strength per `n_units` rather than
-    three, and both ends of the range drop by the same 16 cells. See section
-    12 for the full derivation and the per-axis headroom/degenerate-value
-    checks behind each chosen value.
+    against all 3 of its values. A follow-up closed that exemption: A, B, C and F assign at
+    random and never read the axis, so each now contributes one baseline
+    strength per `n_units` rather than three, and both ends of the range drop by the same 16 cells.
 
     `ci_config()` is untouched by either change: its own four new-axis fields
     stay at their single-valued `CrossSectionAxes` default, and its
@@ -641,8 +635,7 @@ def full_config() -> GridConfig:
     cells this widening adds were not re-run through this exact harness;
     their cost is the extrapolation described above, not a fresh
     measurement of this exact `FULL_ESTIMATORS`/`FULL_FIT_CONFIG`
-    combination -- see the design doc's section 12 for what was and was not
-    directly timed.
+    combination.
 
     Scenario H (missing outcomes) is included, unlike in `ci_config()`: its
     rows are all refusals, which contributes no fitted rows to any band but
@@ -709,9 +702,8 @@ def full_config() -> GridConfig:
     Extrapolated linearly in replications: ~444s at this tier's 10 and
     ~2,220s at `study_config()`'s 50. That is ~4.0% of `full`'s own
     documented ~3.10-hour total (~11,166s/10 replications, from this
-    docstring's own paragraph above), well under the one-third threshold the
-    design doc's section 12 sets for stopping to ask before committing to
-    this tier's cost.
+    docstring's own paragraph above), well under the one-third threshold set
+    for stopping to ask before committing to this tier's cost.
     """
     return GridConfig(
         cross_section=CrossSectionAxes(
@@ -735,12 +727,11 @@ def full_config() -> GridConfig:
     )
 
 
-# The replication count the benchmark study runs at. The parent design's own
-# number (section 8.1 of the causal core spec), and the smallest that gives the
+# The replication count the benchmark study runs at. The causal core's own
+# number, and the smallest that gives the
 # coverage table a pooled MCSE narrow enough to expose gross undercoverage: at
 # a coverage of 0.95 the binomial MCSE is 0.069 at 10 replications, 0.031 at 50
-# and 0.022 at 100 (`docs/specs/2026-09-21-benchmark-study-design.md` section
-# 1.2). `full` stays at 10; this is a separate tier, not a change to it.
+# and 0.022 at 100. `full` stays at 10; this is a separate tier, not a change to it.
 STUDY_REPLICATIONS = 50
 
 
@@ -762,8 +753,7 @@ def cate_study_config() -> GridConfig:
     cannot drift, and `tests/evaluation/test_study_tier.py` pins that its cells
     are exactly `study_config()`'s CATE cells. A cell's generator is derived
     from its identity, so a run of this tier measures byte-identical data to
-    the CATE part of a full study, at a fraction of the cost (design
-    `docs/specs/2026-09-30-cate-report-section-design.md` §4).
+    the CATE part of a full study, at a fraction of the cost.
     """
     return GridConfig(
         cross_section=None,
@@ -779,8 +769,7 @@ def p7_study_config() -> GridConfig:
     Reads the arm from `full_config()` rather than restating it;
     `tests/evaluation/test_study_tier.py` pins that its cells are exactly
     `study_config()`'s P7 cells, so a run of this tier measures the same data the
-    P7 part of a full study would (design
-    `docs/specs/2026-10-01-p7-benchmark-arm-design.md` section 5).
+    P7 part of a full study would.
     """
     return GridConfig(
         cross_section=None,

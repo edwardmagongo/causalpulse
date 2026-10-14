@@ -1,13 +1,12 @@
 """BSTS scored against measured donor-pool truth, at PRODUCTION_MCMC_CONFIG.
 
 Tolerances below are seeded from design-phase prototype measurements at 15
-seeds per scenario (design doc §2 item 7 / this plan's "Prototype findings"
-section), not the full DONOR_SEEDS=400 protocol test_donor_recovery.py uses
+seeds per scenario, not the full DONOR_SEEDS=400 protocol test_donor_recovery.py uses
 for SyntheticControl -- BSTS's MCMC fit costs against SC's milliseconds are
 not close: measured directly during Task 10, this file's 55 fits (three
 BSTS_RECOVERY_SEEDS=15 scenarios plus the 10-seed S5 check) took ~16 minutes
 total, i.e. ~17.5s/fit at PRODUCTION_MCMC_CONFIG -- an order of magnitude
-past the design doc's ~1.5-2s/fit prototype estimate. A full DONOR_SEEDS=400
+past the ~1.5-2s/fit prototype estimate. A full DONOR_SEEDS=400
 run is therefore several hours, not 10-15 minutes, and is deliberately left
 to this task's own execution rather than pre-computed during planning. Run
 this file's tests once implemented, replace the tolerances and this comment
@@ -109,11 +108,10 @@ def test_bsts_recovers_truth_and_concentrates_donor_weight_under_divergent_pretr
     assert abs(bias) < 0.6, f"S2 BSTS bias {bias:+.4f} -- S2 stopped being recoverable"
     assert coverage >= 0.6, f"S2 BSTS coverage {coverage:.2f}"
 
-    # Design doc's single-seed prototype (seed 0): cluster A (matching, donor
+    # Single-seed prototype (seed 0): cluster A (matching, donor
     # indices 0-7) mean |coef| = 0.088 vs cluster B (mismatched, indices 8-16)
-    # mean |coef| = 0.057, a ~1.5x ratio -- "real but not dramatic" (design
-    # doc §2 item 7). This asserts the horseshoe prior is actually
-    # concentrating posterior mass on the matching cluster on average across
+    # mean |coef| = 0.057, a ~1.5x ratio -- "real but not dramatic". This asserts the horseshoe
+    # prior is actually concentrating posterior mass on the matching cluster on average across
     # BSTS_RECOVERY_SEEDS seeds, not just at that one prototype seed. The
     # bound is set well below the prototype's 1.5x to leave headroom for real
     # seed-to-seed variance in a 15-seed mean, while still being comfortably

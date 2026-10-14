@@ -1,6 +1,6 @@
 """Named panel scenario presets.
 
-A registry distinct from the cross-sectional `SCENARIOS`: the parent spec's A-J
+A registry distinct from the cross-sectional `SCENARIOS`: the A-J
 letters describe one cross-sectional component grid, and panel scenarios are
 not points on it.
 
@@ -33,7 +33,7 @@ from cp_simulation.panel_components import (
 from cp_simulation.panel_dgp import PanelDGP
 
 # The protocol every panel recovery measurement in this repository runs at.
-# Fixed here rather than chosen per test: design section 4.4 measured every
+# Fixed here rather than chosen per test: every
 # tolerance at these values, and a test that quietly uses fewer units or seeds
 # is measuring something else. At 200 units and 30 seeds the P1 bias reads
 # +0.029, which looks like a real bias and is not.

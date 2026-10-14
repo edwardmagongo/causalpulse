@@ -2,7 +2,7 @@
 
 A CATE cell's estimator reports one effect per unit; the result frame holds one
 row per fit. The reduction happens here, once per fitted row, so the frame,
-the store and every reader stay scalar (design section 2, approach A).
+the store and every reader stay scalar.
 
 The truth is always the response and never the regressor: the calibration slope
 is the OLS slope of the true CATE on the estimated one. Regressing the other way

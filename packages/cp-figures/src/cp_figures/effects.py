@@ -85,9 +85,9 @@ def draw_forest_plot(data: ForestPlotData, ax: Axes) -> Axes:
     distinguishes an analytic Wald interval from a bootstrap or permutation
     one. A cross-method forest plot is exactly where a reader compares
     intervals across rows, and an analytic and a permutation interval are no
-    more interchangeable than an ATE and an ATT. Design section 6 states
-    both must be shown per row; omitting the basis would render half the
-    provenance and drop the other half silently.
+    more interchangeable than an ATE and an ATT. Both must be shown per row;
+    omitting the basis would render half the provenance and drop the other
+    half silently.
     """
     y = np.arange(len(data.methods))
     points = np.asarray(data.points)

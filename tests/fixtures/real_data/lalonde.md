@@ -38,7 +38,7 @@ against 0.712). CPS-1 is a general population sample; NSW enrolled the long-term
 **Known limitations**:
 
 - This project uses only the CPS-1 comparison group, not the PSID variants — narrower than the
-  parent design doc's "PSID, CPS" phrasing, and a deliberate scoping choice. CPS-1 alone exercises
+  original "PSID, CPS" phrasing, and a deliberate scoping choice. CPS-1 alone exercises
   the same selection-bias problem, and adding PSID would not test anything qualitatively different.
 - `re74` and `re75` are **not** uniformly zero in the NSW sample, contrary to a common
   simplification about the experiment's eligibility criteria. Measured here: `re74` is zero for

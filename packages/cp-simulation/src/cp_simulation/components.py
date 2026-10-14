@@ -16,7 +16,7 @@ from cp_core.dataset import AssignmentProvenance
 from scipy.special import expit, logit
 
 # Baselines are held away from 0 and 1 so that clipping p0 + tau at the unit
-# interval cannot distort a scenario's declared effect. See spec section 4.3.
+# interval cannot distort a scenario's declared effect.
 MIN_BASELINE_PROBABILITY = 0.05
 MAX_BASELINE_PROBABILITY = 0.85
 
@@ -60,7 +60,7 @@ class LogisticBaseline:
     those same covariates drive assignment elsewhere in the DGP, so scaling
     them would move confounding bias at the same time as signal-to-noise,
     which is exactly the non-orthogonal axis the benchmark's one-at-a-time
-    grid cannot tolerate (spec section 4.2). It defaults to 0.0, reproducing
+    grid cannot tolerate. It defaults to 0.0, reproducing
     the pre-noise behaviour exactly.
 
     `rng` is drawn from only when `noise_scale != 0.0`. The generator is
