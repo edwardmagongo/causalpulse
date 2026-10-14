@@ -73,6 +73,16 @@ def test_a_negative_infinity_is_refused_too(column):
     assert f"columns ['{column}'] contain" in str(refusal.value)
 
 
+def test_an_infinite_imaginary_part_is_refused():
+    # Read as float, a complex column would lose its imaginary part, and the
+    # infinity in it, with only a warning. Built from an array: a list of
+    # Python complex numbers is turned by pandas into a gap here.
+    changed = frame()
+    changed["x1"] = np.array([complex(1, np.inf)] + [1 + 0j] * 7)
+    with pytest.raises(ValueError, match=r"columns \['x1'\] contain infinite values"):
+        CausalDataset(frame=changed, schema=SCHEMA)
+
+
 def test_every_offending_column_is_named_once_and_sorted():
     # `x2` is declared before `period` (covariates come before time), so the
     # order asserted here is the sorted one and not the schema's.

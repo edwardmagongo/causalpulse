@@ -267,8 +267,10 @@ def test_a_time_column_that_is_not_integer_or_float_is_refused(make, dtype):
         lambda p: p.astype("float32"),
         lambda p: p.astype("Int64"),
         lambda p: p.astype("uint8"),
+        lambda p: p.astype("float16"),
+        lambda p: p.astype("Float64"),
     ],
-    ids=["int64", "float64", "float32", "nullable Int64", "uint8"],
+    ids=["int64", "float64", "float32", "nullable Int64", "uint8", "float16", "nullable Float64"],
 )
 def test_an_integer_or_float_time_column_constructs(make):
     CausalDataset(frame=with_time_column(make(frame()["period"])), schema=NO_COHORT)
