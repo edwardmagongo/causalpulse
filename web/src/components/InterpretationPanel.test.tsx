@@ -64,8 +64,8 @@ describe("InterpretationPanel", () => {
   });
 
   it("shows the API's reason when this analysis cannot be interpreted", () => {
-    panel({ interpretableReason: "Only an analysis that has finished can be interpreted." });
-    expect(screen.getByText("Only an analysis that has finished can be interpreted.")).toBeTruthy();
+    panel({ interpretableReason: "Only an analysis that has succeeded can be interpreted." });
+    expect(screen.getByText("Only an analysis that has succeeded can be interpreted.")).toBeTruthy();
     expect(screen.queryByRole("button")).toBeNull();
   });
 
@@ -97,11 +97,11 @@ describe("InterpretationPanel", () => {
 
   it("says a refused one is not shown, with its attempts and reason, and offers no retry", () => {
     panel({
-      interpretation: { ...BASE, status: "refused", attempts: 2, reason: "The last attempt broke 1 rule(s): bare_value." },
+      interpretation: { ...BASE, status: "refused", attempts: 2, reason: "The last attempt was refused because it wrote a number in its own words instead of citing it." },
       interpretable: true,
     });
     expect(screen.getByText(/could not be verified against this analysis's facts, so it is not shown/)).toBeTruthy();
-    expect(screen.getByText("Attempts: 2. The last attempt broke 1 rule(s): bare_value.")).toBeTruthy();
+    expect(screen.getByText("Attempts: 2. The last attempt was refused because it wrote a number in its own words instead of citing it.")).toBeTruthy();
     expect(screen.queryByRole("button")).toBeNull();
   });
 

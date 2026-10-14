@@ -15,7 +15,7 @@ from cp_api.app import (
     BEING_WRITTEN,
     INTERPRETATIONS_OFF,
     NO_FACTS,
-    NOT_FINISHED,
+    NOT_SUCCEEDED,
     WORKER_LOST,
     create_app,
 )
@@ -32,6 +32,13 @@ from worker.narratives import ScriptedReplies, narrative_for
 
 pytestmark = pytest.mark.services
 PAIR = ["difference_in_means", "lin_regression"]
+
+
+@pytest.fixture(autouse=True)
+def interpreting(monkeypatch):
+    """The worker writes interpretations only with `CP_INTERPRETATION=on`; each app here says
+    for itself whether the API accepts them."""
+    monkeypatch.setenv("CP_INTERPRETATION", "on")
 
 
 @pytest.fixture
@@ -135,9 +142,9 @@ def test_an_analysis_that_has_not_finished_is_409(make_client):
 
     asked = _ask(client, analysis_id)
 
-    assert (asked.status_code, asked.json()["detail"]) == (409, NOT_FINISHED)
+    assert (asked.status_code, asked.json()["detail"]) == (409, NOT_SUCCEEDED)
     detail = client.get(f"/v1/analyses/{analysis_id}").json()
-    assert (detail["interpretable"], detail["interpretable_reason"]) == (False, NOT_FINISHED)
+    assert (detail["interpretable"], detail["interpretable_reason"]) == (False, NOT_SUCCEEDED)
 
 
 def test_an_analysis_without_a_fact_table_is_409(make_client, redis_conn, sessions):
@@ -191,7 +198,10 @@ def test_a_refused_interpretation_is_final_and_its_narrative_is_not_served(
 
     assert got["status"] == "refused"
     assert got["attempts"] == 2
-    assert got["reason"] == "The last attempt broke 1 rule(s): bare_value."
+    assert got["reason"] == (
+        "The last attempt was refused because it wrote a number in its own words instead of "
+        "citing it."
+    )
     assert (got["sections"], got["limits"], got["notice"]) == (None, None, None)
     assert (again.status_code, again.json()["detail"]) == (409, ALREADY_REFUSED)
 

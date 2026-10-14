@@ -1822,8 +1822,10 @@ the SDK's transport. `make check-llm` runs those two against the real API: this 
 ### On the server and in the dashboard (phase 3)
 
 A server can offer the same interpretation for an analysis run through the API. It is off unless
-`CP_INTERPRETATION=on` is set for both the API and the worker. When it is on, the worker also needs
-`ANTHROPIC_API_KEY`, and refuses to start without it. The API never reads the key.
+`CP_INTERPRETATION=on` is set for both the API and the worker. A worker with it off fails any
+interpretation it is handed, without a model call, even if the API accepted the request. When it is
+on, the worker also needs `ANTHROPIC_API_KEY`, and refuses to start without it. The API never reads
+the key.
 
 - **The fact table is stored when the analysis runs.** The worker writes it beside the outcome. This
   calls no model and costs nothing. If the extractor cannot build it, the analysis still succeeds,
@@ -2284,7 +2286,7 @@ secrets; `.env` itself is ignored by git.
 | `POSTGRES_PASSWORD` | The database's password, placed in `DATABASE_URL` as it is, so letters and digits only. Required. |
 | `CP_SESSION_SECRET` | What the dashboard seals its session cookie with, at least 32 characters. Required. |
 | `CP_LIMIT_SIGNIN_FAILURES`, `CP_LIMIT_UPLOADS_PER_DAY`, `CP_LIMIT_ANALYSES_PER_DAY`, `CP_LIMIT_ANALYSES_ACTIVE`, `CP_LIMIT_INTERPRETATIONS_PER_DAY` | The rate limits, below. Optional. `CP_LIMIT_INTERPRETATIONS_PER_DAY` is per user and defaults to 5 in the production file. |
-| `CP_INTERPRETATION` | `on`, exactly, turns model-written interpretations on; anything else, or nothing, leaves them off. The API and the worker both read it and must agree; the production compose file feeds both from this one setting. Optional. |
+| `CP_INTERPRETATION` | `on`, exactly, turns model-written interpretations on; anything else, or nothing, leaves them off. The API and the worker both read it; a worker with it off fails an interpretation it is handed without calling the model. The production compose file feeds both from this one setting. Optional. |
 | `ANTHROPIC_API_KEY` | The model's key. Read by the worker only, never by the API. Required when `CP_INTERPRETATION=on`. |
 | `CP_HTTP_PORT`, `CP_HTTPS_PORT` | The host ports the proxy listens on. Empty on a server (80 and 443); `make smoke-prod` sets them. |
 
