@@ -1,0 +1,902 @@
+[
+ {
+  "statement_id": "13b5afd8faad7102b00f",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "c164010cc29063754c43",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "95fb698361bacc7e9226",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "f073e727309dfa3c446a",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "2804d168fb166d3701e6",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "61ec12e72030a63ffa91",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "7f5afc8138f4735c5259",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "995b7b38685208c36810",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "ce8b21400735792e25a8",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "590399d3995345292f69",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "38bf6da62c5033967e30",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "e4a1da615764a4135271",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "35b96bb0d9e1387aa9d4",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "ee9e5ff5fee3e2e739e7",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "cf0728e81a6ddf938e68",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "af8d3f6e36af7d38c7e4",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "0c42b4eac77ea9511dc8",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "c3ec7797251872510ad3",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "1e5c55bff142680befb9",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "53f9aba0f640af695be0",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "3b58833e37a8901ab885",
+  "verdict": "misreading",
+  "category": "J6",
+  "note": "Quotes estimate of INSUFFICIENT method without caveat."
+ },
+ {
+  "statement_id": "fa30cba61a33b7f2ed41",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "a1a7b29bb7af20058035",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "ed7d1a2cb74332ab6ddf",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "3d0b8cf9543d13b40dc2",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "5e56d200b856c408a015",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "f5775b35fbda3bff9521",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "3fcdff1d9517f4873e03",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "df7e89c763c4ad4b9b5f",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "ebc97e0f103ec48ee193",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "726956043f92cc066e35",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "2ac3592d00aff17a8c8e",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "bf42561ef6635b29b82a",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "5146604a5e09f1a905d1",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "2f2105ffa86549f619df",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "c3b37a6585b956578858",
+  "verdict": "misreading",
+  "category": "J1",
+  "note": "The interval crosses zero, so it does not support evidence of an effect, even conditional on the method's assumptions."
+ },
+ {
+  "statement_id": "4a49ce0b9c3977ec6e99",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "acb5be5e853e5841999c",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "43dcfe1f2d6e50c72f7f",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "4a9b44af40c2501d0d0d",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "cae06d193c96d4bf29f3",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "1c5fcca5c370af919360",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "80bd082b316b95b5d59c",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "3b7b01cdc95e0cfba3d3",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "7decf3c335ab08ff1b63",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "2c8efaa6124030e9fc73",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "1b5321dbdd7b445f6355",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "63653867b24ccde391b5",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "991dc98d19b7ba93f495",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "61673e8baff0c7fa09f9",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "6100a00c8ae2f4c3467d",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "b9d9033ffcfd0747f54a",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "bbe071b8b262da23fe5f",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "9ec825e3eb440bb21df7",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "11f353135bfa704d122e",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "2d263114f5d7e8a9bc52",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "1e0856fd1250cb59e5d4",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "a325836d06fa22635245",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "2c5d135af8e5f6a22a48",
+  "verdict": "misreading",
+  "category": "J6",
+  "note": "Quotes estimate of INSUFFICIENT method without caveat."
+ },
+ {
+  "statement_id": "c2c8c583cb353a6b28c6",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "69c5463b04cc61330851",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "711bc4f3807985e7743b",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "01ebd279a237b1a66e46",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "c7b12107b636e2468512",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "2ae8188087c4a3204423",
+  "verdict": "misreading",
+  "category": "J6",
+  "note": "The blanket claim is too broad: lin_regression also has a MODERATE band, equal to difference_in_means, rather than a lower band."
+ },
+ {
+  "statement_id": "19bf2bf32f2623c9079e",
+  "verdict": "misreading",
+  "category": "J1",
+  "note": "The interval crosses zero, so it does not support evidence of an effect even if parallel trends and no anticipation hold."
+ },
+ {
+  "statement_id": "4ea65e24324154c75858",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "6d2526630a0de8f192e2",
+  "verdict": "misreading",
+  "category": "J6",
+  "note": "The claim is too broad: lin_regression has a MODERATE band under a MODERATE ceiling, so not every adjusted method has a lower band than its ceiling."
+ },
+ {
+  "statement_id": "8116717d7131acceedb8",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "7817fc083461c1134915",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "41526048d59e3ed5a448",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "8fe924cecb46047fc91f",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "e0dba3829e16bbb1e9e0",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "8dd5cee28ee98de02f33",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "49c6d7e2c8e538e7618b",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "05e1e50ec0eb6537af0b",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "041aad710adda4af2418",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "ffa1c956294b56062280",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "8b51c6f71606602e1d62",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "1e4fbac5c7e2be1ff91d",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "4179a970500526ec0c50",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "6c496712cdbeb3e0198e",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "8f959070cde7e3ec9f73",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "424f2182cd4b2d80861a",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "adb8ccca0d23bc38f175",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "93e44aac077e968cb9ca",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "2a891c2fd5e8c562eab9",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "9c3366ec5fb50623c9c6",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "983d2874e47c43c18484",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "842ccae39fa04f7750e6",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "49e568910be0d984aad2",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "f8742ede074f61a847a5",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "165fc063527dfc4b1c1a",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "482577ce82a09f881657",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "d6b205e00efa0ffcd50e",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "75018d7c8dfa4a8901fb",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "ca3e817ebe8dadcb39fd",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "0e8c29d9dcd36618097c",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "40566683333a302bba49",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "df361372e8bcdbcf7469",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "41af8d50fe23ef6bfd53",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "5b855307ef6afd6c44fb",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "15f0554cf621ea8e9e0c",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "8b1039ae9a29383ddd86",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "bed892ccbb23272443ba",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "17bc4d97c72297127761",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "5158aed80e29f9db519f",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "e2619b8cbbac58b6d237",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "ed1eb9df1596153b562a",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "ff857177d9f5467f5ddb",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "7ada6e45fdffd46c7bd7",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "65799c52c670eef60b99",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "e13236a68aaf1341c62b",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "cecad25898b886864bca",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "458ba1291445dd9afe04",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "cdef75f75887c7166a9f",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "524cdfed98a05c370a67",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "ce0f137008782ee35f48",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "f725807a527843b61c3b",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "b476a18260c8faa39682",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "b0c1d39f4123c2cf24cc",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "44a7d0b0b8e709a3dfdc",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "067b06490a414094d678",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "bce612e3bac072bc433f",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "5396bcd46af9f21f129a",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "ee5cbba219dd80199bb9",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "32502dacb40f4bd9fd84",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "439ede9b29b497a58aaf",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "1be1d3f6a5a9e79115bf",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "efe61e91d57daf900bec",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "414f60654ca2133866d1",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "4862992117ccb8006781",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "0f6a91b1c2bf3405a32e",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "c2cbb61f5e7043175aa7",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "f20dcf93206f872b2609",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "5524d9246449700f6709",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "82787ca1647b5b9e6b17",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "2dfc96aeadfd538ae4f8",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "0af8ef2fedf3054d09be",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "a4301f83508b9fa00a30",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "3d15fb1281a0ebcbda92",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "9b92164337d9c7c38eb3",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "615dc980b1fbb2bcebe0",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "0425942e2a881ae72ac1",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "76395861f5443bc699c9",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "fcf0bcf5dfe131c4049b",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "115bed682eecd979d044",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "8c1391f3f28e88c9fffd",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "665bd5378256294a7fbe",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ },
+ {
+  "statement_id": "48de7f21759295227bbe",
+  "verdict": "ok",
+  "category": "",
+  "note": ""
+ }
+]
