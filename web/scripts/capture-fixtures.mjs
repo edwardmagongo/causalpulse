@@ -6,9 +6,8 @@
 // agree with a component tests the one case that cannot fail. Run this again
 // whenever a response model changes, and commit what it writes.
 //
-// Record against a freshly created user: the list fixture, and the test that
-// reads it, assume the four analyses this script makes and no other, newest
-// first. Needs Node 20 or later (`Array.prototype.with`).
+// Record against a freshly created user. This script makes three analyses and
+// does not write the list fixture (analyses.json), which is kept as recorded.
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -92,10 +91,12 @@ await save("refused.analysis.json", await analyse(lalonde.id, LALONDE, ["twfe"])
 // The partial analysis is not recorded any more. It was made from LaLonde with
 // one covariate of 1e200, which made lin_regression fail while difference in
 // means succeeded; since 2026-10-14 a value above 1e150 is refused when the
-// dataset is built, and no ordinary upload makes one estimator fail while
-// another succeeds. partial.analysis.json and partial.summary.json, and
-// analyses.json (whose list holds the partial row), are kept as they were
-// recorded before that change, and are not written here.
+// dataset is built. A partial analysis is still possible from other data (an
+// event study on a panel with one outcome of 1e10 fails while did_2x2 and
+// twfe succeed), but this script does not record one. partial.analysis.json
+// and partial.summary.json, and analyses.json (whose list holds the partial
+// row), are kept as they were recorded before that change, and are not
+// written here.
 
 await save("estimators.json", await get("/v1/estimators"));
 await save("lalonde.dataset.json", await get(`/v1/datasets/${lalonde.id}`));

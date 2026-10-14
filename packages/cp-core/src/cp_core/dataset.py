@@ -15,7 +15,9 @@ import pandas as pd
 # 1.8e308, and a variance or a sum of squares adds n squares of the data: at
 # 1e150 a square is 1e300, so up to about 1e8 rows stay finite. Measured on
 # LaLonde on 2026-10-14, every estimator computed a finite result with one
-# value at 1e150 and failed at 1e155 with a library's message naming no column.
+# value at 1e150. At 1e155 in the outcome all four cross-sectional estimators
+# failed, and in a covariate `aipw` did, each with a library's message naming
+# no column.
 MAGNITUDE_BOUND = 1e150
 
 OutcomeType = Literal["binary", "continuous"]

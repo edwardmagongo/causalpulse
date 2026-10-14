@@ -119,7 +119,8 @@ def lalonde_with_earnings_times(factor: float) -> CausalDataset:
 
 def test_earnings_in_cents_give_lin_regression_the_same_answer_as_in_dollars():
     # Measured before the fix: [-9,360.08, 2,167.04] in dollars and
-    # [-4,479.58, -2,713.45] in cents, an interval that excluded zero.
+    # [-4,423.35, -2,769.68] with re74 and re75 in cents, an interval that
+    # excluded zero.
     estimator = LinRegressionAdjustment()
     dollars = estimator.fit(lalonde_with_earnings_times(1.0), EstimatorConfig())
     cents = estimator.fit(lalonde_with_earnings_times(100.0), EstimatorConfig())

@@ -29,7 +29,9 @@ class OLSFit:
     xtx_inv: np.ndarray
     leverage: np.ndarray
     X: np.ndarray
+    # Each column's largest absolute value (1 for a column of zeros), the divisor of the fit.
     scale: np.ndarray
+    # The inverse of X'X for the scaled design; `xtx_inv` is this in the original units.
     scaled_xtx_inv: np.ndarray
 
     @property
@@ -45,7 +47,8 @@ def ols_fit(X: np.ndarray, y: np.ndarray) -> OLSFit:
     """Fit OLS via least squares, retaining the quantities sandwiches need.
 
     Each column is scaled to a largest absolute value of 1 for the fit; every
-    field of the result is in the original units.
+    field of the result is in the original units except `scale` and
+    `scaled_xtx_inv`, which describe the scaled design.
 
     Both linear-algebra calls go through `cp_statistics.linalg_safety`'s safe
     wrappers rather than calling `np.linalg.lstsq`/`np.linalg.pinv` directly --
@@ -65,7 +68,7 @@ def ols_fit(X: np.ndarray, y: np.ndarray) -> OLSFit:
     # Each column divided by its largest absolute value, so that the fit does
     # not depend on the units a column is in. `pinv` cuts singular values
     # below 1e-15 of the largest, and `X'X` squares the spread of the columns'
-    # scales: measured on LaLonde, earnings in cents instead of dollars gave
+    # scales: measured on LaLonde, 1975 earnings (re75) in cents instead of dollars gave
     # `lin_regression` an interval of [-4,480, -2,713] for [-9,360, 2,167].
     # The largest absolute value, not the Euclidean norm, because the norm
     # squares the values and overflows for exactly the large columns this is

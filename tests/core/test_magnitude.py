@@ -2,9 +2,9 @@
 
 Float64 holds up to about 1.8e308, and a variance or a sum of squares adds n
 squares of the data. At 1e150 a square is 1e300, so up to about 1e8 rows stay
-finite; above it, every estimator failed with a library's own message naming
-no column (measured 2026-10-14: at 1e155 in LaLonde's outcome, all four
-cross-sectional estimators).
+finite; above it the estimators failed with a library's own message naming
+no column (measured 2026-10-14: at 1e155 in LaLonde's outcome all four
+cross-sectional estimators failed; in a covariate, `aipw` did).
 """
 
 import numpy as np

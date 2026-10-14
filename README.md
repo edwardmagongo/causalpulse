@@ -1285,10 +1285,11 @@ column:
   numeric dtype. The unit may be text.
 - **An infinite value**, `inf` or `-inf`, in any of those columns or in a numeric unit or time
   column. Text such as `1e400`, which pandas reads as infinite, is refused the same way.
-- **A value larger than 1e150 in magnitude** in any of those columns except the treatment (the
-  unit and the time column have their own rules). A variance adds n squares of the data, and at
-  1e150 a square is 1e300, so up to about 1e8 rows stay finite in float64; above it every
-  estimator failed with a library's own message naming no column.
+- **A value larger than 1e150 in magnitude** in any of those columns except the unit, the treatment
+  and the time column, which have their own rules. A variance adds n squares of the data, and at
+  1e150 a square is 1e300, so up to about 1e8 rows stay finite in float64; above it the estimators
+  failed with a library's own message naming no column (with one value at 1e155 in LaLonde's
+  outcome all four cross-sectional estimators failed; in a covariate `aipw` did).
 - **A numeric period that is not a whole number, or is larger than 2**53.** Periods are used as
   integers. A time column may hold dates and the dataset is built, but a panel estimator needs
   numbered periods and says so.
@@ -1312,13 +1313,14 @@ infinite period in Prop 99 was **fitted**. LaLonde with a comma ending every lin
 every column shifted by one. Prop 99 with a state renamed `NA` crashed while it was being routed.
 Prop 99 with each year moved by half a period gave a cohort that is not in the data.
 
-The answers do not depend on the units a column is in (2026-10-14,
+The answers of least squares, `lin_regression`, `aipw` and the causal forest do not depend on the
+units a column is in (2026-10-14,
 `docs/specs/2026-10-14-scale-invariance-and-magnitude-bound-design.md`). Before, `lin_regression`
-on LaLonde with earnings in cents instead of dollars gave an interval of [-4,480, -2,713] for
+on LaLonde with 1975 earnings (re75) in cents instead of dollars gave an interval of [-4,480, -2,713] for
 [-9,360, 2,167]: the shared least squares cut small directions once one column dwarfed the others,
 and the `aipw` and causal forest outcome models did the same. A value that is large but under the
 bound is the user's own data: one LaLonde covariate cell of 1e39 still moves `aipw`'s estimate to
-about -1e35, because its outcome model extrapolates to that unit, and nothing here flags an
+about -9.5e35, because its outcome model extrapolates to that unit, and nothing here flags an
 outlier. An integer above 2**53 in an outcome or covariate is rounded when it is converted, by
 about one part in 1e16 (`docs/specs/2026-10-06-input-followups-design.md`, section 10).
 
