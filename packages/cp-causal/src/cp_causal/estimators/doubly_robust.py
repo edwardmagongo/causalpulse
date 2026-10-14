@@ -16,6 +16,8 @@ from cp_core.dataset import CausalDataset
 from cp_core.results import CounterfactualPoint, EffectEstimate, FitMetadata
 from cp_core.values import Diagnostic, EstimatorConfig
 from sklearn.linear_model import LinearRegression
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
 
 from cp_causal._support import (
     arrays,
@@ -118,6 +120,9 @@ def _cross_fitted_outcome_models(
     the other folds only, so the outcome model never sees the unit it
     predicts for — the same cross-fitting discipline `fit_propensity` already
     applies to the propensity model.
+    Both arms' models standardise the covariates on the rows they are fitted to, as the
+    propensity model does, so the predictions do not depend on the units a covariate
+    is in.
     """
     n = treatment.size
     order = rng.permutation(n)
@@ -135,12 +140,12 @@ def _cross_fitted_outcome_models(
                 "reduce folds or supply more data"
             )
         mu_treated[held_out] = (
-            LinearRegression()
+            make_pipeline(StandardScaler(), LinearRegression())
             .fit(covariates[train_treated], outcome[train_treated])
             .predict(covariates[held_out])
         )
         mu_control[held_out] = (
-            LinearRegression()
+            make_pipeline(StandardScaler(), LinearRegression())
             .fit(covariates[train_control], outcome[train_control])
             .predict(covariates[held_out])
         )

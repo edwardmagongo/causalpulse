@@ -1,9 +1,12 @@
+from pathlib import Path
+
 import numpy as np
+import pandas as pd
 import pytest
 from cp_causal.estimators.doubly_robust import AugmentedIPW
 from cp_causal.estimators.weighting import InverseProbabilityWeighting
 from cp_causal.propensity import POSITIVITY_THRESHOLD
-from cp_core.dataset import CausalDataset, CausalSchema
+from cp_core.dataset import CausalDataset, CausalSchema, schema_from_dict
 from cp_core.values import EstimatorConfig
 from cp_simulation.scenarios import build_scenario
 
@@ -244,3 +247,30 @@ def test_aipw_refuses_an_unusable_trim(bad):
     ).dataset
     with pytest.raises((ValueError, TypeError), match="trim"):
         AugmentedIPW().fit(dataset, config(bootstrap_reps=25, options={"trim": bad}))
+
+
+REAL_DATA = Path(__file__).parents[1] / "fixtures" / "real_data"
+LALONDE_SCHEMA = {
+    "unit": "unit_id",
+    "treatment": "treat",
+    "outcome": "re78",
+    "covariates": ["age", "educ", "black", "hisp", "marr", "nodegree", "re74", "re75"],
+    "outcome_type": "continuous",
+}
+
+
+@pytest.mark.slow
+def test_aipw_on_lalonde_does_not_depend_on_the_units_of_earnings():
+    # Measured before the fix: -3,682.62 [-4,325.22, -3,040.02] as given and
+    # -5,961.60 [-6,586.43, -5,336.76] with re75 multiplied by a million.
+    frame = pd.read_csv(REAL_DATA / "lalonde.csv")
+    schema = schema_from_dict(LALONDE_SCHEMA)
+    given = AugmentedIPW().fit(CausalDataset(frame=frame, schema=schema), EstimatorConfig())
+    rescaled = AugmentedIPW().fit(
+        CausalDataset(frame=frame.assign(re75=frame["re75"] * 1e6), schema=schema),
+        EstimatorConfig(),
+    )
+
+    assert rescaled.point == pytest.approx(given.point, rel=1e-6)
+    assert rescaled.ci.lower == pytest.approx(given.ci.lower, rel=1e-6)
+    assert rescaled.ci.upper == pytest.approx(given.ci.upper, rel=1e-6)
