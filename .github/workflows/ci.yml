@@ -7,7 +7,7 @@ name: CI
 #
 # Two more gates have workflows of their own, because a workflow can be
 # limited to the paths a change touches and a job cannot. The fast Python
-# suite is half an hour (`fast.yml`) and runs on a pull request only when
+# suite (`fast.yml`, four shards at once) runs on a pull request only when
 # something it tests has changed. `make check-infra` (`infra.yml`) runs only
 # when the change touches the Terraform, the deploy files, a workflow or one
 # of the few other files that gate reads.

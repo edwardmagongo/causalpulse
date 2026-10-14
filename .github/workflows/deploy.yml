@@ -178,8 +178,8 @@ jobs:
       # same commit, does not count.
       #
       # `ci.yml` runs on every push to `main`: it must have a run, and one
-      # that succeeded. `fast.yml` runs on every push to `main` too, and takes
-      # half an hour or more. `infra.yml` runs only for a push that touches what
+      # that succeeded. `fast.yml` runs on every push to `main` too, as four
+      # shards that take a while. `infra.yml` runs only for a push that touches what
       # it checks. For those two, a run that is there must have succeeded,
       # and when there is none that is said and the deploy goes on. A run
       # still in progress has not succeeded. Nor has one that was waiting on
