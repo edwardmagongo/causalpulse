@@ -12,7 +12,7 @@ import contextlib
 import hashlib
 import os
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterable
 from datetime import datetime, timedelta
 from typing import Annotated, Any
 
@@ -95,7 +95,7 @@ INTERPRETATION_MODEL = "claude-opus-5-5"
 INTERPRETATION_EFFORT = "medium"
 # What `POST /v1/analyses/{id}/interpretation` answers when it cannot accept.
 INTERPRETATIONS_OFF = "Interpretation is not enabled on this server."
-NOT_FINISHED = "Only an analysis that has finished can be interpreted."
+NOT_SUCCEEDED = "Only an analysis that has succeeded can be interpreted."
 NO_FACTS = (
     "This analysis has no fact table, so it cannot be interpreted: it was run before "
     "interpretations were available, or its results could not be put into one. Run it "
@@ -104,6 +104,39 @@ NO_FACTS = (
 BEING_WRITTEN = "An interpretation of this analysis is already being written."
 ALREADY_VERIFIED = "This analysis already has an interpretation."
 ALREADY_REFUSED = "This analysis already has an interpretation that could not be verified."
+# Each verifier rule in plain words, in the verifier's own order, for the
+# reason a refused interpretation gives. `cp_llm.verify` names the rules; the
+# API may not import it, so a test checks the two lists agree.
+RULE_DESCRIPTIONS: dict[str, str] = {
+    "resolves": "cited a fact the analysis does not have, or wrote a stray brace",
+    "bare_value": "wrote a number in its own words instead of citing it",
+    "vocabulary": (
+        "stated a band, a check status, an agreement, a direction, significance, a zero result "
+        "or eligibility in its own words instead of citing it"
+    ),
+    "attribution": "cited a method's result without naming the method",
+    "bare_point": "gave an estimate without its interval",
+    "insufficient_caveat": "quoted an estimate rated INSUFFICIENT without saying so",
+    "language": "used causal wording the system does not allow",
+    "delimiters": "ran a cited value into the words or signs around it",
+    "one_line": "broke a statement across lines or used a hidden character",
+    "completeness": (
+        "left out a result it must report: an estimate, a band, a comparison, a fit failure, "
+        "or a failed or warned check"
+    ),
+}
+
+
+def refusal_reason(rules: Iterable[str]) -> str:
+    """Why a refused interpretation was refused, from the rules its last attempt broke."""
+    broken = set(rules)
+    known = [rule for rule in RULE_DESCRIPTIONS if rule in broken]
+    unknown = sorted(broken - set(RULE_DESCRIPTIONS))
+    parts = [RULE_DESCRIPTIONS[rule] for rule in known]
+    parts += [f"broke the verifier's rule {rule}" for rule in unknown]
+    return f"The last attempt was refused because it {'; and it '.join(parts)}."
+
+
 INTERPRETATION_QUEUE_DOWN = (
     "the job queue could not be reached, so the interpretation could not be confirmed as "
     "queued; ask for it again"
@@ -146,9 +179,7 @@ def _interpretation_out(row: Interpretation) -> dict[str, Any]:
     """The row as `models.InterpretationDetail`: each field only for its status."""
     rendered = row.rendered if row.status == "verified" else None
     attempts = row.attempts or []
-    rules = sorted(
-        {violation["rule"] for violation in (attempts[-1]["violations"] if attempts else [])}
-    )
+    rules = {violation["rule"] for violation in (attempts[-1]["violations"] if attempts else [])}
     return {
         "status": row.status,
         "model": row.model,
@@ -162,7 +193,7 @@ def _interpretation_out(row: Interpretation) -> dict[str, Any]:
         "notice": row.notice if row.status == "verified" else None,
         "attempts": len(attempts) if row.status == "refused" else None,
         "reason": (
-            f"The last attempt broke {len(rules)} rule(s): {', '.join(rules)}."
+            refusal_reason(rules)
             if row.status == "refused" and rules
             else None
         ),
@@ -423,7 +454,7 @@ def create_app(
     def _uninterpretable(session: Session, analysis: Analysis) -> str | None:
         """Why this analysis cannot be interpreted, or None if it can (interpretations on)."""
         if analysis.status != "succeeded":
-            return NOT_FINISHED
+            return NOT_SUCCEEDED
         has_facts = session.scalar(
             select(AnalysisSummary.facts.is_not(None)).where(
                 AnalysisSummary.analysis_id == analysis.id

@@ -60,6 +60,11 @@ from cp_worker.worker import JobTimeLimitExceeded
 
 logger = logging.getLogger(__name__)
 
+# Stored on an interpretation this worker will not write (`CP_INTERPRETATION` off).
+WORKER_INTERPRETATIONS_OFF = (
+    "interpretations are turned off on this server's worker, so this one was not written"
+)
+
 
 def facts_of(analysis_id: uuid.UUID, outcome: AnalysisOutcome) -> dict[str, Any] | None:
     """The outcome's fact table as JSON, or None if it cannot be built.
@@ -266,6 +271,14 @@ def _interpret(sessions: sessionmaker[Session], key: uuid.UUID) -> None:
         if row is None:
             raise LookupError(f"no interpretation of analysis {key}")
         if not _owns(row):
+            return
+        if not interpretation_enabled():
+            # The API and the worker each read the setting; a worker that has
+            # it off writes nothing, and makes no call, whatever the API accepted.
+            row.status = "failed"
+            row.error = WORKER_INTERPRETATIONS_OFF
+            row.finished_at = utcnow()
+            session.commit()
             return
         summary = session.get(AnalysisSummary, key)
         if summary is None or summary.facts is None:

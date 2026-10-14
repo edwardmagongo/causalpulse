@@ -23,6 +23,12 @@ pytestmark = pytest.mark.services
 PAIR = ["difference_in_means", "lin_regression"]
 
 
+@pytest.fixture(autouse=True)
+def interpreting(monkeypatch):
+    """The worker writes interpretations only with `CP_INTERPRETATION=on`."""
+    monkeypatch.setenv("CP_INTERPRETATION", "on")
+
+
 def _analysed(sessions):
     """A succeeded analysis of scenario D by two methods; its id."""
     from cp_api.accounts import create_user
@@ -297,3 +303,19 @@ def jobs_queue_name() -> str:
     from cp_api.app import QUEUE_NAME
 
     return QUEUE_NAME
+
+
+def test_a_worker_with_interpretations_off_fails_the_interpretation_without_a_call(
+    sessions, worker_env, monkeypatch
+):
+    key = _analysed(sessions)
+    _queued(sessions, key)
+    model = _script(monkeypatch)
+    monkeypatch.delenv("CP_INTERPRETATION")
+
+    run_interpretation_job(str(key))
+
+    row = _row(sessions, key)
+    assert (row.status, row.error) == ("failed", jobs.WORKER_INTERPRETATIONS_OFF)
+    assert model.calls == 0
+    assert row.finished_at is not None
