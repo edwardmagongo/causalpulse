@@ -29,6 +29,8 @@ class OLSFit:
     xtx_inv: np.ndarray
     leverage: np.ndarray
     X: np.ndarray
+    scale: np.ndarray
+    scaled_xtx_inv: np.ndarray
 
     @property
     def n(self) -> int:
@@ -41,6 +43,9 @@ class OLSFit:
 
 def ols_fit(X: np.ndarray, y: np.ndarray) -> OLSFit:
     """Fit OLS via least squares, retaining the quantities sandwiches need.
+
+    Each column is scaled to a largest absolute value of 1 for the fit; every
+    field of the result is in the original units.
 
     Both linear-algebra calls go through `cp_statistics.linalg_safety`'s safe
     wrappers rather than calling `np.linalg.lstsq`/`np.linalg.pinv` directly --
@@ -57,9 +62,21 @@ def ols_fit(X: np.ndarray, y: np.ndarray) -> OLSFit:
             f"X has {X.shape[0]} rows but y has {y.shape[0]} entries"
         )
 
-    beta = safe_lstsq(X, y)
+    # Each column divided by its largest absolute value, so that the fit does
+    # not depend on the units a column is in. `pinv` cuts singular values
+    # below 1e-15 of the largest, and `X'X` squares the spread of the columns'
+    # scales: measured on LaLonde, earnings in cents instead of dollars gave
+    # `lin_regression` an interval of [-4,480, -2,713] for [-9,360, 2,167].
+    # The largest absolute value, not the Euclidean norm, because the norm
+    # squares the values and overflows for exactly the large columns this is
+    # for. A column of zeros keeps scale 1.
+    largest = np.max(np.abs(X), axis=0) if X.shape[0] else np.ones(X.shape[1])
+    scale = np.where(largest > 0, largest, 1.0)
+    Xs = X / scale
+    beta = safe_lstsq(Xs, y) / scale
     residuals = y - X @ beta
-    xtx_inv = safe_symmetric_pinv(X.T @ X)
+    scaled_xtx_inv = safe_symmetric_pinv(Xs.T @ Xs)
+    xtx_inv = scaled_xtx_inv / np.outer(scale, scale)
     # `optimize=True` is not a micro-optimisation here. Without it einsum
     # evaluates this three-operand contraction as one naive O(n*k^2) C loop
     # with no BLAS; with it, it contracts pairwise (X @ xtx_inv, then a
@@ -69,14 +86,23 @@ def ols_fit(X: np.ndarray, y: np.ndarray) -> OLSFit:
     # 93% of the cost of an EventStudy fit and by far the largest single cost
     # in the test suite. The two agree to 3.3e-16 absolute / 2.5e-15 relative
     # -- summation order, nothing more.
-    leverage = np.einsum("ij,jk,ik->i", X, xtx_inv, X, optimize=True)
+    leverage = np.einsum("ij,jk,ik->i", Xs, scaled_xtx_inv, Xs, optimize=True)
     return OLSFit(
-        beta=beta, residuals=residuals, xtx_inv=xtx_inv, leverage=leverage, X=X
+        beta=beta,
+        residuals=residuals,
+        xtx_inv=xtx_inv,
+        leverage=leverage,
+        X=X,
+        scale=scale,
+        scaled_xtx_inv=scaled_xtx_inv,
     )
 
 
 def _sandwich(fit: OLSFit, meat: np.ndarray) -> np.ndarray:
-    covariance = fit.xtx_inv @ meat @ fit.xtx_inv
+    # `meat` is built on the scaled design; the covariance is unscaled last,
+    # so a large column never enters a sum of squares in its own units.
+    covariance = fit.scaled_xtx_inv @ meat @ fit.scaled_xtx_inv
+    covariance = covariance / np.outer(fit.scale, fit.scale)
     return np.asarray((covariance + covariance.T) / 2.0)
 
 
@@ -94,7 +120,8 @@ def robust_covariance(fit: OLSFit, kind: str = "HC1") -> np.ndarray:
     if kind == "HC2":
         squared = squared / (1.0 - fit.leverage)
 
-    meat = (fit.X * squared[:, None]).T @ fit.X
+    scaled = fit.X / fit.scale
+    meat = (scaled * squared[:, None]).T @ scaled
     covariance = _sandwich(fit, meat)
     if kind == "HC1":
         covariance = covariance * (fit.n / (fit.n - fit.k))
@@ -128,7 +155,7 @@ def cluster_robust_covariance(
     meat = np.zeros((fit.k, fit.k))
     for label in labels:
         mask = clusters == label
-        score = fit.X[mask].T @ fit.residuals[mask]
+        score = (fit.X[mask] / fit.scale).T @ fit.residuals[mask]
         meat += np.outer(score, score)
 
     covariance = _sandwich(fit, meat)
