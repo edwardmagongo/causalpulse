@@ -1,3 +1,5 @@
+import dataclasses
+
 import pytest
 from cp_llm import verify as verify_module
 from cp_llm.facts import Fact, FactTable
@@ -41,7 +43,31 @@ PLANTED = {
         1,
         _IPW_BAND + "\n\n## Limits\n\nThis band is a probability that the effect is real",
     ),
+    # The verified narrative, unchanged: what changes is the facts it is read
+    # against (see `PLANTED_FACTS`), in which ipw's band is INSUFFICIENT and its
+    # estimate statement quotes the point and interval without citing it.
+    "insufficient_caveat": good_narrative(),
 }
+
+
+def with_band(facts: FactTable, method: str, band: str) -> FactTable:
+    """`facts` with `method`'s validity band set to `band`."""
+    band_id = f"score.{method}.band"
+    return FactTable(
+        tuple(
+            dataclasses.replace(fact, value=band) if fact.id == band_id else fact
+            for fact in facts.facts
+        )
+    )
+
+
+# The fixture's bands are MODERATE and WEAK, so the one rule that only an
+# INSUFFICIENT band can set off is planted in the facts instead.
+PLANTED_FACTS = {"insufficient_caveat": lambda facts: with_band(facts, "ipw", "INSUFFICIENT")}
+
+
+def planted(rule: str, facts: FactTable) -> FactTable:
+    return PLANTED_FACTS.get(rule, lambda same: same)(facts)
 
 
 def test_the_fixture_has_a_check_the_completeness_rule_must_demand(facts):
@@ -55,6 +81,7 @@ def test_a_narrative_that_cites_everything_and_writes_no_value_verifies(good, fa
 
 @pytest.mark.parametrize("rule", sorted(PLANTED))
 def test_each_planted_defect_is_caught_by_its_own_rule(rule, facts):
+    facts = planted(rule, facts)
     violations = verify(PLANTED[rule], facts)
 
     assert violations, f"the {rule} defect verified"
@@ -72,7 +99,7 @@ def test_with_its_rule_removed_each_planted_defect_verifies(rule, facts, monkeyp
     )
     monkeypatch.delitem(registry, rule)
 
-    assert verify(PLANTED[rule], facts) == ()
+    assert verify(PLANTED[rule], planted(rule, facts)) == ()
 
 
 def test_the_planted_defects_cover_every_registered_rule():
@@ -519,3 +546,61 @@ def test_a_control_or_invisible_character_is_refused(character, code, facts):
 
 def test_an_injected_heading_is_caught_by_the_one_line_rule_alone(facts):
     assert {v.rule for v in verify(PLANTED["one_line"], facts)} == {"one_line"}
+
+
+_IPW_ESTIMATE = (
+    "Under its own assumptions, {est.ipw.method} estimates {est.ipw.point}, "
+    "from {est.ipw.ci_lower} to {est.ipw.ci_upper}"
+)
+
+
+@pytest.mark.parametrize(
+    "quoted",
+    [
+        _IPW_ESTIMATE + ".",
+        "The standard error of {est.ipw.method} is {est.ipw.se}.",
+        "The p-value for {est.ipw.method} is {est.ipw.p_value}.",
+        "The interval for {est.ipw.method} reaches {est.ipw.ci_upper}.",
+    ],
+    ids=["point-and-interval", "se", "p_value", "a-bound-alone"],
+)
+def test_a_number_from_an_insufficient_estimate_needs_its_band(quoted, facts):
+    insufficient = with_band(facts, "ipw", "INSUFFICIENT")
+
+    reasons = list(verify_module._insufficient_caveat(quoted, insufficient))
+
+    assert reasons == [
+        "{est.ipw.method}'s estimate is quoted without {score.ipw.band}, which is INSUFFICIENT"
+    ]
+
+
+def test_citing_the_band_in_the_same_statement_is_the_caveat(facts):
+    insufficient = with_band(facts, "ipw", "INSUFFICIENT")
+    quoted = _IPW_ESTIMATE + ", although its validity band is {score.ipw.band}."
+
+    assert list(verify_module._insufficient_caveat(quoted, insufficient)) == []
+
+
+def test_the_band_cited_in_another_statement_is_not_the_caveat(good, facts):
+    # The good narrative cites ipw's band in its validity section; the estimate
+    # statement, read alone, still quotes a number without it.
+    insufficient = with_band(facts, "ipw", "INSUFFICIENT")
+
+    violations = [v for v in verify(good, insufficient) if v.rule == "insufficient_caveat"]
+
+    assert [v.section for v in violations] == ["estimates"]
+
+
+@pytest.mark.parametrize("band", ["WEAK", "MODERATE", "STRONG"])
+def test_an_estimate_from_any_other_band_needs_no_caveat(band, facts):
+    graded = with_band(facts, "ipw", band)
+
+    assert list(verify_module._insufficient_caveat(_IPW_ESTIMATE + ".", graded)) == []
+
+
+def test_a_fact_about_an_insufficient_method_that_is_no_number_needs_no_caveat(facts):
+    # The method's name, estimand or direction quotes no estimate.
+    insufficient = with_band(facts, "ipw", "INSUFFICIENT")
+    statement = "{est.ipw.method} estimates the {est.ipw.estimand}, {est.ipw.direction}."
+
+    assert list(verify_module._insufficient_caveat(statement, insufficient)) == []

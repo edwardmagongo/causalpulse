@@ -1728,7 +1728,7 @@ quantity spelled in words outside that list ("twenty units", "a third of the eff
 computed, such as the statistic of a check that cannot be tested, has no fact, so citing it fails instead of
 rendering as a zero.
 
-Before anything is substituted, a deterministic verifier applies nine rules, and the narrative
+Before anything is substituted, a deterministic verifier applies ten rules, and the narrative
 is written only if none is broken:
 
 1. **Resolves.** Every placeholder names a fact in the table.
@@ -1741,15 +1741,20 @@ is written only if none is broken:
    forms, so an unlisted form ("strongest", "failure") passes.
 4. **Attribution.** A statement citing a fact about a method must also name that method.
 5. **No bare point.** A statement citing a point estimate must cite both interval bounds.
-6. **Language.** The prose passes `causal_language_lint`, the lint the evidence report already
+6. **An INSUFFICIENT estimate carries its band.** A statement citing the point, an interval
+   bound, the standard error or the p-value of an estimate whose validity band is `INSUFFICIENT`
+   must also cite that band, so the word stands beside the number. A band cited in another
+   statement does not count. Added after the evaluation's labels found two statements that
+   quoted such an estimate with no caveat; a `WEAK` band needs none.
+7. **Language.** The prose passes `causal_language_lint`, the lint the evidence report already
    passes. The lint reads each statement with its numbers masked, so that the full stop inside a
    decimal does not end a sentence.
-7. **Delimiters.** Every placeholder stands apart from the text around it, and no sign or
+8. **Delimiters.** Every placeholder stands apart from the text around it, and no sign or
    operator comes before a number. `-{point}` and `{n_treated}{n_control}` are refused: glued
    together they would render a figure the table does not hold.
-8. **One line.** A statement holds no line break, control or invisible character, so it cannot
+9. **One line.** A statement holds no line break, control or invisible character, so it cannot
    write a heading of its own.
-9. **Completeness.** The narrative must cite every estimate's point and band, every comparison's
+10. **Completeness.** The narrative must cite every estimate's point and band, every comparison's
    agreement (or its reason for not comparing), every fit failure, and every check whose status is
    `FAIL` or `WARN`.
 
