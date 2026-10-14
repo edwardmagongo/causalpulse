@@ -71,6 +71,20 @@ def test_every_column_over_the_bound_is_named_in_order():
         CausalDataset(frame=frame(x1=1e200, outcome=-1e200), schema=SCHEMA)
 
 
+def test_a_complex_column_is_measured_by_its_modulus_without_a_warning():
+    # A complex column is read as complex, as the infinity check reads it:
+    # cast to float it would lose its imaginary part, with a warning, which
+    # this suite turns into an error.
+    data = frame()
+    data["x1"] = data["x1"].astype(complex)
+    data.loc[0, "x1"] = 1 + 1e200j
+    with pytest.raises(ValueError, match=r"columns \['x1'\] hold values too large"):
+        CausalDataset(frame=data, schema=SCHEMA)
+
+    data.loc[0, "x1"] = 1 + 1e149j
+    CausalDataset(frame=data, schema=SCHEMA)
+
+
 def test_a_huge_unit_is_a_label_and_is_not_refused():
     CausalDataset(frame=frame(unit_id=1e200), schema=SCHEMA)
 

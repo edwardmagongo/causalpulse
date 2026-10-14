@@ -211,15 +211,66 @@ def test_whole_numbered_periods_construct(periods):
     CausalDataset(frame=with_periods(periods), schema=SCHEMA)
 
 
-def test_a_datetime_time_column_still_constructs():
+def with_time_column(values) -> pd.DataFrame:
+    """The frame with its period column replaced by `values`, one per row."""
     changed = frame().drop(columns="cohort")
-    changed["period"] = pd.to_datetime(changed["period"].map({1: "2024-01-01", 2: "2024-02-01"}))
-    schema = CausalSchema(
-        unit="unit_id",
-        treatment="treated",
-        outcome="outcome",
-        covariates=("x1", "x2"),
-        outcome_type="continuous",
-        time="period",
+    changed["period"] = values
+    return changed
+
+
+NO_COHORT = CausalSchema(
+    unit="unit_id",
+    treatment="treated",
+    outcome="outcome",
+    covariates=("x1", "x2"),
+    outcome_type="continuous",
+    time="period",
+)
+
+
+@pytest.mark.parametrize(
+    ("make", "dtype"),
+    [
+        (lambda p: pd.to_datetime(p.map({1: "2024-01-01", 2: "2024-02-01"})), "datetime64"),
+        (
+            lambda p: pd.to_datetime(p.map({1: "2024-01-01", 2: "2024-02-01"})).dt.tz_localize(
+                "UTC"
+            ),
+            "datetime64",
+        ),
+        (lambda p: pd.to_timedelta(p, unit="D"), "timedelta64"),
+        (lambda p: p == 2, "bool"),
+        (lambda p: p.astype(complex), "complex128"),
+        (lambda p: p.astype(str) + "-label", "str"),
+    ],
+    ids=["dates", "dates with a time zone", "durations", "booleans", "complex", "text"],
+)
+def test_a_time_column_that_is_not_integer_or_float_is_refused(make, dtype):
+    # Every panel estimator numbers its periods. A column of dates used to
+    # construct and then be refused by each of them when fitted.
+    with pytest.raises(ValueError) as refusal:
+        CausalDataset(frame=with_time_column(make(frame()["period"])), schema=NO_COHORT)
+    message = str(refusal.value)
+    assert message.startswith(
+        f"time column 'period' must hold whole-numbered periods, and holds {dtype}"
     )
-    CausalDataset(frame=changed, schema=schema)
+    assert message.endswith(
+        "values. Number the periods (1, 2, 3, ... or the year) before building the dataset."
+    )
+
+
+@pytest.mark.parametrize(
+    "make",
+    [
+        lambda p: p,
+        lambda p: p.astype(float),
+        lambda p: p.astype("float32"),
+        lambda p: p.astype("Int64"),
+        lambda p: p.astype("uint8"),
+        lambda p: p.astype("float16"),
+        lambda p: p.astype("Float64"),
+    ],
+    ids=["int64", "float64", "float32", "nullable Int64", "uint8", "float16", "nullable Float64"],
+)
+def test_an_integer_or_float_time_column_constructs(make):
+    CausalDataset(frame=with_time_column(make(frame()["period"])), schema=NO_COHORT)

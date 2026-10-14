@@ -73,6 +73,16 @@ def test_a_negative_infinity_is_refused_too(column):
     assert f"columns ['{column}'] contain" in str(refusal.value)
 
 
+def test_an_infinite_imaginary_part_is_refused():
+    # Read as float, a complex column would lose its imaginary part, and the
+    # infinity in it, with only a warning. Built from an array: a list of
+    # Python complex numbers is turned by pandas into a gap here.
+    changed = frame()
+    changed["x1"] = np.array([complex(1, np.inf)] + [1 + 0j] * 7)
+    with pytest.raises(ValueError, match=r"columns \['x1'\] contain infinite values"):
+        CausalDataset(frame=changed, schema=SCHEMA)
+
+
 def test_every_offending_column_is_named_once_and_sorted():
     # `x2` is declared before `period` (covariates come before time), so the
     # order asserted here is the sorted one and not the schema's.
@@ -138,19 +148,10 @@ def test_a_nullable_float_column_holding_an_infinity_is_refused():
     assert "columns ['x1'] contain" in str(refusal.value)
 
 
-def test_a_datetime_time_column_and_a_text_unit_column_construct():
+def test_a_text_unit_column_constructs():
     changed = frame()
     changed["unit_id"] = changed["unit_id"].map(lambda unit: f"unit-{unit}")
-    changed["period"] = pd.to_datetime(changed["period"].map({1: "2024-01-01", 2: "2024-02-01"}))
-    schema = CausalSchema(
-        unit="unit_id",
-        treatment="treated",
-        outcome="outcome",
-        covariates=("x1", "x2"),
-        outcome_type="continuous",
-        time="period",
-    )
-    CausalDataset(frame=changed, schema=schema)
+    CausalDataset(frame=changed, schema=SCHEMA)
 
 
 def test_a_declared_auxiliary_column_absent_from_the_frame_is_not_required():

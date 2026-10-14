@@ -1285,9 +1285,9 @@ column:
   1e150 a square is 1e300, so up to about 1e8 rows stay finite in float64; above it the estimators
   failed with a library's own message naming no column (with one value at 1e155 in LaLonde's
   outcome all four cross-sectional estimators failed; in a covariate `aipw` did).
-- **A numeric period that is not a whole number, or is larger than 2**53.** Periods are used as
-  integers. A time column may hold dates and the dataset is built, but a panel estimator needs
-  numbered periods and says so.
+- **A period that is not a whole number, or is larger than 2**53.** Periods are used as integers,
+  so the time column must be an integer or float column: dates, text, booleans and complex numbers
+  are refused, and so is a fractional or very large value.
 
 **A missing value** in the outcome or a covariate is different, on purpose. A dataset with gaps
 has to be constructible, because `complete_cases` and imputation take one. It is refused when it
