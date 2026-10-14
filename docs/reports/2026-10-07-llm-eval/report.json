@@ -1,0 +1,1841 @@
+{
+ "by_design": {
+  "baseline": {
+   "cross_section": {
+    "D1": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "D2": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 4,
+     "rate": 0.09090909090909091,
+     "se": 0.038030001206094344,
+     "upper_bound": null
+    },
+    "D3": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "D4": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 2,
+     "rate": 0.045454545454545456,
+     "se": 0.04545454545454545,
+     "upper_bound": null
+    },
+    "D5": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "J1": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "J2": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "J3": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "J4": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "J5": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.022727272727272728,
+     "se": 0.022727272727272724,
+     "upper_bound": null
+    },
+    "J6": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "any_D": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 6,
+     "rate": 0.13636363636363635,
+     "se": 0.051826155686324454,
+     "upper_bound": null
+    },
+    "any_J": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.022727272727272728,
+     "se": 0.022727272727272724,
+     "upper_bound": null
+    }
+   },
+   "donor_pool": {
+    "D1": {
+     "clusters": 7,
+     "denominator": 27,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.1111111111111111
+    },
+    "D2": {
+     "clusters": 7,
+     "denominator": 27,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.1111111111111111
+    },
+    "D3": {
+     "clusters": 7,
+     "denominator": 27,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.1111111111111111
+    },
+    "D4": {
+     "clusters": 7,
+     "denominator": 27,
+     "lower_bound": null,
+     "numerator": 4,
+     "rate": 0.14814814814814814,
+     "se": 0.11630723023995318,
+     "upper_bound": null
+    },
+    "D5": {
+     "clusters": 7,
+     "denominator": 27,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.1111111111111111
+    },
+    "J1": {
+     "clusters": 7,
+     "denominator": 27,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.1111111111111111
+    },
+    "J2": {
+     "clusters": 7,
+     "denominator": 27,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.1111111111111111
+    },
+    "J3": {
+     "clusters": 7,
+     "denominator": 27,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.037037037037037035,
+     "se": 0.036833255369266266,
+     "upper_bound": null
+    },
+    "J4": {
+     "clusters": 7,
+     "denominator": 27,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.1111111111111111
+    },
+    "J5": {
+     "clusters": 7,
+     "denominator": 27,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.1111111111111111
+    },
+    "J6": {
+     "clusters": 7,
+     "denominator": 27,
+     "lower_bound": null,
+     "numerator": 5,
+     "rate": 0.18518518518518517,
+     "se": 0.07148869256952199,
+     "upper_bound": null
+    },
+    "any_D": {
+     "clusters": 7,
+     "denominator": 27,
+     "lower_bound": null,
+     "numerator": 4,
+     "rate": 0.14814814814814814,
+     "se": 0.11630723023995318,
+     "upper_bound": null
+    },
+    "any_J": {
+     "clusters": 7,
+     "denominator": 27,
+     "lower_bound": null,
+     "numerator": 6,
+     "rate": 0.2222222222222222,
+     "se": 0.08503694781799107,
+     "upper_bound": null
+    }
+   },
+   "panel": {
+    "D1": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "D2": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.03571428571428571,
+     "se": 0.03571428571428572,
+     "upper_bound": null
+    },
+    "D3": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "D4": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 9,
+     "rate": 0.32142857142857145,
+     "se": 0.1610446340293891,
+     "upper_bound": null
+    },
+    "D5": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "J1": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "J2": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.03571428571428571,
+     "se": 0.03571428571428572,
+     "upper_bound": null
+    },
+    "J3": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "J4": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "J5": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 2,
+     "rate": 0.07142857142857142,
+     "se": 0.046106944597707346,
+     "upper_bound": null
+    },
+    "J6": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.03571428571428571,
+     "se": 0.03571428571428572,
+     "upper_bound": null
+    },
+    "any_D": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 9,
+     "rate": 0.32142857142857145,
+     "se": 0.1610446340293891,
+     "upper_bound": null
+    },
+    "any_J": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 4,
+     "rate": 0.14285714285714285,
+     "se": 0.0743452142666476,
+     "upper_bound": null
+    }
+   }
+  },
+  "cite-each-status": {
+   "cross_section": {
+    "D1": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.022727272727272728,
+     "se": 0.022727272727272724,
+     "upper_bound": null
+    },
+    "D2": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "D3": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "D4": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.022727272727272728,
+     "se": 0.022727272727272724,
+     "upper_bound": null
+    },
+    "D5": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "J1": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "J2": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "J3": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "J4": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "J5": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "J6": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 3,
+     "rate": 0.06818181818181818,
+     "se": 0.03520893951097651,
+     "upper_bound": null
+    },
+    "any_D": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 2,
+     "rate": 0.045454545454545456,
+     "se": 0.030491836056815314,
+     "upper_bound": null
+    },
+    "any_J": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 3,
+     "rate": 0.06818181818181818,
+     "se": 0.03520893951097651,
+     "upper_bound": null
+    }
+   },
+   "donor_pool": {
+    "D1": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.03571428571428571,
+     "se": 0.03571428571428572,
+     "upper_bound": null
+    },
+    "D2": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "D3": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "D4": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "D5": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "J1": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "J2": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "J3": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 2,
+     "rate": 0.07142857142857142,
+     "se": 0.046106944597707346,
+     "upper_bound": null
+    },
+    "J4": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "J5": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "J6": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 3,
+     "rate": 0.10714285714285714,
+     "se": 0.07434521426664759,
+     "upper_bound": null
+    },
+    "any_D": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.03571428571428571,
+     "se": 0.03571428571428572,
+     "upper_bound": null
+    },
+    "any_J": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 5,
+     "rate": 0.17857142857142858,
+     "se": 0.10514001031342673,
+     "upper_bound": null
+    }
+   },
+   "panel": {
+    "D1": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "D2": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "D3": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "D4": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "D5": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "J1": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "J2": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "J3": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "J4": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "J5": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "J6": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.03571428571428571,
+     "se": 0.03571428571428572,
+     "upper_bound": null
+    },
+    "any_D": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "any_J": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.03571428571428571,
+     "se": 0.03571428571428572,
+     "upper_bound": null
+    }
+   }
+  }
+ },
+ "comparison": [
+  {
+   "exploratory": {
+    "D1": {
+     "degenerate": false,
+     "lower": -0.007134472674067346,
+     "mean": 0.02,
+     "pairs": 25,
+     "se": 0.01384437310486346,
+     "upper": 0.04713447267406735
+    },
+    "D2": {
+     "degenerate": false,
+     "lower": -0.09000759730296093,
+     "mean": -0.05,
+     "pairs": 25,
+     "se": 0.020412414523193156,
+     "upper": -0.009992402697039077
+    },
+    "D3": {
+     "degenerate": true,
+     "lower": 0.0,
+     "mean": 0.0,
+     "pairs": 25,
+     "se": 0.0,
+     "upper": 0.0
+    },
+    "D4": {
+     "degenerate": false,
+     "lower": -0.2796394320434057,
+     "mean": -0.15,
+     "pairs": 25,
+     "se": 0.06614378277661477,
+     "upper": -0.0203605679565943
+    },
+    "D5": {
+     "degenerate": true,
+     "lower": 0.0,
+     "mean": 0.0,
+     "pairs": 25,
+     "se": 0.0,
+     "upper": 0.0
+    },
+    "J1": {
+     "degenerate": true,
+     "lower": 0.0,
+     "mean": 0.0,
+     "pairs": 25,
+     "se": 0.0,
+     "upper": 0.0
+    },
+    "J2": {
+     "degenerate": false,
+     "lower": -0.02959963984540054,
+     "mean": -0.01,
+     "pairs": 25,
+     "se": 0.01,
+     "upper": 0.00959963984540054
+    },
+    "J3": {
+     "degenerate": false,
+     "lower": -0.024415836515292715,
+     "mean": 0.01,
+     "pairs": 25,
+     "se": 0.017559422921421233,
+     "upper": 0.04441583651529272
+    },
+    "J4": {
+     "degenerate": true,
+     "lower": 0.0,
+     "mean": 0.0,
+     "pairs": 25,
+     "se": 0.0,
+     "upper": 0.0
+    },
+    "J5": {
+     "degenerate": false,
+     "lower": -0.06250232569664646,
+     "mean": -0.03,
+     "pairs": 25,
+     "se": 0.016583123951777,
+     "upper": 0.0025023256966464555
+    },
+    "J6": {
+     "degenerate": false,
+     "lower": -0.049877888790280364,
+     "mean": 0.01,
+     "pairs": 25,
+     "se": 0.030550504633038933,
+     "upper": 0.06987788879028037
+    },
+    "any_D": {
+     "degenerate": false,
+     "lower": -0.3018430929690324,
+     "mean": -0.17,
+     "pairs": 25,
+     "se": 0.06726812023536854,
+     "upper": -0.038156907030967635
+    },
+    "any_J": {
+     "degenerate": false,
+     "lower": -0.09961411341053361,
+     "mean": -0.02,
+     "pairs": 25,
+     "se": 0.040620192023179805,
+     "upper": 0.0596141134105336
+    }
+   },
+   "paired_cases": {
+    "D1": 25,
+    "D2": 25,
+    "D3": 25,
+    "D4": 25,
+    "D5": 25,
+    "J1": 25,
+    "J2": 25,
+    "J3": 25,
+    "J4": 25,
+    "J5": 25,
+    "J6": 25,
+    "any_D": 25,
+    "any_J": 25,
+    "primary": 25
+   },
+   "primary": {
+    "degenerate": false,
+    "lower": -0.26028921352840084,
+    "mean": -0.14,
+    "pairs": 25,
+    "se": 0.061373175465073225,
+    "upper": -0.019710786471599212
+   },
+   "primary_endpoint": "D4 per narrative, first attempts",
+   "shared_cases": 25,
+   "variant": "cite-each-status"
+  }
+ ],
+ "corpus": [
+  {
+   "case_id": "cross-A",
+   "design": "cross_section",
+   "group": "scenario",
+   "reason": "cross-sectional scenario A",
+   "requirements": []
+  },
+  {
+   "case_id": "cross-B",
+   "design": "cross_section",
+   "group": "scenario",
+   "reason": "cross-sectional scenario B",
+   "requirements": []
+  },
+  {
+   "case_id": "cross-C",
+   "design": "cross_section",
+   "group": "scenario",
+   "reason": "cross-sectional scenario C",
+   "requirements": []
+  },
+  {
+   "case_id": "cross-D",
+   "design": "cross_section",
+   "group": "scenario",
+   "reason": "cross-sectional scenario D",
+   "requirements": []
+  },
+  {
+   "case_id": "cross-F",
+   "design": "cross_section",
+   "group": "scenario",
+   "reason": "cross-sectional scenario F",
+   "requirements": []
+  },
+  {
+   "case_id": "cross-G",
+   "design": "cross_section",
+   "group": "scenario",
+   "reason": "cross-sectional scenario G",
+   "requirements": []
+  },
+  {
+   "case_id": "cross-H-complete",
+   "design": "cross_section",
+   "group": "scenario",
+   "reason": "scenario H reduced to complete cases; as generated it is refused",
+   "requirements": []
+  },
+  {
+   "case_id": "panel-P1",
+   "design": "panel",
+   "group": "scenario",
+   "reason": "panel scenario P1",
+   "requirements": []
+  },
+  {
+   "case_id": "panel-P2",
+   "design": "panel",
+   "group": "scenario",
+   "reason": "panel scenario P2",
+   "requirements": []
+  },
+  {
+   "case_id": "panel-P3",
+   "design": "panel",
+   "group": "scenario",
+   "reason": "panel scenario P3",
+   "requirements": []
+  },
+  {
+   "case_id": "panel-P4",
+   "design": "panel",
+   "group": "scenario",
+   "reason": "panel scenario P4",
+   "requirements": []
+  },
+  {
+   "case_id": "panel-P5",
+   "design": "panel",
+   "group": "scenario",
+   "reason": "panel scenario P5",
+   "requirements": []
+  },
+  {
+   "case_id": "panel-P6",
+   "design": "panel",
+   "group": "scenario",
+   "reason": "panel scenario P6",
+   "requirements": []
+  },
+  {
+   "case_id": "panel-P7",
+   "design": "panel",
+   "group": "scenario",
+   "reason": "panel scenario P7",
+   "requirements": []
+  },
+  {
+   "case_id": "donor-S0",
+   "design": "donor_pool",
+   "group": "scenario",
+   "reason": "donor-pool scenario S0",
+   "requirements": []
+  },
+  {
+   "case_id": "donor-S1",
+   "design": "donor_pool",
+   "group": "scenario",
+   "reason": "donor-pool scenario S1",
+   "requirements": []
+  },
+  {
+   "case_id": "donor-S2",
+   "design": "donor_pool",
+   "group": "scenario",
+   "reason": "donor-pool scenario S2",
+   "requirements": []
+  },
+  {
+   "case_id": "donor-S3",
+   "design": "donor_pool",
+   "group": "scenario",
+   "reason": "donor-pool scenario S3",
+   "requirements": []
+  },
+  {
+   "case_id": "donor-S4",
+   "design": "donor_pool",
+   "group": "scenario",
+   "reason": "donor-pool scenario S4",
+   "requirements": []
+  },
+  {
+   "case_id": "donor-S5",
+   "design": "donor_pool",
+   "group": "scenario",
+   "reason": "donor-pool scenario S5",
+   "requirements": []
+  },
+  {
+   "case_id": "real-lalonde",
+   "design": "cross_section",
+   "group": "real_data",
+   "reason": "LaLonde (NSW and PSID)",
+   "requirements": []
+  },
+  {
+   "case_id": "real-prop99",
+   "design": "donor_pool",
+   "group": "real_data",
+   "reason": "California Proposition 99",
+   "requirements": []
+  },
+  {
+   "case_id": "awkward-fail-divergent",
+   "design": "cross_section",
+   "group": "awkward",
+   "reason": "strong confounding: a failed check and methods that diverge",
+   "requirements": [
+    "at least one check with status FAIL",
+    "a comparison whose verdict is divergent"
+   ]
+  },
+  {
+   "case_id": "awkward-divergent",
+   "design": "cross_section",
+   "group": "awkward",
+   "reason": "selection on untreated outcomes: methods that diverge",
+   "requirements": [
+    "a comparison whose verdict is divergent"
+   ]
+  },
+  {
+   "case_id": "awkward-single",
+   "design": "cross_section",
+   "group": "awkward",
+   "reason": "one method, so no comparison",
+   "requirements": [
+    "exactly one estimate"
+   ]
+  }
+ ],
+ "d1_unparsed": {
+  "baseline": 8,
+  "cite-each-status": 8
+ },
+ "d4_truth": {
+  "baseline": {
+   "false": 0,
+   "true": 10,
+   "undetermined": 5
+  },
+  "cite-each-status": {
+   "false": 0,
+   "true": 0,
+   "undetermined": 1
+  }
+ },
+ "first_attempt": {
+  "baseline": {
+   "D1": {
+    "clusters": 25,
+    "denominator": 100,
+    "lower_bound": null,
+    "numerator": 0,
+    "rate": 0.0,
+    "se": null,
+    "upper_bound": 0.03
+   },
+   "D2": {
+    "clusters": 25,
+    "denominator": 100,
+    "lower_bound": null,
+    "numerator": 5,
+    "rate": 0.05,
+    "se": 0.020412414523193156,
+    "upper_bound": null
+   },
+   "D3": {
+    "clusters": 25,
+    "denominator": 100,
+    "lower_bound": null,
+    "numerator": 0,
+    "rate": 0.0,
+    "se": null,
+    "upper_bound": 0.03
+   },
+   "D4": {
+    "clusters": 25,
+    "denominator": 100,
+    "lower_bound": null,
+    "numerator": 18,
+    "rate": 0.18,
+    "se": 0.06849574196011507,
+    "upper_bound": null
+   },
+   "D5": {
+    "clusters": 25,
+    "denominator": 100,
+    "lower_bound": null,
+    "numerator": 0,
+    "rate": 0.0,
+    "se": null,
+    "upper_bound": 0.03
+   }
+  },
+  "cite-each-status": {
+   "D1": {
+    "clusters": 25,
+    "denominator": 100,
+    "lower_bound": null,
+    "numerator": 2,
+    "rate": 0.02,
+    "se": 0.01384437310486346,
+    "upper_bound": null
+   },
+   "D2": {
+    "clusters": 25,
+    "denominator": 100,
+    "lower_bound": null,
+    "numerator": 0,
+    "rate": 0.0,
+    "se": null,
+    "upper_bound": 0.03
+   },
+   "D3": {
+    "clusters": 25,
+    "denominator": 100,
+    "lower_bound": null,
+    "numerator": 0,
+    "rate": 0.0,
+    "se": null,
+    "upper_bound": 0.03
+   },
+   "D4": {
+    "clusters": 25,
+    "denominator": 100,
+    "lower_bound": null,
+    "numerator": 4,
+    "rate": 0.04,
+    "se": 0.023629078131263043,
+    "upper_bound": null
+   },
+   "D5": {
+    "clusters": 25,
+    "denominator": 100,
+    "lower_bound": null,
+    "numerator": 0,
+    "rate": 0.0,
+    "se": null,
+    "upper_bound": 0.03
+   }
+  }
+ },
+ "first_attempt_missing": {
+  "baseline": 0,
+  "cite-each-status": 0
+ },
+ "rates": {
+  "baseline": {
+   "D1": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 99,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.030303030303030304
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 1997,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.0015022533800701052
+    }
+   },
+   "D2": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 99,
+     "lower_bound": null,
+     "numerator": 5,
+     "rate": 0.050505050505050504,
+     "se": 0.020572793644963998,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 1997,
+     "lower_bound": null,
+     "numerator": 5,
+     "rate": 0.0025037556334501754,
+     "se": 0.0009879929525028598,
+     "upper_bound": null
+    }
+   },
+   "D3": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 99,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.030303030303030304
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 1997,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.0015022533800701052
+    }
+   },
+   "D4": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 99,
+     "lower_bound": null,
+     "numerator": 15,
+     "rate": 0.15151515151515152,
+     "se": 0.06077182655729543,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 1997,
+     "lower_bound": null,
+     "numerator": 15,
+     "rate": 0.007511266900350526,
+     "se": 0.0030769144895736195,
+     "upper_bound": null
+    }
+   },
+   "D5": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 99,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.030303030303030304
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 1997,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.0015022533800701052
+    }
+   },
+   "J1": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 99,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.030303030303030304
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 1997,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.0015022533800701052
+    }
+   },
+   "J2": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 99,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.010101010101010102,
+     "se": 0.01009727344806116,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 1997,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.000500751126690035,
+     "se": 0.0005009339043319539,
+     "upper_bound": null
+    }
+   },
+   "J3": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 99,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.010101010101010102,
+     "se": 0.01009727344806116,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 1997,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.000500751126690035,
+     "se": 0.0005022377294068596,
+     "upper_bound": null
+    }
+   },
+   "J4": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 99,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.030303030303030304
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 1997,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.0015022533800701052
+    }
+   },
+   "J5": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 99,
+     "lower_bound": null,
+     "numerator": 3,
+     "rate": 0.030303030303030304,
+     "se": 0.016730342140400555,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 1997,
+     "lower_bound": null,
+     "numerator": 3,
+     "rate": 0.0015022533800701052,
+     "se": 0.0008285567351636906,
+     "upper_bound": null
+    }
+   },
+   "J6": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 99,
+     "lower_bound": null,
+     "numerator": 6,
+     "rate": 0.06060606060606061,
+     "se": 0.026353191548396944,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 1997,
+     "lower_bound": null,
+     "numerator": 6,
+     "rate": 0.0030045067601402104,
+     "se": 0.0013287505370819645,
+     "upper_bound": null
+    }
+   },
+   "any_D": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 99,
+     "lower_bound": null,
+     "numerator": 19,
+     "rate": 0.1919191919191919,
+     "se": 0.05962943978116086,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 1997,
+     "lower_bound": null,
+     "numerator": 20,
+     "rate": 0.010015022533800702,
+     "se": 0.003309903956453866,
+     "upper_bound": null
+    }
+   },
+   "any_J": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 99,
+     "lower_bound": null,
+     "numerator": 11,
+     "rate": 0.1111111111111111,
+     "se": 0.03582251777442117,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 1997,
+     "lower_bound": null,
+     "numerator": 11,
+     "rate": 0.005508262393590386,
+     "se": 0.0018107765742447965,
+     "upper_bound": null
+    }
+   }
+  },
+  "cite-each-status": {
+   "D1": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 2,
+     "rate": 0.02,
+     "se": 0.01384437310486346,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2010,
+     "lower_bound": null,
+     "numerator": 2,
+     "rate": 0.0009950248756218905,
+     "se": 0.0006872182773175709,
+     "upper_bound": null
+    }
+   },
+   "D2": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.03
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2010,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.0014925373134328358
+    }
+   },
+   "D3": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.03
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2010,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.0014925373134328358
+    }
+   },
+   "D4": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.01,
+     "se": 0.01,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2010,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.0004975124378109452,
+     "se": 0.0004949048371622341,
+     "upper_bound": null
+    }
+   },
+   "D5": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.03
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2010,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.0014925373134328358
+    }
+   },
+   "J1": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.03
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2010,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.0014925373134328358
+    }
+   },
+   "J2": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.03
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2010,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.0014925373134328358
+    }
+   },
+   "J3": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 2,
+     "rate": 0.02,
+     "se": 0.01384437310486346,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2010,
+     "lower_bound": null,
+     "numerator": 2,
+     "rate": 0.0009950248756218905,
+     "se": 0.0006905699425029984,
+     "upper_bound": null
+    }
+   },
+   "J4": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.03
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2010,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.0014925373134328358
+    }
+   },
+   "J5": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.03
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2010,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.0014925373134328358
+    }
+   },
+   "J6": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 7,
+     "rate": 0.07,
+     "se": 0.0270801280154532,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2010,
+     "lower_bound": null,
+     "numerator": 7,
+     "rate": 0.003482587064676617,
+     "se": 0.001356827095955683,
+     "upper_bound": null
+    }
+   },
+   "any_D": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 3,
+     "rate": 0.03,
+     "se": 0.016583123951777003,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2010,
+     "lower_bound": null,
+     "numerator": 3,
+     "rate": 0.0014925373134328358,
+     "se": 0.0008183520813237321,
+     "upper_bound": null
+    }
+   },
+   "any_J": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 9,
+     "rate": 0.09,
+     "se": 0.035,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2010,
+     "lower_bound": null,
+     "numerator": 9,
+     "rate": 0.004477611940298508,
+     "se": 0.0017539876761088699,
+     "upper_bound": null
+    }
+   }
+  }
+ },
+ "run": {
+  "judge": {
+   "calls": 199,
+   "cost": 9.141192,
+   "judge_errors": 0,
+   "verdicts": 199
+  },
+  "variants": {
+   "baseline": {
+    "calls": 116,
+    "cost": 16.498404,
+    "interpretations": 100,
+    "no_answer": 0,
+    "refused": 1,
+    "verified": 99,
+    "verified_first_attempt": 84
+   },
+   "cite-each-status": {
+    "calls": 109,
+    "cost": 15.754616,
+    "interpretations": 100,
+    "no_answer": 0,
+    "refused": 0,
+    "verified": 100,
+    "verified_first_attempt": 91
+   }
+  }
+ },
+ "validation": {
+  "graders": {
+   "D1": {
+    "precision": {
+     "estimate": 0.0,
+     "labelled": 2,
+     "lower": 0.0,
+     "n_eff": 2.0,
+     "upper": 0.6576197724933469
+    }
+   },
+   "D2": {
+    "precision": {
+     "estimate": 0.0,
+     "labelled": 5,
+     "lower": 0.0,
+     "n_eff": 5.0,
+     "upper": 0.43448246478317476
+    }
+   },
+   "D3": {
+    "precision": null
+   },
+   "D4": {
+    "precision": {
+     "estimate": 0.0,
+     "labelled": 16,
+     "lower": 0.0,
+     "n_eff": 16.0,
+     "upper": 0.1936076805344365
+    }
+   },
+   "D5": {
+    "precision": null
+   }
+  },
+  "judge": {
+   "J1": {
+    "sensitivity": {
+     "estimate": 0.0,
+     "labelled": 2,
+     "lower": 0.0,
+     "n_eff": 2.0,
+     "upper": 0.6576197724933469
+    },
+    "specificity": {
+     "estimate": 1.0,
+     "labelled": 148,
+     "lower": 0.9660155680959531,
+     "n_eff": 109.19438157647029,
+     "upper": 0.9999999999999999
+    }
+   },
+   "J2": {
+    "sensitivity": null,
+    "specificity": {
+     "estimate": 0.9997504367357125,
+     "labelled": 150,
+     "lower": 0.9655674538681193,
+     "n_eff": 109.3019786934601,
+     "upper": 0.9999982526060333
+    }
+   },
+   "J3": {
+    "sensitivity": null,
+    "specificity": {
+     "estimate": 0.9992513102071375,
+     "labelled": 150,
+     "lower": 0.9646166501678194,
+     "n_eff": 109.3019786934601,
+     "upper": 0.9999846960501794
+    }
+   },
+   "J4": {
+    "sensitivity": null,
+    "specificity": {
+     "estimate": 1.0,
+     "labelled": 150,
+     "lower": 0.9660478866022296,
+     "n_eff": 109.3019786934601,
+     "upper": 1.0
+    }
+   },
+   "J5": {
+    "sensitivity": null,
+    "specificity": {
+     "estimate": 0.9992513102071375,
+     "labelled": 150,
+     "lower": 0.9646166501678194,
+     "n_eff": 109.3019786934601,
+     "upper": 0.9999846960501794
+    }
+   },
+   "J6": {
+    "sensitivity": {
+     "estimate": 0.013141734217636945,
+     "labelled": 4,
+     "lower": 9.343313578497048e-05,
+     "n_eff": 2.107893132766223,
+     "upper": 0.6549126236243246
+    },
+    "specificity": {
+     "estimate": 0.9969472690658976,
+     "labelled": 146,
+     "lower": 0.9597326894647356,
+     "n_eff": 107.19458788258751,
+     "upper": 0.9997765742115594
+    }
+   },
+   "any_J": {
+    "sensitivity": {
+     "estimate": 0.051220679751077074,
+     "labelled": 6,
+     "lower": 0.0014335979684514943,
+     "n_eff": 2.2185395019913967,
+     "upper": 0.6699740174686888
+    },
+    "specificity": {
+     "estimate": 0.9959276201078514,
+     "labelled": 144,
+     "lower": 0.9578874145308282,
+     "n_eff": 107.08702266595022,
+     "upper": 0.9996198294776332
+    }
+   }
+  },
+  "labelled": 150
+ }
+}

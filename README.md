@@ -1835,8 +1835,9 @@ A server can offer the same interpretation for an analysis run through the API. 
   "Interpretation (model-written, verified against the facts)". Beside it are the system's limits
   text, a fixed note on what "verified" establishes and what it does not, and the model and prompt
   version. A refused one is not shown; the page says so and gives the number of attempts.
-- **How often a verified interpretation still misreads its analysis is not yet measured.** Phase 2's
-  study, below, measures it, and its paid run is paused.
+- **A verified interpretation can still misread its analysis.** Phase 2's study, below, measured
+  it: in a hand-labelled sample, the commonest misreading quoted an estimate whose band is
+  `INSUFFICIENT` without saying so, and verification does not catch that.
 
 ## Measuring misreadings (sub-project 4, phase 2)
 
@@ -1912,14 +1913,37 @@ What it does not establish:
 - D1 to D5 detect patterns. A misreading phrased outside a grader's patterns is left to the judge,
   or missed; the labelled sample estimates how much.
 
-**Status (2026-10-07): built and gated; the paid study is paused.** The harness passed `make check`
-(2,995 passed). The live judge call confirmed the API accepts the judge's reply schema. A pilot of
-five interpretations measured about $0.21 per interpretation, with 40% needing a retry. The full run
-was then stopped when the API account's credit ran low: 41 baseline interpretations over 12 cases are
-stored, all verified, for about $7.26 in all. The variant prompt has not run, nothing has been judged
-or labelled, and so there are no results yet. The stored records are not in the repository; resuming
-is the same `run` command, which skips every stored record. The remaining interpretations and the judge
-are estimated at about $35 and $10 to $20.
+**Results (2026-10-14).** The full study ran: 25 cases, both prompts, four replies each. The report,
+its evidence and the labels are in `docs/reports/2026-10-07-llm-eval/` (`report.md`; the bundle
+rebuilds the same `report.json`). Every figure below is copied from `report.json`.
+
+- **The run.** Baseline: 100 interpretations, 99 verified (84 on the first attempt), 1 refused.
+  `cite-each-status`: 100, all verified (91 on the first attempt). The judge returned 199 verdicts,
+  none unusable. Recorded cost: $16.50 and $15.75 for the interpretations, $9.14 for the judge.
+- **The labels.** 150 statements, labelled by hand by the project's owner: 144 `ok`, 6 misreadings.
+  The sample draws from three strata, so each rate below is weighted back to all 4,007 judged
+  statements: all 20 judge-flagged statements, all 23 flagged only by a grader, and 107 of the
+  3,964 that nothing flagged.
+- **The judge misses most misreadings.** It flagged 4 of the 6, and 4 of its 20 flags were
+  misreadings. The 2 it missed came from the unflagged stratum, where each label stands for about 37
+  statements, so its weighted sensitivity for any judge category is **5.1% [0.1%, 67.0%]**
+  (n_eff 2.2); specificity is 99.6% [95.8%, 100.0%]. Both misses quote the estimate of a method
+  whose band is `INSUFFICIENT` without a caveat.
+- **So the judge-graded rates are not reliable in either direction.** It flagged a misreading in 11
+  of 99 baseline narratives (11.1%) and 9 of 100 `cite-each-status` narratives (9.0%). But 16 of
+  its 20 labelled flags were not misreadings, and it missed most of those that were, so these
+  figures neither bound nor estimate the true rate.
+- **The rule-based graders flag sentences that are true.** Of the statements flagged only by a
+  grader, every one labelled was `ok`: D4 0 of 16 (precision 0.0% [0.0%, 19.4%]), D2 0 of 5, D1 0
+  of 2. D4's baseline summaries were 10 true, 0 false and 5 undetermined.
+- **The primary endpoint.** `cite-each-status` cut D4 per narrative on first attempts by **14.0
+  points [-26.0, -2.0]** over 25 paired cases. Given D4's precision, this measures fewer uncited
+  status summaries, not fewer misreadings.
+
+What the study shows, then: verification guarantees the numbers, the commonest remaining misreading
+is an unqualified `INSUFFICIENT` estimate, and neither the judge nor the graders measure it
+reliably. A verifier rule that requires a caveat whenever a cited estimate's band is
+`INSUFFICIENT` is the follow-up. Design §15.5 records the details.
 
 ## Web dashboard (sub-project 5)
 
