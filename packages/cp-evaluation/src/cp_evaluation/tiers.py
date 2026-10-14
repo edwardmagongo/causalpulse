@@ -473,7 +473,7 @@ def full_config() -> GridConfig:
     problems in it:
 
     1. **`n_periods=6` is invalid for four of the seven panel scenarios.**
-       The spec proposes `periods in {6, 10}` uniformly. Probing each
+       The grid originally proposed `periods in {6, 10}` uniformly. Probing each
        scenario's registry found the minimum viable `n_periods` is 5 for P1,
        P2, and P6, but 7 for P3, P4, and P5, and 16 for P7. At
        `n_periods=6`, P3/P4/P5 raise `ValueError: adoption periods must each

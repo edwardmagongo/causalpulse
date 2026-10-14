@@ -105,12 +105,12 @@ select = ["E", "F", "I", "N", "UP", "B", "SIM", "NPY"]
 # `A`/`M` mirror standard linear-algebra notation for a matrix and its
 # generator, same reasoning as the `X`/`y` exemptions above.
 "tests/causal/test_panel_checks.py" = ["N803", "N806"]
-# `T_pre` mirrors the standard BSTS notation for the pre-period length;
-# lowercasing it would fight that notation.
+# `T_pre` keeps the mathematical capital for the pre-period length;
+# lowercasing it would obscure that.
 "packages/cp-causal/src/cp_causal/estimators/bsts.py" = ["N803"]
-# `X`/`Y_res`/`W_res` mirror the R-learner notation for the
-# covariate matrix and residualized outcome/treatment; lowercasing them
-# would fight that notation.
+# `X`/`Y_res`/`W_res` keep the mathematical capitals for the covariate
+# matrix and the residualized outcome and treatment; lowercasing them would
+# obscure that.
 "tests/causal/test_causal_forest.py" = ["N806"]
 
 [tool.mypy]

@@ -35,9 +35,9 @@ pass a test that only exercised those six, so all seven are covered here,
 parametrised against both entry points, for a 2x7 matrix that makes the
 coverage explicit rather than implied by a handful of hand-picked cases.
 
-The final test is the belt-and-braces check spec Sections 5 and 7 both call
-for: every prose source above is linted *before* rendering, as a fragment
-list built independently of the document a renderer produces -- so a
+The final test is the belt-and-braces check: every prose source above is
+linted *before* rendering, as a fragment list built independently of the
+document a renderer produces -- so a
 renderer whose own template wording, or whose composition of otherwise-
 clean fragments, introduced a fresh violation would never be caught by
 that pre-render pass. Markdown is chosen deliberately over HTML for this

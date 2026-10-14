@@ -137,8 +137,8 @@ def markdown_table(frame: pd.DataFrame) -> str:
     return "\n".join([header, rule, *body]) + "\n"
 
 
-# What the study did not run, and why. The full grid has arms the
-# shipped `full` tier leaves out; the study reports them by name rather than
+# What the study did not run, and why. The grid originally proposed has arms
+# the shipped `full` tier leaves out; the study reports them by name rather than
 # letting a reader assume they were covered.
 _DONOR_POOL = "the donor-pool arm has no grid or metrics yet (a causal-core item still open)"
 NOT_COVERED: tuple[tuple[str, str], ...] = (
