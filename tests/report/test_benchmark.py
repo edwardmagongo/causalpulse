@@ -1,6 +1,6 @@
 """Tests for `cp_report.benchmark`'s data layer: the five section dataclasses
 (overview, findings, comparisons, limitations, CATE) and
-`benchmark_evidence_from_run` (design doc `2026-09-23-benchmark-study-report-design.md` §5, §7)."""
+`benchmark_evidence_from_run`."""
 
 from __future__ import annotations
 

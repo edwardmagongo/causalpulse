@@ -1,6 +1,6 @@
 """Every figure that plots an effect estimate must go through the guard.
 
-The parent design document's rule -- a helper handed an estimate without an
+The rule -- a helper handed an estimate without an
 interval raises rather than drawing a bare point -- lives in one function
 (`cp_figures.guards.require_interval`) so a figure cannot forget it. That
 only holds if every such figure actually calls it, which is what this file

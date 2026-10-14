@@ -148,14 +148,13 @@ def test_infinitesimal_jackknife_variance_is_non_negative_and_finite():
     assert variances.shape == (n,)
     assert np.all(variances >= 0)
     assert np.all(np.isfinite(variances))
-    # This is the acceptance bar the "Prototype findings" section flagged as
-    # needing task-time derivation: at least some units must show a
+    # Acceptance bar: at least some units must show a
     # strictly positive variance estimate, or the formula is still the
     # broken always-zero one measured during plan-writing.
     assert np.any(variances > 0), (
         "infinitesimal_jackknife_variance returned all zeros -- this is the "
-        "exact failure mode measured during plan-writing (see this plan's "
-        "Prototype findings section); the naive bias-corrected formula "
+        "exact failure mode measured during plan-writing; the naive "
+        "bias-corrected formula "
         "cannot be used as-is"
     )
     # NOTE: this test does not pin down the bias-correction factor. The

@@ -1,11 +1,9 @@
 """Adoption and unit-effects components for donor-pool scenarios.
 
-Donor-pool scenarios reuse `PanelDGP` (`panel_dgp.py`) unchanged -- see the
-design doc's §3.1. These are the pieces `PanelDGP`'s existing protocol style
-(`panel_components.py`) does not provide: deterministic single-unit
-selection, and two ways to make that one unit diverge from its donor pool in
-a controlled, specific dimension rather than by however extreme its own
-random draw happens to be.
+Donor-pool scenarios reuse `PanelDGP` (`panel_dgp.py`) unchanged. These are the pieces
+`PanelDGP`'s existing protocol style (`panel_components.py`) does not provide: deterministic
+single-unit selection, and two ways to make that one unit diverge from its donor pool in a
+controlled, specific dimension rather than by however extreme its own random draw happens to be.
 """
 
 from __future__ import annotations
@@ -62,7 +60,7 @@ class ClusteredUnitEffects:
     donor-weighting scheme's choice of *which* donors to weight actually
     matter: an equal-weighted average of the whole pool mixes both clusters
     and is biased toward cluster B's mean; a scheme that concentrates weight
-    on cluster A is not. Measured (design doc §2 item 5): at
+    on cluster A is not. Measured: at
     `n_similar=9, within_sd=0.02`, synthetic control's bias is 0.17 against a
     naive average's 4.42, on the same 17-donor, 400-seed protocol.
     """
@@ -105,7 +103,7 @@ class LevelOffsetUnitEffects:
     pool's range by a fixed, deterministic amount every replication --
     guaranteeing a convex-hull violation, rather than relying on that unit
     happening to be the extreme draw among the pool, which is unreliable at
-    realistic donor-pool sizes: measured (design doc §2 item 5) at
+    realistic donor-pool sizes: measured at
     `level_offset=1.0`, a 17-donor pool still produced a higher pre-period
     mean than the offset unit 80% of the time. `level_offset=5.0` is
     reliable: 300/300 seeds.

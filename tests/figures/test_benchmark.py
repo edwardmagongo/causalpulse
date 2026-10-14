@@ -801,7 +801,7 @@ def test_a_scenario_not_in_the_summary_is_refused_naming_what_is_available():
 def test_a_scenario_outside_the_registry_still_gets_a_profile():
     # The declaration guard's `scenario in SCENARIO_AXES` conjunct lets a
     # scenario absent from the registry skip the declaration check rather
-    # than raising -- spec section 5 documents this as deliberate: this
+    # than raising -- this is deliberate: this
     # function cannot vouch for a scenario the registry does not know. No
     # other test reaches that branch:
     # test_a_scenario_not_in_the_summary_is_refused_naming_what_is_available
@@ -1376,9 +1376,8 @@ def test_the_slice_rule_refuses_an_axis_the_real_grid_never_varies():
     # fixture. This is the declaration refusal, not the single-value one:
     # heterogeneity_scale being undeclared is caught before the pins ever
     # run, which for one of the four Phase 18 axes happens to agree with
-    # what the single-value check alone would have found anyway (see §3 of
-    # the design doc for why that agreement does not extend to
-    # confounding_strength, exercised below).
+    # what the single-value check alone would have found anyway (that agreement does
+    # not extend to confounding_strength, exercised below).
     summary = _summary_over_the_full_grids_cells()
 
     with pytest.raises(ValueError, match="does not declare"):

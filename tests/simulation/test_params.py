@@ -90,9 +90,7 @@ def _digest_simulated(simulated):
     metadata describing the configuration, not generated data, and it can
     move (e.g. a component gaining a new field) without a single generated
     value changing. Mixing it into a digest meant to catch drift in *data*
-    makes an unrelated metadata change look like a data regression -- see
-    docs/specs/2026-09-13-causal-core-phase18-design.md section 12 for the
-    incident this caused.
+    makes an unrelated metadata change look like a data regression.
     """
     frame_bytes = simulated.dataset.frame.to_csv(index=True, float_format="%.9g").encode()
     truth = simulated.truth
@@ -127,9 +125,7 @@ def _digest_simulated(simulated):
 # Recomputed after `config_hash` was removed from `_digest_simulated`'s
 # payload above: every constant below changed as a result, because the
 # payload being hashed changed shape for every scenario, not because any
-# scenario's generated data changed. See
-# docs/specs/2026-09-13-causal-core-phase18-design.md section 12 for the
-# incident and why this is not a regression.
+# scenario's generated data changed.
 #
 # Recomputed again on 2026-10-05, when `_digest_simulated` began rounding to
 # nine significant digits (see its docstring: the truth arrays differ in the

@@ -43,9 +43,9 @@ class ResolvedCell:
 
     dataset: CausalDataset
     truth: Mapping[str, float]
-    # Per-unit truth, set only for a `CateCell` (design section 5). A
+    # Per-unit truth, set only for a `CateCell`. A
     # cross-sectional DGP records `true_cate` as well, but the CATE arm scores
-    # only `CATE_SCENARIOS` (design decision 2), and `None` here is how
+    # only `CATE_SCENARIOS`, and `None` here is how
     # `run._fitted_row` knows not to.
     cate_truth: CateTruth | None = None
 

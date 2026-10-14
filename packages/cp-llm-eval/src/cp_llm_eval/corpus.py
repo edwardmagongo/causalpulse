@@ -162,7 +162,7 @@ def _prop99(root: Path) -> CausalDataset:
 
 
 def default_cases() -> tuple[Case, ...]:
-    """The corpus of the design (§5.1), in the order it is reported.
+    """The corpus, in the order it is reported.
 
     No fit-failure case: no router default on any scenario, at any size tried,
     or on either real dataset, failed to fit on unmodified data (measured

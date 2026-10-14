@@ -120,7 +120,7 @@ def test_parallel_trends_passes_when_leads_are_jointly_indistinguishable():
     )
 
     assert check.status == "PASS"
-    # The statement the parent spec mandates.
+    # The mandated statement.
     assert "failure to reject" in check.interpretation.lower()
 
 

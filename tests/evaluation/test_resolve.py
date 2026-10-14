@@ -238,8 +238,7 @@ def test_only_a_cate_cell_carries_per_unit_truth():
         root_entropy=0,
     )
 
-    # F's DGP records true_cate too; the arm deliberately does not score it
-    # (design decision 2).
+    # F's DGP records true_cate too; the arm deliberately does not score it.
     assert cross.cate_truth is None
 
 

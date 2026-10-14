@@ -357,7 +357,7 @@ BAND_ORDER: dict[str, int] = {
     "STRONG": 3,
 }
 
-# Section 6.3 requires this to accompany every rendering of the score. It is a
+# This must accompany every rendering of the score. It is a
 # constant surfaced as a property rather than a caller-supplied field so it
 # cannot be shortened, reworded, or dropped at a call site.
 VALIDITY_SCORE_LIMITS = (

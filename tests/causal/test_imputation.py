@@ -497,7 +497,7 @@ def _diagnostic(name, value):
 
 
 def test_pooled_diagnostics_average_what_every_completion_reported():
-    # §5.3 says the pooled diagnostics "gain" the pooling fields; shipped
+    # The pooled diagnostics were meant to "gain" the pooling fields; shipped
     # code replaced the mapping wholesale, leaving the multiple-imputation
     # arm the least inspectable of the three -- no trimming count, no fold
     # count, no overlap -- even though `compare()` may pick it as the

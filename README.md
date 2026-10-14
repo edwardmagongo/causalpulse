@@ -106,7 +106,7 @@ the ground-truth firewall stays closed to everything below it. `run_grid` fits t
 twelve estimators — cross-sectional and panel, not yet donor-pool — across the four DGP axes that
 exist, and `summarise` reports bias, coverage, and calibration with Monte Carlo standard error
 rather than a point number that cannot distinguish 94% from 95%. A gating `ci` tier runs in about
-100 seconds; the reviews that shipped it found six defects, four of them in the plan's own draft
+100 seconds; the reviews that shipped it found six defects, four of them in the first draft
 code, including a benchmark whose cells were not order-independent and a false-positive test that
 could not fail.
 
@@ -143,9 +143,8 @@ never persisted.
 The causal core is complete. Phase 17 recorded four items deliberately left open rather than
 built, and all four are now closed: the missing grid axes (Phase 18, below), the donor-pool
 benchmark arm (below), `SyntheticControl`'s CI half-width and `donor_contamination_check`'s
-threshold recalibrated against the convex-hull-aware placebo spread `falsify` uses
-(`docs/specs/2026-09-28-synthetic-control-ci-calibration.md`), and the CATE arm of the benchmark
-grid (`docs/specs/2026-09-27-cate-metrics-arm-design.md`). The CATE arm is a fourth cell shape over
+threshold recalibrated against the convex-hull-aware placebo spread `falsify` uses,
+and the CATE arm of the benchmark grid. The CATE arm is a fourth cell shape over
 the RICH, NULL and NOISY scenarios, scoring `causal_forest`'s per-unit CATE by correlation, RMSE and
 calibration slope in the `full` and `study` tiers. `bench run --tier cate` runs that arm alone at
 the study's 50 replications (150 cells, about 35 minutes), and `bench study-report --cate-run DIR`
@@ -166,34 +165,29 @@ to cover three measured points per new axis — a low, a baseline, and a high va
 generating real data rather than by estimate. Phase 18 itself shipped that as 42 to 84, holding
 `confounding_strength` exempt from the declaration rule as a named, tracked exemption; a follow-up
 closed it, so the four randomly-assigning scenarios that never read that axis contribute one
-baseline strength each instead of three, and both ends of the range fall by 16. See
-`docs/specs/2026-09-13-causal-core-phase18-design.md` section 12 for the measured values, the
-values considered and rejected, and the defects a whole-branch review found before any of it
-shipped.
+baseline strength each instead of three, and both ends of the range fall by 16.
 
-**Benchmark study, part 1** built what a study-grade run needs and the analysis that reads it. `bench
-run --tier study` runs `full`'s grid at 50 replications into a directory of one Parquet shard per cell
-plus a ledger, so an interrupted run resumes (`--resume`) and a finished one extends (`--resume
---replications N`); a parallel executor fits cells through the same `fit_cell` the serial `run_grid`
-does. `bench study` turns a finished run into the headline tables, pooled over each scenario's
-baseline slice with Monte Carlo standard errors, and scores eight expectations that were written into
-`docs/specs/2026-09-21-benchmark-study-design.md` before any result existed. That study run does not
-cover `synthetic_control`, `bsts`, the CATE metrics or scenario P7 (the donor-pool arm below adds the
-first two to the tier definition, not to the run already in progress). Results are not committed
-(`benchmarks/runs/` is ignored).
+**Benchmark study, part 1** built what a study-grade run needs and the analysis that reads it.
+`bench run --tier study` runs `full`'s grid at 50 replications into a directory of one Parquet shard
+per cell plus a ledger, so an interrupted run resumes (`--resume`) and a finished one extends
+(`--resume --replications N`); a parallel executor fits cells through the same `fit_cell` the serial
+`run_grid` does. `bench study` turns a finished run into the headline tables, pooled over each
+scenario's baseline slice with Monte Carlo standard errors, and scores eight expectations that were
+written down before any result existed. That study run does not cover `synthetic_control`, `bsts`,
+the CATE metrics or scenario P7 (the donor-pool arm below adds the first two to the tier definition,
+not to the run already in progress). Results are not committed (`benchmarks/runs/` is ignored).
 
 **The 4,000-cell run completed 2026-09-23** (ten estimators, thirteen scenarios). Seven of eight
 pre-registered expectations were met. The eighth -- `hierarchical_did`'s pooled panel coverage not
 below 0.90 -- failed at 0.625, and reading it per scenario rather than pooled found two different
-things underneath one number: on P5 ("parallel trends violated"), every DiD-family estimator collapses
-identically, exactly as that scenario is documented to do; on P6 ("binary panel"), `hierarchical_did`
-alone collapses (0.01 coverage) while its peers stay near nominal (0.89-0.93) on the same data --
-traced to its NumPyro model's outcome likelihood being unconditionally Gaussian, with nothing in its
-declared requirements restricting it away from binary outcomes. Recorded as a finding rather than
-fixed here; see `docs/specs/2026-09-21-benchmark-study-design.md` section 13.7 for the full diagnosis
-and why a fix was left for its own follow-up rather than done inside this analysis. The other seven
-expectations, including the false-positive rate under the null scenario and confounding bias on the
-scenarios built to show it, measured as expected.
+things underneath one number: on P5 ("parallel trends violated"), every DiD-family estimator
+collapses identically, exactly as that scenario is documented to do; on P6 ("binary panel"),
+`hierarchical_did` alone collapses (0.01 coverage) while its peers stay near nominal (0.89-0.93) on
+the same data -- traced to its NumPyro model's outcome likelihood being unconditionally Gaussian,
+with nothing in its declared requirements restricting it away from binary outcomes. Recorded as a
+finding; the fix is left for its own follow-up. The other seven expectations, including the
+false-positive rate under the null scenario and confounding bias on the scenarios built to show it,
+measured as expected.
 
 **The donor-pool benchmark arm** closed the second of the four open causal-core items. The grid gained
 a third cell shape, `DonorPoolCell`, which is just a scenario and a replication index: `DONOR_SCENARIOS`
@@ -212,7 +206,7 @@ identity never recorded the donor arm, so a `study` run would have reported "400
 `synthetic_control` and `bsts` appearing only as ineligible rows and no mention in the coverage
 document; `longest_first` raised on a donor cell; and the `hierarchical_did` eligibility above. Every
 wall-clock figure in the tier docstrings was measured while another job ran on the machine and should
-be re-measured on an idle one. See `docs/specs/2026-09-23-donor-pool-benchmark-arm-design.md`.
+be re-measured on an idle one.
 
 No CLI command currently produces an evidence report, either: the report generator built in Phase 17
 takes live result objects, the same as the figures do, because the arrays six of the eight figures
@@ -893,7 +887,7 @@ immediately.
 
 Candidate specifications are filtered through each estimator's own `Requirements.unmet()` rather
 than a hard-coded rule, which is what drops the empty covariate subset: all three declare
-`needs_covariates`, so the "full power set" the design called for is in practice every *non-empty*
+`needs_covariates`, so the "full power set" of covariate subsets is in practice every *non-empty*
 subset. On the two-covariate cross-sectional scenarios that gives **6** specifications for
 `lin_regression` (3 subsets × 2 outlier rules) and **18** for `ipw` and `aipw` (× 3 trim values).
 The 256-specification cap cannot bind on any scenario in this repository — it is reachable only at
@@ -917,7 +911,7 @@ Recorded here as a decision, not left as a silent gap.
 
 ### Randomization inference detects a real effect 30% of the time, and that is recorded
 
-Section 7.1's design pre-registered the expectation in both directions before the harness was run:
+The expectation was pre-registered in both directions before the harness was run:
 on a genuinely null scenario the real estimate should sit unremarkably inside the permutation
 distribution, and on a scenario with a strong true effect it should sit in the tail, "near 1.0".
 Measured over 20 seeds × 200 permutations at `n_units=800` on `lin_regression`:
@@ -1173,7 +1167,7 @@ rather than approximated.
 
 ### What the measured harness found
 
-All three of spec §7.3's pre-registered expectations held as stated. Measured 2026-08-29, 20 seeds
+All three pre-registered expectations held as stated. Measured 2026-08-29, 20 seeds
 at `n_units=2000`:
 
 | check | scenario | result |
@@ -1216,13 +1210,14 @@ claim made only there would also have succeeded under the wrong formula.
   answer, so the check declines instead.
 - **Differential misclassification.** Named above — a harder analysis that this phase's tractable,
   non-differential model does not attempt.
-- **Missing data.** Moves to Phase 11, the last of §7.1's five original concerns.
+- **Missing data.** Moves to Phase 11, the last of the five concerns the causal core set out to
+  cover.
 
 ## Missing outcomes: complete-case analysis and tipping-point bounds (Phase 11)
 
-The last of §7.1's five original concerns. `CausalDataset` has always permitted missing outcomes,
-but no estimator handled one — before this phase, a dataset with a missing outcome failed late and
-differently per estimator (`ValueError: cannot convert float NaN to integer`,
+The last of the five concerns the causal core set out to cover. `CausalDataset` has always permitted
+missing outcomes, but no estimator handled one — before this phase, a dataset with a missing outcome
+failed late and differently per estimator (`ValueError: cannot convert float NaN to integer`,
 `Interval bounds must be finite, got lower=nan`, `Input y contains NaN` from scikit-learn, or an
 unrelated `LinAlgError` from a missing covariate), naming no column and suggesting no fix.
 
@@ -1314,15 +1309,13 @@ every column shifted by one. Prop 99 with a state renamed `NA` crashed while it 
 Prop 99 with each year moved by half a period gave a cohort that is not in the data.
 
 The answers of least squares, `lin_regression`, `aipw` and the causal forest do not depend on the
-units a column is in (2026-10-14,
-`docs/specs/2026-10-14-scale-invariance-and-magnitude-bound-design.md`). Before, `lin_regression`
-on LaLonde with 1975 earnings (re75) in cents instead of dollars gave an interval of [-4,480, -2,713] for
-[-9,360, 2,167]: the shared least squares cut small directions once one column dwarfed the others,
-and the `aipw` and causal forest outcome models did the same. A value that is large but under the
-bound is the user's own data: one LaLonde covariate cell of 1e39 still moves `aipw`'s estimate to
-about -9.5e35, because its outcome model extrapolates to that unit, and nothing here flags an
-outlier. An integer above 2**53 in an outcome or covariate is rounded when it is converted, by
-about one part in 1e16 (`docs/specs/2026-10-06-input-followups-design.md`, section 10).
+units a column is in (since 2026-10-14). Before, `lin_regression` on LaLonde with 1975 earnings
+(re75) in cents instead of dollars gave an interval of [-4,480, -2,713] for [-9,360, 2,167]: the
+shared least squares cut small directions once one column dwarfed the others, and the `aipw` and
+causal forest outcome models did the same. A value that is large but under the bound is the user's
+own data: one LaLonde covariate cell of 1e39 still moves `aipw`'s estimate to about -9.5e35,
+because its outcome model extrapolates to that unit, and nothing here flags an outlier. An integer
+above 2**53 in an outcome or covariate is rounded when it is converted, by about one part in 1e16.
 
 ### What a wide bound means
 
@@ -1358,14 +1351,14 @@ their own reason string, checked by the language walk the same way Phase 9 and 1
 ### Imputation is Phase 12
 
 This phase builds the missingness mechanism, complete-case analysis as an explicit baseline, and the
-tipping-point bounds — two of the three pieces the parent spec's original "complete-case vs
-imputation comparison, tipping-point analysis" row called for. **Imputation, and any comparison
+tipping-point bounds — two of the three pieces the "complete-case vs imputation
+comparison, tipping-point analysis" item called for. **Imputation, and any comparison
 between complete-case and imputed estimates, is Phase 12.** Tipping-point analysis needs no model
 for the missing values, which is the point of it, so it does not depend on what Phase 12 builds.
 
 ### What the measured harness found
 
-All four of spec §7.3's pre-registered expectations held as stated. Measured 2026-08-30, 20 seeds at
+All four pre-registered expectations held as stated. Measured 2026-08-30, 20 seeds at
 `n_units=2000`, `difference_in_means`, scenario D unless noted, MNAR at `rate=0.25, strength=2.0`:
 
 | check | scenario | result |
@@ -1401,8 +1394,8 @@ that the tolerance needs widening.
 
 ## Imputation, and where it stops helping (Phase 12)
 
-The other two of the parent spec's original "complete-case vs imputation comparison, tipping-point
-analysis" row. `impute_once` fills missing outcomes from a logistic model of treatment, covariates
+The other two of the "complete-case vs imputation comparison, tipping-point
+analysis" item. `impute_once` fills missing outcomes from a logistic model of treatment, covariates
 and an optional declared `auxiliary_columns` (schema fields an imputation model may see but no
 estimator may adjust for, since an auxiliary built from the outcome is a descendant of it);
 `multiple_impute` draws `m` such completions, bootstrap-resampling the observed rows before each
@@ -1424,7 +1417,7 @@ gets edited after seeing the data stops being one:
   loses nothing. The naive expectation that "any imputation helps" is the one to distrust.
 - **Under MNAR, MI was expected to leave the complete-case gap roughly unchanged. Measured: it
   repairs about two thirds of it** and leaves a residual that is unambiguously nonzero. The
-  mechanism the spec missed: this project's `OutcomeProxy` is built from the *complete* outcome, so
+  mechanism: this project's `OutcomeProxy` is built from the *complete* outcome, so
   it carries information about the missing values themselves, which makes MNAR partially ignorable
   *given the proxy*. Imputation is still not a general fix for MNAR — a proxy that carried no
   outcome information would not repair anything — but an auxiliary correlated with why data is
@@ -1962,7 +1955,7 @@ reliably. That misreading is now refused: the verifier's rule `insufficient_cave
 the interpretation core, PR #16) requires a statement citing such an estimate to cite its band,
 and the system prompt states it, so `prompt_version` moved from `a28f0812170d` to `5b08e57994d4`.
 The baseline figures above were measured under `a28f0812170d`, and `cite-each-status` under its
-own `5d1427d1ea82`. Design §15.5 records the details.
+own `5d1427d1ea82`.
 
 ## Web dashboard (sub-project 5)
 
@@ -2115,8 +2108,6 @@ does not expect fails `make check-web`, which type-checks the import. The Python
 (the metric definitions, each family's metrics, the levels and each estimator's family) to the code.
 Neither check can show that the rest of the bundle is what the current code would write; only
 running the command shows that.
-`docs/specs/2026-10-04-dashboard-phase2-explorer-design.md` section 12 records what changed while
-building it.
 
 ### Its API types cannot drift
 
@@ -2495,9 +2486,6 @@ above).
 The compose file by itself still builds its two images where it runs. On the server an override
 (`deploy/compose.server.yml`) names images pulled from a registry in their place.
 
-`docs/specs/2026-10-07-hosting-phase2-production-stack-design.md` section 13 records what changed
-while building it, and what is left open.
-
 ## Deployment
 
 Everything needed to put the production stack on one small AWS server and to deploy a commit to
@@ -2626,8 +2614,8 @@ GitHub for an identity token and that it is started by hand only, which guards a
 accident and not against a person who can push. If a second person is ever given the right to
 push, the boundary has to move first: enforced branch protection on `main`, and the deploy job
 in a GitHub environment with required reviewers, with the role's trust changed to that
-environment's subject (the design's section 7). AWS offers no narrower form of the permission to read
-a command's result, so the role can read the output of any run-command in the account and
+environment's subject. AWS offers no narrower form of the permission to read a
+command's result, so the role can read the output of any run-command in the account and
 region whose id it is given. The account is shared with another project.
 
 ### Secrets
@@ -2644,7 +2632,7 @@ account's number and the budget's e-mail address, which is why its bucket is pri
 
 ### What it costs
 
-Approximate, on-demand prices in `eu-west-1`, running all the time. These are the design's
+Approximate, on-demand prices in `eu-west-1`, running all the time. These are
 estimates; nothing has been billed yet.
 
 | Item | US dollars a month |
@@ -2669,6 +2657,3 @@ a snapshot, rotating the two secrets, changing a rate limit, stopping and starti
 replacing the machine, tearing everything down, and what to do when a machine's first boot did
 not finish. It also lists what exists and where each
 thing is defined, and where to start when something is wrong.
-
-`docs/specs/2026-10-08-hosting-phase3-server-and-deploy-design.md` is the design; its section 14
-records what changed while building it, and what is left open.

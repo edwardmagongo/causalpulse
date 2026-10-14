@@ -1,7 +1,7 @@
 """One real judge call. Run by `make check-llm`, never by `make check`.
 
 Skipped unless `CP_LLM_LIVE=1`, whatever credentials are present, as phase 1's
-live test is. It also answers the design's §12 item 5: whether the API
+live test is. It also answers whether the API
 accepts the judge's reply schema, one entry per statement.
 """
 

@@ -182,8 +182,8 @@ def _with_declared_extras(dataset: CausalDataset) -> CausalDataset:
 
 @pytest.mark.parametrize("option", ["propensity_covariates", "outcome_covariates"])
 def test_no_option_can_hand_an_estimator_a_declared_auxiliary(option: str):
-    # §4.2 of the Phase 12 spec calls keeping the auxiliary out of the
-    # adjustment set "a correctness requirement, not a convenience --
+    # Keeping the auxiliary out of the
+    # adjustment set is "a correctness requirement, not a convenience --
     # enforced rather than documented". The schema's own validation only
     # covers `covariates`; an auxiliary is by construction a descendant of
     # the outcome, so conditioning on it through an option is the exact bias

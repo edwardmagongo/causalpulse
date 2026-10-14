@@ -77,7 +77,7 @@ def test_level_offset_shifts_only_the_chosen_unit():
 
 
 def test_level_offset_reliably_places_the_unit_outside_a_17_donor_pool():
-    # Measured (design doc §2 item 5): at level_offset=5.0, 300/300 seeds.
+    # Measured: at level_offset=5.0, 300/300 seeds.
     # This is the check the estimator's convex_hull assumption check
     # ultimately relies on being reliable -- pinned here at the component
     # level, independent of the estimator.

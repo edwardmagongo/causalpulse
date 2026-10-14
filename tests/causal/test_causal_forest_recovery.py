@@ -2,8 +2,8 @@
 
 Every tolerance below is measured through `CausalForest.fit` itself, at this
 file's own `_CONFIG_OPTIONS` and `CATE_RECOVERY_SEEDS`, and each test names the
-number it was measured at. Nothing here is carried over from the plan's
-design-phase prototype: the plan's own placeholder tolerances cited a
+number it was measured at. Nothing here is carried over from the
+design-phase prototype: its placeholder tolerances cited a
 single-seed prototype correlation of 0.389, which is not a protocol any
 assertion here runs under -- the same quantity measures 0.8177 through the
 shipped estimator at this file's protocol.
@@ -107,7 +107,7 @@ def test_causal_forest_ate_interval_covers_the_true_ate():
 @pytest.mark.slow
 def test_causal_forest_calibration_test_correctly_finds_no_heterogeneity_on_null_scenario():
     # Two-sided per this project's established pattern (Phase 4's S2 test,
-    # Phase 6 design doc section 6): passing RICH recovery alone must not
+    # Phase 6): passing RICH recovery alone must not
     # silently mean the calibration guard stopped working.
     detected = 0
     for seed in range(CATE_RECOVERY_SEEDS):

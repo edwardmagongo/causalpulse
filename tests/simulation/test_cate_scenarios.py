@@ -53,7 +53,7 @@ def test_multivariate_heterogeneous_effect_clips_the_secondary_driver():
 
 def test_rich_heterogeneity_scenario_measured_truth_has_real_spread():
     # A sanity check, not the calibrated recovery harness (that's Task 14).
-    # The framework validates itself per parent spec §4.5: this scenario's
+    # The framework validates itself: this scenario's
     # true_cate must actually vary meaningfully, or it cannot test per-unit
     # CATE recovery at all.
     #

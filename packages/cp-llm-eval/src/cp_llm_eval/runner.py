@@ -27,7 +27,7 @@ from cp_llm_eval.variants import Variant
 
 INTERPRETATIONS = "interpretations"
 MAX_ATTEMPTS = 2
-# claude-opus-5-5's price per token, as phase 1 measured cost (design §16).
+# claude-opus-5-5's price per token, as phase 1 measured cost.
 INPUT_PRICE = 4e-6
 OUTPUT_PRICE = 20e-6
 

@@ -135,8 +135,8 @@ def test_the_harness_produces_bands_on_both_sides_of_the_comparison(
     measured counts -- MODERATE+ would have to drop by ~30% and WEAK- by
     ~27% before either trips -- so ordinary run-to-run numerical drift
     (library version bumps, solver tie-breaking) cannot false-fail this, but
-    the harness collapsing onto one band (the degenerate case section 6's own
-    review warns about) still would.
+    the harness collapsing onto one band (a degenerate case the review
+    warned about) still would.
     """
     mix = collections.Counter(band for band, _ in rows)
     assert sum(mix[b] for b in ("MODERATE", "STRONG")) >= 600

@@ -1,9 +1,6 @@
 """CATE scenario presets: cross-sectional data with genuine multi-covariate
 heterogeneity, distinct from both `SCENARIOS` (A-J) and the panel/donor-pool
 registries -- these are not points on either existing grid.
-
-See the design doc (`docs/specs/2026-08-17-causal-core-phase6-design.md`)
-§3.1 for the rationale per scenario.
 """
 
 from __future__ import annotations

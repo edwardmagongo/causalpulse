@@ -188,7 +188,7 @@ def calibration_test(fit: ForestFit, alpha: float = 0.05) -> AssumptionCheck:
     If it is, the forest's per-unit ordering carries real information about
     the true effect and subgroup reporting is licensed; if it is not, this
     estimator reports "no reliable evidence of heterogeneity" and skips
-    subgroup discovery entirely (parent spec §5.7's explicit requirement).
+    subgroup discovery entirely (an explicit requirement).
 
     **Status semantics.** `PASS` means heterogeneity was detected, `WARN`
     means it was not. `WARN` rather than `FAIL` is deliberate and differs
@@ -594,7 +594,7 @@ def discover_subgroups(
     fdr_level: float,
     ci_level: float,
 ) -> tuple[SubgroupFinding, ...]:
-    """Subgroup discovery behind all three guards the parent spec requires:
+    """Subgroup discovery behind all three guards:
     the omnibus calibration gate, a minimum cell size, and Benjamini-Hochberg
     FDR control across every candidate cell.
 

@@ -4,16 +4,14 @@ treated unit.
 Local linear trend (level and slope, both evolving as random walks) plus a
 regularised-horseshoe regression on donor series, sampled via NUTS. Shares
 its donor-pool data shape with `SyntheticControl` (`_panel.donor_matrix`) but
-not its math or inference paradigm -- see the design doc
-(`docs/specs/2026-08-16-causal-core-phase5-design.md`) for why they are
-separate estimators.
+not its math or inference paradigm, so they are separate estimators.
 
 Non-centered throughout. A first prototype pass with the textbook *centered*
 horseshoe (`donor_coef ~ Normal(0, tau*lam_tilde)` sampled directly) produced
 37 divergences and R-hat up to 1.09 on S1 seed 0 -- the classic horseshoe
 funnel. Reparameterising `donor_coef` as `donor_coef_raw * tau * lam_tilde`
 with `donor_coef_raw ~ Normal(0, 1)` dropped that to 10-13 divergences with
-every R-hat <= 1.01 at the same protocol (design doc §2 item 7 prototype).
+every R-hat <= 1.01 at the same protocol.
 """
 
 from __future__ import annotations
@@ -65,7 +63,7 @@ MIN_DONORS = 5  # matches SyntheticControl's floor; same donor-pool shape
 # way, JIT compile dominates), so this is free, not a real speed tradeoff.
 FAST_MCMC_CONFIG = MCMCConfig(num_warmup=50, num_samples=50, num_chains=2)
 
-# Measured (design doc §2 item 7 prototype): clean R-hat (<=1.01) on S1/S2/S5
+# Measured on a prototype: clean R-hat (<=1.01) on S1/S2/S5
 # at this configuration. The prototype's ~1.5-2s/fit estimate did not hold up
 # under Task 10's real measurement: ~17.5s/fit in this repo's actual test
 # environment, making a full 400-seed recovery run several hours, not the

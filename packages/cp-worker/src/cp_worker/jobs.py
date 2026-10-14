@@ -11,10 +11,9 @@ with its traceback:
 - the job's time limit (`cp_worker.worker.JobTimeLimitExceeded`), with a
   message stating the limit in seconds.
 
-So RQ records these jobs as finished. The API's lost-worker check (spec
-§11.4) is left for a job that never reached one of them: a worker killed
-mid-job, a job deleted from Redis, a database unreachable even for the
-`failed` write, or an analysis id with no row.
+So RQ records these jobs as finished. The API's lost-worker check is left for a job that never
+reached one of them: a worker killed mid-job, a job deleted from Redis, a database unreachable
+even for the `failed` write, or an analysis id with no row.
 """
 
 from __future__ import annotations

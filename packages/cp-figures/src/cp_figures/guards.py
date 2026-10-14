@@ -1,6 +1,6 @@
 """The one rule every figure in this package obeys.
 
-The parent design document states it directly: a figure that displays an
+The rule: a figure that displays an
 effect estimate must render its uncertainty, and a plotting helper handed an
 estimate without an interval raises rather than drawing a bare point. A point
 without an interval is a number with no indication of how well it is known,

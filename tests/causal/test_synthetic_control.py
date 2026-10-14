@@ -33,7 +33,7 @@ CONFIG = EstimatorConfig(bootstrap_reps=10, random_seed=1)
 def _generate(scenario_id: str, seed: int = 0):
     # Reads n_units/n_periods off the scenario's own spec, not the shared
     # constants directly -- S5 deliberately overrides both to a shorter
-    # panel (design doc §3.2), and generating it at the default protocol
+    # panel, and generating it at the default protocol
     # instead would silently test a scenario other than the registered
     # one. Found at final whole-branch review: an earlier version of this
     # helper always used DONOR_N_UNITS/DONOR_N_PERIODS, so
@@ -178,8 +178,7 @@ def test_hull_aware_placebo_runs_rmspe_ratios_differ_from_simplex_under_ridge():
     # S3 triggers the ridge fallback for the real treated unit (index 0, see
     # the shared-unit-swap test above). rmspe_ratios is post/pre RMSPE, which
     # is sensitive to which form built the post-period counterfactual --
-    # unlike fit()'s own pre_rmspe, it is not a pre-period-only statistic
-    # (design doc 2026-09-28-synthetic-control-ci-calibration.md §1.1) -- so
+    # unlike fit()'s own pre_rmspe, it is not a pre-period-only statistic -- so
     # the hull-aware ratio at index 0 must differ from the plain-simplex one,
     # and must match the ratio computed directly from fit_donor_pool_point's
     # own post-fallback `synthetic`, not from a second, independent formula.
@@ -237,7 +236,7 @@ def test_ridge_augmented_weights_have_an_intercept_and_one_coefficient_per_donor
 
 
 def test_ridge_augmented_weights_recover_truth_on_the_convex_hull_scenario():
-    # Measured (design doc §2 item 5), 300 seeds, plain simplex-SC bias
+    # Measured over 300 seeds, plain simplex-SC bias
     # +1.21 (badly biased) vs ridge-augmented (penalty=1.0) bias +0.0223
     # (MCSE 0.0270). Tolerance 0.15 gives (0.15 - 0.0223) / 0.0270 = 4.7
     # MCSE headroom. Run at fewer seeds here (this is a unit test, not the

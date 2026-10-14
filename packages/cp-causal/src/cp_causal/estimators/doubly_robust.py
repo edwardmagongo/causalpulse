@@ -62,8 +62,8 @@ def _resolve_nuisance_covariates(
     # forbidden, and neither is caught by the "not present in the frame"
     # check because both are in the frame by construction. An auxiliary is
     # declared precisely because it may carry outcome information no
-    # estimator may see -- §4.2 of the Phase 12 spec calls keeping it out of
-    # the adjustment set a correctness requirement, enforced rather than
+    # estimator may see -- keeping it out of
+    # the adjustment set is a correctness requirement, enforced rather than
     # documented -- and a negative control outcome is chosen because the
     # treatment cannot affect it, which adjusting for it would destroy.
     # `CausalSchema` already refuses either as a `covariates` entry; this is
