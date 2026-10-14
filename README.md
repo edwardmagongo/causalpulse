@@ -1842,7 +1842,8 @@ A server can offer the same interpretation for an analysis run through the API. 
   version. A refused one is not shown; the page says so and gives the number of attempts.
 - **A verified interpretation can still misread its analysis.** Phase 2's study, below, measured
   it: in a hand-labelled sample, the commonest misreading quoted an estimate whose band is
-  `INSUFFICIENT` without saying so, and verification does not catch that.
+  `INSUFFICIENT` without saying so. The verifier now refuses that (rule 6, below); misreadings
+  outside its rules can still pass.
 
 ## Measuring misreadings (sub-project 4, phase 2)
 
@@ -1947,8 +1948,11 @@ rebuilds the same `report.json`). Every figure below is copied from `report.json
 
 What the study shows, then: verification guarantees the numbers, the commonest remaining misreading
 is an unqualified `INSUFFICIENT` estimate, and neither the judge nor the graders measure it
-reliably. A verifier rule that requires a caveat whenever a cited estimate's band is
-`INSUFFICIENT` is the follow-up. Design §15.5 records the details.
+reliably. That misreading is now refused: the verifier's rule `insufficient_caveat` (rule 6 under
+the interpretation core, PR #16) requires a statement citing such an estimate to cite its band,
+and the system prompt states it, so `prompt_version` moved from `a28f0812170d` to `5b08e57994d4`.
+The baseline figures above were measured under `a28f0812170d`, and `cite-each-status` under its
+own `5d1427d1ea82`. Design §15.5 records the details.
 
 ## Web dashboard (sub-project 5)
 
