@@ -5,7 +5,7 @@
 ![Python](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
 ![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)
-![Tests](https://img.shields.io/badge/Python%20tests-3%2C890-brightgreen)
+![Tests](https://img.shields.io/badge/Python%20tests-3%2C938-brightgreen)
 
 A causal inference and experimentation platform. Given an intervention and an outcome,
 CausalPulse estimates what would have happened without the intervention, how large the effect
@@ -50,7 +50,7 @@ never claims more certainty than the diagnostics support.
   A 200-interpretation study with 150 hand-labelled statements found the commonest remaining
   misreading, turned it into a verifier rule, and reports its own judge's 5.1% sensitivity as the
   weakness it is. See [Interpretation](#interpretation).
-- **3,890 Python tests, 451 dashboard unit tests and 24 browser tests**, plus gates that bring
+- **3,938 Python tests, 451 dashboard unit tests and 24 browser tests**, plus gates that bring
   up the demo stack, the production stack behind TLS, and the real deploy script against a local
   registry. See [Tests](#tests).
 
@@ -274,8 +274,8 @@ Routes, keys, limits and the dashboard's session and failure handling:
 
 | Gate | What it covers |
 |---|---|
-| `make check` | Lint (ruff), strict mypy, the import contracts, and all 3,890 Python tests, with warnings as errors |
-| `make test-fast` | The 3,811 tests outside the slow tier |
+| `make check` | Lint (ruff), strict mypy, the import contracts, and all 3,938 Python tests, with warnings as errors |
+| `make test-fast` | The 3,858 tests outside the slow tier |
 | `make test-slow` | The slow recovery harnesses, which score estimators over many seeds |
 | `make check-services` | The API and worker tests, against a real Postgres and Redis |
 | `make check-web` | The dashboard's lint, type checks and 451 unit tests |

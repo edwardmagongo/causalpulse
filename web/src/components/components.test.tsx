@@ -270,7 +270,7 @@ describe("the analyses list", () => {
     analyses.items.forEach((item, index) => {
       expect(within(rows[index]).getByRole("rowheader").textContent).toBe(item.dataset_filename);
     });
-    // The first cell after the dataset's row header is the status. What the recorder's four analyses give, newest first.
+    // The first cell after the dataset's row header is the status. What the recorded list gives (four analyses, recorded before the partial case was dropped), newest first.
     expect(rows.map((row) => within(row).getAllByRole("cell")[0].textContent)).toEqual([
       "succeeded (partial)",
       "failed",
