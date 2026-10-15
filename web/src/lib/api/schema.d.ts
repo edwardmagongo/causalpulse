@@ -249,6 +249,8 @@ export interface components {
             dataset_filename: string;
             /** Dataset Id */
             dataset_id: string;
+            /** Earlier Interpretations */
+            earlier_interpretations: components["schemas"]["InterpretationDetail"][];
             /** Error */
             error: string | null;
             /** Estimates */
@@ -481,6 +483,10 @@ export interface components {
          *
          *     `verified`: `sections`, `limits` and `notice`. `refused`: `attempts` and
          *     `reason`; a refused narrative is not served. `failed`: `error`.
+         *     `interpreter_version` names the prompt and verifier rules it was written
+         *     under, or is null; `out_of_date` is true for a `verified` or `refused`
+         *     interpretation when that is not the server's current version, null
+         *     included, and false for any other status.
          */
         InterpretationDetail: {
             /** Attempts */
@@ -491,12 +497,16 @@ export interface components {
             error: string | null;
             /** Finished At */
             finished_at: string | null;
+            /** Interpreter Version */
+            interpreter_version: string | null;
             /** Limits */
             limits: string | null;
             /** Model */
             model: string;
             /** Notice */
             notice: string | null;
+            /** Out Of Date */
+            out_of_date: boolean;
             /** Prompt Version */
             prompt_version: string | null;
             /** Reason */

@@ -6,16 +6,20 @@ outcome the job can store is reached without a real call.
 
 import hashlib
 import json
+import logging
 import uuid
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from cp_api.db import AnalysisSummary, Dataset, Interpretation
 from cp_llm.facts import FactTable
 from cp_llm.interpret import VERIFIED_MEANS
 from cp_llm.model import ModelCallError
+from cp_llm.version import interpreter_version
 from cp_worker import jobs
 from cp_worker.jobs import facts_digest, run_analysis_job, run_interpretation_job
 from cp_worker.worker import JobTimeLimitExceeded
+from sqlalchemy import select
 from worker.data import scenario_d_upload
 from worker.narratives import ScriptedReplies, narrative_for
 
@@ -54,15 +58,18 @@ def _analysed(sessions):
     return key
 
 
-def _queued(sessions, key):
+def _queued(sessions, key, *, job_id=None, created_at=None):
+    """A queued interpretation of analysis `key`; its row id, the job's argument."""
     with sessions() as session:
-        session.add(
-            Interpretation(
-                analysis_id=key, status="queued", job_id=f"interpretation-{key}-1",
-                model="claude-opus-5-5", effort="medium",
-            )
+        row = Interpretation(
+            analysis_id=key, status="queued", job_id=job_id or f"interpretation-{key}-1",
+            model="claude-opus-5-5", effort="medium",
         )
+        if created_at is not None:
+            row.created_at = created_at
+        session.add(row)
         session.commit()
+        return row.id
 
 
 def _facts(sessions, key):
@@ -71,9 +78,28 @@ def _facts(sessions, key):
     return stored, FactTable.from_json(json.dumps(stored))
 
 
-def _row(sessions, key):
+def _row(sessions, row_id):
     with sessions() as session:
-        return session.get(Interpretation, key)
+        return session.get(Interpretation, row_id)
+
+
+def _columns(row):
+    return tuple(getattr(row, column.name) for column in Interpretation.__table__.columns)
+
+
+def _snapshot(sessions, analysis_id):
+    """Every column of every interpretation of the analysis, ordered by id."""
+    with sessions() as session:
+        rows = session.scalars(
+            select(Interpretation)
+            .where(Interpretation.analysis_id == analysis_id)
+            .order_by(Interpretation.id)
+        ).all()
+        return [_columns(row) for row in rows]
+
+
+def _job_log(caplog):
+    return [record for record in caplog.records if record.name == jobs.__name__]
 
 
 def _script(monkeypatch, *items):
@@ -131,12 +157,12 @@ def test_a_verified_interpretation_is_stored_with_its_sections_and_notice(
 ):
     key = _analysed(sessions)
     stored, facts = _facts(sessions, key)
-    _queued(sessions, key)
+    row_id = _queued(sessions, key)
     _script(monkeypatch, narrative_for(facts))
 
-    run_interpretation_job(str(key))
+    run_interpretation_job(str(row_id))
 
-    row = _row(sessions, key)
+    row = _row(sessions, row_id)
     assert row.status == "verified"
     assert row.returned_model == "scripted-model"
     assert row.notice == VERIFIED_MEANS
@@ -150,6 +176,7 @@ def test_a_verified_interpretation_is_stored_with_its_sections_and_notice(
     assert row.facts_sha256 == facts_digest(stored)
     assert row.started_at is not None and row.finished_at is not None
     assert row.prompt_version
+    assert row.interpreter_version == interpreter_version()
 
 
 def test_a_narrative_that_never_verifies_is_refused_with_its_attempts(
@@ -157,30 +184,32 @@ def test_a_narrative_that_never_verifies_is_refused_with_its_attempts(
 ):
     key = _analysed(sessions)
     _, facts = _facts(sessions, key)
-    _queued(sessions, key)
+    row_id = _queued(sessions, key)
     bad = narrative_for(facts).model_copy(update={"summary": ["It rose by 2 points."]})
     model = _script(monkeypatch, bad, bad)
 
-    run_interpretation_job(str(key))
+    run_interpretation_job(str(row_id))
 
-    row = _row(sessions, key)
+    row = _row(sessions, row_id)
     assert (row.status, model.calls, len(row.attempts)) == ("refused", 2, 2)
     assert row.attempts[0]["violations"]
     assert row.rendered is None and row.notice is None
+    assert row.interpreter_version == interpreter_version()
 
 
 def test_a_model_that_cannot_be_reached_fails_the_interpretation(
     sessions, worker_env, monkeypatch
 ):
     key = _analysed(sessions)
-    _queued(sessions, key)
+    row_id = _queued(sessions, key)
     _script(monkeypatch, ModelCallError("the model API call failed: APIConnectionError"))
 
-    run_interpretation_job(str(key))
+    run_interpretation_job(str(row_id))
 
-    row = _row(sessions, key)
+    row = _row(sessions, row_id)
     assert row.status == "failed"
     assert "APIConnectionError" in row.error
+    assert row.interpreter_version == interpreter_version()
 
 
 def test_no_answer_after_a_rejected_reply_fails_and_keeps_that_reply(
@@ -188,39 +217,63 @@ def test_no_answer_after_a_rejected_reply_fails_and_keeps_that_reply(
 ):
     key = _analysed(sessions)
     _, facts = _facts(sessions, key)
-    _queued(sessions, key)
+    row_id = _queued(sessions, key)
     bad = narrative_for(facts).model_copy(update={"summary": ["It rose by 2 points."]})
     _script(monkeypatch, bad, "max_tokens")
 
-    run_interpretation_job(str(key))
+    run_interpretation_job(str(row_id))
 
-    row = _row(sessions, key)
+    row = _row(sessions, row_id)
     assert row.status == "failed"
     assert "max_tokens" in row.error
     assert len(row.attempts) == 1
+    assert row.interpreter_version == interpreter_version()
 
 
 def test_the_time_limit_fails_the_interpretation(sessions, worker_env, monkeypatch):
     key = _analysed(sessions)
-    _queued(sessions, key)
+    row_id = _queued(sessions, key)
     _script(monkeypatch, JobTimeLimitExceeded(1800))
 
-    run_interpretation_job(str(key))
+    run_interpretation_job(str(row_id))
 
-    row = _row(sessions, key)
+    row = _row(sessions, row_id)
     assert row.status == "failed"
     assert row.error == "the interpretation exceeded the 1800-second job limit and was stopped"
+    assert row.interpreter_version == interpreter_version()
 
 
 def test_an_unexpected_error_is_stored_as_a_failure_not_raised(sessions, worker_env, monkeypatch):
     key = _analysed(sessions)
-    _queued(sessions, key)
+    row_id = _queued(sessions, key)
     _script(monkeypatch, RuntimeError("boom"))
 
-    run_interpretation_job(str(key))
+    run_interpretation_job(str(row_id))
 
-    row = _row(sessions, key)
+    row = _row(sessions, row_id)
     assert (row.status, row.error) == ("failed", "boom")
+    assert row.interpreter_version == interpreter_version()
+
+
+def test_a_version_that_cannot_be_computed_fails_the_interpretation_with_no_version(
+    sessions, worker_env, monkeypatch
+):
+    key = _analysed(sessions)
+    row_id = _queued(sessions, key)
+    model = _script(monkeypatch, narrative_for(_facts(sessions, key)[1]))
+
+    def unknowable():
+        raise RuntimeError("the rules could not be read")
+
+    monkeypatch.setattr(jobs, "interpreter_version", unknowable)
+
+    run_interpretation_job(str(row_id))
+
+    row = _row(sessions, row_id)
+    assert (row.status, row.error) == ("failed", "the rules could not be read")
+    assert row.interpreter_version is None
+    assert row.finished_at is not None
+    assert model.calls == 0
 
 
 def test_an_analysis_without_facts_fails_its_interpretation(sessions, worker_env, monkeypatch):
@@ -228,15 +281,16 @@ def test_an_analysis_without_facts_fails_its_interpretation(sessions, worker_env
     with sessions() as session:
         session.get(AnalysisSummary, key).facts = None
         session.commit()
-    _queued(sessions, key)
+    row_id = _queued(sessions, key)
     model = _script(monkeypatch)
 
-    run_interpretation_job(str(key))
+    run_interpretation_job(str(row_id))
 
-    row = _row(sessions, key)
+    row = _row(sessions, row_id)
     assert row.status == "failed"
     assert "no fact table" in row.error
     assert model.calls == 0
+    assert row.interpreter_version == interpreter_version()
 
 
 def test_a_refused_fact_table_is_stored_as_sql_null_not_json_null(
@@ -261,21 +315,19 @@ def test_a_job_on_a_row_that_is_not_queued_makes_no_model_call(
     sessions, worker_env, monkeypatch
 ):
     key = _analysed(sessions)
-    _queued(sessions, key)
+    row_id = _queued(sessions, key)
     with sessions() as session:
-        row = session.get(Interpretation, key)
+        row = session.get(Interpretation, row_id)
         row.status = "failed"
         row.error = "the queue was down"
         session.commit()
-    before = _row(sessions, key)
-    before = (before.status, before.error, before.job_id, before.started_at, before.finished_at)
+    before = _snapshot(sessions, key)
     model = _script(monkeypatch, narrative_for(_facts(sessions, key)[1]))
 
-    run_interpretation_job(str(key))
+    run_interpretation_job(str(row_id))
 
-    row = _row(sessions, key)
     assert model.calls == 0
-    assert (row.status, row.error, row.job_id, row.started_at, row.finished_at) == before
+    assert _snapshot(sessions, key) == before
 
 
 def test_a_job_that_is_not_the_one_the_row_names_makes_no_model_call(
@@ -285,15 +337,15 @@ def test_a_job_that_is_not_the_one_the_row_names_makes_no_model_call(
     from rq import Queue
 
     key = _analysed(sessions)
-    _queued(sessions, key)
+    row_id = _queued(sessions, key)
     model = _script(monkeypatch, narrative_for(_facts(sessions, key)[1]))
     Queue(jobs_queue_name(), connection=redis_conn).enqueue(
-        "cp_worker.jobs.run_interpretation_job", str(key), job_id=f"interpretation-{key}-stale"
+        "cp_worker.jobs.run_interpretation_job", str(row_id), job_id=f"interpretation-{key}-stale"
     )
 
     make_worker(redis_conn).work(burst=True)
 
-    row = _row(sessions, key)
+    row = _row(sessions, row_id)
     assert model.calls == 0
     assert (row.status, row.job_id) == ("queued", f"interpretation-{key}-1")
     assert row.started_at is None and row.finished_at is None
@@ -309,13 +361,133 @@ def test_a_worker_with_interpretations_off_fails_the_interpretation_without_a_ca
     sessions, worker_env, monkeypatch
 ):
     key = _analysed(sessions)
-    _queued(sessions, key)
+    row_id = _queued(sessions, key)
     model = _script(monkeypatch)
     monkeypatch.delenv("CP_INTERPRETATION")
 
-    run_interpretation_job(str(key))
+    run_interpretation_job(str(row_id))
 
-    row = _row(sessions, key)
+    row = _row(sessions, row_id)
     assert (row.status, row.error) == ("failed", jobs.WORKER_INTERPRETATIONS_OFF)
     assert model.calls == 0
     assert row.finished_at is not None
+    assert row.interpreter_version == interpreter_version()
+
+
+def test_a_job_given_an_analysis_id_runs_its_newest_row_when_that_is_queued(
+    sessions, worker_env, monkeypatch
+):
+    # A job enqueued before interpretations had their own ids carried the analysis id.
+    key = _analysed(sessions)
+    _, facts = _facts(sessions, key)
+    earlier = datetime.now(UTC) - timedelta(hours=1)
+    older_id = _queued(sessions, key, job_id=f"interpretation-{key}-0", created_at=earlier)
+    with sessions() as session:
+        older = session.get(Interpretation, older_id)
+        older.status = "failed"
+        older.error = "the queue was down"
+        session.commit()
+    newest_id = _queued(sessions, key)
+    _script(monkeypatch, narrative_for(facts))
+
+    run_interpretation_job(str(key))
+
+    newest = _row(sessions, newest_id)
+    assert newest.status == "verified"
+    assert newest.interpreter_version == interpreter_version()
+    older = _row(sessions, older_id)
+    assert (older.status, older.error, older.started_at) == ("failed", "the queue was down", None)
+
+
+def test_a_job_given_an_analysis_id_whose_newest_row_is_not_queued_writes_nothing(
+    sessions, worker_env, monkeypatch, caplog
+):
+    caplog.set_level(logging.DEBUG, logger=jobs.__name__)
+    key = _analysed(sessions)
+    row_id = _queued(sessions, key)
+    with sessions() as session:
+        row = session.get(Interpretation, row_id)
+        row.status = "verified"
+        session.commit()
+    before = _snapshot(sessions, key)
+    model = _script(monkeypatch, narrative_for(_facts(sessions, key)[1]))
+
+    caplog.clear()
+    run_interpretation_job(str(key))
+
+    assert model.calls == 0
+    assert _snapshot(sessions, key) == before
+    logged = _job_log(caplog)
+    assert len(logged) == 1 and str(key) in logged[0].getMessage()
+    # Refused while resolving the argument, before the row's own check is reached.
+    assert "names no interpretation" in logged[0].getMessage()
+
+
+@pytest.mark.parametrize(
+    "error", [RuntimeError("the database went away"), JobTimeLimitExceeded(1800)],
+    ids=["unexpected", "time-limit"],
+)
+def test_a_job_that_fails_before_it_holds_its_row_raises(
+    sessions, worker_env, monkeypatch, caplog, error
+):
+    # Raised, so RQ records the job failed and the API's lost-job check fails
+    # the row on its next read, instead of once RQ forgets a finished job.
+    caplog.set_level(logging.DEBUG, logger=jobs.__name__)
+    key = _analysed(sessions)
+    row_id = _queued(sessions, key)
+    before = _snapshot(sessions, key)
+    model = _script(monkeypatch, narrative_for(_facts(sessions, key)[1]))
+
+    def unreachable(session, job_key):
+        raise error
+
+    monkeypatch.setattr(jobs, "_resolve", unreachable)
+
+    with pytest.raises(type(error)):
+        run_interpretation_job(str(row_id))
+
+    assert model.calls == 0
+    assert _snapshot(sessions, key) == before
+    logged = _job_log(caplog)
+    assert len(logged) == 1 and logged[0].exc_info is not None
+
+
+def test_a_job_given_an_id_that_names_nothing_writes_nothing(
+    sessions, worker_env, monkeypatch, caplog
+):
+    caplog.set_level(logging.DEBUG, logger=jobs.__name__)
+    key = _analysed(sessions)
+    _queued(sessions, key)
+    before = _snapshot(sessions, key)
+    model = _script(monkeypatch, narrative_for(_facts(sessions, key)[1]))
+    nothing = uuid.uuid4()
+
+    caplog.clear()
+    run_interpretation_job(str(nothing))
+
+    assert model.calls == 0
+    assert _snapshot(sessions, key) == before
+    logged = _job_log(caplog)
+    assert len(logged) == 1 and str(nothing) in logged[0].getMessage()
+    # Skipped with a warning, not ended by an exception and its traceback.
+    assert "names no interpretation" in logged[0].getMessage()
+    assert (logged[0].levelno, logged[0].exc_info) == (logging.WARNING, None)
+
+
+def test_with_two_rows_the_job_runs_exactly_the_one_it_was_given(
+    sessions, worker_env, monkeypatch
+):
+    key = _analysed(sessions)
+    _, facts = _facts(sessions, key)
+    earlier = datetime.now(UTC) - timedelta(hours=1)
+    # The older row is the one given, so the analysis's newest row would be the wrong one.
+    given = _queued(sessions, key, job_id=f"interpretation-{key}-0", created_at=earlier)
+    other = _queued(sessions, key)
+    other_before = _columns(_row(sessions, other))
+    model = _script(monkeypatch, narrative_for(facts))
+
+    run_interpretation_job(str(given))
+
+    row = _row(sessions, given)
+    assert (row.status, row.job_id, model.calls) == ("verified", f"interpretation-{key}-0", 1)
+    assert _columns(_row(sessions, other)) == other_before

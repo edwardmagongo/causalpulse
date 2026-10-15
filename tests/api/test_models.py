@@ -80,3 +80,48 @@ def test_the_database_and_the_api_list_the_same_interpretation_statuses():
     from cp_api.models import InterpretationStatus
 
     assert set(INTERPRETATION_STATUSES) == set(typing.get_args(InterpretationStatus))
+
+
+def _row(status, version):
+    from cp_api.db import Interpretation
+
+    return Interpretation(
+        status=status,
+        job_id="interpretation-x",
+        model="claude-opus-5-5",
+        effort="medium",
+        interpreter_version=version,
+        rendered={
+            "sections": [{"name": "summary", "heading": "Summary", "statements": ["A."]}],
+            "limits": "L.",
+        },
+        notice="N.",
+        attempts=[{"violations": [{"rule": "bare_value"}]}],
+        error="E.",
+    )
+
+
+@pytest.mark.parametrize("status", ["queued", "running", "verified", "refused", "failed"])
+def test_an_interpretation_passes_through_its_model_unchanged(status):
+    from cp_api.app import CURRENT_INTERPRETER_VERSION, _interpretation_out
+    from cp_api.models import InterpretationDetail
+
+    for version in (CURRENT_INTERPRETER_VERSION, "0123456789ab", None):
+        served = _interpretation_out(_row(status, version))
+
+        assert set(served) == set(InterpretationDetail.model_fields)
+        assert InterpretationDetail.model_validate(served).model_dump() == served
+        # Out of date only for a verdict, verified or refused, written under
+        # other than the current version; never for a pending or failed row.
+        assert (served["interpreter_version"], served["out_of_date"]) == (
+            version,
+            status in ("verified", "refused") and version != CURRENT_INTERPRETER_VERSION,
+        )
+
+
+def test_the_analysis_declares_its_earlier_interpretations_as_a_list_never_null():
+    from cp_api.models import AnalysisDetail, InterpretationDetail
+
+    field = AnalysisDetail.model_fields["earlier_interpretations"]
+    assert field.annotation == list[InterpretationDetail]
+    assert field.is_required()

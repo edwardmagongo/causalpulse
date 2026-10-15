@@ -46,6 +46,13 @@
             "title": "Dataset Id",
             "type": "string"
           },
+          "earlier_interpretations": {
+            "items": {
+              "$ref": "#/components/schemas/InterpretationDetail"
+            },
+            "title": "Earlier Interpretations",
+            "type": "array"
+          },
           "error": {
             "anyOf": [
               {
@@ -150,6 +157,7 @@
           "routing",
           "estimates",
           "interpretation",
+          "earlier_interpretations",
           "interpretable",
           "interpretable_reason"
         ],
@@ -781,7 +789,7 @@
         "type": "object"
       },
       "InterpretationDetail": {
-        "description": "An analysis's interpretation. Which fields are filled depends on `status`.\n\n`verified`: `sections`, `limits` and `notice`. `refused`: `attempts` and\n`reason`; a refused narrative is not served. `failed`: `error`.",
+        "description": "An analysis's interpretation. Which fields are filled depends on `status`.\n\n`verified`: `sections`, `limits` and `notice`. `refused`: `attempts` and\n`reason`; a refused narrative is not served. `failed`: `error`.\n`interpreter_version` names the prompt and verifier rules it was written\nunder, or is null; `out_of_date` is true for a `verified` or `refused`\ninterpretation when that is not the server's current version, null\nincluded, and false for any other status.",
         "properties": {
           "attempts": {
             "anyOf": [
@@ -827,6 +835,17 @@
             ],
             "title": "Finished At"
           },
+          "interpreter_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interpreter Version"
+          },
           "limits": {
             "anyOf": [
               {
@@ -852,6 +871,10 @@
               }
             ],
             "title": "Notice"
+          },
+          "out_of_date": {
+            "title": "Out Of Date",
+            "type": "boolean"
           },
           "prompt_version": {
             "anyOf": [
@@ -928,6 +951,8 @@
           "model",
           "returned_model",
           "prompt_version",
+          "interpreter_version",
+          "out_of_date",
           "created_at",
           "started_at",
           "finished_at",

@@ -38,14 +38,21 @@ All routes are under `/v1`. Every route except `GET /healthz` needs an `Authoriz
 | `GET /datasets` | Your datasets, newest first, without their columns. `limit` (1 to 200, default 50) and `cursor`, the previous page's `next_cursor`. |
 | `GET /datasets/{id}` | One dataset with its columns. |
 | `GET /analyses` | Your analyses, newest first, paged like the datasets. An in-flight analysis whose job is gone is marked `failed` here, as on the single read. |
-| `GET /analyses/{id}` | Status, `partial`, error, the dataset's id and `dataset_filename`, routing decisions, and per estimate its method, band, error, and `summary` (point, standard error, intervals, the bootstrap interval's level, p-value, group sizes). It also carries `interpretation` (null until one is asked for), `interpretable` and `interpretable_reason` (why it cannot be, when it cannot). |
-| `POST /analyses/{id}/interpretation` | Asks for a model-written interpretation of a finished analysis. 202 with the interpretation, queued. 403 if the server has interpretations off; 409 if the analysis has not finished or has no fact table, if an interpretation is already being written, or if one is already verified or refused (only a failed one can be asked for again); 429 over the daily limit. |
+| `GET /analyses/{id}` | Status, `partial`, error, the dataset's id and `dataset_filename`, routing decisions, and per estimate its method, band, error, and `summary` (point, standard error, intervals, the bootstrap interval's level, p-value, group sizes). It also carries `interpretation`, the newest interpretation (null until one is asked for), and `earlier_interpretations`, the others, newest first (empty when there are none). Each has its status, `interpreter_version` (the prompt and verifier rules it was written under, null when none was recorded), `out_of_date` (true for a verified or refused interpretation when that is not the server's current version, null included; false for a queued, running or failed one) and the fields its status fills. `interpretable` is true when a request for a new interpretation would be accepted, the day's limit aside: the server writes interpretations, the analysis succeeded and has a fact table, and its newest interpretation is absent, failed, or verified or refused under an earlier version. `interpretable_reason` is the 409 sentence such a request would get, and null when it would be accepted or the server has interpretations off. |
+| `POST /analyses/{id}/interpretation` | Asks for a new model-written interpretation of a finished analysis. 202 with the interpretation, queued. Every accepted request writes a new row and counts against the daily limit; earlier interpretations are kept. 403 if the server has interpretations off; 409 if the analysis has not succeeded or has no fact table, if an interpretation is already being written, or if the newest one is verified or refused under the current prompt and rules (a failed one, or one written under an earlier version, can be replaced); 429 over the daily limit. See [Interpreting again](interpretation.md#interpreting-again-and-the-earlier-interpretations). |
 | `GET /analyses/{id}/estimates/{method}/report.html` | One estimate's evidence report, figures inlined. |
 | `GET /analyses/{id}/estimates/{method}/report.md` | The Markdown report. Its relative figure links resolve against the next route. |
 | `GET /analyses/{id}/estimates/{method}/{filename}` | One Markdown figure, from `report_assets`. |
 | `GET /analyses/{id}/manifest` | The replayable `AnalysisManifest`. |
 | `GET /analyses/{id}/summary` | `{"comparisons": ...}`: the comparison groups and their verdicts. |
 | `GET /healthz` | Postgres and Redis reachable. |
+
+Migration `0004` gives each interpretation its own id, so an analysis keeps every interpretation it
+is given, and adds `interpreter_version`, null on every existing row; the verified and refused ones
+therefore count as out of date, and an analysis interpreted before the upgrade can be interpreted
+again (a failed one could be asked for again in any case). Its downgrade refuses,
+before it changes anything, while any analysis has more than one interpretation: the key it goes
+back to holds one row per analysis, so the others would be lost.
 
 ## Users and API keys
 

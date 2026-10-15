@@ -114,12 +114,18 @@ class InterpretationDetail(BaseModel):
 
     `verified`: `sections`, `limits` and `notice`. `refused`: `attempts` and
     `reason`; a refused narrative is not served. `failed`: `error`.
+    `interpreter_version` names the prompt and verifier rules it was written
+    under, or is null; `out_of_date` is true for a `verified` or `refused`
+    interpretation when that is not the server's current version, null
+    included, and false for any other status.
     """
 
     status: InterpretationStatus
     model: str
     returned_model: str | None
     prompt_version: str | None
+    interpreter_version: str | None
+    out_of_date: bool
     created_at: str | None
     started_at: str | None
     finished_at: str | None
@@ -143,11 +149,15 @@ class AnalysisDetail(BaseModel):
     finished_at: str | None
     routing: list[RoutingDecision]
     estimates: list[Estimate]
+    # The newest interpretation, and the others, newest first.
     interpretation: InterpretationDetail | None
-    # Whether an interpretation can be asked for at all: the server writes
-    # them, the analysis succeeded, and its fact table is stored.
+    earlier_interpretations: list[InterpretationDetail]
+    # Whether a request for a new interpretation would be accepted, the day's
+    # limit aside: the server writes them, the analysis succeeded, its fact
+    # table is stored, and its newest interpretation is absent, failed, or
+    # finished under an earlier version of the prompt and rules.
     interpretable: bool
-    # Why not, when the server writes interpretations and this one cannot.
+    # Why not, when the server writes interpretations and a request would be refused.
     interpretable_reason: str | None
 
 

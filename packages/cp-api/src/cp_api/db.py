@@ -25,6 +25,7 @@ from sqlalchemy import (
     UniqueConstraint,
     create_engine,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
@@ -160,26 +161,33 @@ class AnalysisSummary(Base):
 
 
 class Interpretation(Base):
-    """One per analysis: the model's narrative of it, once verified, or why there is none.
+    """One interpretation of an analysis: the model's narrative of it, once verified, or why
+    there is none.
 
-    `rendered` holds the five sections and the limits text, and `notice` what
-    "verified" establishes, both as the worker wrote them, so the API serves
-    them without importing the interpretation code. `job_id` changes when a
-    failed interpretation is asked for again, so a new job never collides with
-    the old one in the queue.
+    An analysis may have several rows; the newest by `created_at`, then by
+    `id`, is its current one. `rendered` holds the five sections and the
+    limits text, and `notice` what "verified" establishes, both as the worker
+    wrote them, so the API serves them without importing the interpretation
+    code. `interpreter_version` names the prompt and verifier rules the row
+    was written under, or is None. Asking again for an interpretation that
+    failed, or that is out of date, writes a new row and leaves the earlier
+    one as it is; each row has its own `job_id`, so a new job never collides
+    with an old one in the queue.
     """
 
     __tablename__ = "interpretations"
 
-    analysis_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("analyses.id"), primary_key=True
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True, server_default=text("gen_random_uuid()")
     )
+    analysis_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("analyses.id"), index=True)
     status: Mapped[str] = mapped_column(String(16))
     job_id: Mapped[str] = mapped_column(String(64))
     model: Mapped[str] = mapped_column(String(64))
     effort: Mapped[str] = mapped_column(String(16))
     returned_model: Mapped[str | None] = mapped_column(String(64))
     prompt_version: Mapped[str | None] = mapped_column(String(32))
+    interpreter_version: Mapped[str | None] = mapped_column(String(32))
     facts_sha256: Mapped[str | None] = mapped_column(String(64))
     rendered: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     notice: Mapped[str | None] = mapped_column(Text)

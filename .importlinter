@@ -99,6 +99,7 @@ source_modules =
     cp_llm.model
     cp_llm.client
     cp_llm.interpret
+    cp_llm.version
 forbidden_modules =
     cp_report
     cp_causal

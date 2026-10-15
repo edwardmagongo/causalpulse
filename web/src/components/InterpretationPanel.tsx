@@ -1,10 +1,12 @@
 import type { InterpretationDetail } from "@/lib/api/types";
+import { DASH, formatTime } from "@/lib/format";
 
 import { InterpretButton } from "./InterpretButton";
 
 const VERIFIED_HEADING = "Interpretation (model-written, verified against the facts)";
 const REFUSED =
   "The model's narrative could not be verified against this analysis's facts, so it is not shown.";
+const OUT_OF_DATE = "Written under an earlier version of the prompt and rules.";
 
 /**
  * The analysis's interpretation, or how to get one.
@@ -13,15 +15,18 @@ const REFUSED =
  * limits and what "verified" means were written by the system and stored by
  * the worker. What this writes is the interface around them. With
  * interpretations off on the server, and none on record, there is no section.
+ * Earlier interpretations, newest first, follow under a closed disclosure.
  */
 export function InterpretationPanel({
   analysisId,
   interpretation,
+  earlierInterpretations,
   interpretable,
   interpretableReason,
 }: {
   analysisId: string;
   interpretation: InterpretationDetail | null;
+  earlierInterpretations: InterpretationDetail[];
   interpretable: boolean;
   interpretableReason: string | null;
 }) {
@@ -38,6 +43,7 @@ export function InterpretationPanel({
         interpretable={interpretable}
         interpretableReason={interpretableReason}
       />
+      {earlierInterpretations.length > 0 ? <Earlier interpretations={earlierInterpretations} /> : null}
     </section>
   );
 }
@@ -62,14 +68,22 @@ function Body({
     case "running":
       return <p className="text-note text-ink-soft">Writing the interpretation…</p>;
     case "verified":
-      return <Verified interpretation={interpretation} />;
+      return (
+        <div className="flex flex-col gap-4">
+          <Verified interpretation={interpretation} level="h3" />
+          <NewOne analysisId={analysisId} interpretation={interpretation} interpretable={interpretable} />
+        </div>
+      );
     case "refused":
       return (
-        <div className="flex flex-col gap-2">
-          <p>{REFUSED}</p>
-          <p className="text-note text-ink-soft">
-            Attempts: {interpretation.attempts}.{interpretation.reason ? ` ${interpretation.reason}` : ""}
-          </p>
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
+            <p>{REFUSED}</p>
+            <p className="text-note text-ink-soft">
+              Attempts: {interpretation.attempts}.{interpretation.reason ? ` ${interpretation.reason}` : ""}
+            </p>
+          </div>
+          <NewOne analysisId={analysisId} interpretation={interpretation} interpretable={interpretable} />
         </div>
       );
     case "failed":
@@ -84,13 +98,49 @@ function Body({
   }
 }
 
-function Verified({ interpretation }: { interpretation: InterpretationDetail }) {
+/**
+ * For a finished interpretation written under an earlier version of the prompt
+ * and rules, say so and offer a new one. One still being written has no
+ * version yet, and a failed one keeps its own retry.
+ */
+function NewOne({
+  analysisId,
+  interpretation,
+  interpretable,
+}: {
+  analysisId: string;
+  interpretation: InterpretationDetail;
+  interpretable: boolean;
+}) {
+  if (!interpretation.out_of_date) return null;
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-note text-ink-soft">{OUT_OF_DATE}</p>
+      {interpretable ? <InterpretButton analysisId={analysisId} label="Write a new interpretation" /> : null}
+    </div>
+  );
+}
+
+/**
+ * A verified interpretation: each section that has statements, under its
+ * heading at `level`, then its limits, the notice on what "verified" means, and
+ * the model and prompt that wrote it. Its statements are never shown without
+ * the limits and the notice.
+ */
+function Verified({
+  interpretation,
+  level,
+}: {
+  interpretation: InterpretationDetail;
+  level: "h3" | "h4";
+}) {
   const sections = (interpretation.sections ?? []).filter((s) => s.statements.length > 0);
+  const Heading = level;
   return (
     <div className="flex flex-col gap-4">
       {sections.map((section) => (
         <div key={section.name}>
-          <h3 className="title-group mb-2">{section.heading}</h3>
+          <Heading className="title-group mb-2">{section.heading}</Heading>
           <ul className="flex list-disc flex-col gap-1 pl-5">
             {section.statements.map((statement, index) => (
               <li key={index}>{statement}</li>
@@ -106,4 +156,52 @@ function Verified({ interpretation }: { interpretation: InterpretationDetail }) 
       </p>
     </div>
   );
+}
+
+/**
+ * The analysis's earlier interpretations, newest first, closed until opened,
+ * under their own heading so their sections' headings sit below it. Each shows
+ * its status, when it was asked for and the interpreter version it was written
+ * under; opened, what it holds.
+ */
+function Earlier({ interpretations }: { interpretations: InterpretationDetail[] }) {
+  return (
+    <details className="disclosure">
+      <summary>
+        <h3>Earlier interpretations</h3>
+      </summary>
+      <ol className="flex flex-col [&>li+li>.disclosure]:border-t-0">
+        {interpretations.map((interpretation, index) => (
+          // Keyed by when it was asked for, so an opened entry stays open when
+          // a new interpretation pushes the list down.
+          <li key={interpretation.created_at ?? index}>
+            <details className="disclosure">
+              <summary>
+                <span>
+                  <span className="status">{interpretation.status}</span>,{" "}
+                  <span className="value">{formatTime(interpretation.created_at)}</span>, version{" "}
+                  <span className="value">{interpretation.interpreter_version ?? DASH}</span>
+                </span>
+              </summary>
+              <EarlierBody interpretation={interpretation} />
+            </details>
+          </li>
+        ))}
+      </ol>
+    </details>
+  );
+}
+
+function EarlierBody({ interpretation }: { interpretation: InterpretationDetail }) {
+  switch (interpretation.status) {
+    case "verified":
+      return <Verified interpretation={interpretation} level="h4" />;
+    case "refused":
+      return <p>{REFUSED}</p>;
+    case "failed":
+      return <p className="text-note">{interpretation.error}</p>;
+    case "queued":
+    case "running":
+      return null;
+  }
 }

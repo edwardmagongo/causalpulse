@@ -559,7 +559,8 @@ above). Unverified until carried out. The choices are then a person's:
   deploy the earlier commit. Everything written since the snapshot is lost.
 - Downgrade the schema by hand. The migrations have `downgrade` functions and
   `cp_api.migrate.downgrade` calls them, but no command in the image runs it and it has never
-  been run against this database. Take a snapshot first if you try it.
+  been run against this database. Take a snapshot first if you try it. Going below `0004`
+  refuses while any analysis has more than one interpretation.
 
 ## 3. Creating a user and issuing a key
 
