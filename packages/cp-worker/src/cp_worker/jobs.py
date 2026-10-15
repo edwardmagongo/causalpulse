@@ -23,6 +23,7 @@ import json
 import logging
 import os
 import uuid
+from dataclasses import dataclass
 from typing import Any, cast
 
 from cp_api.db import (
@@ -50,6 +51,7 @@ from cp_llm.interpret import (
 )
 from cp_llm.model import Effort, ModelCallError, NarrativeModel
 from cp_llm.prompt import prompt_version
+from cp_llm.version import interpreter_version
 from cp_report.pipeline import AnalysisOutcome
 from rq import get_current_job
 from sqlalchemy import select
@@ -235,29 +237,47 @@ def rendered_record(rendered: RenderedNarrative) -> dict[str, Any]:
     }
 
 
-def _newest_interpretation(
-    session: Session, analysis_id: uuid.UUID, *, lock: bool = False
-) -> Interpretation | None:
-    """The analysis's newest interpretation row, locked if asked, or None if it has none."""
-    query = (
+def _resolve(session: Session, key: uuid.UUID) -> Interpretation | None:
+    """The interpretation row a job argument names, locked, or None if it names none.
+
+    The argument is the row's id. A job enqueued before interpretations had
+    their own ids carried the analysis id instead; for one of those, the
+    analysis's newest row stands in, but only while it is queued.
+    """
+    row = session.get(Interpretation, key, with_for_update=True)
+    if row is not None:
+        return row
+    newest = session.scalars(
         select(Interpretation)
-        .where(Interpretation.analysis_id == analysis_id)
+        .where(Interpretation.analysis_id == key)
         .order_by(Interpretation.created_at.desc(), Interpretation.id.desc())
         .limit(1)
-    )
-    if lock:
-        query = query.with_for_update()
-    return session.scalars(query).first()
+        .with_for_update()
+    ).first()
+    if newest is None or newest.status != "queued":
+        return None
+    return newest
+
+
+@dataclass
+class _Progress:
+    """What a job has established so far, for its failure path to record."""
+
+    # Set once the job holds the row it runs; a job never writes to any other.
+    row_id: uuid.UUID | None = None
+    # Set before the model is called, and stored with every outcome.
+    version: str | None = None
 
 
 def _finish_interpretation(
-    sessions: sessionmaker[Session], key: uuid.UUID, **fields: Any
+    sessions: sessionmaker[Session], row_id: uuid.UUID, version: str, **fields: Any
 ) -> None:
     with sessions() as session:
-        row = _newest_interpretation(session, key)
+        row = session.get(Interpretation, row_id)
         assert row is not None
         for name, value in fields.items():
             setattr(row, name, value)
+        row.interpreter_version = version
         row.finished_at = utcnow()
         session.commit()
 
@@ -279,25 +299,33 @@ def _owns(row: Interpretation) -> bool:
     return True
 
 
-def _interpret(sessions: sessionmaker[Session], key: uuid.UUID) -> None:
+def _interpret(sessions: sessionmaker[Session], key: uuid.UUID, progress: _Progress) -> None:
     with sessions() as session:
         # Locked, so two jobs for one row cannot both pass the check below.
-        row = _newest_interpretation(session, key, lock=True)
+        row = _resolve(session, key)
         if row is None:
-            raise LookupError(f"no interpretation of analysis {key}")
+            logger.warning(
+                "interpretation job for %s skipped: it names no interpretation, and no "
+                "analysis whose newest interpretation is queued",
+                key,
+            )
+            return
         if not _owns(row):
             return
+        progress.row_id = row.id
+        version = progress.version = interpreter_version()
         if not interpretation_enabled():
             # The API and the worker each read the setting; a worker that has
             # it off writes nothing, and makes no call, whatever the API accepted.
             row.status = "failed"
             row.error = WORKER_INTERPRETATIONS_OFF
+            row.interpreter_version = version
             row.finished_at = utcnow()
             session.commit()
             return
-        summary = session.get(AnalysisSummary, key)
+        summary = session.get(AnalysisSummary, row.analysis_id)
         if summary is None or summary.facts is None:
-            raise LookupError(f"analysis {key} has no fact table")
+            raise LookupError(f"analysis {row.analysis_id} has no fact table")
         row.status = "running"
         row.started_at = utcnow()
         row.error = None
@@ -305,66 +333,76 @@ def _interpret(sessions: sessionmaker[Session], key: uuid.UUID) -> None:
         stored = dict(summary.facts)
         row.facts_sha256 = facts_digest(stored)
         session.commit()
-        model_name, effort = row.model, row.effort
+        row_id, model_name, effort = row.id, row.model, row.effort
 
     facts = FactTable.from_json(json.dumps(stored))
-    version = prompt_version()
+    prompt = prompt_version()
     try:
         result = interpret(facts, build_model(model_name, effort))
     except InterpretationRefusedError as exc:
         _finish_interpretation(
-            sessions, key, status="refused", prompt_version=version,
+            sessions, row_id, version, status="refused", prompt_version=prompt,
             attempts=[a.to_dict() for a in exc.attempts],
         )
     except ModelDidNotAnswerError as exc:
         _finish_interpretation(
-            sessions, key, status="failed", prompt_version=version,
+            sessions, row_id, version, status="failed", prompt_version=prompt,
             attempts=[a.to_dict() for a in exc.attempts],
             error=f"the model gave no narrative (stop reason: {exc.stop_reason})",
         )
     except ModelCallError as exc:
-        _finish_interpretation(sessions, key, status="failed", error=str(exc))
+        _finish_interpretation(sessions, row_id, version, status="failed", error=str(exc))
     else:
         _finish_interpretation(
-            sessions, key, status="verified", prompt_version=result.prompt_version,
+            sessions, row_id, version, status="verified", prompt_version=result.prompt_version,
             returned_model=result.model, rendered=rendered_record(result.rendered),
             notice=VERIFIED_MEANS, attempts=[a.to_dict() for a in result.attempts],
         )
 
 
-def run_interpretation_job(analysis_id: str) -> None:
-    """Write the interpretation of one analysis, or record why there is none.
+def run_interpretation_job(job_argument: str) -> None:
+    """Write the interpretation row the argument names, or record why there is none.
 
-    Ends normally on every path, as `run_analysis_job` does: anything
-    unexpected is logged with its traceback and stored as `failed`.
+    The argument is the row's id; an analysis id, from a job enqueued before
+    rows had their own ids, is accepted for that analysis's newest row while it
+    is queued. Ends normally on every path, as `run_analysis_job` does:
+    anything unexpected is logged with its traceback and stored as `failed` on
+    the row, once the job holds one.
     """
-    key = uuid.UUID(analysis_id)
+    key = uuid.UUID(job_argument)
     engine = make_engine()
     sessions = make_sessionmaker(engine)
+    progress = _Progress()
     try:
         try:
-            _interpret(sessions, key)
+            _interpret(sessions, key, progress)
+            return
         except JobTimeLimitExceeded as exc:
-            logger.exception("interpretation of %s was stopped at its time limit", key)
-            _fail_interpretation(
-                sessions,
-                key,
-                f"the interpretation exceeded the {exc.seconds}-second job limit and was stopped",
+            logger.exception("interpretation job for %s was stopped at its time limit", key)
+            error = (
+                f"the interpretation exceeded the {exc.seconds}-second job limit and was stopped"
             )
         except Exception as exc:
-            logger.exception("interpretation of %s failed", key)
-            _fail_interpretation(sessions, key, str(exc) or type(exc).__name__)
+            logger.exception("interpretation job for %s failed", key)
+            error = str(exc) or type(exc).__name__
+        if progress.row_id is not None:
+            # A version that could not be computed stays None, which is safe: a
+            # row without a version always counts as out of date.
+            _fail_interpretation(sessions, progress.row_id, error, progress.version)
     finally:
         engine.dispose()
 
 
-def _fail_interpretation(sessions: sessionmaker[Session], key: uuid.UUID, error: str) -> None:
+def _fail_interpretation(
+    sessions: sessionmaker[Session], row_id: uuid.UUID, error: str, version: str | None
+) -> None:
     """Record a failure, unless the row is gone or a result was already stored."""
     with sessions() as session:
-        row = _newest_interpretation(session, key)
+        row = session.get(Interpretation, row_id)
         if row is None or row.status in ("verified", "refused", "failed"):
             return
         row.status = "failed"
         row.error = error
+        row.interpreter_version = version
         row.finished_at = utcnow()
         session.commit()
