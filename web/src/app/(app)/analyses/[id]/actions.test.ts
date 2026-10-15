@@ -38,8 +38,11 @@ describe("asking for an interpretation", () => {
     expect(stub.mock.calls[0][1]?.method).toBe("POST");
   });
 
-  it("answers with the API's sentence for a 409", async () => {
-    const sentence = "This analysis already has an interpretation.";
+  it.each([
+    "This analysis already has an interpretation written under the current prompt and rules.",
+    "This analysis's interpretation could not be verified under the current prompt and rules, and asking again would not change them.",
+    "An interpretation of this analysis is already being written.",
+  ])("answers with the API's sentence for a 409: %s", async (sentence) => {
     answers(409, { detail: sentence });
     expect(await askForInterpretation("a1")).toEqual({ error: sentence });
   });

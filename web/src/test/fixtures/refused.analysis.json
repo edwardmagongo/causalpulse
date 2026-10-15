@@ -11,6 +11,7 @@
   "routing": [],
   "estimates": [],
   "interpretation": null,
+  "earlier_interpretations": [],
   "interpretable": false,
   "interpretable_reason": null
 }

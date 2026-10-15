@@ -39,6 +39,7 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
       <InterpretationPanel
         analysisId={analysis.id}
         interpretation={analysis.interpretation}
+        earlierInterpretations={analysis.earlier_interpretations}
         interpretable={analysis.interpretable}
         interpretableReason={analysis.interpretable_reason}
       />
