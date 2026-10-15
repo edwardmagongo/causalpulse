@@ -200,8 +200,16 @@ describe("InterpretationPanel, when the prompt and rules have changed", () => {
     expect(screen.queryByText(interpretations.refused_current.interpretable_reason)).toBeNull();
   });
 
-  it("still offers to try a failed one again, whatever its version", () => {
+  it("still offers to try a failed one again, written under an earlier version", () => {
     recorded("failed");
+    expect(screen.getByRole("alert").textContent).toBe("the model API call failed");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Write a new interpretation" })).toBeNull();
+    expect(screen.queryByText(OUT_OF_DATE)).toBeNull();
+  });
+
+  it("still offers to try a failed one again when it was written under the current version", () => {
+    recorded("failed_current");
     expect(screen.getByRole("alert").textContent).toBe("the model API call failed");
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Write a new interpretation" })).toBeNull();
@@ -227,26 +235,53 @@ describe("InterpretationPanel's earlier interpretations", () => {
     const earlier = interpretations.with_earlier.earlier_interpretations;
     expect(entries).toHaveLength(earlier.length);
     entries.forEach((entry, index) => {
-      const summary = entry.querySelector("summary");
-      expect(summary).not.toBeNull();
-      const parts = within(summary!);
-      expect(parts.getByText(earlier[index].status)).toBeTruthy();
-      expect(parts.getByText(formatTime(earlier[index].created_at))).toBeTruthy();
-      expect(parts.getByText(earlier[index].interpreter_version ?? DASH)).toBeTruthy();
+      expect(entry.querySelector("details")!.open).toBe(false);
+      expect(entry.querySelector("summary")!.textContent).toBe(
+        `${earlier[index].status}, ${formatTime(earlier[index].created_at)}, version ${earlier[index].interpreter_version ?? DASH}`,
+      );
     });
-    expect(entries.map((entry) => entry.querySelector("summary")!.firstChild!.textContent)).toEqual([
+    expect(entries.map((entry) => entry.querySelector("summary .status")!.textContent)).toEqual([
       "refused",
       "failed",
       "verified",
     ]);
   });
 
-  it("shows a verified one's sections under their headings when it is opened", () => {
+  it("shows a verified one's sections, its limits and the notice when it is opened", () => {
     recorded("with_earlier");
-    const entry = within(earlierEntries()[2]);
-    expect(entry.getByRole("heading", { name: "Agreement across methods" })).toBeTruthy();
+    const item = earlierEntries()[2];
+    const earlier = interpretations.with_earlier.earlier_interpretations[2];
+    const entry = within(item);
+    const heading = entry.getByRole("heading", { name: "Agreement across methods" });
+    // Outside the summary, so only opening the entry shows it.
+    expect(heading.closest("summary")).toBeNull();
+    const details = item.querySelector("details")!;
+    expect(details.open).toBe(false);
+    fireEvent.click(details.querySelector("summary")!);
+    expect(details.open).toBe(true);
     expect(entry.getByText("The methods agree.")).toBeTruthy();
     expect(entry.queryByRole("heading", { name: "Summary" })).toBeNull();
+    expect(entry.getByText(earlier.limits!)).toBeTruthy();
+    expect(entry.getByText(earlier.notice!)).toBeTruthy();
+    expect(entry.getByText(/Written by claude-opus-5-5-20261001, prompt a28f0812170d\./)).toBeTruthy();
+  });
+
+  it.each([
+    [
+      "with_earlier",
+      [
+        "H2 Interpretation (model-written, verified against the facts)",
+        "H3 Estimates",
+        "H3 Earlier interpretations",
+        "H4 Agreement across methods",
+      ],
+    ],
+    ["failed_current", ["H2 Interpretation", "H3 Earlier interpretations", "H4 Estimates"]],
+    ["pending", ["H2 Interpretation", "H3 Earlier interpretations", "H4 Estimates"]],
+  ] as const)("files an earlier one's headings under their own heading (%s)", (name, outline) => {
+    const { container } = recorded(name);
+    const headings = Array.from(container.querySelectorAll("h1, h2, h3, h4, h5, h6"));
+    expect(headings.map((h) => `${h.tagName} ${h.textContent}`)).toEqual(outline);
   });
 
   it("shows a refused one's refusal sentence only, and a failed one's error", () => {

@@ -70,7 +70,7 @@ function Body({
     case "verified":
       return (
         <div className="flex flex-col gap-4">
-          <Verified interpretation={interpretation} />
+          <Verified interpretation={interpretation} level="h3" />
           <NewOne analysisId={analysisId} interpretation={interpretation} interpretable={interpretable} />
         </div>
       );
@@ -121,8 +121,13 @@ function NewOne({
   );
 }
 
-/** Each section that has statements, under its heading. */
-function Sections({
+/**
+ * A verified interpretation: each section that has statements, under its
+ * heading at `level`, then its limits, the notice on what "verified" means, and
+ * the model and prompt that wrote it. Its statements are never shown without
+ * the limits and the notice.
+ */
+function Verified({
   interpretation,
   level,
 }: {
@@ -131,22 +136,18 @@ function Sections({
 }) {
   const sections = (interpretation.sections ?? []).filter((s) => s.statements.length > 0);
   const Heading = level;
-  return sections.map((section) => (
-    <div key={section.name}>
-      <Heading className="title-group mb-2">{section.heading}</Heading>
-      <ul className="flex list-disc flex-col gap-1 pl-5">
-        {section.statements.map((statement, index) => (
-          <li key={index}>{statement}</li>
-        ))}
-      </ul>
-    </div>
-  ));
-}
-
-function Verified({ interpretation }: { interpretation: InterpretationDetail }) {
   return (
     <div className="flex flex-col gap-4">
-      <Sections interpretation={interpretation} level="h3" />
+      {sections.map((section) => (
+        <div key={section.name}>
+          <Heading className="title-group mb-2">{section.heading}</Heading>
+          <ul className="flex list-disc flex-col gap-1 pl-5">
+            {section.statements.map((statement, index) => (
+              <li key={index}>{statement}</li>
+            ))}
+          </ul>
+        </div>
+      ))}
       {interpretation.limits ? <p className="text-note">{interpretation.limits}</p> : null}
       {interpretation.notice ? <p className="text-note">{interpretation.notice}</p> : null}
       <p className="value text-label text-ink-soft">
@@ -158,22 +159,29 @@ function Verified({ interpretation }: { interpretation: InterpretationDetail }) 
 }
 
 /**
- * The analysis's earlier interpretations, newest first, closed until opened.
- * Each shows its status, when it was asked for and the interpreter version it
- * was written under; opened, what it holds.
+ * The analysis's earlier interpretations, newest first, closed until opened,
+ * under their own heading so their sections' headings sit below it. Each shows
+ * its status, when it was asked for and the interpreter version it was written
+ * under; opened, what it holds.
  */
 function Earlier({ interpretations }: { interpretations: InterpretationDetail[] }) {
   return (
     <details className="disclosure">
-      <summary>Earlier interpretations</summary>
+      <summary>
+        <h3>Earlier interpretations</h3>
+      </summary>
       <ol className="flex flex-col [&>li+li>.disclosure]:border-t-0">
         {interpretations.map((interpretation, index) => (
-          <li key={index}>
+          // Keyed by when it was asked for, so an opened entry stays open when
+          // a new interpretation pushes the list down.
+          <li key={interpretation.created_at ?? index}>
             <details className="disclosure">
               <summary>
-                <span className="status">{interpretation.status}</span>
-                <span className="value">{formatTime(interpretation.created_at)}</span>
-                <span className="value">{interpretation.interpreter_version ?? DASH}</span>
+                <span>
+                  <span className="status">{interpretation.status}</span>,{" "}
+                  <span className="value">{formatTime(interpretation.created_at)}</span>, version{" "}
+                  <span className="value">{interpretation.interpreter_version ?? DASH}</span>
+                </span>
               </summary>
               <EarlierBody interpretation={interpretation} />
             </details>
@@ -187,11 +195,7 @@ function Earlier({ interpretations }: { interpretations: InterpretationDetail[] 
 function EarlierBody({ interpretation }: { interpretation: InterpretationDetail }) {
   switch (interpretation.status) {
     case "verified":
-      return (
-        <div className="flex flex-col gap-4">
-          <Sections interpretation={interpretation} level="h4" />
-        </div>
-      );
+      return <Verified interpretation={interpretation} level="h4" />;
     case "refused":
       return <p>{REFUSED}</p>;
     case "failed":
