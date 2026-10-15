@@ -690,12 +690,30 @@ def _statuses(sessions, analysis_id):
 
 
 def test_concurrent_requests_over_a_lost_job_write_one_new_row(
-    make_client, redis_conn, sessions
+    make_client, redis_conn, sessions, monkeypatch
 ):
     # The lost-job check commits, which releases the lock on the analysis;
     # the request must take it again before it reads the newest row and
-    # writes a new one, or two requests that both saw the lost row each
-    # write one, and two jobs make two paid calls.
+    # writes a new one. Without that second lock, a request that arrives in
+    # the window reads the same failed row, and both write a row: two jobs,
+    # two paid calls.
+    #
+    # The two requests are driven into that window, not left to race. The
+    # route reads the newest row through `_newest_interpretation`: the first
+    # request reads it once before the lost-job check (read 1) and once after
+    # it (read 2); the second request starts only during read 2 and reads it
+    # once (read 3). Read 2 waits until the second request has either read the
+    # newest row or is waiting for the lock on the analysis, whichever comes
+    # first; read 3 then waits until read 2 is done.
+    # - With the second lock, the first request holds the lock during read 2,
+    #   so the second request waits for it; read 2 sees that wait and goes on,
+    #   the first request writes and commits its row, and read 3 then sees it:
+    #   one 202 and one 409.
+    # - Without it, nothing holds the lock during read 2, so the second request
+    #   takes the lock and makes read 3, which sees the failed row and holds
+    #   the second request until read 2 has also seen it. Both are accepted:
+    #   two 202s and two queued rows. Neither outcome depends on timing.
+    from cp_api import app as app_module
     from cp_api.app import SUBMISSION_GRACE
 
     client = make_client()
@@ -704,28 +722,71 @@ def test_concurrent_requests_over_a_lost_job_write_one_new_row(
         sessions, analysis_id, "queued", None,
         minutes_ago=SUBMISSION_GRACE.total_seconds() / 60 + 60,
     )
-    clients = [TestClient(client.app, headers=client.headers) for _ in range(8)]
-    barrier = threading.Barrier(len(clients))
-    codes: list[int] = []
+    real_newest = app_module._newest_interpretation
+    reads = 0
+    counting = threading.Lock()
+    second_may_ask, second_has_read, first_has_read = (
+        threading.Event(), threading.Event(), threading.Event(),
+    )
+    problems: list[str] = []
+
+    def newest(session, key):
+        nonlocal reads
+        with counting:
+            reads += 1
+            read = reads
+        if read == 2:
+            # The first request, after its lost-job commit.
+            second_may_ask.set()
+            deadline = time.monotonic() + 30
+            while not second_has_read.is_set():
+                if _a_session_waits_for_a_lock(sessions, seconds=0.05):
+                    break
+                if time.monotonic() > deadline:
+                    problems.append(
+                        "the second request neither read the newest row nor waited for the lock"
+                    )
+                    break
+            row = real_newest(session, key)
+            first_has_read.set()
+            return row
+        row = real_newest(session, key)
+        if read == 3:
+            # The second request: held until the first has made its read 2.
+            second_has_read.set()
+            if not first_has_read.wait(30):
+                problems.append("the first request never read the newest row after its check")
+        return row
+
+    monkeypatch.setattr(app_module, "_newest_interpretation", newest)
+    codes: dict[str, int] = {}
     errors: list[Exception] = []
 
-    def ask(each):
+    def ask(name, after=None):
         try:
-            barrier.wait(10)
-            codes.append(_ask(each, analysis_id).status_code)
+            if after is not None and not after.wait(30):
+                problems.append(
+                    "the first request never took the lost-job path, so the second never asked"
+                )
+                return
+            each = TestClient(client.app, headers=client.headers)
+            codes[name] = _ask(each, analysis_id).status_code
         except Exception as error:  # reported by the assertion below
             errors.append(error)
 
-    threads = [threading.Thread(target=ask, args=(each,)) for each in clients]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join(60)
+    second = threading.Thread(target=ask, args=("second", second_may_ask), daemon=True)
+    first = threading.Thread(target=ask, args=("first",), daemon=True)
+    second.start()
+    first.start()
+    first.join(90)
+    second.join(90)
 
     rows = _statuses(sessions, analysis_id)
     assert not errors, f"requests raised {errors!r}; rows, oldest first: {rows}"
-    assert sorted(codes) == [202] + [409] * 7, (
-        f"expected one 202 and seven 409s, got {sorted(codes)}; rows, oldest first: {rows}"
+    assert not problems, f"{problems}; codes {codes}; rows, oldest first: {rows}"
+    assert codes == {"first": 202, "second": 409}, (
+        f"expected the first request accepted and the second refused, got {codes}; "
+        f"rows, oldest first: {rows}"
     )
     assert [status for status, _ in rows] == ["failed", "queued"], (
         f"expected the lost row failed and one new row queued; rows, oldest first: {rows}"
