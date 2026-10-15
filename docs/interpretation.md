@@ -155,9 +155,13 @@ the key.
   answers 202 and queues a separate job, so an analysis never waits on the model.
   `CP_LIMIT_INTERPRETATIONS_PER_DAY` caps the requests per user, counted when accepted. The
   production stack defaults to 5.
-- **A result is final.** A verified or refused interpretation cannot be asked for again: re-asking
-  until something passes would cost money and lower the bar. Only a failed one can be retried,
-  such as a model that could not be reached, a job that ran out of time, or a worker that was lost.
+- **A result is final under the prompt and rules it was written under.** A verified or refused
+  interpretation cannot be asked for again while the server's prompt and verifier rules are the
+  ones it was written under: re-asking until something passes would cost money and lower the bar.
+  A failed one can be retried, such as a model that could not be reached, a job that ran out of
+  time, or a worker that was lost. Once the prompt or the set of rule names changes, a verified or
+  refused one can be replaced as well (see
+  [Interpreting again](#interpreting-again-and-the-earlier-interpretations)).
 - **What the reader sees.** On the analysis page, a verified interpretation is shown under
   "Interpretation (model-written, verified against the facts)". Beside it are the system's limits
   text, a fixed note on what "verified" establishes and what it does not, and the model and prompt
@@ -166,6 +170,65 @@ the key.
   it: in a hand-labelled sample, the commonest misreading quoted an estimate whose band is
   `INSUFFICIENT` without saying so. The verifier now refuses that (rule 6, below); misreadings
   outside its rules can still pass.
+
+### Interpreting again, and the earlier interpretations
+
+**The interpreter version.** Each interpretation the server writes records the version of the
+interpreter it was written under: the first 12 hexadecimal characters of a SHA-256 hash over the
+prompt version (itself a hash of the system prompt and the reply schema) and the names of the
+verifier's rules, sorted and joined by commas, the two parts separated by `|`. Two
+interpretations with the same version were written under the same system prompt and reply schema
+and checked against rules of the same names. The model and the effort are recorded beside it on
+the row, not in it. The worker works the version out before it calls the model and stores it with
+the outcome, whether verified, refused or failed.
+A row still queued or running has none yet, nor has one that the API marked failed because the job
+queue could not be reached or the worker was lost.
+
+**Out of date.** An interpretation is out of date when its version is not the server's current
+one. One with no recorded version counts as out of date: migration `0004` leaves every
+interpretation written before it without one, since what they were written under was not
+recorded. The version has a limit: a rule whose behaviour changes while its name and the prompt
+stay the same does not change it, so it does not make an interpretation out of date.
+`tests/llm/test_version.py` pins the rule names and the version, so a rule added, removed or
+renamed fails that test and has to be accepted on purpose; it cannot notice a rule whose behaviour
+changed under the same name.
+
+**When a new interpretation can be asked for.** For an analysis that has succeeded and has a fact
+table, `POST /v1/analyses/{id}/interpretation` accepts a request when the analysis has no
+interpretation yet, when its newest one failed, under any version, or when its newest one is
+verified or refused and out of date. It answers 409 when the newest one is:
+
+- queued or running: "An interpretation of this analysis is already being written." (If it was
+  asked for at least 30 seconds earlier and its job is gone from the queue or ended without
+  recording a result, it is marked failed first, and the request goes ahead.)
+- verified under the current version: "This analysis already has an interpretation written under
+  the current prompt and rules."
+- refused under the current version: "This analysis's interpretation could not be verified under
+  the current prompt and rules, and asking again would not change them."
+
+Every accepted request writes a new row and counts against `CP_LIMIT_INTERPRETATIONS_PER_DAY`,
+whether it is the first, a retry of a failed one, or a replacement for one that is out of date.
+No row is reset or overwritten: the earlier ones are kept as they were. The newest, by when it was
+asked for, is the analysis's interpretation. `GET /v1/analyses/{id}` returns it as
+`interpretation` and the others, newest first, as `earlier_interpretations`; each carries its
+`interpreter_version` and `out_of_date`, and `interpretable` says whether a request would be
+accepted, the day's limit aside.
+
+**What the dashboard shows.** A verified or refused interpretation that is out of date carries the
+line "Written under an earlier version of the prompt and rules." and, when a request would be
+accepted, a **Write a new interpretation** button. A failed one keeps its **Try again** button,
+shown on the same condition. Below the newest, a closed disclosure headed "Earlier
+interpretations" lists the others, newest first. Each entry gives its status, when it was asked
+for and the version it was written under (a dash when none was recorded). Opened, a verified one
+shows its sections with their limits, the note on what "verified" establishes, and the model and
+prompt version; a refused one says it is not shown; a failed one shows its error.
+
+**For operators.** The API may not import the interpreter, so it holds its own copy of the current
+version, `CURRENT_INTERPRETER_VERSION` in `cp_api.app`; `tests/api/test_interpreter_version.py`
+fails when it differs from the one `cp_llm` computes. The API and the worker run from the same
+image, so in a running stack they agree. During a restart in which they briefly run different
+images, the API judges by one version while the worker records the other, and an analysis asked
+about in that window could be offered one more interpretation than intended.
 
 ## Measuring misreadings
 
