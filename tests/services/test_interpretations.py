@@ -6,6 +6,7 @@ Real PostgreSQL and Redis; the jobs run in this process with
 
 import json
 import threading
+import time
 import uuid
 from datetime import timedelta
 
@@ -29,7 +30,7 @@ from cp_worker import jobs
 from cp_worker.worker import make_worker
 from fastapi.testclient import TestClient
 from rq.job import Job
-from sqlalchemy import select
+from sqlalchemy import func, select, text
 from worker.data import scenario_d_upload
 from worker.narratives import ScriptedReplies, narrative_for
 
@@ -673,3 +674,126 @@ def test_a_request_waits_for_another_request_on_the_same_analysis(
     assert answers[0].status_code == 202
     with sessions() as session:
         assert [row.status for row in _rows(session, analysis_id)] == ["queued", "verified"]
+
+
+def _statuses(sessions, analysis_id):
+    """The analysis's interpretation rows as (status, error), oldest first."""
+    with sessions() as session:
+        return [(row.status, row.error) for row in reversed(_rows(session, analysis_id))]
+
+
+def test_concurrent_requests_over_a_lost_job_write_one_new_row(
+    make_client, redis_conn, sessions
+):
+    # The lost-job check commits, which releases the lock on the analysis;
+    # the request must take it again before it reads the newest row and
+    # writes a new one, or two requests that both saw the lost row each
+    # write one, and two jobs make two paid calls.
+    from cp_api.app import SUBMISSION_GRACE
+
+    client = make_client()
+    analysis_id = _analysed(client, redis_conn)
+    _write(
+        sessions, analysis_id, "queued", None,
+        minutes_ago=SUBMISSION_GRACE.total_seconds() / 60 + 60,
+    )
+    clients = [TestClient(client.app, headers=client.headers) for _ in range(8)]
+    barrier = threading.Barrier(len(clients))
+    codes: list[int] = []
+    errors: list[Exception] = []
+
+    def ask(each):
+        try:
+            barrier.wait(10)
+            codes.append(_ask(each, analysis_id).status_code)
+        except Exception as error:  # reported by the assertion below
+            errors.append(error)
+
+    threads = [threading.Thread(target=ask, args=(each,)) for each in clients]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(60)
+
+    rows = _statuses(sessions, analysis_id)
+    assert not errors, f"requests raised {errors!r}; rows, oldest first: {rows}"
+    assert sorted(codes) == [202] + [409] * 7, (
+        f"expected one 202 and seven 409s, got {sorted(codes)}; rows, oldest first: {rows}"
+    )
+    assert [status for status, _ in rows] == ["failed", "queued"], (
+        f"expected the lost row failed and one new row queued; rows, oldest first: {rows}"
+    )
+    assert rows[0][1] == WORKER_LOST
+
+
+def _a_session_waits_for_a_lock(sessions, seconds=10.0):
+    """Whether another session of this database comes to wait for a row lock it asked for
+    with `FOR UPDATE`, within `seconds`."""
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        with sessions() as session:
+            waiting = session.scalar(text(
+                "SELECT count(*) FROM pg_stat_activity"
+                " WHERE datname = current_database() AND wait_event_type = 'Lock'"
+                " AND position('FOR UPDATE' in query) > 0"
+            ))
+        if waiting:
+            return True
+        time.sleep(0.02)
+    return False
+
+
+def test_a_request_that_waited_for_the_lock_dates_its_row_after_the_holders(
+    make_client, redis_conn, sessions
+):
+    # A request's transaction begins before it waits for the lock on the
+    # analysis. If its row were dated by `now()`, the start of that
+    # transaction, a failed row written meanwhile by the request holding the
+    # lock would sort as newer, and a further request would be accepted while
+    # this one's job is still pending.
+    client = make_client()
+    analysis_id = _analysed(client, redis_conn)
+    holder = sessions()
+    # FOR NO KEY UPDATE, as in the test that a request waits for another: the
+    # holder's own insert needs no further lock, and the request's lock waits.
+    holder.execute(
+        select(Analysis.id).where(Analysis.id == analysis_id).with_for_update(key_share=True)
+    )
+    answers = []
+    thread = threading.Thread(target=lambda: answers.append(_ask(client, analysis_id)))
+    try:
+        thread.start()
+        # Its transaction has begun once it waits for the lock.
+        assert _a_session_waits_for_a_lock(sessions), (
+            "the request did not wait for the lock on the analysis"
+        )
+        # What a concurrent request whose enqueue failed leaves: a failed row,
+        # dated by the clock when it is written.
+        holder.add(Interpretation(
+            analysis_id=uuid.UUID(analysis_id),
+            status="failed",
+            job_id=f"interpretation-{analysis_id}-holder",
+            model="claude-opus-5-5",
+            effort="medium",
+            error="planted: the queue was down",
+            created_at=func.clock_timestamp(),
+            finished_at=utcnow(),
+        ))
+        holder.commit()
+    finally:
+        holder.rollback()
+        holder.close()
+        thread.join(10)
+    assert not thread.is_alive()
+    assert answers[0].status_code == 202
+
+    rows = _statuses(sessions, analysis_id)
+    assert [status for status, _ in rows] == ["failed", "queued"], (
+        "expected the request's queued row to be newer than the holder's failed row; "
+        f"rows, oldest first: {rows}"
+    )
+    again = _ask(client, analysis_id)
+    assert (again.status_code, again.json()["detail"]) == (409, BEING_WRITTEN), (
+        f"a further request was answered {again.status_code} while a job is pending; "
+        f"rows, oldest first: {_statuses(sessions, analysis_id)}"
+    )
