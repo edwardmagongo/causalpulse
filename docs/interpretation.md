@@ -229,9 +229,24 @@ prompt version; a refused one says it is not shown; a failed one shows its error
 **For operators.** The API may not import the interpreter, so it holds its own copy of the current
 version, `CURRENT_INTERPRETER_VERSION` in `cp_api.app`; `tests/api/test_interpreter_version.py`
 fails when it differs from the one `cp_llm` computes. The API and the worker run from the same
-image, so in a running stack they agree. During a restart in which they briefly run different
-images, the API judges by one version while the worker records the other, and an analysis asked
-about in that window could be offered one more interpretation than intended.
+image, so in a running stack they agree. A deploy runs the migration and then replaces the API and
+the worker one after the other, so for a short time they can run different images. Neither of the
+two cases this allows is permanent:
+
+- A new API with an old worker, as when this release replaces one that gave each analysis a single
+  interpretation: the old worker looks the job's argument up as an analysis id, finds nothing,
+  and ends the job normally. An interpretation asked for in that window can read "being written"
+  for up to about 500 seconds, until RQ forgets the finished job; the next read then marks it
+  failed, and it can be asked for again.
+- An old API with a new worker, when a later release changes the version: the old API judges by
+  its own version, so it takes an interpretation the new worker has just written as out of date
+  and accepts another request for it. Each analysis asked for in that window can cost one extra
+  paid model call.
+
+A downgrade below migration `0004` removes the `interpreter_version` column, and with it every
+recorded version (it refuses while any analysis has more than one interpretation). After the next
+upgrade every verified or refused interpretation has no version, so it counts as out of date, and
+every analysis whose newest interpretation is verified or refused is offered a new one once.
 
 ## Measuring misreadings
 

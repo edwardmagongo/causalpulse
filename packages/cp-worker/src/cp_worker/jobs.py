@@ -14,6 +14,10 @@ with its traceback:
 So RQ records these jobs as finished. The API's lost-worker check is left for a job that never
 reached one of them: a worker killed mid-job, a job deleted from Redis, a database unreachable
 even for the `failed` write, or an analysis id with no row.
+
+The interpretation job does the same once it holds its row; an exception before then is raised
+again, so RQ records that job failed and the API's check acts on it (see
+`run_interpretation_job`).
 """
 
 from __future__ import annotations
@@ -285,9 +289,10 @@ def _finish_interpretation(
 def _owns(row: Interpretation) -> bool:
     """Whether this job is the one the row is waiting on.
 
-    A job that is not -- the row was failed (queue down, worker lost) and
-    asked for again, so a newer job is queued or running -- must not make the
-    model call: it is paid for, and the newer job makes it.
+    A job that is not -- its row is no longer queued (the API failed it: queue
+    down, worker lost; or another run took it), or, for a job given an analysis
+    id, the newest row awaits another job -- must not make the model call: it
+    is paid for, and it is not this job's to make.
     """
     current = get_current_job()
     if row.status != "queued" or (current is not None and current.id != row.job_id):
@@ -365,9 +370,13 @@ def run_interpretation_job(job_argument: str) -> None:
 
     The argument is the row's id; an analysis id, from a job enqueued before
     rows had their own ids, is accepted for that analysis's newest row while it
-    is queued. Ends normally on every path, as `run_analysis_job` does:
-    anything unexpected is logged with its traceback and stored as `failed` on
-    the row, once the job holds one.
+    is queued. Once the job holds its row, anything unexpected, the time limit
+    included, is logged with its traceback and stored as `failed` on the row,
+    and the job ends normally, as `run_analysis_job` does. An exception before
+    then (finding or locking the row) is logged and raised again, so RQ records
+    the job failed and the API's lost-job check fails the row the job was for
+    at its next read. An argument that is not an id, and a failure write that
+    itself fails, raise too.
     """
     key = uuid.UUID(job_argument)
     engine = make_engine()
@@ -379,16 +388,19 @@ def run_interpretation_job(job_argument: str) -> None:
             return
         except JobTimeLimitExceeded as exc:
             logger.exception("interpretation job for %s was stopped at its time limit", key)
+            if progress.row_id is None:
+                raise
             error = (
                 f"the interpretation exceeded the {exc.seconds}-second job limit and was stopped"
             )
         except Exception as exc:
             logger.exception("interpretation job for %s failed", key)
+            if progress.row_id is None:
+                raise
             error = str(exc) or type(exc).__name__
-        if progress.row_id is not None:
-            # A version that could not be computed stays None, which is safe: a
-            # failed row may be asked for again whatever its version.
-            _fail_interpretation(sessions, progress.row_id, error, progress.version)
+        # A version that could not be computed stays None, which is safe: a
+        # failed row may be asked for again whatever its version.
+        _fail_interpretation(sessions, progress.row_id, error, progress.version)
     finally:
         engine.dispose()
 

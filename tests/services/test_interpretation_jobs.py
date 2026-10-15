@@ -58,13 +58,6 @@ def _analysed(sessions):
     return key
 
 
-def _interpretation_of(session, analysis_id):
-    """The analysis's one interpretation row, or None: at most one exists in these tests."""
-    return session.scalars(
-        select(Interpretation).where(Interpretation.analysis_id == analysis_id)
-    ).one_or_none()
-
-
 def _queued(sessions, key, *, job_id=None, created_at=None):
     """A queued interpretation of analysis `key`; its row id, the job's argument."""
     with sessions() as session:
@@ -324,7 +317,7 @@ def test_a_job_on_a_row_that_is_not_queued_makes_no_model_call(
     key = _analysed(sessions)
     row_id = _queued(sessions, key)
     with sessions() as session:
-        row = _interpretation_of(session, key)
+        row = session.get(Interpretation, row_id)
         row.status = "failed"
         row.error = "the queue was down"
         session.commit()
@@ -430,6 +423,35 @@ def test_a_job_given_an_analysis_id_whose_newest_row_is_not_queued_writes_nothin
     assert "names no interpretation" in logged[0].getMessage()
 
 
+@pytest.mark.parametrize(
+    "error", [RuntimeError("the database went away"), JobTimeLimitExceeded(1800)],
+    ids=["unexpected", "time-limit"],
+)
+def test_a_job_that_fails_before_it_holds_its_row_raises(
+    sessions, worker_env, monkeypatch, caplog, error
+):
+    # Raised, so RQ records the job failed and the API's lost-job check fails
+    # the row on its next read, instead of once RQ forgets a finished job.
+    caplog.set_level(logging.DEBUG, logger=jobs.__name__)
+    key = _analysed(sessions)
+    row_id = _queued(sessions, key)
+    before = _snapshot(sessions, key)
+    model = _script(monkeypatch, narrative_for(_facts(sessions, key)[1]))
+
+    def unreachable(session, job_key):
+        raise error
+
+    monkeypatch.setattr(jobs, "_resolve", unreachable)
+
+    with pytest.raises(type(error)):
+        run_interpretation_job(str(row_id))
+
+    assert model.calls == 0
+    assert _snapshot(sessions, key) == before
+    logged = _job_log(caplog)
+    assert len(logged) == 1 and logged[0].exc_info is not None
+
+
 def test_a_job_given_an_id_that_names_nothing_writes_nothing(
     sessions, worker_env, monkeypatch, caplog
 ):
@@ -447,6 +469,9 @@ def test_a_job_given_an_id_that_names_nothing_writes_nothing(
     assert _snapshot(sessions, key) == before
     logged = _job_log(caplog)
     assert len(logged) == 1 and str(nothing) in logged[0].getMessage()
+    # Skipped with a warning, not ended by an exception and its traceback.
+    assert "names no interpretation" in logged[0].getMessage()
+    assert (logged[0].levelno, logged[0].exc_info) == (logging.WARNING, None)
 
 
 def test_with_two_rows_the_job_runs_exactly_the_one_it_was_given(

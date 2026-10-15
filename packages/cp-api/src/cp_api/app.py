@@ -847,10 +847,13 @@ def create_app(
         # with an earlier one still recorded in the queue.
         job_id = f"interpretation-{analysis_id}-{uuid.uuid4().hex[:8]}"
         # Every accepted request writes a new row; the earlier ones are kept
-        # as they are. Dated by the clock at the insert, under the lock, not
-        # by `now()`, the start of this transaction: a request whose
-        # transaction began before the one holding the lock was given it
-        # would otherwise date its row before that one's.
+        # as they are. The row is dated by the database clock at the insert,
+        # not by `now()`, which is when this transaction began. It began
+        # before this request waited for the lock, and while it waited another
+        # request may have written a row, a failed one if its enqueue failed.
+        # Dated by `now()`, this row would sort before that one, so the failed
+        # row would count as the newest and a further request would be
+        # accepted while this row's job is still pending.
         row = Interpretation(
             analysis_id=analysis_id,
             status="queued",
