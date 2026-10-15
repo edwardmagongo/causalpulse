@@ -170,17 +170,17 @@ def normal_p_value(point: float, se: float) -> float:
 def coefficient_se(covariance: np.ndarray, index: int) -> float:
     """Standard error of one coefficient, read from its own diagonal entry.
 
-    Deliberately not `np.sqrt(np.diag(covariance))`. On a two-way fixed-effects
-    design the unit- and period-dummy coefficients have near-zero true
-    variances, and the sandwich returns them as small negative numbers —
-    measured at around -1.7e-27, on roughly one seed in thirty-six, on the
-    cluster-robust path. A blanket square root turns that floating-point noise
-    into `RuntimeWarning: invalid value encountered in sqrt`, which
-    `filterwarnings = ["error"]` promotes to an intermittent failure with no
-    obvious cause.
+    Deliberately one entry, not `np.sqrt(np.diag(covariance))`. The sandwich
+    used to return the near-zero variances of a two-way fixed-effects design's
+    unit and period dummies as small negative numbers (about -1.7e-27, on
+    roughly one seed in thirty-six), and a blanket square root turned them
+    into a warning that `filterwarnings = ["error"]` made a failure. The
+    sandwich now forms each variance as a sum of terms that are not negative
+    (`cp_statistics.covariance._sandwich`), so that no longer happens; reading
+    only the reported coefficient keeps the other entries out of it anyway.
 
-    A negative variance on the coefficient actually being reported is a
-    different matter — that is a real defect, not noise — so it raises.
+    A negative variance on the coefficient being reported would mean the
+    covariance estimate is not usable, so it raises.
     """
     variance = float(covariance[index, index])
     if variance < 0:
