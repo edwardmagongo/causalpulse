@@ -111,8 +111,11 @@ def test_an_interpretation_passes_through_its_model_unchanged(status):
 
         assert set(served) == set(InterpretationDetail.model_fields)
         assert InterpretationDetail.model_validate(served).model_dump() == served
+        # Out of date only for a verdict, verified or refused, written under
+        # other than the current version; never for a pending or failed row.
         assert (served["interpreter_version"], served["out_of_date"]) == (
-            version, version != CURRENT_INTERPRETER_VERSION,
+            version,
+            status in ("verified", "refused") and version != CURRENT_INTERPRETER_VERSION,
         )
 
 

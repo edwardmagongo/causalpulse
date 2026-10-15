@@ -18,7 +18,7 @@ const BASE: InterpretationDetail = {
   returned_model: null,
   prompt_version: null,
   interpreter_version: null,
-  out_of_date: true,
+  out_of_date: false,
   created_at: "2026-10-08T10:00:00+00:00",
   started_at: null,
   finished_at: null,

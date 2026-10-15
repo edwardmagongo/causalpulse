@@ -484,8 +484,9 @@ export interface components {
          *     `verified`: `sections`, `limits` and `notice`. `refused`: `attempts` and
          *     `reason`; a refused narrative is not served. `failed`: `error`.
          *     `interpreter_version` names the prompt and verifier rules it was written
-         *     under, or is null; `out_of_date` is true when that is not the server's
-         *     current version, null included.
+         *     under, or is null; `out_of_date` is true for a `verified` or `refused`
+         *     interpretation when that is not the server's current version, null
+         *     included, and false for any other status.
          */
         InterpretationDetail: {
             /** Attempts */

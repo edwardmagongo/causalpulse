@@ -184,11 +184,14 @@ the outcome, whether verified, refused or failed.
 A row still queued or running has none yet, nor has one that the API marked failed because the job
 queue could not be reached or the worker was lost.
 
-**Out of date.** An interpretation is out of date when its version is not the server's current
-one. One with no recorded version counts as out of date: migration `0004` leaves every
-interpretation written before it without one, since what they were written under was not
-recorded. The version has a limit: a rule whose behaviour changes while its name and the prompt
-stay the same does not change it, so it does not make an interpretation out of date.
+**Out of date.** A verified or refused interpretation is out of date when its version is not the
+server's current one. One with no recorded version counts as out of date: migration `0004` leaves
+every interpretation written before it without one, since what they were written under was not
+recorded. A queued or running interpretation has no verdict yet, and a failed one can be asked for
+again whatever its version, so the API reports none of them as out of date; each still carries its
+`interpreter_version`, which says what, if anything, it was written under. The version has a
+limit: a rule whose behaviour changes while its name and the prompt stay the same does not change
+it, so it does not make an interpretation out of date.
 `tests/llm/test_version.py` pins the rule names and the version, so a rule added, removed or
 renamed fails that test and has to be accepted on purpose; it cannot notice a rule whose behaviour
 changed under the same name.
@@ -211,8 +214,8 @@ whether it is the first, a retry of a failed one, or a replacement for one that 
 No row is reset or overwritten: the earlier ones are kept as they were. The newest, by when it was
 asked for, is the analysis's interpretation. `GET /v1/analyses/{id}` returns it as
 `interpretation` and the others, newest first, as `earlier_interpretations`; each carries its
-`interpreter_version` and `out_of_date`, and `interpretable` says whether a request would be
-accepted, the day's limit aside.
+`interpreter_version` and `out_of_date` (true only for a verified or refused one that is out of
+date), and `interpretable` says whether a request would be accepted, the day's limit aside.
 
 **What the dashboard shows.** A verified or refused interpretation that is out of date carries the
 line "Written under an earlier version of the prompt and rules." and, when a request would be

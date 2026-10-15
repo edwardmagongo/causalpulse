@@ -341,7 +341,10 @@ def test_the_newest_interpretation_decides_whether_a_request_is_accepted(
 
     got = detail["interpretation"]
     assert (got["status"], got["interpreter_version"]) == (status, version)
-    assert got["out_of_date"] is (version != CURRENT_INTERPRETER_VERSION)
+    # Out of date only for a verdict: a failed one may be asked for again whatever its version.
+    assert got["out_of_date"] is (
+        status in ("verified", "refused") and version != CURRENT_INTERPRETER_VERSION
+    )
     assert detail["earlier_interpretations"] == []
     # What the analysis offered is what the request was answered.
     assert (detail["interpretable"], detail["interpretable_reason"]) == (
@@ -362,8 +365,12 @@ def test_the_newest_interpretation_decides_whether_a_request_is_accepted(
     assert new.job_id != before["job_id"]
     # The job is given the new row's own id.
     assert list(Job.fetch(new.job_id, connection=redis_conn).args) == [str(new.id)]
+    assert (asked.json()["status"], asked.json()["out_of_date"]) == ("queued", False)
     after = client.get(f"/v1/analyses/{analysis_id}").json()
-    assert after["interpretation"]["status"] == "queued"
+    # A pending interpretation has no verdict yet, so it is not out of date.
+    assert (after["interpretation"]["status"], after["interpretation"]["out_of_date"]) == (
+        "queued", False,
+    )
     assert [(e["status"], e["interpreter_version"]) for e in after["earlier_interpretations"]] == [
         (status, version),
     ]
@@ -389,7 +396,7 @@ def test_the_analysis_serves_the_newest_and_the_earlier_ones_newest_first(
     assert [(e["status"], e["interpreter_version"], e["out_of_date"]) for e in earlier] == [
         ("refused", OLDER, True),
         ("verified", OLDER, True),
-        ("failed", None, True),
+        ("failed", None, False),
     ]
     # Each in the same shape as the newest: a verified one with its sections,
     # a refused one with its reason only, a failed one with its error.

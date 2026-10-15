@@ -387,7 +387,7 @@ def run_interpretation_job(job_argument: str) -> None:
             error = str(exc) or type(exc).__name__
         if progress.row_id is not None:
             # A version that could not be computed stays None, which is safe: a
-            # row without a version always counts as out of date.
+            # failed row may be asked for again whatever its version.
             _fail_interpretation(sessions, progress.row_id, error, progress.version)
     finally:
         engine.dispose()

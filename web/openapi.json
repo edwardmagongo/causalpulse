@@ -789,7 +789,7 @@
         "type": "object"
       },
       "InterpretationDetail": {
-        "description": "An analysis's interpretation. Which fields are filled depends on `status`.\n\n`verified`: `sections`, `limits` and `notice`. `refused`: `attempts` and\n`reason`; a refused narrative is not served. `failed`: `error`.\n`interpreter_version` names the prompt and verifier rules it was written\nunder, or is null; `out_of_date` is true when that is not the server's\ncurrent version, null included.",
+        "description": "An analysis's interpretation. Which fields are filled depends on `status`.\n\n`verified`: `sections`, `limits` and `notice`. `refused`: `attempts` and\n`reason`; a refused narrative is not served. `failed`: `error`.\n`interpreter_version` names the prompt and verifier rules it was written\nunder, or is null; `out_of_date` is true for a `verified` or `refused`\ninterpretation when that is not the server's current version, null\nincluded, and false for any other status.",
         "properties": {
           "attempts": {
             "anyOf": [

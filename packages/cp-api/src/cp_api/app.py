@@ -199,12 +199,19 @@ def _newest_interpretation(session: Session, analysis_id: uuid.UUID) -> Interpre
 
 
 def _out_of_date(row: Interpretation) -> bool:
-    """Whether the row was written under other than the current prompt and rules.
+    """Whether the row is a verdict, verified or refused, written under other
+    than the current prompt and rules.
 
-    A row without a version is out of date: it was written before versions
-    were recorded, or it has not been written yet.
+    A verdict without a version counts as out of date: it was written before
+    versions were recorded, or a downgrade below migration `0004` dropped its
+    version. A pending row has no verdict yet, and a failed one may be asked
+    for again whatever its version, so neither is out of date; its
+    `interpreter_version` still says what it was written under, if anything.
     """
-    return row.interpreter_version != CURRENT_INTERPRETER_VERSION
+    return (
+        row.status in ("verified", "refused")
+        and row.interpreter_version != CURRENT_INTERPRETER_VERSION
+    )
 
 
 def _interpretation_out(row: Interpretation) -> dict[str, Any]:
