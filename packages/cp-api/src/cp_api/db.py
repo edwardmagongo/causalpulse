@@ -169,9 +169,10 @@ class Interpretation(Base):
     limits text, and `notice` what "verified" establishes, both as the worker
     wrote them, so the API serves them without importing the interpretation
     code. `interpreter_version` names the prompt and verifier rules the row
-    was written under, or is None. `job_id` changes when a failed
-    interpretation is asked for again, so a new job never collides with the
-    old one in the queue.
+    was written under, or is None. Asking again for an interpretation that
+    failed, or that is out of date, writes a new row and leaves the earlier
+    one as it is; each row has its own `job_id`, so a new job never collides
+    with an old one in the queue.
     """
 
     __tablename__ = "interpretations"

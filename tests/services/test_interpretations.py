@@ -6,6 +6,7 @@ Real PostgreSQL and Redis; the jobs run in this process with
 
 import json
 import threading
+import uuid
 from datetime import timedelta
 
 import pytest
@@ -13,6 +14,7 @@ from cp_api.app import (
     ALREADY_REFUSED,
     ALREADY_VERIFIED,
     BEING_WRITTEN,
+    CURRENT_INTERPRETER_VERSION,
     INTERPRETATIONS_OFF,
     NO_FACTS,
     NOT_SUCCEEDED,
@@ -26,12 +28,15 @@ from cp_llm.model import ModelCallError
 from cp_worker import jobs
 from cp_worker.worker import make_worker
 from fastapi.testclient import TestClient
+from rq.job import Job
 from sqlalchemy import select
 from worker.data import scenario_d_upload
 from worker.narratives import ScriptedReplies, narrative_for
 
 pytestmark = pytest.mark.services
 PAIR = ["difference_in_means", "lin_regression"]
+# A version the interpreter has never had: an interpretation written under it is out of date.
+OLDER = "0123456789ab"
 
 
 @pytest.fixture(autouse=True)
@@ -55,11 +60,65 @@ def make_client(sessions, redis_conn, worker_env, api_key_for):
     return make
 
 
-def _interpretation_of(session, analysis_id):
-    """The analysis's one interpretation row, or None: at most one exists in these tests."""
-    return session.scalars(
-        select(Interpretation).where(Interpretation.analysis_id == analysis_id)
-    ).one_or_none()
+def _rows(session, analysis_id):
+    """The analysis's interpretation rows, newest first."""
+    return list(
+        session.scalars(
+            select(Interpretation)
+            .where(Interpretation.analysis_id == analysis_id)
+            .order_by(Interpretation.created_at.desc(), Interpretation.id.desc())
+        )
+    )
+
+
+def _newest(session, analysis_id):
+    rows = _rows(session, analysis_id)
+    return rows[0] if rows else None
+
+
+def _columns(row):
+    return {column.key: getattr(row, column.key) for column in Interpretation.__table__.columns}
+
+
+# What the worker leaves on a row of each status, near enough for the API to serve it.
+_FINISHED = {
+    "verified": {
+        "prompt_version": "p-planted",
+        "rendered": {
+            "sections": [{"name": "summary", "heading": "Summary", "statements": ["Planted."]}],
+            "limits": "Planted limits.",
+        },
+        "notice": "Planted notice.",
+        "attempts": [{"violations": []}],
+    },
+    "refused": {
+        "prompt_version": "p-planted",
+        "attempts": [{"violations": [{"rule": "bare_value"}]}] * 2,
+    },
+    "failed": {"error": "the model API call failed: planted"},
+    "queued": {},
+}
+
+
+def _write(sessions, analysis_id, status, version, *, minutes_ago):
+    """Write one interpretation row directly, in its own transaction, dated `minutes_ago`
+    minutes back so that rows written by one test never tie on `created_at`; its id."""
+    created = utcnow() - timedelta(minutes=minutes_ago)
+    with sessions() as session:
+        row = Interpretation(
+            analysis_id=uuid.UUID(analysis_id),
+            status=status,
+            job_id=f"interpretation-{analysis_id}-{uuid.uuid4().hex[:8]}",
+            model="claude-opus-5-5",
+            effort="medium",
+            interpreter_version=version,
+            created_at=created,
+            finished_at=None if status == "queued" else created + timedelta(seconds=30),
+            **_FINISHED[status],
+        )
+        session.add(row)
+        session.commit()
+        return row.id
 
 
 def _drain(redis_conn):
@@ -117,7 +176,9 @@ def test_an_interpretation_is_queued_written_and_served(
     assert got["limits"] and got["notice"].startswith("A verified interpretation means:")
     assert got["model"] == "claude-opus-5-5"
     assert (got["attempts"], got["reason"], got["error"]) == (None, None, None)
-    assert (detail["interpretable"], detail["interpretable_reason"]) == (True, None)
+    assert (got["interpreter_version"], got["out_of_date"]) == (CURRENT_INTERPRETER_VERSION, False)
+    assert detail["earlier_interpretations"] == []
+    assert (detail["interpretable"], detail["interpretable_reason"]) == (False, ALREADY_VERIFIED)
 
 
 def test_a_server_with_interpretations_off_answers_403_and_offers_none(make_client, redis_conn):
@@ -168,26 +229,52 @@ def test_an_analysis_without_a_fact_table_is_409(make_client, redis_conn, sessio
     assert (detail["interpretable"], detail["interpretable_reason"]) == (False, NO_FACTS)
 
 
-def test_asking_while_one_is_being_written_is_409(make_client, redis_conn):
+def test_asking_while_one_is_being_written_is_409_and_the_analysis_says_so(
+    make_client, redis_conn
+):
     client = make_client()
     analysis_id = _analysed(client, redis_conn)
+    assert _ask(client, analysis_id).status_code == 202
+    detail = client.get(f"/v1/analyses/{analysis_id}").json()
+
+    again = _ask(client, analysis_id)
+
+    assert (again.status_code, again.json()["detail"]) == (409, BEING_WRITTEN)
+    assert (detail["interpretable"], detail["interpretable_reason"]) == (False, BEING_WRITTEN)
+
+
+def test_a_pending_one_is_409_even_over_an_out_of_date_one(make_client, redis_conn, sessions):
+    client = make_client()
+    analysis_id = _analysed(client, redis_conn)
+    _write(sessions, analysis_id, "verified", OLDER, minutes_ago=10)
     assert _ask(client, analysis_id).status_code == 202
 
     again = _ask(client, analysis_id)
 
     assert (again.status_code, again.json()["detail"]) == (409, BEING_WRITTEN)
+    with sessions() as session:
+        assert [row.status for row in _rows(session, analysis_id)] == ["queued", "verified"]
 
 
-def test_a_verified_interpretation_is_final(make_client, redis_conn, sessions, monkeypatch):
+def test_a_verified_interpretation_is_final_under_the_current_version(
+    make_client, redis_conn, sessions, monkeypatch
+):
     client = make_client()
     analysis_id = _analysed(client, redis_conn)
     _script(monkeypatch, narrative_for(_facts(sessions, analysis_id)))
     _ask(client, analysis_id)
     _drain(redis_conn)
+    detail = client.get(f"/v1/analyses/{analysis_id}").json()
 
     again = _ask(client, analysis_id)
 
+    # The worker records the version it wrote under, and it is the API's current one.
+    got = detail["interpretation"]
+    assert (got["interpreter_version"], got["out_of_date"]) == (
+        CURRENT_INTERPRETER_VERSION, False,
+    )
     assert (again.status_code, again.json()["detail"]) == (409, ALREADY_VERIFIED)
+    assert (detail["interpretable"], detail["interpretable_reason"]) == (False, ALREADY_VERIFIED)
 
 
 def test_a_refused_interpretation_is_final_and_its_narrative_is_not_served(
@@ -200,7 +287,8 @@ def test_a_refused_interpretation_is_final_and_its_narrative_is_not_served(
     _ask(client, analysis_id)
     _drain(redis_conn)
 
-    got = client.get(f"/v1/analyses/{analysis_id}").json()["interpretation"]
+    detail = client.get(f"/v1/analyses/{analysis_id}").json()
+    got = detail["interpretation"]
     again = _ask(client, analysis_id)
 
     assert got["status"] == "refused"
@@ -210,7 +298,131 @@ def test_a_refused_interpretation_is_final_and_its_narrative_is_not_served(
         "citing it."
     )
     assert (got["sections"], got["limits"], got["notice"]) == (None, None, None)
+    assert (got["interpreter_version"], got["out_of_date"]) == (
+        CURRENT_INTERPRETER_VERSION, False,
+    )
     assert (again.status_code, again.json()["detail"]) == (409, ALREADY_REFUSED)
+    assert (detail["interpretable"], detail["interpretable_reason"]) == (False, ALREADY_REFUSED)
+
+
+# Each kind of finished newest interpretation, under the current version, an
+# older one and none: what a request is answered, or None for 202.
+DECISIONS = [
+    ("verified", CURRENT_INTERPRETER_VERSION, ALREADY_VERIFIED),
+    ("verified", OLDER, None),
+    ("verified", None, None),
+    ("refused", CURRENT_INTERPRETER_VERSION, ALREADY_REFUSED),
+    ("refused", OLDER, None),
+    ("refused", None, None),
+    ("failed", CURRENT_INTERPRETER_VERSION, None),
+    ("failed", OLDER, None),
+    ("failed", None, None),
+]
+
+
+@pytest.mark.parametrize(
+    ("status", "version", "refusal"),
+    DECISIONS,
+    ids=[f"{status}-{'current' if version == CURRENT_INTERPRETER_VERSION else version}"
+         for status, version, _ in DECISIONS],
+)
+def test_the_newest_interpretation_decides_whether_a_request_is_accepted(
+    make_client, redis_conn, sessions, status, version, refusal
+):
+    client = make_client()
+    analysis_id = _analysed(client, redis_conn)
+    old_id = _write(sessions, analysis_id, status, version, minutes_ago=10)
+    with sessions() as session:
+        before = _columns(session.get(Interpretation, old_id))
+    detail = client.get(f"/v1/analyses/{analysis_id}").json()
+
+    asked = _ask(client, analysis_id)
+
+    got = detail["interpretation"]
+    assert (got["status"], got["interpreter_version"]) == (status, version)
+    assert got["out_of_date"] is (version != CURRENT_INTERPRETER_VERSION)
+    assert detail["earlier_interpretations"] == []
+    # What the analysis offered is what the request was answered.
+    assert (detail["interpretable"], detail["interpretable_reason"]) == (
+        refusal is None, refusal,
+    )
+    with sessions() as session:
+        rows = _rows(session, analysis_id)
+        # The row that was there is untouched, whatever the answer.
+        assert _columns(session.get(Interpretation, old_id)) == before
+    if refusal is not None:
+        assert (asked.status_code, asked.json()["detail"]) == (409, refusal)
+        assert [row.id for row in rows] == [old_id]
+        return
+    assert asked.status_code == 202
+    assert [row.id for row in rows][1:] == [old_id]
+    new = rows[0]
+    assert (new.status, new.interpreter_version, new.error) == ("queued", None, None)
+    assert new.job_id != before["job_id"]
+    # The job is given the new row's own id.
+    assert list(Job.fetch(new.job_id, connection=redis_conn).args) == [str(new.id)]
+    after = client.get(f"/v1/analyses/{analysis_id}").json()
+    assert after["interpretation"]["status"] == "queued"
+    assert [(e["status"], e["interpreter_version"]) for e in after["earlier_interpretations"]] == [
+        (status, version),
+    ]
+
+
+def test_the_analysis_serves_the_newest_and_the_earlier_ones_newest_first(
+    make_client, redis_conn, sessions
+):
+    client = make_client()
+    analysis_id = _analysed(client, redis_conn)
+    _write(sessions, analysis_id, "failed", None, minutes_ago=30)
+    _write(sessions, analysis_id, "verified", OLDER, minutes_ago=20)
+    _write(sessions, analysis_id, "refused", OLDER, minutes_ago=10)
+    _write(sessions, analysis_id, "verified", CURRENT_INTERPRETER_VERSION, minutes_ago=5)
+
+    detail = client.get(f"/v1/analyses/{analysis_id}").json()
+
+    got = detail["interpretation"]
+    assert (got["status"], got["interpreter_version"], got["out_of_date"]) == (
+        "verified", CURRENT_INTERPRETER_VERSION, False,
+    )
+    earlier = detail["earlier_interpretations"]
+    assert [(e["status"], e["interpreter_version"], e["out_of_date"]) for e in earlier] == [
+        ("refused", OLDER, True),
+        ("verified", OLDER, True),
+        ("failed", None, True),
+    ]
+    # Each in the same shape as the newest: a verified one with its sections,
+    # a refused one with its reason only, a failed one with its error.
+    assert earlier[1]["sections"][0]["statements"] == ["Planted."]
+    assert (earlier[0]["sections"], earlier[0]["attempts"]) == (None, 2)
+    assert earlier[2]["error"] == "the model API call failed: planted"
+    assert (detail["interpretable"], detail["interpretable_reason"]) == (False, ALREADY_VERIFIED)
+
+
+def test_an_analysis_with_no_interpretation_has_no_earlier_ones(make_client, redis_conn):
+    client = make_client()
+    analysis_id = _analysed(client, redis_conn)
+
+    detail = client.get(f"/v1/analyses/{analysis_id}").json()
+
+    assert (detail["interpretation"], detail["earlier_interpretations"]) == (None, [])
+    assert (detail["interpretable"], detail["interpretable_reason"]) == (True, None)
+
+
+def test_the_lost_job_check_on_a_read_looks_at_the_newest_only(
+    make_client, redis_conn, sessions
+):
+    # Only the newest can be pending in practice: a request is refused while
+    # it is. A planted older pending row, whose job never existed, is left as it is.
+    client = make_client()
+    analysis_id = _analysed(client, redis_conn)
+    _write(sessions, analysis_id, "queued", None, minutes_ago=20)
+    _write(sessions, analysis_id, "failed", None, minutes_ago=10)
+
+    detail = client.get(f"/v1/analyses/{analysis_id}").json()
+
+    assert [e["status"] for e in detail["earlier_interpretations"]] == ["queued"]
+    with sessions() as session:
+        assert [row.status for row in _rows(session, analysis_id)] == ["failed", "queued"]
 
 
 def test_a_failed_interpretation_can_be_asked_for_again(
@@ -222,7 +434,7 @@ def test_a_failed_interpretation_can_be_asked_for_again(
     _script(monkeypatch, ModelCallError("the model API call failed: APIConnectionError"))
     _ask(client, analysis_id)
     with sessions() as session:
-        first_job = _interpretation_of(session, analysis_id).job_id
+        first_job = _newest(session, analysis_id).job_id
     _drain(redis_conn)
     failed = client.get(f"/v1/analyses/{analysis_id}").json()["interpretation"]
     assert (failed["status"], failed["error"]) == (
@@ -236,10 +448,12 @@ def test_a_failed_interpretation_can_be_asked_for_again(
     assert again.status_code == 202
     assert again.json()["error"] is None
     with sessions() as session:
-        assert _interpretation_of(session, analysis_id).job_id != first_job
-    assert client.get(f"/v1/analyses/{analysis_id}").json()["interpretation"]["status"] == (
-        "verified"
-    )
+        assert _newest(session, analysis_id).job_id != first_job
+    detail = client.get(f"/v1/analyses/{analysis_id}").json()
+    assert detail["interpretation"]["status"] == "verified"
+    assert [(e["status"], e["error"]) for e in detail["earlier_interpretations"]] == [
+        ("failed", "the model API call failed: APIConnectionError"),
+    ]
 
 
 def test_each_request_gets_its_own_job(make_client, redis_conn, sessions, monkeypatch):
@@ -248,13 +462,13 @@ def test_each_request_gets_its_own_job(make_client, redis_conn, sessions, monkey
     _script(monkeypatch, ModelCallError("down"))
     _ask(client, analysis_id)
     with sessions() as session:
-        first = _interpretation_of(session, analysis_id).job_id
+        first = _newest(session, analysis_id).job_id
     _drain(redis_conn)
 
     _ask(client, analysis_id)
 
     with sessions() as session:
-        second = _interpretation_of(session, analysis_id).job_id
+        second = _newest(session, analysis_id).job_id
     assert first != second
     assert first.startswith(f"interpretation-{analysis_id}-")
 
@@ -265,15 +479,48 @@ def test_the_daily_limit_refuses_with_its_sentence(make_client, redis_conn, sess
     first_id = _analysed(client, redis_conn)
     second_id = _analysed(client, redis_conn)
     assert _ask(client, first_id).status_code == 202
+    # The analysis does not count the day's requests: it offers what only the limit refuses.
+    detail = client.get(f"/v1/analyses/{second_id}").json()
 
     refused = _ask(client, second_id)
 
+    assert (detail["interpretable"], detail["interpretable_reason"]) == (True, None)
     assert refused.status_code == 429
     assert refused.json()["detail"].startswith(
         "Too many interpretations today for this account. Try again in "
     )
     with sessions() as session:
-        assert _interpretation_of(session, second_id) is None
+        assert _rows(session, second_id) == []
+
+
+def test_every_accepted_request_counts_against_the_daily_limit(
+    make_client, redis_conn, sessions
+):
+    limits = Limits(interpretations_per_day=Limit("interpretations_per_day", 2, 86_400))
+    client = make_client(limits=limits)
+    analysis_id = _analysed(client, redis_conn)
+    _write(sessions, analysis_id, "verified", OLDER, minutes_ago=10)
+    assert _ask(client, analysis_id).status_code == 202
+    with sessions() as session:
+        newest = _newest(session, analysis_id)
+        newest.status = "refused"
+        newest.interpreter_version = OLDER
+        newest.attempts = [{"violations": [{"rule": "bare_value"}]}]
+        session.commit()
+    assert _ask(client, analysis_id).status_code == 202
+    with sessions() as session:
+        newest = _newest(session, analysis_id)
+        newest.status = "failed"
+        newest.error = "planted"
+        session.commit()
+
+    refused = _ask(client, analysis_id)
+
+    assert refused.status_code == 429
+    with sessions() as session:
+        assert [row.status for row in _rows(session, analysis_id)] == [
+            "failed", "refused", "verified",
+        ]
 
 
 def test_a_pending_interpretation_whose_job_is_gone_fails_on_the_next_read(
@@ -300,13 +547,17 @@ def test_asking_again_frees_a_lost_one_older_than_the_grace_period(
     _ask(client, analysis_id)
     redis_conn.flushdb()
     with sessions() as session:
-        row = _interpretation_of(session, analysis_id)
+        row = _newest(session, analysis_id)
         row.created_at = utcnow() - SUBMISSION_GRACE - timedelta(seconds=1)
         session.commit()
 
     again = _ask(client, analysis_id)
 
     assert again.status_code == 202
+    with sessions() as session:
+        assert [(row.status, row.error) for row in _rows(session, analysis_id)] == [
+            ("queued", None), ("failed", WORKER_LOST),
+        ]
 
 
 def test_a_lost_one_inside_the_grace_period_still_holds_its_place(
@@ -334,7 +585,7 @@ def test_a_refused_row_is_never_served_as_a_narrative_whatever_it_holds(
     _ask(client, analysis_id)
     _drain(redis_conn)
     with sessions() as session:
-        row = _interpretation_of(session, analysis_id)
+        row = _newest(session, analysis_id)
         row.rendered = {"sections": [{"name": "summary", "heading": "Summary",
                                        "statements": ["It rose by 2 points."]}], "limits": "x"}
         row.notice = "planted"
@@ -347,7 +598,7 @@ def test_a_refused_row_is_never_served_as_a_narrative_whatever_it_holds(
     )
 
 
-def test_asking_again_clears_what_the_failed_attempt_left(
+def test_asking_again_keeps_the_failed_one_as_it_was(
     make_client, redis_conn, sessions, monkeypatch
 ):
     client = make_client()
@@ -356,27 +607,27 @@ def test_asking_again_clears_what_the_failed_attempt_left(
     _ask(client, analysis_id)
     _drain(redis_conn)
     with sessions() as session:
-        row = _interpretation_of(session, analysis_id)
-        assert row.status == "failed"
-        old_job = row.job_id
-        row.attempts = [{"x": 1}]
-        row.prompt_version = "v-old"
-        row.facts_sha256 = "f" * 64
-        row.returned_model = "old-model"
-        row.started_at = row.finished_at = utcnow()
-        row.error = "left over"
+        failed = _newest(session, analysis_id)
+        assert failed.status == "failed"
+        failed.attempts = [{"violations": []}]
+        failed.prompt_version = "v-old"
+        failed.facts_sha256 = "f" * 64
+        failed.returned_model = "old-model"
+        failed.started_at = utcnow()
         session.commit()
+        before = _columns(failed)
 
     assert _ask(client, analysis_id).status_code == 202
 
     with sessions() as session:
-        row = _interpretation_of(session, analysis_id)
-        assert (row.status, row.job_id != old_job) == ("queued", True)
+        new, old = _rows(session, analysis_id)
+        assert _columns(old) == before
+        assert (new.status, new.job_id != before["job_id"]) == ("queued", True)
         for column in (
             "attempts", "prompt_version", "facts_sha256", "returned_model",
-            "started_at", "finished_at", "error", "rendered", "notice",
+            "started_at", "finished_at", "error", "rendered", "notice", "interpreter_version",
         ):
-            assert getattr(row, column) is None, column
+            assert getattr(new, column) is None, column
 
 
 def test_a_refused_request_does_not_spend_the_daily_allowance(
@@ -400,6 +651,7 @@ def test_a_request_waits_for_another_request_on_the_same_analysis(
 ):
     client = make_client()
     analysis_id = _analysed(client, redis_conn)
+    _write(sessions, analysis_id, "verified", OLDER, minutes_ago=10)
     holder = sessions()
     # FOR NO KEY UPDATE, not FOR UPDATE: the insert's foreign key takes a
     # weaker lock that this one permits, so only a request that itself locks
@@ -419,3 +671,5 @@ def test_a_request_waits_for_another_request_on_the_same_analysis(
         thread.join(10)
     assert not thread.is_alive()
     assert answers[0].status_code == 202
+    with sessions() as session:
+        assert [row.status for row in _rows(session, analysis_id)] == ["queued", "verified"]
