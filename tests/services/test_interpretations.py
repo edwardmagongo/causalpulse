@@ -760,6 +760,7 @@ def test_concurrent_requests_over_a_lost_job_write_one_new_row(
 
     monkeypatch.setattr(app_module, "_newest_interpretation", newest)
     codes: dict[str, int] = {}
+    sentences: dict[str, object] = {}
     errors: list[Exception] = []
 
     def ask(name, after=None):
@@ -770,7 +771,9 @@ def test_concurrent_requests_over_a_lost_job_write_one_new_row(
                 )
                 return
             each = TestClient(client.app, headers=client.headers)
-            codes[name] = _ask(each, analysis_id).status_code
+            answer = _ask(each, analysis_id)
+            codes[name] = answer.status_code
+            sentences[name] = answer.json().get("detail")
         except Exception as error:  # reported by the assertion below
             errors.append(error)
 
@@ -784,6 +787,15 @@ def test_concurrent_requests_over_a_lost_job_write_one_new_row(
     rows = _statuses(sessions, analysis_id)
     assert not errors, f"requests raised {errors!r}; rows, oldest first: {rows}"
     assert not problems, f"{problems}; codes {codes}; rows, oldest first: {rows}"
+    # The order is forced by counting the route's reads of the newest row: one
+    # before the lost-job check and one after it in the first request, one in
+    # the second. If the route comes to read it more or fewer times, the count
+    # no longer picks out those reads and the test would fall back to a race,
+    # so it says so instead of passing.
+    assert reads == 3, (
+        f"the route read the newest interpretation {reads} times; this test forces the "
+        "order of exactly three reads and must be changed with the route"
+    )
     assert codes == {"first": 202, "second": 409}, (
         f"expected the first request accepted and the second refused, got {codes}; "
         f"rows, oldest first: {rows}"
@@ -792,6 +804,7 @@ def test_concurrent_requests_over_a_lost_job_write_one_new_row(
         f"expected the lost row failed and one new row queued; rows, oldest first: {rows}"
     )
     assert rows[0][1] == WORKER_LOST
+    assert sentences["second"] == BEING_WRITTEN
 
 
 def _a_session_waits_for_a_lock(sessions, seconds=10.0):
@@ -822,8 +835,9 @@ def test_a_request_that_waited_for_the_lock_dates_its_row_after_the_holders(
     client = make_client()
     analysis_id = _analysed(client, redis_conn)
     holder = sessions()
-    # FOR NO KEY UPDATE, as in the test that a request waits for another: the
-    # holder's own insert needs no further lock, and the request's lock waits.
+    # The same lock mode as the test that a request waits for another, for
+    # consistency; here a plain FOR UPDATE would serve as well. The request's
+    # own lock on the analysis waits behind it either way.
     holder.execute(
         select(Analysis.id).where(Analysis.id == analysis_id).with_for_update(key_share=True)
     )

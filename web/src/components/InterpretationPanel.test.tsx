@@ -216,6 +216,24 @@ describe("InterpretationPanel, when the prompt and rules have changed", () => {
     expect(screen.queryByText(OUT_OF_DATE)).toBeNull();
   });
 
+  it.each(["failed", "pending"] as const)(
+    "marks only a verdict: a %s one flagged out of date gets no line and no new button",
+    (name) => {
+      // The API flags only a verified or refused interpretation as out of date,
+      // but the panel holds the rule itself, so it is tested against a flag the
+      // API does not send for these.
+      const analysis = interpretations[name] as Recorded;
+      panel({
+        interpretation: { ...analysis.interpretation!, out_of_date: true },
+        earlierInterpretations: analysis.earlier_interpretations,
+        interpretable: analysis.interpretable,
+        interpretableReason: analysis.interpretable_reason,
+      });
+      expect(screen.queryByText(OUT_OF_DATE)).toBeNull();
+      expect(screen.queryByRole("button", { name: "Write a new interpretation" })).toBeNull();
+    },
+  );
+
   it("does not mark one that is still being written, which has no version yet", () => {
     recorded("pending");
     expect(screen.getByText("Writing the interpretation…")).toBeTruthy();
