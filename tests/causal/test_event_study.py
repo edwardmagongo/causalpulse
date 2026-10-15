@@ -3,7 +3,8 @@ from dataclasses import replace
 import numpy as np
 import pandas as pd
 import pytest
-from cp_causal.estimators.event_study import EventStudy, breakdown_value
+from cp_causal._panel import panel_arrays
+from cp_causal.estimators.event_study import EventStudy, _event_design, _horizons, breakdown_value
 from cp_core.dataset import CausalDataset, CausalSchema
 from cp_core.results import CounterfactualPath
 from cp_core.values import EstimatorConfig
@@ -15,6 +16,7 @@ from cp_evaluation.grid import PanelCell
 from cp_evaluation.resolve import resolve_cell
 from cp_evaluation.tiers import FULL_FIT_CONFIG
 from cp_simulation.panel_scenarios import build_panel_scenario
+from cp_statistics.covariance import cluster_robust_covariance, ols_fit, robust_covariance
 
 CONFIG = EstimatorConfig(bootstrap_reps=50, random_seed=1)
 
@@ -296,3 +298,41 @@ def test_the_p1_bootstrap_resample_that_once_broke_pinv_now_fits():
     assert estimate.bootstrap_ci is not None
     assert estimate.bootstrap_ci.lower == pytest.approx(0.546887, abs=1e-5)
     assert estimate.bootstrap_ci.upper == pytest.approx(1.223786, abs=1e-5)
+
+
+def test_one_huge_outcome_leaves_the_other_event_times_standard_errors_alone():
+    # One outcome at 1e10 made the clustered covariance's small variances
+    # rounding noise: the fit raised "negative variance -0.0648 for
+    # coefficient 7", and at 1e8 the fourth digit of every event time's
+    # standard error was already wrong. The huge value belongs to one event
+    # time; every other one's standard error should barely move.
+    clean = generate("P1", seed=0).dataset
+    frame = clean.frame.copy()
+    frame.loc[frame.index[0], clean.schema.outcome] = 1e10
+    huge = CausalDataset(frame, clean.schema)
+
+    def errors(dataset):
+        estimate = EventStudy().fit(dataset, CONFIG)
+        return np.asarray(estimate.diagnostics["event_time_standard_errors"].value)
+
+    before, after = errors(clean), errors(huge)
+    moved = ~np.isclose(after, before, rtol=1e-3)
+    assert moved.sum() == 1, (before, after)
+
+
+
+@pytest.mark.parametrize("outlier", [0.0, 1e10, 1e12])
+def test_no_variance_of_the_event_study_design_is_negative(outlier):
+    # On this design, with nothing unusual in the data, the clustered sandwich
+    # used to return 198 of its 400-odd variances as small negative numbers
+    # (the unit and period dummies'), and with one outcome at 1e12 five of the
+    # reported event times' too.
+    dataset = generate("P1", seed=0).dataset
+    frame = dataset.frame.copy()
+    frame.loc[frame.index[0], dataset.schema.outcome] += outlier
+    panel = panel_arrays(CausalDataset(frame, dataset.schema))
+    design, _ = _event_design(panel, _horizons(panel))
+    fit = ols_fit(design, panel.outcome)
+
+    assert np.all(np.diag(cluster_robust_covariance(fit, panel.unit_index)) >= 0)
+    assert np.all(np.diag(robust_covariance(fit, kind="HC1")) >= 0)

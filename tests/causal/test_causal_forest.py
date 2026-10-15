@@ -39,6 +39,26 @@ def test_cross_fitted_outcome_model_predictions_are_out_of_fold():
     assert residual_sd < 0.2, f"residual_sd={residual_sd:.3f}, expected close to noise sd 0.1"
 
 
+
+@pytest.mark.parametrize("folds", [1, 5])
+@pytest.mark.parametrize("factor", [1e-6, 1e6, 1e12])
+def test_the_outcome_model_does_not_depend_on_a_covariates_units(folds, factor):
+    # One fit on all rows (`cross_fit_folds` of 1) and the cross-fitted one
+    # must both standardise: the estimator only ever asks for five folds, so
+    # nothing above it would notice the single fit losing that.
+    rng = np.random.default_rng(0)
+    n = 300
+    x = np.column_stack([rng.normal(size=n), rng.normal(size=n) * 1e3, rng.normal(size=n)])
+    y = x[:, 0] + 2e-3 * x[:, 1] - x[:, 2] + rng.normal(scale=0.1, size=n)
+    rescaled = x.copy()
+    rescaled[:, 1] *= factor
+
+    def predict(covariates):
+        fold_rng = np.random.default_rng(7) if folds > 1 else None
+        return cross_fitted_outcome_model(covariates, y, cross_fit_folds=folds, rng=fold_rng)
+
+    np.testing.assert_allclose(predict(rescaled), predict(x), rtol=1e-9, atol=1e-12)
+
 def test_cross_fitted_outcome_model_requires_an_explicit_rng_for_more_than_one_fold():
     rng = np.random.default_rng(0)
     x = rng.normal(size=(100, 2))

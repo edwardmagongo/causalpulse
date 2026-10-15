@@ -169,3 +169,30 @@ def test_a_column_of_zeros_is_left_at_scale_one():
 
     assert fit.scale[3] == 1.0
     assert np.all(np.isfinite(robust_covariance(fit, kind="HC1")))
+
+
+
+@pytest.mark.parametrize("kind", ["HC0", "HC1", "HC2", "cluster"])
+def test_the_sandwich_is_the_textbook_formula(kind):
+    # The bread is applied to each row (or each cluster's score) before the
+    # terms are summed, which keeps a huge residual from turning small
+    # variances into rounding noise; on ordinary data that must change no
+    # number, so it is held here to B M B written out directly.
+    X, y = design()
+    fit = ols_fit(X, y)
+    bread = np.linalg.inv(X.T @ X)
+    clusters = np.repeat(np.arange(20), 10)
+    if kind == "cluster":
+        scores = np.array([X[clusters == g].T @ fit.residuals[clusters == g] for g in range(20)])
+        meat = scores.T @ scores
+        expected = bread @ meat @ bread * (20 / 19) * ((fit.n - 1) / (fit.n - fit.k))
+        actual = cluster_robust_covariance(fit, clusters)
+    else:
+        squared = fit.residuals**2
+        if kind == "HC2":
+            squared = squared / (1.0 - fit.leverage)
+        expected = bread @ ((X * squared[:, None]).T @ X) @ bread
+        if kind == "HC1":
+            expected = expected * fit.n / (fit.n - fit.k)
+        actual = robust_covariance(fit, kind=kind)
+    np.testing.assert_allclose(actual, expected, rtol=1e-12)

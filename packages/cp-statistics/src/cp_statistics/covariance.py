@@ -101,10 +101,24 @@ def ols_fit(X: np.ndarray, y: np.ndarray) -> OLSFit:
     )
 
 
-def _sandwich(fit: OLSFit, meat: np.ndarray) -> np.ndarray:
-    # `meat` is built on the scaled design; the covariance is unscaled last,
-    # so a large column never enters a sum of squares in its own units.
-    covariance = fit.scaled_xtx_inv @ meat @ fit.scaled_xtx_inv
+def _sandwich(fit: OLSFit, rows: np.ndarray, weights: np.ndarray) -> np.ndarray:
+    """`sum_i w_i (B r_i)(B r_i)'` for the bread B and one row `r_i` per term.
+
+    The bread is applied to each row before anything is summed, not to a meat
+    matrix afterwards. Formed as `B (sum_i w_i r_i r_i') B`, one huge residual
+    puts a term near its square into every entry of the meat, and multiplying
+    by the bread on both sides leaves the small entries as rounding noise:
+    measured on an event study with one outcome at 1e10, the clustered
+    variances of the reported coefficients came out as 0.17 and -0.065 where
+    0.023 was right, and the fit refused its own result. Applied first, a
+    huge term stays in its own row, and with weights that are not negative
+    every variance is a sum of terms that are not negative.
+
+    The rows are in the scaled design; the covariance is unscaled last, so a
+    large column never enters a sum of squares in its own units.
+    """
+    transformed = rows @ fit.scaled_xtx_inv
+    covariance = (transformed * weights[:, None]).T @ transformed
     covariance = covariance / np.outer(fit.scale, fit.scale)
     return np.asarray((covariance + covariance.T) / 2.0)
 
@@ -123,9 +137,7 @@ def robust_covariance(fit: OLSFit, kind: str = "HC1") -> np.ndarray:
     if kind == "HC2":
         squared = squared / (1.0 - fit.leverage)
 
-    scaled = fit.X / fit.scale
-    meat = (scaled * squared[:, None]).T @ scaled
-    covariance = _sandwich(fit, meat)
+    covariance = _sandwich(fit, fit.X / fit.scale, squared)
     if kind == "HC1":
         covariance = covariance * (fit.n / (fit.n - fit.k))
     return covariance
@@ -155,13 +167,14 @@ def cluster_robust_covariance(
     if n_clusters <= 1:
         raise ValueError("cluster-robust covariance requires at least two clusters")
 
-    meat = np.zeros((fit.k, fit.k))
-    for label in labels:
+    # One score per cluster: the cluster's rows of the scaled design weighted
+    # by their residuals and summed.
+    scores = np.empty((n_clusters, fit.k))
+    for row, label in enumerate(labels):
         mask = clusters == label
-        score = (fit.X[mask] / fit.scale).T @ fit.residuals[mask]
-        meat += np.outer(score, score)
+        scores[row] = (fit.X[mask] / fit.scale).T @ fit.residuals[mask]
 
-    covariance = _sandwich(fit, meat)
+    covariance = _sandwich(fit, scores, np.ones(n_clusters))
     if small_sample_correction:
         correction = (n_clusters / (n_clusters - 1)) * ((fit.n - 1) / (fit.n - fit.k))
         covariance = covariance * correction
