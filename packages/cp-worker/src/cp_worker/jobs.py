@@ -52,6 +52,7 @@ from cp_llm.model import Effort, ModelCallError, NarrativeModel
 from cp_llm.prompt import prompt_version
 from cp_report.pipeline import AnalysisOutcome
 from rq import get_current_job
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from cp_worker.execute import execute
@@ -234,11 +235,26 @@ def rendered_record(rendered: RenderedNarrative) -> dict[str, Any]:
     }
 
 
+def _newest_interpretation(
+    session: Session, analysis_id: uuid.UUID, *, lock: bool = False
+) -> Interpretation | None:
+    """The analysis's newest interpretation row, locked if asked, or None if it has none."""
+    query = (
+        select(Interpretation)
+        .where(Interpretation.analysis_id == analysis_id)
+        .order_by(Interpretation.created_at.desc(), Interpretation.id.desc())
+        .limit(1)
+    )
+    if lock:
+        query = query.with_for_update()
+    return session.scalars(query).first()
+
+
 def _finish_interpretation(
     sessions: sessionmaker[Session], key: uuid.UUID, **fields: Any
 ) -> None:
     with sessions() as session:
-        row = session.get(Interpretation, key)
+        row = _newest_interpretation(session, key)
         assert row is not None
         for name, value in fields.items():
             setattr(row, name, value)
@@ -266,7 +282,7 @@ def _owns(row: Interpretation) -> bool:
 def _interpret(sessions: sessionmaker[Session], key: uuid.UUID) -> None:
     with sessions() as session:
         # Locked, so two jobs for one row cannot both pass the check below.
-        row = session.get(Interpretation, key, with_for_update=True)
+        row = _newest_interpretation(session, key, lock=True)
         if row is None:
             raise LookupError(f"no interpretation of analysis {key}")
         if not _owns(row):
@@ -345,7 +361,7 @@ def run_interpretation_job(analysis_id: str) -> None:
 def _fail_interpretation(sessions: sessionmaker[Session], key: uuid.UUID, error: str) -> None:
     """Record a failure, unless the row is gone or a result was already stored."""
     with sessions() as session:
-        row = session.get(Interpretation, key)
+        row = _newest_interpretation(session, key)
         if row is None or row.status in ("verified", "refused", "failed"):
             return
         row.status = "failed"

@@ -16,6 +16,7 @@ from cp_llm.model import ModelCallError
 from cp_worker import jobs
 from cp_worker.jobs import facts_digest, run_analysis_job, run_interpretation_job
 from cp_worker.worker import JobTimeLimitExceeded
+from sqlalchemy import select
 from worker.data import scenario_d_upload
 from worker.narratives import ScriptedReplies, narrative_for
 
@@ -54,6 +55,13 @@ def _analysed(sessions):
     return key
 
 
+def _interpretation_of(session, analysis_id):
+    """The analysis's one interpretation row, or None: at most one exists in these tests."""
+    return session.scalars(
+        select(Interpretation).where(Interpretation.analysis_id == analysis_id)
+    ).one_or_none()
+
+
 def _queued(sessions, key):
     with sessions() as session:
         session.add(
@@ -73,7 +81,7 @@ def _facts(sessions, key):
 
 def _row(sessions, key):
     with sessions() as session:
-        return session.get(Interpretation, key)
+        return _interpretation_of(session, key)
 
 
 def _script(monkeypatch, *items):
@@ -263,7 +271,7 @@ def test_a_job_on_a_row_that_is_not_queued_makes_no_model_call(
     key = _analysed(sessions)
     _queued(sessions, key)
     with sessions() as session:
-        row = session.get(Interpretation, key)
+        row = _interpretation_of(session, key)
         row.status = "failed"
         row.error = "the queue was down"
         session.commit()

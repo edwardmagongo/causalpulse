@@ -175,6 +175,16 @@ def _job_id_lost(redis: Redis, job_id: str) -> bool:
     return job.get_status() in _LOST
 
 
+def _newest_interpretation(session: Session, analysis_id: uuid.UUID) -> Interpretation | None:
+    """The analysis's current interpretation: its newest row, or None if it has none."""
+    return session.scalars(
+        select(Interpretation)
+        .where(Interpretation.analysis_id == analysis_id)
+        .order_by(Interpretation.created_at.desc(), Interpretation.id.desc())
+        .limit(1)
+    ).first()
+
+
 def _interpretation_out(row: Interpretation) -> dict[str, Any]:
     """The row as `models.InterpretationDetail`: each field only for its status."""
     rendered = row.rendered if row.status == "verified" else None
@@ -719,7 +729,7 @@ def create_app(
             .where(EstimateRow.analysis_id == analysis_id)
             .order_by(EstimateRow.id)
         ).all()
-        interpretation = session.get(Interpretation, analysis_id)
+        interpretation = _newest_interpretation(session, analysis_id)
         if interpretation is not None:
             _fail_interpretation_if_lost(session, interpretation)
         reason = _uninterpretable(session, analysis) if interpreting else None
@@ -764,7 +774,7 @@ def create_app(
         reason = _uninterpretable(session, analysis)
         if reason is not None:
             raise RequestError(409, reason)
-        row = session.get(Interpretation, analysis_id)
+        row = _newest_interpretation(session, analysis_id)
         if row is not None and row.status in INTERPRETATION_PENDING:
             # A job that died with its worker would otherwise hold the analysis
             # for good. A row too new to judge stands: its job may not be

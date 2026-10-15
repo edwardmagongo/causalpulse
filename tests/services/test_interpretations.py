@@ -55,6 +55,13 @@ def make_client(sessions, redis_conn, worker_env, api_key_for):
     return make
 
 
+def _interpretation_of(session, analysis_id):
+    """The analysis's one interpretation row, or None: at most one exists in these tests."""
+    return session.scalars(
+        select(Interpretation).where(Interpretation.analysis_id == analysis_id)
+    ).one_or_none()
+
+
 def _drain(redis_conn):
     make_worker(redis_conn).work(burst=True)
 
@@ -215,7 +222,7 @@ def test_a_failed_interpretation_can_be_asked_for_again(
     _script(monkeypatch, ModelCallError("the model API call failed: APIConnectionError"))
     _ask(client, analysis_id)
     with sessions() as session:
-        first_job = session.get(Interpretation, analysis_id).job_id
+        first_job = _interpretation_of(session, analysis_id).job_id
     _drain(redis_conn)
     failed = client.get(f"/v1/analyses/{analysis_id}").json()["interpretation"]
     assert (failed["status"], failed["error"]) == (
@@ -229,7 +236,7 @@ def test_a_failed_interpretation_can_be_asked_for_again(
     assert again.status_code == 202
     assert again.json()["error"] is None
     with sessions() as session:
-        assert session.get(Interpretation, analysis_id).job_id != first_job
+        assert _interpretation_of(session, analysis_id).job_id != first_job
     assert client.get(f"/v1/analyses/{analysis_id}").json()["interpretation"]["status"] == (
         "verified"
     )
@@ -241,13 +248,13 @@ def test_each_request_gets_its_own_job(make_client, redis_conn, sessions, monkey
     _script(monkeypatch, ModelCallError("down"))
     _ask(client, analysis_id)
     with sessions() as session:
-        first = session.get(Interpretation, analysis_id).job_id
+        first = _interpretation_of(session, analysis_id).job_id
     _drain(redis_conn)
 
     _ask(client, analysis_id)
 
     with sessions() as session:
-        second = session.get(Interpretation, analysis_id).job_id
+        second = _interpretation_of(session, analysis_id).job_id
     assert first != second
     assert first.startswith(f"interpretation-{analysis_id}-")
 
@@ -266,7 +273,7 @@ def test_the_daily_limit_refuses_with_its_sentence(make_client, redis_conn, sess
         "Too many interpretations today for this account. Try again in "
     )
     with sessions() as session:
-        assert session.get(Interpretation, second_id) is None
+        assert _interpretation_of(session, second_id) is None
 
 
 def test_a_pending_interpretation_whose_job_is_gone_fails_on_the_next_read(
@@ -293,7 +300,7 @@ def test_asking_again_frees_a_lost_one_older_than_the_grace_period(
     _ask(client, analysis_id)
     redis_conn.flushdb()
     with sessions() as session:
-        row = session.get(Interpretation, analysis_id)
+        row = _interpretation_of(session, analysis_id)
         row.created_at = utcnow() - SUBMISSION_GRACE - timedelta(seconds=1)
         session.commit()
 
@@ -327,7 +334,7 @@ def test_a_refused_row_is_never_served_as_a_narrative_whatever_it_holds(
     _ask(client, analysis_id)
     _drain(redis_conn)
     with sessions() as session:
-        row = session.get(Interpretation, analysis_id)
+        row = _interpretation_of(session, analysis_id)
         row.rendered = {"sections": [{"name": "summary", "heading": "Summary",
                                        "statements": ["It rose by 2 points."]}], "limits": "x"}
         row.notice = "planted"
@@ -349,7 +356,7 @@ def test_asking_again_clears_what_the_failed_attempt_left(
     _ask(client, analysis_id)
     _drain(redis_conn)
     with sessions() as session:
-        row = session.get(Interpretation, analysis_id)
+        row = _interpretation_of(session, analysis_id)
         assert row.status == "failed"
         old_job = row.job_id
         row.attempts = [{"x": 1}]
@@ -363,7 +370,7 @@ def test_asking_again_clears_what_the_failed_attempt_left(
     assert _ask(client, analysis_id).status_code == 202
 
     with sessions() as session:
-        row = session.get(Interpretation, analysis_id)
+        row = _interpretation_of(session, analysis_id)
         assert (row.status, row.job_id != old_job) == ("queued", True)
         for column in (
             "attempts", "prompt_version", "facts_sha256", "returned_model",
