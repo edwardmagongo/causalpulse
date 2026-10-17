@@ -486,7 +486,8 @@ export interface components {
          *     `interpreter_version` names the prompt and verifier rules it was written
          *     under, or is null; `out_of_date` is true for a `verified` or `refused`
          *     interpretation when that is not the server's current version, null
-         *     included, and false for any other status.
+         *     included, and false for any other status. `id` is the interpretation's own,
+         *     one for each of an analysis's interpretations.
          */
         InterpretationDetail: {
             /** Attempts */
@@ -497,6 +498,8 @@ export interface components {
             error: string | null;
             /** Finished At */
             finished_at: string | null;
+            /** Id */
+            id: string;
             /** Interpreter Version */
             interpreter_version: string | null;
             /** Limits */

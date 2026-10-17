@@ -165,30 +165,36 @@ function Verified({
  * under; opened, what it holds.
  */
 function Earlier({ interpretations }: { interpretations: InterpretationDetail[] }) {
+  const count = interpretations.length;
   return (
-    <details className="disclosure">
-      <summary>
-        <h3>Earlier interpretations</h3>
-      </summary>
-      <ol className="flex flex-col [&>li+li>.disclosure]:border-t-0">
-        {interpretations.map((interpretation, index) => (
-          // Keyed by when it was asked for, so an opened entry stays open when
-          // a new interpretation pushes the list down.
-          <li key={interpretation.created_at ?? index}>
-            <details className="disclosure">
-              <summary>
-                <span>
-                  <span className="status">{interpretation.status}</span>,{" "}
-                  <span className="value">{formatTime(interpretation.created_at)}</span>, version{" "}
-                  <span className="value">{interpretation.interpreter_version ?? DASH}</span>
-                </span>
-              </summary>
-              <EarlierBody interpretation={interpretation} />
-            </details>
-          </li>
-        ))}
-      </ol>
-    </details>
+    // The heading stands outside the disclosure. Inside a <summary>, which is
+    // exposed as a button, some screen readers do not announce it as a heading.
+    <section aria-labelledby="earlier-interpretations-heading" className="flex flex-col gap-2">
+      <h3 id="earlier-interpretations-heading" className="title-group">
+        Earlier interpretations
+      </h3>
+      <details className="disclosure">
+        <summary>{count === 1 ? "Show the earlier interpretation" : `Show the ${count} earlier interpretations`}</summary>
+        <ol className="flex flex-col [&>li+li>.disclosure]:border-t-0">
+          {interpretations.map((interpretation) => (
+            // Keyed by the interpretation's own id, so an opened entry stays
+            // open when a new interpretation pushes the list down.
+            <li key={interpretation.id}>
+              <details className="disclosure">
+                <summary>
+                  <span>
+                    <span className="status">{interpretation.status}</span>,{" "}
+                    <span className="value">{formatTime(interpretation.created_at)}</span>, version{" "}
+                    <span className="value">{interpretation.interpreter_version ?? DASH}</span>
+                  </span>
+                </summary>
+                <EarlierBody interpretation={interpretation} />
+              </details>
+            </li>
+          ))}
+        </ol>
+      </details>
+    </section>
   );
 }
 

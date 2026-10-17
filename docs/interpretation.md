@@ -213,15 +213,16 @@ Every accepted request writes a new row and counts against `CP_LIMIT_INTERPRETAT
 whether it is the first, a retry of a failed one, or a replacement for one that is out of date.
 No row is reset or overwritten: the earlier ones are kept as they were. The newest, by when it was
 asked for, is the analysis's interpretation. `GET /v1/analyses/{id}` returns it as
-`interpretation` and the others, newest first, as `earlier_interpretations`; each carries its
-`interpreter_version` and `out_of_date` (true only for a verified or refused one that is out of
+`interpretation` and the others, newest first, as `earlier_interpretations`; each carries its own
+`id`, its `interpreter_version` and `out_of_date` (true only for a verified or refused one that is out of
 date), and `interpretable` says whether a request would be accepted, the day's limit aside.
 
 **What the dashboard shows.** A verified or refused interpretation that is out of date carries the
 line "Written under an earlier version of the prompt and rules." and, when a request would be
 accepted, a **Write a new interpretation** button. A failed one keeps its **Try again** button,
-shown on the same condition. Below the newest, a closed disclosure headed "Earlier
-interpretations" lists the others, newest first. Each entry gives its status, when it was asked
+shown on the same condition. Below the newest, under the heading "Earlier interpretations", a
+closed disclosure ("Show the 3 earlier interpretations") lists the others, newest first. Each
+entry gives its status, when it was asked
 for and the version it was written under (a dash when none was recorded). Opened, a verified one
 shows its sections with their limits, the note on what "verified" establishes, and the model and
 prompt version; a refused one says it is not shown; a failed one shows its error.
