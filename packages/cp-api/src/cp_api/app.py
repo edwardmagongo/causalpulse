@@ -220,6 +220,7 @@ def _interpretation_out(row: Interpretation) -> dict[str, Any]:
     attempts = row.attempts or []
     rules = {violation["rule"] for violation in (attempts[-1]["violations"] if attempts else [])}
     return {
+        "id": str(row.id),
         "status": row.status,
         "model": row.model,
         "returned_model": row.returned_model,

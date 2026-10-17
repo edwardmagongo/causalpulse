@@ -13,6 +13,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 import { InterpretationPanel } from "./InterpretationPanel";
 
 const BASE: InterpretationDetail = {
+  id: "7a9d3c52-1f0e-4b8a-9c6d-2e5f4a3b1c0d",
   status: "queued",
   model: "claude-opus-5-5",
   returned_model: null,
@@ -152,7 +153,8 @@ function recorded(name: keyof typeof interpretations) {
 }
 
 function earlierList(): HTMLDetailsElement {
-  const list = screen.getByText("Earlier interpretations").closest("details");
+  const heading = screen.getByRole("heading", { name: "Earlier interpretations" });
+  const list = heading.closest("section")!.querySelector<HTMLDetailsElement>(":scope > details");
   expect(list).not.toBeNull();
   return list!;
 }
@@ -308,6 +310,57 @@ describe("InterpretationPanel's earlier interpretations", () => {
     expect(within(refusedEntry).getByText(REFUSED_SENTENCE)).toBeTruthy();
     expect(within(refusedEntry).queryByText(/Attempts/)).toBeNull();
     expect(within(failedEntry).getByText("the model API call failed")).toBeTruthy();
+  });
+
+  it("keeps its heading outside the disclosure, which says how many it holds", () => {
+    recorded("with_earlier");
+    const heading = screen.getByRole("heading", { name: "Earlier interpretations" });
+    // A heading inside a <summary> is not announced as one by some screen readers.
+    expect(heading.closest("summary")).toBeNull();
+    expect(heading.closest("details")).toBeNull();
+    const count = interpretations.with_earlier.earlier_interpretations.length;
+    expect(earlierList().querySelector(":scope > summary")!.textContent).toBe(
+      `Show the ${count} earlier interpretations`,
+    );
+  });
+
+  it("says so when it holds one", () => {
+    const analysis = interpretations.with_earlier as Recorded;
+    panel({
+      interpretation: analysis.interpretation,
+      earlierInterpretations: analysis.earlier_interpretations.slice(0, 1),
+    });
+    expect(earlierList().querySelector(":scope > summary")!.textContent).toBe(
+      "Show the earlier interpretation",
+    );
+  });
+
+  it("keeps an opened entry open when a newer one is added, even with the same date", () => {
+    const analysis = interpretations.with_earlier as Recorded;
+    const [first, second] = analysis.earlier_interpretations;
+    // Two interpretations asked for in the same instant, told apart only by their ids.
+    const twins = [first, { ...second, created_at: first.created_at }];
+    const props = {
+      interpretation: analysis.interpretation,
+      interpretable: false,
+      interpretableReason: null,
+    };
+    const { rerender } = panel({ ...props, earlierInterpretations: twins });
+    const opened = earlierEntries()[1].querySelector("details")!;
+    fireEvent.click(opened.querySelector("summary")!);
+    expect(opened.open).toBe(true);
+
+    const newer = { ...analysis.interpretation!, id: "0b6f2a4e-3c1d-4e5f-8a9b-7c6d5e4f3a2b" };
+    rerender(
+      <InterpretationPanel analysisId="a1" {...props} earlierInterpretations={[newer, ...twins]} />,
+    );
+    const entries = earlierEntries();
+    expect(entries).toHaveLength(3);
+    expect(entries.map((entry) => entry.querySelector("details")!.open)).toEqual([
+      false,
+      false,
+      true,
+    ]);
   });
 
   it("is absent when there are none", () => {

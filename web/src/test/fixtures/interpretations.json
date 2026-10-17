@@ -1,6 +1,7 @@
 {
   "verified_out_of_date": {
     "interpretation": {
+      "id": "e6a9ecce-bf3f-51b8-8669-afdc286d7f7f",
       "status": "verified",
       "model": "claude-opus-5-5",
       "returned_model": "claude-opus-5-5-20261001",
@@ -11,9 +12,25 @@
       "started_at": "2026-10-09T09:12:40.402117+00:00",
       "finished_at": "2026-10-09T09:13:05.861930+00:00",
       "sections": [
-        { "name": "summary", "heading": "Summary", "statements": [] },
-        { "name": "estimates", "heading": "Estimates", "statements": ["The estimate for ipw is 1794 [-63.52, 3652]."] },
-        { "name": "validity", "heading": "Validity", "statements": ["The validity band is MODERATE."] }
+        {
+          "name": "summary",
+          "heading": "Summary",
+          "statements": []
+        },
+        {
+          "name": "estimates",
+          "heading": "Estimates",
+          "statements": [
+            "The estimate for ipw is 1794 [-63.52, 3652]."
+          ]
+        },
+        {
+          "name": "validity",
+          "heading": "Validity",
+          "statements": [
+            "The validity band is MODERATE."
+          ]
+        }
       ],
       "limits": "The validity band reflects the checks the system could run on this analysis.",
       "notice": "A verified interpretation means: every value shown is the system's own, every controlled word is backed by a fact, nothing required was omitted, and the prose passes the language lint. It does not mean the narrative is a correct reading of the analysis.",
@@ -27,6 +44,7 @@
   },
   "verified_current": {
     "interpretation": {
+      "id": "73ef756a-9575-5e0a-9f10-9b79216bee83",
       "status": "verified",
       "model": "claude-opus-5-5",
       "returned_model": "claude-opus-5-5-20261001",
@@ -37,8 +55,18 @@
       "started_at": "2026-10-15T08:30:11.790642+00:00",
       "finished_at": "2026-10-15T08:30:38.017455+00:00",
       "sections": [
-        { "name": "summary", "heading": "Summary", "statements": [] },
-        { "name": "estimates", "heading": "Estimates", "statements": ["The estimate for ipw is 1794 [-63.52, 3652]."] }
+        {
+          "name": "summary",
+          "heading": "Summary",
+          "statements": []
+        },
+        {
+          "name": "estimates",
+          "heading": "Estimates",
+          "statements": [
+            "The estimate for ipw is 1794 [-63.52, 3652]."
+          ]
+        }
       ],
       "limits": "The validity band reflects the checks the system could run on this analysis.",
       "notice": "A verified interpretation means: every value shown is the system's own, every controlled word is backed by a fact, nothing required was omitted, and the prose passes the language lint. It does not mean the narrative is a correct reading of the analysis.",
@@ -52,6 +80,7 @@
   },
   "refused_out_of_date": {
     "interpretation": {
+      "id": "c65bef20-de5f-5c3c-822f-f7b453a753b3",
       "status": "refused",
       "model": "claude-opus-5-5",
       "returned_model": "claude-opus-5-5-20261001",
@@ -74,6 +103,7 @@
   },
   "refused_current": {
     "interpretation": {
+      "id": "a90ef499-da80-5b51-865b-c7caf38492c3",
       "status": "refused",
       "model": "claude-opus-5-5",
       "returned_model": "claude-opus-5-5-20261001",
@@ -96,6 +126,7 @@
   },
   "failed": {
     "interpretation": {
+      "id": "16b07f38-4d7a-518f-a528-9c1a40d58848",
       "status": "failed",
       "model": "claude-opus-5-5",
       "returned_model": null,
@@ -118,6 +149,7 @@
   },
   "failed_current": {
     "interpretation": {
+      "id": "edf82a9c-b8ad-5137-804c-78ff544be0fa",
       "status": "failed",
       "model": "claude-opus-5-5",
       "returned_model": null,
@@ -136,6 +168,7 @@
     },
     "earlier_interpretations": [
       {
+        "id": "26e02dd4-511c-5626-b0b9-83160f94ca52",
         "status": "verified",
         "model": "claude-opus-5-5",
         "returned_model": "claude-opus-5-5-20261001",
@@ -146,8 +179,18 @@
         "started_at": "2026-10-09T09:12:40.402117+00:00",
         "finished_at": "2026-10-09T09:13:05.861930+00:00",
         "sections": [
-          { "name": "summary", "heading": "Summary", "statements": [] },
-          { "name": "estimates", "heading": "Estimates", "statements": ["The estimate for ipw is 1794 [-63.52, 3652]."] }
+          {
+            "name": "summary",
+            "heading": "Summary",
+            "statements": []
+          },
+          {
+            "name": "estimates",
+            "heading": "Estimates",
+            "statements": [
+              "The estimate for ipw is 1794 [-63.52, 3652]."
+            ]
+          }
         ],
         "limits": "The validity band reflects the checks the system could run on this analysis.",
         "notice": "A verified interpretation means: every value shown is the system's own, every controlled word is backed by a fact, nothing required was omitted, and the prose passes the language lint. It does not mean the narrative is a correct reading of the analysis.",
@@ -161,6 +204,7 @@
   },
   "pending": {
     "interpretation": {
+      "id": "e06d58da-b03f-5600-ba41-713ef7b57f2b",
       "status": "running",
       "model": "claude-opus-5-5",
       "returned_model": null,
@@ -179,6 +223,7 @@
     },
     "earlier_interpretations": [
       {
+        "id": "5db9d11e-d542-54f1-98fa-89a3c851a3ed",
         "status": "verified",
         "model": "claude-opus-5-5",
         "returned_model": "claude-opus-5-5-20261001",
@@ -189,8 +234,18 @@
         "started_at": "2026-10-09T09:12:40.402117+00:00",
         "finished_at": "2026-10-09T09:13:05.861930+00:00",
         "sections": [
-          { "name": "summary", "heading": "Summary", "statements": [] },
-          { "name": "estimates", "heading": "Estimates", "statements": ["The estimate for ipw is 1794 [-63.52, 3652]."] }
+          {
+            "name": "summary",
+            "heading": "Summary",
+            "statements": []
+          },
+          {
+            "name": "estimates",
+            "heading": "Estimates",
+            "statements": [
+              "The estimate for ipw is 1794 [-63.52, 3652]."
+            ]
+          }
         ],
         "limits": "The validity band reflects the checks the system could run on this analysis.",
         "notice": "A verified interpretation means: every value shown is the system's own, every controlled word is backed by a fact, nothing required was omitted, and the prose passes the language lint. It does not mean the narrative is a correct reading of the analysis.",
@@ -204,6 +259,7 @@
   },
   "with_earlier": {
     "interpretation": {
+      "id": "7a3c719e-40df-5054-929f-c2ceaa17197b",
       "status": "verified",
       "model": "claude-opus-5-5",
       "returned_model": "claude-opus-5-5-20261001",
@@ -214,8 +270,18 @@
       "started_at": "2026-10-15T08:30:11.790642+00:00",
       "finished_at": "2026-10-15T08:30:38.017455+00:00",
       "sections": [
-        { "name": "summary", "heading": "Summary", "statements": [] },
-        { "name": "estimates", "heading": "Estimates", "statements": ["The estimate for ipw is 1794 [-63.52, 3652]."] }
+        {
+          "name": "summary",
+          "heading": "Summary",
+          "statements": []
+        },
+        {
+          "name": "estimates",
+          "heading": "Estimates",
+          "statements": [
+            "The estimate for ipw is 1794 [-63.52, 3652]."
+          ]
+        }
       ],
       "limits": "The validity band reflects the checks the system could run on this analysis.",
       "notice": "A verified interpretation means: every value shown is the system's own, every controlled word is backed by a fact, nothing required was omitted, and the prose passes the language lint. It does not mean the narrative is a correct reading of the analysis.",
@@ -225,6 +291,7 @@
     },
     "earlier_interpretations": [
       {
+        "id": "1ab2d911-85d7-554d-bd72-006c98853719",
         "status": "refused",
         "model": "claude-opus-5-5",
         "returned_model": "claude-opus-5-5-20261001",
@@ -242,6 +309,7 @@
         "error": null
       },
       {
+        "id": "3e908525-e8fd-5747-9324-35f003b444a1",
         "status": "failed",
         "model": "claude-opus-5-5",
         "returned_model": null,
@@ -259,6 +327,7 @@
         "error": "the model API call failed"
       },
       {
+        "id": "bedee078-ebd9-5af1-8d30-a37654ab3565",
         "status": "verified",
         "model": "claude-opus-5-5",
         "returned_model": "claude-opus-5-5-20261001",
@@ -269,8 +338,18 @@
         "started_at": "2026-10-09T09:12:40.402117+00:00",
         "finished_at": "2026-10-09T09:13:05.861930+00:00",
         "sections": [
-          { "name": "summary", "heading": "Summary", "statements": [] },
-          { "name": "agreement", "heading": "Agreement across methods", "statements": ["The methods agree."] }
+          {
+            "name": "summary",
+            "heading": "Summary",
+            "statements": []
+          },
+          {
+            "name": "agreement",
+            "heading": "Agreement across methods",
+            "statements": [
+              "The methods agree."
+            ]
+          }
         ],
         "limits": "The validity band reflects the checks the system could run on this analysis.",
         "notice": "A verified interpretation means: every value shown is the system's own, every controlled word is backed by a fact, nothing required was omitted, and the prose passes the language lint. It does not mean the narrative is a correct reading of the analysis.",
