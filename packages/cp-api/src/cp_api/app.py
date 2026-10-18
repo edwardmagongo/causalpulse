@@ -62,7 +62,12 @@ from cp_api.limits import (
     limits_from_environment,
 )
 from cp_api.pagination import DEFAULT_LIMIT, MAX_LIMIT, decode_cursor, encode_cursor
-from cp_api.settings import interpretation_enabled, require_production_settings
+from cp_api.settings import (
+    InterpretationOption,
+    interpretation_enabled,
+    require_production_settings,
+)
+from cp_api.settings import interpretation_options as read_interpretation_options
 from cp_api.validation import RequestError, check_analysis_request, check_upload, csv_header
 
 WORKER_LOST = "worker lost: the job ended without recording a result"
@@ -89,16 +94,14 @@ _LOST = {JobStatus.FAILED, JobStatus.STOPPED, JobStatus.CANCELED}
 # refused client is told to wait longer than that (`ACTIVE_RETRY_SECONDS`).
 SUBMISSION_GRACE = timedelta(seconds=30)
 
-# The model an interpretation is asked of, and how hard it thinks. Phase 1's
-# defaults; recorded on the row, which is what the worker reads.
-INTERPRETATION_MODEL = "claude-opus-5-5"
-INTERPRETATION_EFFORT = "medium"
 # `cp_llm.version.interpreter_version()`, which this package may not import:
 # the prompt and the verifier's rules an interpretation written now is written
 # under. `tests/api/test_interpreter_version.py` fails when the two differ.
 CURRENT_INTERPRETER_VERSION = "35d8275efecb"
 # What `POST /v1/analyses/{id}/interpretation` answers when it cannot accept.
 INTERPRETATIONS_OFF = "Interpretation is not enabled on this server."
+NAME_BOTH_OR_NEITHER = "Name both the model and the effort, or neither."
+NOT_OFFERED = "That model and effort are not offered on this server."
 NOT_SUCCEEDED = "Only an analysis that has succeeded can be interpreted."
 NO_FACTS = (
     "This analysis has no fact table, so it cannot be interpreted: it was run before "
@@ -107,11 +110,12 @@ NO_FACTS = (
 )
 BEING_WRITTEN = "An interpretation of this analysis is already being written."
 ALREADY_VERIFIED = (
-    "This analysis already has an interpretation written under the current prompt and rules."
+    "This analysis already has an interpretation from this model and effort, written under "
+    "the current prompt and rules."
 )
 ALREADY_REFUSED = (
-    "This analysis's interpretation could not be verified under the current prompt and rules, "
-    "and asking again would not change them."
+    "This analysis's interpretation from this model and effort could not be verified under "
+    "the current prompt and rules, and asking again would not change them."
 )
 # Each verifier rule in plain words, in the verifier's own order, for the
 # reason a refused interpretation gives. `cp_llm.verify` names the rules; the
@@ -193,9 +197,23 @@ def _newest_first(analysis_id: uuid.UUID) -> Select[Interpretation]:
     )
 
 
-def _newest_interpretation(session: Session, analysis_id: uuid.UUID) -> Interpretation | None:
-    """The analysis's current interpretation: its newest row, or None if it has none."""
-    return session.scalars(_newest_first(analysis_id).limit(1)).first()
+def _interpretations(session: Session, analysis_id: uuid.UUID) -> list[Interpretation]:
+    """The analysis's interpretations, newest first, as the database holds them now.
+
+    `populate_existing`, so a row this session loaded before is read again
+    rather than served as it was then: the request route reads them a second
+    time after a commit, and the sessions do not expire rows on commit.
+    """
+    return list(
+        session.scalars(
+            _newest_first(analysis_id).execution_options(populate_existing=True)
+        )
+    )
+
+
+def _newest_pending(interpretations: Iterable[Interpretation]) -> Interpretation | None:
+    """The newest of the interpretations still queued or running, or None."""
+    return next((row for row in interpretations if row.status in INTERPRETATION_PENDING), None)
 
 
 def _out_of_date(row: Interpretation) -> bool:
@@ -214,6 +232,74 @@ def _out_of_date(row: Interpretation) -> bool:
     )
 
 
+def _chosen_entry(
+    body: models.InterpretationRequest | None, options: tuple[InterpretationOption, ...]
+) -> InterpretationOption:
+    """The entry of the server's list a request names: the first when it names neither its
+    model nor its effort. Refused with a 422 when it names one only, or an entry not listed."""
+    model = None if body is None else body.model
+    effort = None if body is None else body.effort
+    if model is None and effort is None:
+        return options[0]
+    if model is None or effort is None:
+        raise RequestError(422, NAME_BOTH_OR_NEITHER)
+    entry = InterpretationOption(model, effort)
+    if entry not in options:
+        raise RequestError(422, NOT_OFFERED)
+    return entry
+
+
+def _interpretations_refusal(
+    entry: InterpretationOption, interpretations: Iterable[Interpretation]
+) -> str | None:
+    """Why the analysis's interpretations refuse a request for this entry, or None.
+
+    `interpretations` are all the analysis's, newest first. Any of them queued
+    or running refuses every entry: one is written at a time per analysis,
+    whatever its entry. Otherwise the newest from this entry, the one whose
+    model and effort are both the entry's, decides: verified or refused under
+    the current version, it refuses; failed, out of date or absent, it does not.
+    """
+    rows = list(interpretations)
+    if _newest_pending(rows) is not None:
+        return BEING_WRITTEN
+    newest = next(
+        (row for row in rows if (row.model, row.effort) == (entry.model, entry.effort)), None
+    )
+    if newest is None or _out_of_date(newest):
+        return None
+    if newest.status == "verified":
+        return ALREADY_VERIFIED
+    if newest.status == "refused":
+        return ALREADY_REFUSED
+    return None
+
+
+def _entry_refusal(
+    session: Session,
+    analysis: Analysis,
+    entry: InterpretationOption,
+    interpretations: Iterable[Interpretation],
+) -> str | None:
+    """Why a request to interpret this analysis with this entry would be refused with a 409,
+    or None.
+
+    `interpretations` are all the analysis's, newest first. The request route
+    and the analysis's `interpretation_options` both ask this, so they agree;
+    neither the server's setting nor the daily limit is judged here.
+    """
+    if analysis.status != "succeeded":
+        return NOT_SUCCEEDED
+    has_facts = session.scalar(
+        select(AnalysisSummary.facts.is_not(None)).where(
+            AnalysisSummary.analysis_id == analysis.id
+        )
+    )
+    if not has_facts:
+        return NO_FACTS
+    return _interpretations_refusal(entry, interpretations)
+
+
 def _interpretation_out(row: Interpretation) -> dict[str, Any]:
     """The row as `models.InterpretationDetail`: each field only for its status."""
     rendered = row.rendered if row.status == "verified" else None
@@ -223,6 +309,7 @@ def _interpretation_out(row: Interpretation) -> dict[str, Any]:
         "id": str(row.id),
         "status": row.status,
         "model": row.model,
+        "effort": row.effort,
         "returned_model": row.returned_model,
         "prompt_version": row.prompt_version,
         "interpreter_version": row.interpreter_version,
@@ -387,6 +474,7 @@ def create_app(
     redis: Redis | None = None,
     limits: Limits | None = None,
     interpretation: bool | None = None,
+    interpretation_options: tuple[InterpretationOption, ...] | None = None,
 ) -> FastAPI:
     if sessions is None:
         # The server's own start: uvicorn calls this factory before it listens.
@@ -417,6 +505,13 @@ def create_app(
     interpretations_per_day = limits.interpretations_per_day
     # Whether this server writes interpretations (`CP_INTERPRETATION=on`).
     interpreting = interpretation_enabled() if interpretation is None else interpretation
+    # The models and efforts it offers (`CP_INTERPRETATION_OPTIONS`), the first the
+    # default. A malformed setting raises `ValueError` here, so the app does not start.
+    options = (
+        read_interpretation_options()
+        if interpretation_options is None
+        else tuple(interpretation_options)
+    )
 
     @app.exception_handler(RequestError)
     async def _refused(request: Request, exc: RequestError) -> JSONResponse:
@@ -492,34 +587,6 @@ def create_app(
     def _lock_analysis(session: Session, analysis_id: uuid.UUID) -> None:
         """Hold the analysis row's lock until the session's next commit or rollback."""
         session.execute(select(Analysis.id).where(Analysis.id == analysis_id).with_for_update())
-
-    def _request_refusal(
-        session: Session, analysis: Analysis, newest: Interpretation | None
-    ) -> str | None:
-        """Why a request to interpret this analysis would be refused with a 409, or None.
-
-        `newest` is the analysis's newest interpretation. The request route and
-        the analysis's `interpretable` both ask this, so they agree; neither the
-        server's setting nor the daily limit is judged here.
-        """
-        if analysis.status != "succeeded":
-            return NOT_SUCCEEDED
-        has_facts = session.scalar(
-            select(AnalysisSummary.facts.is_not(None)).where(
-                AnalysisSummary.analysis_id == analysis.id
-            )
-        )
-        if not has_facts:
-            return NO_FACTS
-        if newest is None:
-            return None
-        if newest.status in INTERPRETATION_PENDING:
-            return BEING_WRITTEN
-        if newest.status == "verified" and not _out_of_date(newest):
-            return ALREADY_VERIFIED
-        if newest.status == "refused" and not _out_of_date(newest):
-            return ALREADY_REFUSED
-        return None
 
     active_statuses = ("queued", "running")
 
@@ -778,14 +845,28 @@ def create_app(
             .where(EstimateRow.analysis_id == analysis_id)
             .order_by(EstimateRow.id)
         ).all()
-        newest = _newest_interpretation(session, analysis_id)
-        if newest is not None:
-            # Only the newest can be pending: a request is refused while it is.
-            _fail_interpretation_if_lost(session, newest)
-        # All of them in one statement, after the check, which may commit.
-        interpretations = session.scalars(_newest_first(analysis_id)).all()
+        interpretations = _interpretations(session, analysis_id)
+        pending = _newest_pending(interpretations)
+        if pending is not None:
+            # Only one can be pending in practice: a request is refused while
+            # any is. The check changes the row in place, so the list stands.
+            _fail_interpretation_if_lost(session, pending)
         interpretation = interpretations[0] if interpretations else None
-        reason = _request_refusal(session, analysis, interpretation) if interpreting else None
+        # Each entry of the server's list, with what a request for it would be
+        # answered; none when the server writes no interpretations.
+        choices = []
+        for index, entry in enumerate(options if interpreting else ()):
+            reason = _entry_refusal(session, analysis, entry, interpretations)
+            choices.append(
+                {
+                    "model": entry.model,
+                    "effort": entry.effort,
+                    "default": index == 0,
+                    "available": reason is None,
+                    "reason": reason,
+                }
+            )
+        interpretable = any(choice["available"] for choice in choices)
         return {
             "id": str(analysis.id),
             "dataset_id": str(analysis.dataset_id),
@@ -808,8 +889,12 @@ def create_app(
                 None if interpretation is None else _interpretation_out(interpretation)
             ),
             "earlier_interpretations": [_interpretation_out(row) for row in interpretations[1:]],
-            "interpretable": interpreting and reason is None,
-            "interpretable_reason": reason,
+            "interpretation_options": choices,
+            "interpretable": interpretable,
+            # The default entry's reason, when no entry is available.
+            "interpretable_reason": (
+                None if interpretable or not choices else choices[0]["reason"]
+            ),
         }
 
     @app.post(
@@ -818,28 +903,33 @@ def create_app(
         response_model=models.InterpretationDetail,
     )
     def request_interpretation(
-        user: CurrentUser, analysis_id: uuid.UUID, session: SessionDep
+        user: CurrentUser,
+        analysis_id: uuid.UUID,
+        session: SessionDep,
+        body: models.InterpretationRequest | None = None,
     ) -> dict[str, Any]:
         analysis = _analysis_or_404(session, analysis_id, user)
         # Serialises requests for one analysis, so a double request cannot write two jobs.
         _lock_analysis(session, analysis_id)
         if not interpreting:
             raise RequestError(403, INTERPRETATIONS_OFF)
-        newest = _newest_interpretation(session, analysis_id)
-        reason = _request_refusal(session, analysis, newest)
-        if reason == BEING_WRITTEN and newest is not None:
+        entry = _chosen_entry(body, options)
+        interpretations = _interpretations(session, analysis_id)
+        reason = _entry_refusal(session, analysis, entry, interpretations)
+        pending = _newest_pending(interpretations)
+        if reason == BEING_WRITTEN and pending is not None:
             # A job that died with its worker would otherwise hold the analysis
             # for good. A row too new to judge stands: its job may not be
             # enqueued yet (see `SUBMISSION_GRACE`).
             with contextlib.suppress(RedisError):
-                if newest.created_at <= utcnow() - SUBMISSION_GRACE:
-                    _fail_interpretation_if_lost(session, newest)
+                if pending.created_at <= utcnow() - SUBMISSION_GRACE:
+                    _fail_interpretation_if_lost(session, pending)
                     # That commit released the lock; take it again and read
                     # what a request that slipped in meanwhile left, which may
                     # be a newer row.
                     _lock_analysis(session, analysis_id)
-                    newest = _newest_interpretation(session, analysis_id)
-                    reason = _request_refusal(session, analysis, newest)
+                    interpretations = _interpretations(session, analysis_id)
+                    reason = _entry_refusal(session, analysis, entry, interpretations)
         if reason is not None:
             raise RequestError(409, reason)
         # Counted when nothing is left that can refuse it, as an analysis is.
@@ -859,8 +949,8 @@ def create_app(
             analysis_id=analysis_id,
             status="queued",
             job_id=job_id,
-            model=INTERPRETATION_MODEL,
-            effort=INTERPRETATION_EFFORT,
+            model=entry.model,
+            effort=entry.effort,
             created_at=func.clock_timestamp(),
         )
         session.add(row)

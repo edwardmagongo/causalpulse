@@ -81,6 +81,7 @@ def _no_ambient_server_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     """A developer's shell must not change how `create_app()` behaves in a test."""
     for name in (
         "CP_INTERPRETATION",
+        "CP_INTERPRETATION_OPTIONS",
         "CP_LIMIT_SIGNIN_FAILURES",
         "CP_LIMIT_UPLOADS_PER_DAY",
         "CP_LIMIT_ANALYSES_PER_DAY",

@@ -17,13 +17,17 @@ from cp_api.app import (
     BEING_WRITTEN,
     CURRENT_INTERPRETER_VERSION,
     INTERPRETATIONS_OFF,
+    NAME_BOTH_OR_NEITHER,
     NO_FACTS,
+    NOT_OFFERED,
     NOT_SUCCEEDED,
+    SUBMISSION_GRACE,
     WORKER_LOST,
     create_app,
 )
 from cp_api.db import Analysis, AnalysisSummary, Interpretation, utcnow
 from cp_api.limits import Limit, Limits
+from cp_api.settings import InterpretationOption
 from cp_llm.facts import FactTable
 from cp_llm.model import ModelCallError
 from cp_worker import jobs
@@ -38,6 +42,10 @@ pytestmark = pytest.mark.services
 PAIR = ["difference_in_means", "lin_regression"]
 # A version the interpreter has never had: an interpretation written under it is out of date.
 OLDER = "0123456789ab"
+# A server's list of two entries, the first the default, and an entry on neither.
+A = InterpretationOption("claude-opus-5-5", "medium")
+B = InterpretationOption("claude-sonnet-5-5", "low")
+TWO = (A, B)
 
 
 @pytest.fixture(autouse=True)
@@ -49,11 +57,13 @@ def interpreting(monkeypatch):
 
 @pytest.fixture
 def make_client(sessions, redis_conn, worker_env, api_key_for):
-    def make(name="alice", interpretation=True, limits=None):
+    def make(name="alice", interpretation=True, limits=None, options=None):
+        # Without `options`, the app reads the setting, which no test sets: one
+        # entry, `claude-opus-5-5:medium`.
         return TestClient(
             create_app(
                 sessions=sessions, redis=redis_conn, limits=limits,
-                interpretation=interpretation,
+                interpretation=interpretation, interpretation_options=options,
             ),
             headers={"Authorization": f"Bearer {api_key_for(name)}"},
         )
@@ -101,17 +111,18 @@ _FINISHED = {
 }
 
 
-def _write(sessions, analysis_id, status, version, *, minutes_ago):
-    """Write one interpretation row directly, in its own transaction, dated `minutes_ago`
-    minutes back so that rows written by one test never tie on `created_at`; its id."""
+def _write(sessions, analysis_id, status, version, *, minutes_ago, entry=A):
+    """Write one interpretation row from `entry` directly, in its own transaction, dated
+    `minutes_ago` minutes back so that rows written by one test never tie on `created_at`;
+    its id."""
     created = utcnow() - timedelta(minutes=minutes_ago)
     with sessions() as session:
         row = Interpretation(
             analysis_id=uuid.UUID(analysis_id),
             status=status,
             job_id=f"interpretation-{analysis_id}-{uuid.uuid4().hex[:8]}",
-            model="claude-opus-5-5",
-            effort="medium",
+            model=entry.model,
+            effort=entry.effort,
             interpreter_version=version,
             created_at=created,
             finished_at=None if status == "queued" else created + timedelta(seconds=30),
@@ -149,8 +160,59 @@ def _script(monkeypatch, *items):
     return model
 
 
-def _ask(client, analysis_id):
-    return client.post(f"/v1/analyses/{analysis_id}/interpretation")
+def _ask(client, analysis_id, entry=None):
+    """Ask for an interpretation: with no body, or naming `entry`."""
+    if entry is None:
+        return client.post(f"/v1/analyses/{analysis_id}/interpretation")
+    return client.post(
+        f"/v1/analyses/{analysis_id}/interpretation",
+        json={"model": entry.model, "effort": entry.effort},
+    )
+
+
+def _undo(sessions, redis_conn, interpretation_id):
+    """Delete an accepted request's row and its job, as if it had not been made."""
+    with sessions() as session:
+        row = session.get(Interpretation, uuid.UUID(interpretation_id))
+        job_id = row.job_id
+        session.delete(row)
+        session.commit()
+    Job.fetch(job_id, connection=redis_conn).delete()
+
+
+def _offers_what_it_answers(client, sessions, redis_conn, analysis_id, options):
+    """The analysis's `interpretation_options`, `interpretable` and `interpretable_reason`
+    agree with what a request for each entry is answered; the analysis as read.
+
+    Every entry is asked for in the state the analysis described: an accepted
+    request is undone before the next is made, so the asking changes nothing.
+    """
+    detail = client.get(f"/v1/analyses/{analysis_id}").json()
+    offered = detail["interpretation_options"]
+    assert [(o["model"], o["effort"], o["default"]) for o in offered] == [
+        (entry.model, entry.effort, index == 0) for index, entry in enumerate(options)
+    ]
+    for option in offered:
+        asked = _ask(client, analysis_id, InterpretationOption(option["model"], option["effort"]))
+        if option["available"]:
+            assert option["reason"] is None, option
+            assert asked.status_code == 202, (option, asked.json())
+            assert (asked.json()["model"], asked.json()["effort"]) == (
+                option["model"], option["effort"],
+            )
+            _undo(sessions, redis_conn, asked.json()["id"])
+        else:
+            assert (asked.status_code, asked.json()["detail"]) == (409, option["reason"]), option
+    assert detail["interpretable"] is any(option["available"] for option in offered)
+    assert detail["interpretable_reason"] == (
+        None if detail["interpretable"] else offered[0]["reason"]
+    )
+    return detail
+
+
+def _answers(detail):
+    """Each entry's (available, reason), in the list's order."""
+    return [(o["available"], o["reason"]) for o in detail["interpretation_options"]]
 
 
 def _bad(facts):
@@ -175,7 +237,7 @@ def test_an_interpretation_is_queued_written_and_served(
     assert got["status"] == "verified"
     assert [s["heading"] for s in got["sections"]][:2] == ["Summary", "Estimates"]
     assert got["limits"] and got["notice"].startswith("A verified interpretation means:")
-    assert got["model"] == "claude-opus-5-5"
+    assert (got["model"], got["effort"]) == ("claude-opus-5-5", "medium")
     assert (got["attempts"], got["reason"], got["error"]) == (None, None, None)
     assert (got["interpreter_version"], got["out_of_date"]) == (CURRENT_INTERPRETER_VERSION, False)
     assert detail["earlier_interpretations"] == []
@@ -183,23 +245,33 @@ def test_an_interpretation_is_queued_written_and_served(
 
 
 def test_a_server_with_interpretations_off_answers_403_and_offers_none(make_client, redis_conn):
-    client = make_client(interpretation=False)
+    client = make_client(interpretation=False, options=TWO)
     analysis_id = _analysed(client, redis_conn)
 
     asked = _ask(client, analysis_id)
+    # Before the body is judged: one naming half an entry is answered the same.
+    half = client.post(f"/v1/analyses/{analysis_id}/interpretation", json={"model": A.model})
 
     assert (asked.status_code, asked.json()["detail"]) == (403, INTERPRETATIONS_OFF)
+    assert (half.status_code, half.json()["detail"]) == (403, INTERPRETATIONS_OFF)
     detail = client.get(f"/v1/analyses/{analysis_id}").json()
     assert (detail["interpretable"], detail["interpretable_reason"]) == (False, None)
+    assert detail["interpretation_options"] == []
     assert detail["interpretation"] is None
 
 
 def test_someone_elses_analysis_is_404(make_client, redis_conn):
     analysis_id = _analysed(make_client("alice"), redis_conn)
 
-    asked = _ask(make_client("bob"), analysis_id)
+    bob = make_client("bob", options=TWO)
+    asked = _ask(bob, analysis_id)
+    # Before the body is judged.
+    unlisted = _ask(bob, analysis_id, InterpretationOption("claude-haiku-5-5", "low"))
 
     assert (asked.status_code, asked.json()["detail"]) == (404, f"no analysis {analysis_id}")
+    assert (unlisted.status_code, unlisted.json()["detail"]) == (
+        404, f"no analysis {analysis_id}",
+    )
 
 
 def test_an_analysis_that_has_not_finished_is_409(make_client):
@@ -414,23 +486,36 @@ def test_an_analysis_with_no_interpretation_has_no_earlier_ones(make_client, red
 
     assert (detail["interpretation"], detail["earlier_interpretations"]) == (None, [])
     assert (detail["interpretable"], detail["interpretable_reason"]) == (True, None)
+    # The list a server without the setting offers: one entry, the default.
+    assert detail["interpretation_options"] == [
+        {"model": "claude-opus-5-5", "effort": "medium", "default": True,
+         "available": True, "reason": None},
+    ]
 
 
-def test_the_lost_job_check_on_a_read_looks_at_the_newest_only(
+def test_the_lost_job_check_on_a_read_looks_at_the_newest_pending_one_only(
     make_client, redis_conn, sessions
 ):
-    # Only the newest can be pending in practice: a request is refused while
-    # it is. A planted older pending row, whose job never existed, is left as it is.
-    client = make_client()
+    # Only one can be pending in practice: a request is refused while any is.
+    # Planted: two pending rows whose jobs never existed, under a newer failed
+    # one. Any pending row holds every entry, so a read checks the newest
+    # pending one, newest or not, and only that one: one queue read per read.
+    client = make_client(options=TWO)
     analysis_id = _analysed(client, redis_conn)
-    _write(sessions, analysis_id, "queued", None, minutes_ago=20)
+    _write(sessions, analysis_id, "queued", None, minutes_ago=30)
+    _write(sessions, analysis_id, "queued", None, minutes_ago=20, entry=B)
     _write(sessions, analysis_id, "failed", None, minutes_ago=10)
 
     detail = client.get(f"/v1/analyses/{analysis_id}").json()
 
-    assert [e["status"] for e in detail["earlier_interpretations"]] == ["queued"]
+    earlier = detail["earlier_interpretations"]
+    assert [(e["status"], e["error"]) for e in earlier] == [
+        ("failed", WORKER_LOST), ("queued", None),
+    ]
     with sessions() as session:
-        assert [row.status for row in _rows(session, analysis_id)] == ["failed", "queued"]
+        assert [row.status for row in _rows(session, analysis_id)] == [
+            "failed", "failed", "queued",
+        ]
 
 
 def test_a_failed_interpretation_can_be_asked_for_again(
@@ -547,9 +632,6 @@ def test_a_pending_interpretation_whose_job_is_gone_fails_on_the_next_read(
 def test_asking_again_frees_a_lost_one_older_than_the_grace_period(
     make_client, redis_conn, sessions
 ):
-    from cp_api.app import SUBMISSION_GRACE
-    from cp_api.db import utcnow
-
     client = make_client()
     analysis_id = _analysed(client, redis_conn)
     _ask(client, analysis_id)
@@ -699,12 +781,13 @@ def test_concurrent_requests_over_a_lost_job_write_one_new_row(
     # two paid calls.
     #
     # The two requests are driven into that window, not left to race. The
-    # route reads the newest row through `_newest_interpretation`: the first
-    # request reads it once before the lost-job check (read 1) and once after
-    # it (read 2); the second request starts only during read 2 and reads it
-    # once (read 3). Read 2 waits until the second request has either read the
-    # newest row or is waiting for the lock on the analysis, whichever comes
-    # first; read 3 then waits until read 2 is done.
+    # route reads the analysis's interpretations through `_interpretations`:
+    # the first request reads them once before the lost-job check (read 1) and
+    # once after it (read 2); the second request starts only during read 2 and
+    # reads them once (read 3). Read 2 waits until the second request has
+    # either read them or is waiting for the lock on the analysis, whichever
+    # comes first; read 3 then waits until read 2 is done. "The newest row"
+    # below is the newest of what each read returns.
     # - With the second lock, the first request holds the lock during read 2,
     #   so the second request waits for it; read 2 sees that wait and goes on,
     #   the first request writes and commits its row, and read 3 then sees it:
@@ -714,7 +797,6 @@ def test_concurrent_requests_over_a_lost_job_write_one_new_row(
     #   the second request until read 2 has also seen it. Both are accepted:
     #   two 202s and two queued rows. Neither outcome depends on timing.
     from cp_api import app as app_module
-    from cp_api.app import SUBMISSION_GRACE
 
     client = make_client()
     analysis_id = _analysed(client, redis_conn)
@@ -722,7 +804,7 @@ def test_concurrent_requests_over_a_lost_job_write_one_new_row(
         sessions, analysis_id, "queued", None,
         minutes_ago=SUBMISSION_GRACE.total_seconds() / 60 + 60,
     )
-    real_newest = app_module._newest_interpretation
+    real_read = app_module._interpretations
     reads = 0
     counting = threading.Lock()
     second_may_ask, second_has_read, first_has_read = (
@@ -730,7 +812,7 @@ def test_concurrent_requests_over_a_lost_job_write_one_new_row(
     )
     problems: list[str] = []
 
-    def newest(session, key):
+    def counted_read(session, key):
         nonlocal reads
         with counting:
             reads += 1
@@ -747,18 +829,18 @@ def test_concurrent_requests_over_a_lost_job_write_one_new_row(
                         "the second request neither read the newest row nor waited for the lock"
                     )
                     break
-            row = real_newest(session, key)
+            rows = real_read(session, key)
             first_has_read.set()
-            return row
-        row = real_newest(session, key)
+            return rows
+        rows = real_read(session, key)
         if read == 3:
             # The second request: held until the first has made its read 2.
             second_has_read.set()
             if not first_has_read.wait(30):
                 problems.append("the first request never read the newest row after its check")
-        return row
+        return rows
 
-    monkeypatch.setattr(app_module, "_newest_interpretation", newest)
+    monkeypatch.setattr(app_module, "_interpretations", counted_read)
     codes: dict[str, int] = {}
     sentences: dict[str, object] = {}
     errors: list[Exception] = []
@@ -787,13 +869,13 @@ def test_concurrent_requests_over_a_lost_job_write_one_new_row(
     rows = _statuses(sessions, analysis_id)
     assert not errors, f"requests raised {errors!r}; rows, oldest first: {rows}"
     assert not problems, f"{problems}; codes {codes}; rows, oldest first: {rows}"
-    # The order is forced by counting the route's reads of the newest row: one
-    # before the lost-job check and one after it in the first request, one in
-    # the second. If the route comes to read it more or fewer times, the count
-    # no longer picks out those reads and the test would fall back to a race,
-    # so it says so instead of passing.
+    # The order is forced by counting the route's reads of the interpretations:
+    # one before the lost-job check and one after it in the first request, one
+    # in the second. If the route comes to read them more or fewer times, the
+    # count no longer picks out those reads and the test would fall back to a
+    # race, so it says so instead of passing.
     assert reads == 3, (
-        f"the route read the newest interpretation {reads} times; this test forces the "
+        f"the route read the interpretations {reads} times; this test forces the "
         "order of exactly three reads and must be changed with the route"
     )
     assert codes == {"first": 202, "second": 409}, (
@@ -879,3 +961,317 @@ def test_a_request_that_waited_for_the_lock_dates_its_row_after_the_holders(
         f"a further request was answered {again.status_code} while a job is pending; "
         f"rows, oldest first: {_statuses(sessions, analysis_id)}"
     )
+
+
+# --- the model and effort a request names -----------------------------------
+
+
+def _entries(sessions, analysis_id):
+    """The analysis's rows as (status, model, effort), newest first."""
+    with sessions() as session:
+        return [(row.status, row.model, row.effort) for row in _rows(session, analysis_id)]
+
+
+@pytest.mark.parametrize(
+    "sent",
+    [
+        {},
+        {"json": {}},
+        {"json": {"model": None, "effort": None}},
+        {"content": b"null", "headers": {"content-type": "application/json"}},
+    ],
+    ids=["no-body", "empty-object", "both-null", "null"],
+)
+def test_a_request_naming_no_entry_is_written_by_the_default(
+    make_client, redis_conn, sessions, sent
+):
+    # The default is the list's first entry, whatever it is: here not the
+    # measured one.
+    client = make_client(options=(B, A))
+    analysis_id = _analysed(client, redis_conn)
+
+    asked = client.post(f"/v1/analyses/{analysis_id}/interpretation", **sent)
+
+    assert asked.status_code == 202
+    assert (asked.json()["model"], asked.json()["effort"]) == (B.model, B.effort)
+    assert _entries(sessions, analysis_id) == [("queued", B.model, B.effort)]
+    got = client.get(f"/v1/analyses/{analysis_id}").json()["interpretation"]
+    assert (got["model"], got["effort"]) == (B.model, B.effort)
+
+
+def test_a_request_naming_an_entry_is_written_by_it(make_client, redis_conn, sessions):
+    client = make_client(options=TWO)
+    analysis_id = _analysed(client, redis_conn)
+
+    asked = _ask(client, analysis_id, B)
+
+    assert asked.status_code == 202
+    assert (asked.json()["model"], asked.json()["effort"]) == (B.model, B.effort)
+    assert _entries(sessions, analysis_id) == [("queued", B.model, B.effort)]
+    with sessions() as session:
+        row = _newest(session, analysis_id)
+        assert list(Job.fetch(row.job_id, connection=redis_conn).args) == [str(row.id)]
+
+
+def test_a_body_with_keys_besides_the_two_is_read_for_the_two(make_client, redis_conn, sessions):
+    # As for an analysis's request: a key the body does not declare is ignored.
+    client = make_client(options=TWO)
+    analysis_id = _analysed(client, redis_conn)
+
+    asked = client.post(
+        f"/v1/analyses/{analysis_id}/interpretation",
+        json={"model": B.model, "effort": B.effort, "colour": "red"},
+    )
+
+    assert asked.status_code == 202
+    assert _entries(sessions, analysis_id) == [("queued", B.model, B.effort)]
+
+
+def test_a_body_that_is_not_json_is_fastapis_422(make_client, redis_conn, sessions):
+    client = make_client(options=TWO)
+    analysis_id = _analysed(client, redis_conn)
+
+    asked = client.post(
+        f"/v1/analyses/{analysis_id}/interpretation",
+        content=b"model=claude-opus-5-5",
+        headers={"content-type": "application/json"},
+    )
+
+    assert asked.status_code == 422
+    assert isinstance(asked.json()["detail"], list)
+    with sessions() as session:
+        assert _rows(session, analysis_id) == []
+
+
+HALF = [{"model": A.model}, {"effort": A.effort}, {"model": A.model, "effort": None}]
+UNLISTED = [
+    {"model": A.model, "effort": "high"},
+    {"model": B.model, "effort": A.effort},
+    {"model": "claude-haiku-5-5", "effort": "medium"},
+    {"model": A.model, "effort": "turbo"},
+    {"model": "", "effort": ""},
+]
+
+
+@pytest.mark.parametrize(
+    ("body", "sentence"),
+    [(body, NAME_BOTH_OR_NEITHER) for body in HALF] + [(body, NOT_OFFERED) for body in UNLISTED],
+)
+def test_a_request_naming_half_an_entry_or_one_not_listed_is_422(
+    make_client, redis_conn, sessions, body, sentence
+):
+    limits = Limits(interpretations_per_day=Limit("interpretations_per_day", 1, 86_400))
+    client = make_client(options=TWO, limits=limits)
+    analysis_id = _analysed(client, redis_conn)
+
+    asked = client.post(f"/v1/analyses/{analysis_id}/interpretation", json=body)
+
+    assert (asked.status_code, asked.json()["detail"]) == (422, sentence)
+    with sessions() as session:
+        assert _rows(session, analysis_id) == []
+    # Refused before the day's count: the one request allowed is still there.
+    assert _ask(client, analysis_id).status_code == 202
+
+
+def test_the_body_is_judged_before_the_analysis(make_client):
+    # The table's order: the 422s come before the 409 for an analysis not finished.
+    client = make_client(options=TWO)
+    content, schema = scenario_d_upload()
+    dataset = client.post("/v1/datasets", files={"file": ("d.csv", content, "text/csv")}).json()
+    body = {"dataset_id": dataset["id"], "schema": schema, "random_seed": 0, "estimators": PAIR}
+    analysis_id = client.post("/v1/analyses", json=body).json()["id"]
+    url = f"/v1/analyses/{analysis_id}/interpretation"
+
+    half = client.post(url, json={"effort": "low"})
+    unlisted = client.post(url, json={"model": "claude-haiku-5-5", "effort": "low"})
+    listed = _ask(client, analysis_id, B)
+
+    assert (half.status_code, half.json()["detail"]) == (422, NAME_BOTH_OR_NEITHER)
+    assert (unlisted.status_code, unlisted.json()["detail"]) == (422, NOT_OFFERED)
+    assert (listed.status_code, listed.json()["detail"]) == (409, NOT_SUCCEEDED)
+    detail = client.get(f"/v1/analyses/{analysis_id}").json()
+    assert _answers(detail) == [(False, NOT_SUCCEEDED), (False, NOT_SUCCEEDED)]
+    assert (detail["interpretable"], detail["interpretable_reason"]) == (False, NOT_SUCCEEDED)
+
+
+def test_an_analysis_without_a_fact_table_offers_no_entry(make_client, redis_conn, sessions):
+    client = make_client(options=TWO)
+    analysis_id = _analysed(client, redis_conn)
+    with sessions() as session:
+        session.get(AnalysisSummary, analysis_id).facts = None
+        session.commit()
+
+    detail = _offers_what_it_answers(client, sessions, redis_conn, analysis_id, TWO)
+
+    assert _answers(detail) == [(False, NO_FACTS), (False, NO_FACTS)]
+    assert detail["interpretable_reason"] == NO_FACTS
+
+
+def test_a_final_interpretation_is_final_for_its_own_entry_only(
+    make_client, redis_conn, sessions, monkeypatch
+):
+    # Verified from A; then B is accepted and A refused; then B is refused once verified.
+    client = make_client(options=TWO)
+    analysis_id = _analysed(client, redis_conn)
+    facts = _facts(sessions, analysis_id)
+    _script(monkeypatch, narrative_for(facts))
+    assert _ask(client, analysis_id).status_code == 202
+    _drain(redis_conn)
+
+    after_a = _offers_what_it_answers(client, sessions, redis_conn, analysis_id, TWO)
+
+    assert after_a["interpretation"]["status"] == "verified"
+    assert _answers(after_a) == [(False, ALREADY_VERIFIED), (True, None)]
+    assert (after_a["interpretable"], after_a["interpretable_reason"]) == (True, None)
+
+    _script(monkeypatch, narrative_for(facts))
+    asked = _ask(client, analysis_id, B)
+    assert asked.status_code == 202
+    while_b = _offers_what_it_answers(client, sessions, redis_conn, analysis_id, TWO)
+    assert _answers(while_b) == [(False, BEING_WRITTEN), (False, BEING_WRITTEN)]
+    _drain(redis_conn)
+
+    after_b = _offers_what_it_answers(client, sessions, redis_conn, analysis_id, TWO)
+
+    assert _answers(after_b) == [(False, ALREADY_VERIFIED), (False, ALREADY_VERIFIED)]
+    assert (after_b["interpretable"], after_b["interpretable_reason"]) == (
+        False, ALREADY_VERIFIED,
+    )
+    got, earlier = after_b["interpretation"], after_b["earlier_interpretations"]
+    assert (got["status"], got["model"], got["effort"]) == ("verified", B.model, B.effort)
+    assert [(e["status"], e["model"], e["effort"]) for e in earlier] == [
+        ("verified", A.model, A.effort),
+    ]
+    assert _entries(sessions, analysis_id) == [
+        ("verified", B.model, B.effort), ("verified", A.model, A.effort),
+    ]
+
+
+def test_a_refused_interpretation_is_final_for_its_own_entry_only(
+    make_client, redis_conn, sessions, monkeypatch
+):
+    client = make_client(options=TWO)
+    analysis_id = _analysed(client, redis_conn)
+    facts = _facts(sessions, analysis_id)
+    bad = _bad(facts)
+    _script(monkeypatch, bad, bad)
+    _ask(client, analysis_id, A)
+    _drain(redis_conn)
+
+    after_a = _offers_what_it_answers(client, sessions, redis_conn, analysis_id, TWO)
+
+    assert after_a["interpretation"]["status"] == "refused"
+    assert _answers(after_a) == [(False, ALREADY_REFUSED), (True, None)]
+
+    _script(monkeypatch, narrative_for(facts))
+    assert _ask(client, analysis_id, B).status_code == 202
+    _drain(redis_conn)
+
+    after_b = _offers_what_it_answers(client, sessions, redis_conn, analysis_id, TWO)
+
+    assert _answers(after_b) == [(False, ALREADY_REFUSED), (False, ALREADY_VERIFIED)]
+    # None is available, so the reason is the default entry's, not the newest row's.
+    assert after_b["interpretation"]["model"] == B.model
+    assert (after_b["interpretable"], after_b["interpretable_reason"]) == (
+        False, ALREADY_REFUSED,
+    )
+
+
+@pytest.mark.parametrize(
+    ("status", "version", "refusal"),
+    DECISIONS,
+    ids=[f"{status}-{'current' if version == CURRENT_INTERPRETER_VERSION else version}"
+         for status, version, _ in DECISIONS],
+)
+def test_the_newest_from_an_entry_decides_for_that_entry_alone(
+    make_client, redis_conn, sessions, status, version, refusal
+):
+    client = make_client(options=TWO)
+    analysis_id = _analysed(client, redis_conn)
+    _write(sessions, analysis_id, status, version, minutes_ago=10, entry=B)
+
+    detail = _offers_what_it_answers(client, sessions, redis_conn, analysis_id, TWO)
+
+    assert _answers(detail) == [(True, None), (refusal is None, refusal)]
+    assert (detail["interpretable"], detail["interpretable_reason"]) == (True, None)
+
+
+def test_an_entrys_newest_decides_for_it_whatever_another_entry_wrote_since(
+    make_client, redis_conn, sessions
+):
+    # B's refused row is the analysis's newest; A's verified one decides for A,
+    # and as neither is available the default's reason is the analysis's.
+    client = make_client(options=TWO)
+    analysis_id = _analysed(client, redis_conn)
+    _write(sessions, analysis_id, "failed", None, minutes_ago=30, entry=B)
+    _write(sessions, analysis_id, "verified", CURRENT_INTERPRETER_VERSION, minutes_ago=20)
+    _write(sessions, analysis_id, "refused", CURRENT_INTERPRETER_VERSION, minutes_ago=10, entry=B)
+
+    detail = _offers_what_it_answers(client, sessions, redis_conn, analysis_id, TWO)
+
+    assert _answers(detail) == [(False, ALREADY_VERIFIED), (False, ALREADY_REFUSED)]
+    assert (detail["interpretable"], detail["interpretable_reason"]) == (
+        False, ALREADY_VERIFIED,
+    )
+
+
+def test_an_entry_out_of_date_or_failed_since_its_verdict_is_offered_again(
+    make_client, redis_conn, sessions
+):
+    # Only the entry's newest counts: A's verified one under an older version,
+    # and B's verdict followed by a failure.
+    client = make_client(options=TWO)
+    analysis_id = _analysed(client, redis_conn)
+    _write(sessions, analysis_id, "verified", OLDER, minutes_ago=40)
+    _write(sessions, analysis_id, "verified", CURRENT_INTERPRETER_VERSION, minutes_ago=30, entry=B)
+    _write(sessions, analysis_id, "failed", CURRENT_INTERPRETER_VERSION, minutes_ago=20, entry=B)
+
+    detail = _offers_what_it_answers(client, sessions, redis_conn, analysis_id, TWO)
+
+    assert _answers(detail) == [(True, None), (True, None)]
+
+
+@pytest.mark.parametrize("pending", [A, B], ids=["default", "other"])
+def test_one_interpretation_at_a_time_whatever_its_entry(
+    make_client, redis_conn, sessions, pending
+):
+    client = make_client(options=TWO)
+    analysis_id = _analysed(client, redis_conn)
+    assert _ask(client, analysis_id, pending).status_code == 202
+
+    queued = _offers_what_it_answers(client, sessions, redis_conn, analysis_id, TWO)
+    with sessions() as session:
+        _newest(session, analysis_id).status = "running"
+        session.commit()
+    running = _offers_what_it_answers(client, sessions, redis_conn, analysis_id, TWO)
+
+    for detail in (queued, running):
+        assert _answers(detail) == [(False, BEING_WRITTEN), (False, BEING_WRITTEN)]
+        assert (detail["interpretable"], detail["interpretable_reason"]) == (
+            False, BEING_WRITTEN,
+        )
+    assert _entries(sessions, analysis_id) == [("running", pending.model, pending.effort)]
+
+
+def test_a_lost_one_from_one_entry_frees_a_request_for_another(
+    make_client, redis_conn, sessions
+):
+    client = make_client(options=TWO)
+    analysis_id = _analysed(client, redis_conn)
+    _ask(client, analysis_id, A)
+    redis_conn.flushdb()
+    # Inside the grace period it still holds every entry.
+    inside = _ask(client, analysis_id, B)
+    with sessions() as session:
+        row = _newest(session, analysis_id)
+        row.created_at = utcnow() - SUBMISSION_GRACE - timedelta(seconds=1)
+        session.commit()
+
+    again = _ask(client, analysis_id, B)
+
+    assert (inside.status_code, inside.json()["detail"]) == (409, BEING_WRITTEN)
+    assert again.status_code == 202
+    with sessions() as session:
+        assert [(row.status, row.model, row.error) for row in _rows(session, analysis_id)] == [
+            ("queued", B.model, None), ("failed", A.model, WORKER_LOST),
+        ]
