@@ -209,3 +209,15 @@ def test_what_verified_means_passes_the_language_lint():
     assert VERIFIED_MEANS.startswith("A verified interpretation means:")
     assert "does not mean the narrative is a correct reading" in VERIFIED_MEANS
     assert causal_language_lint(VERIFIED_MEANS) == ()
+
+
+def test_the_measured_choice_and_the_note_for_any_other():
+    from cp_core.language import causal_language_lint
+    from cp_llm.interpret import MEASURED_CHOICE, UNMEASURED_NOTE
+
+    assert MEASURED_CHOICE == ("claude-opus-5-5", "medium")
+    assert UNMEASURED_NOTE == (
+        "The misreading study measured claude-opus-5-5 at medium effort only; "
+        "this interpretation was written by another model or effort."
+    )
+    assert causal_language_lint(UNMEASURED_NOTE) == ()

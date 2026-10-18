@@ -13,6 +13,9 @@ without loading the app.
 from __future__ import annotations
 
 import os
+import re
+from collections.abc import Mapping
+from dataclasses import dataclass
 
 from sqlalchemy.engine import make_url
 
@@ -34,6 +37,72 @@ def interpretation_enabled() -> bool:
     paid call on the server's key.
     """
     return os.environ.get("CP_INTERPRETATION") == "on"
+
+
+# The efforts a model can be asked for. `cp_llm.model.Effort` is the source;
+# this module may not import `cp_llm`, so `tests/api/test_interpretation_options.py`
+# pins the two together.
+EFFORTS: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
+
+_DEFAULT_OPTIONS = "claude-opus-5-5:medium"
+_MODEL_NAME = re.compile(r"^[a-z0-9][a-z0-9.-]*$")
+
+
+@dataclass(frozen=True)
+class InterpretationOption:
+    """One model at one effort, as the operator offers it."""
+
+    model: str
+    effort: str
+
+    @property
+    def label(self) -> str:
+        return f"{self.model}, {self.effort}"
+
+
+def _refused_option(entry: str, why: str) -> ValueError:
+    return ValueError(f"CP_INTERPRETATION_OPTIONS has a wrong entry '{entry}': {why}.")
+
+
+def interpretation_options(
+    environ: Mapping[str, str] | None = None,
+) -> tuple[InterpretationOption, ...]:
+    """The models and efforts this server offers for an interpretation, in the operator's order.
+
+    `CP_INTERPRETATION_OPTIONS` is a comma-separated list of `model:effort`;
+    the first is the default. Absent or empty, it is `claude-opus-5-5:medium`.
+    Whitespace around an entry, a model or an effort is ignored. A model is
+    lower-case letters, digits, dots and hyphens, starting with a letter or a
+    digit; an effort is one of `EFFORTS`; no entry appears twice.
+
+    Raises `ValueError` with one line naming the setting and the first wrong
+    entry, so the API and the worker can refuse to start on it.
+    """
+    value = (os.environ if environ is None else environ).get("CP_INTERPRETATION_OPTIONS", "")
+    if not value.strip():
+        value = _DEFAULT_OPTIONS
+    options: list[InterpretationOption] = []
+    for raw in value.split(","):
+        entry = raw.strip()
+        if not entry:
+            raise _refused_option(entry, "empty entry (a stray comma?)")
+        parts = [part.strip() for part in entry.split(":")]
+        if len(parts) != 2:
+            raise _refused_option(entry, "not model:effort")
+        model, effort = parts
+        if not _MODEL_NAME.fullmatch(model):
+            raise _refused_option(
+                entry,
+                "the model must be lower-case letters, digits, dots and hyphens, "
+                "starting with a letter or a digit",
+            )
+        if effort not in EFFORTS:
+            raise _refused_option(entry, f"unknown effort, one of {', '.join(EFFORTS)}")
+        option = InterpretationOption(model, effort)
+        if option in options:
+            raise _refused_option(entry, "repeated")
+        options.append(option)
+    return tuple(options)
 
 
 _REFUSED = "CP_ENV=production does not start with it"
