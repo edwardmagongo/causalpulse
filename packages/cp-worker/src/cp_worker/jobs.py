@@ -41,12 +41,14 @@ from cp_api.db import (
     make_sessionmaker,
     utcnow,
 )
-from cp_api.settings import interpretation_enabled
+from cp_api.settings import InterpretationOption, interpretation_enabled, interpretation_options
 from cp_core.results import estimate_summary
 from cp_llm.extract import fact_table
 from cp_llm.facts import FactTable
 from cp_llm.interpret import (
+    MEASURED_CHOICE,
     SECTION_HEADINGS,
+    UNMEASURED_NOTE,
     VERIFIED_MEANS,
     InterpretationRefusedError,
     ModelDidNotAnswerError,
@@ -70,6 +72,9 @@ logger = logging.getLogger(__name__)
 WORKER_INTERPRETATIONS_OFF = (
     "interpretations are turned off on this server's worker, so this one was not written"
 )
+# Stored on an interpretation whose model and effort are not in this worker's
+# `CP_INTERPRETATION_OPTIONS`: the operator withdrew them after the row was queued.
+WORKER_CHOICE_WITHDRAWN = "This model and effort are no longer offered on this server."
 
 
 def facts_of(analysis_id: uuid.UUID, outcome: AnalysisOutcome) -> dict[str, Any] | None:
@@ -202,10 +207,18 @@ def run_analysis_job(analysis_id: str) -> None:
 
 
 def require_interpretation_settings() -> None:
-    """Exit if interpretations are on and the model's key is not set.
+    """Exit if `CP_INTERPRETATION_OPTIONS` is malformed, or interpretations are on and the
+    model's key is not set.
 
-    The message names the setting, never a value: it goes to a log.
+    The options are checked whether or not interpretations are on, as the API
+    checks them; that message is the parser's one line, naming the setting and
+    its first wrong entry. The key's message names the setting, never a value:
+    it goes to a log.
     """
+    try:
+        interpretation_options()
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from None
     if interpretation_enabled() and not os.environ.get("ANTHROPIC_API_KEY"):
         raise SystemExit(
             "CP_INTERPRETATION=on, but ANTHROPIC_API_KEY is not set. The worker writes "
@@ -286,6 +299,17 @@ def _finish_interpretation(
         session.commit()
 
 
+def verified_notice(model: str, effort: str) -> str:
+    """What a verified interpretation from this model and effort establishes.
+
+    The misreading study measured only `MEASURED_CHOICE`; an interpretation
+    from any other model or effort says so after `VERIFIED_MEANS`.
+    """
+    if (model, effort) == MEASURED_CHOICE:
+        return VERIFIED_MEANS
+    return f"{VERIFIED_MEANS} {UNMEASURED_NOTE}"
+
+
 def _owns(row: Interpretation) -> bool:
     """Whether this job is the one the row is waiting on.
 
@@ -328,6 +352,16 @@ def _interpret(sessions: sessionmaker[Session], key: uuid.UUID, progress: _Progr
             row.finished_at = utcnow()
             session.commit()
             return
+        if InterpretationOption(row.model, row.effort) not in interpretation_options():
+            # The API queued the row with an entry from its own list; this
+            # worker's list does not have it (withdrawn since, or set apart from
+            # the API's), so no model is built and no call is made.
+            row.status = "failed"
+            row.error = WORKER_CHOICE_WITHDRAWN
+            row.interpreter_version = version
+            row.finished_at = utcnow()
+            session.commit()
+            return
         summary = session.get(AnalysisSummary, row.analysis_id)
         if summary is None or summary.facts is None:
             raise LookupError(f"analysis {row.analysis_id} has no fact table")
@@ -361,7 +395,8 @@ def _interpret(sessions: sessionmaker[Session], key: uuid.UUID, progress: _Progr
         _finish_interpretation(
             sessions, row_id, version, status="verified", prompt_version=result.prompt_version,
             returned_model=result.model, rendered=rendered_record(result.rendered),
-            notice=VERIFIED_MEANS, attempts=[a.to_dict() for a in result.attempts],
+            notice=verified_notice(model_name, effort),
+            attempts=[a.to_dict() for a in result.attempts],
         )
 
 

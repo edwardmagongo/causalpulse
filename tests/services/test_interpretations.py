@@ -56,10 +56,16 @@ def interpreting(monkeypatch):
 
 
 @pytest.fixture
-def make_client(sessions, redis_conn, worker_env, api_key_for):
+def make_client(sessions, redis_conn, worker_env, api_key_for, monkeypatch):
     def make(name="alice", interpretation=True, limits=None, options=None):
         # Without `options`, the app reads the setting, which no test sets: one
-        # entry, `claude-opus-5-5:medium`.
+        # entry, `claude-opus-5-5:medium`. With them, the setting is set to the
+        # same list, so the worker these tests drain offers what the app offers
+        # (it fails a row whose entry its own list lacks).
+        if options:
+            monkeypatch.setenv(
+                "CP_INTERPRETATION_OPTIONS", ",".join(f"{o.model}:{o.effort}" for o in options)
+            )
         return TestClient(
             create_app(
                 sessions=sessions, redis=redis_conn, limits=limits,

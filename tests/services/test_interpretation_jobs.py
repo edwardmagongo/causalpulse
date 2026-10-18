@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from cp_api.db import AnalysisSummary, Dataset, Interpretation
 from cp_llm.facts import FactTable
-from cp_llm.interpret import VERIFIED_MEANS
+from cp_llm.interpret import MEASURED_CHOICE, UNMEASURED_NOTE, VERIFIED_MEANS
 from cp_llm.model import ModelCallError
 from cp_llm.version import interpreter_version
 from cp_worker import jobs
@@ -58,12 +58,13 @@ def _analysed(sessions):
     return key
 
 
-def _queued(sessions, key, *, job_id=None, created_at=None):
+def _queued(sessions, key, *, job_id=None, created_at=None, choice=MEASURED_CHOICE):
     """A queued interpretation of analysis `key`; its row id, the job's argument."""
+    model, effort = choice
     with sessions() as session:
         row = Interpretation(
             analysis_id=key, status="queued", job_id=job_id or f"interpretation-{key}-1",
-            model="claude-opus-5-5", effort="medium",
+            model=model, effort=effort,
         )
         if created_at is not None:
             row.created_at = created_at
@@ -103,8 +104,15 @@ def _job_log(caplog):
 
 
 def _script(monkeypatch, *items):
+    """The scripted model every build returns; `model.built` lists each (model, effort) built."""
     model = ScriptedReplies(items)
-    monkeypatch.setattr(jobs, "build_model", lambda model_name, effort: model)
+    model.built = []
+
+    def build(model_name, effort):
+        model.built.append((model_name, effort))
+        return model
+
+    monkeypatch.setattr(jobs, "build_model", build)
     return model
 
 
@@ -491,3 +499,103 @@ def test_with_two_rows_the_job_runs_exactly_the_one_it_was_given(
     row = _row(sessions, given)
     assert (row.status, row.job_id, model.calls) == ("verified", f"interpretation-{key}-0", 1)
     assert _columns(_row(sessions, other)) == other_before
+
+
+# --- the operator's list ---------------------------------------------------
+
+UNMEASURED = [("claude-sonnet-5-5", "medium"), ("claude-opus-5-5", "high")]
+
+
+@pytest.mark.parametrize("choice", UNMEASURED, ids=["other-model", "other-effort"])
+def test_a_choice_the_worker_does_not_offer_fails_without_a_model(
+    sessions, worker_env, monkeypatch, choice
+):
+    # The setting is unset, so the worker offers claude-opus-5-5 at medium only.
+    key = _analysed(sessions)
+    row_id = _queued(sessions, key, choice=choice)
+    model = _script(monkeypatch, narrative_for(_facts(sessions, key)[1]))
+
+    run_interpretation_job(str(row_id))
+
+    row = _row(sessions, row_id)
+    assert (row.status, row.error) == (
+        "failed", "This model and effort are no longer offered on this server."
+    )
+    assert (model.built, model.calls) == ([], 0)
+    assert row.notice is None and row.rendered is None
+    assert row.finished_at is not None
+    assert row.interpreter_version == interpreter_version()
+
+
+def test_a_choice_withdrawn_from_a_longer_list_fails(sessions, worker_env, monkeypatch):
+    monkeypatch.setenv("CP_INTERPRETATION_OPTIONS", "claude-sonnet-5-5:low, claude-opus-5-5:medium")
+    key = _analysed(sessions)
+    row_id = _queued(sessions, key, choice=("claude-sonnet-5-5", "medium"))
+    model = _script(monkeypatch, narrative_for(_facts(sessions, key)[1]))
+
+    run_interpretation_job(str(row_id))
+
+    row = _row(sessions, row_id)
+    assert (row.status, row.error) == (
+        "failed", "This model and effort are no longer offered on this server."
+    )
+    assert (model.built, model.calls) == ([], 0)
+
+
+@pytest.mark.parametrize("choice", UNMEASURED, ids=["other-model", "other-effort"])
+def test_a_verified_interpretation_from_an_unmeasured_choice_says_so(
+    sessions, worker_env, monkeypatch, choice
+):
+    monkeypatch.setenv(
+        "CP_INTERPRETATION_OPTIONS", f"claude-opus-5-5:medium,{choice[0]}:{choice[1]}"
+    )
+    key = _analysed(sessions)
+    _, facts = _facts(sessions, key)
+    row_id = _queued(sessions, key, choice=choice)
+    model = _script(monkeypatch, narrative_for(facts))
+
+    run_interpretation_job(str(row_id))
+
+    row = _row(sessions, row_id)
+    assert row.status == "verified"
+    assert model.built == [choice]
+    assert row.notice == VERIFIED_MEANS + " " + UNMEASURED_NOTE
+
+
+def test_a_verified_interpretation_from_the_measured_choice_has_no_note(
+    sessions, worker_env, monkeypatch
+):
+    # The measured choice need not be the default.
+    monkeypatch.setenv("CP_INTERPRETATION_OPTIONS", "claude-sonnet-5-5:low,claude-opus-5-5:medium")
+    key = _analysed(sessions)
+    _, facts = _facts(sessions, key)
+    row_id = _queued(sessions, key)
+    model = _script(monkeypatch, narrative_for(facts))
+
+    run_interpretation_job(str(row_id))
+
+    row = _row(sessions, row_id)
+    assert row.status == "verified"
+    assert model.built == [MEASURED_CHOICE]
+    assert row.notice == VERIFIED_MEANS
+
+
+@pytest.mark.parametrize("outcome", ["refused", "failed"])
+def test_an_unmeasured_choice_that_is_not_verified_stores_no_notice(
+    sessions, worker_env, monkeypatch, outcome
+):
+    monkeypatch.setenv("CP_INTERPRETATION_OPTIONS", "claude-opus-5-5:medium,claude-sonnet-5-5:low")
+    key = _analysed(sessions)
+    _, facts = _facts(sessions, key)
+    row_id = _queued(sessions, key, choice=("claude-sonnet-5-5", "low"))
+    bad = narrative_for(facts).model_copy(update={"summary": ["It rose by 2 points."]})
+    if outcome == "refused":
+        _script(monkeypatch, bad, bad)
+    else:
+        _script(monkeypatch, ModelCallError("the model API call failed: APIConnectionError"))
+
+    run_interpretation_job(str(row_id))
+
+    row = _row(sessions, row_id)
+    assert row.status == outcome
+    assert row.notice is None
