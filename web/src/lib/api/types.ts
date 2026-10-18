@@ -22,3 +22,6 @@ export type Summary = Schemas["Summary"];
 export type AnalysisRequest = Schemas["AnalysisRequest"];
 export type InterpretationDetail = Schemas["InterpretationDetail"];
 export type InterpretationStatus = InterpretationDetail["status"];
+export type InterpretationOption = Schemas["InterpretationOptionOut"];
+/** An entry of the server's list of models and efforts, as a request names it. */
+export type InterpretationChoice = { model: string; effort: string };

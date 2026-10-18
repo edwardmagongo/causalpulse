@@ -1,13 +1,15 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { AnalysisDetail, InterpretationDetail } from "@/lib/api/types";
+import type { AnalysisDetail, InterpretationDetail, InterpretationOption } from "@/lib/api/types";
 import { DASH, formatTime } from "@/lib/format";
 import interpretations from "@/test/fixtures/interpretations.json";
 
 const ask = vi.fn();
 const refresh = vi.fn();
-vi.mock("@/app/(app)/analyses/[id]/actions", () => ({ askForInterpretation: (id: string) => ask(id) }));
+vi.mock("@/app/(app)/analyses/[id]/actions", () => ({
+  askForInterpretation: (id: string, choice: unknown) => ask(id, choice),
+}));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 
 import { InterpretationPanel } from "./InterpretationPanel";
@@ -16,6 +18,7 @@ const BASE: InterpretationDetail = {
   id: "7a9d3c52-1f0e-4b8a-9c6d-2e5f4a3b1c0d",
   status: "queued",
   model: "claude-opus-5-5",
+  effort: "medium",
   returned_model: null,
   prompt_version: null,
   interpreter_version: null,
@@ -46,13 +49,22 @@ const VERIFIED: InterpretationDetail = {
   notice: "A verified interpretation means: every value shown is the system's own.",
 };
 
+/** The server's default entry, available. */
+const OPUS: InterpretationOption = {
+  model: "claude-opus-5-5",
+  effort: "medium",
+  default: true,
+  available: true,
+  reason: null,
+};
+
 function panel(props: Partial<Parameters<typeof InterpretationPanel>[0]> = {}) {
   return render(
     <InterpretationPanel
       analysisId="a1"
       interpretation={null}
       earlierInterpretations={[]}
-      interpretable={false}
+      options={[]}
       interpretableReason={null}
       {...props}
     />,
@@ -78,7 +90,7 @@ describe("InterpretationPanel", () => {
   });
 
   it("offers to write one when the analysis can be interpreted", () => {
-    panel({ interpretable: true });
+    panel({ options: [OPUS] });
     expect(screen.getByRole("button", { name: "Write an interpretation" })).toBeTruthy();
   });
 
@@ -90,7 +102,7 @@ describe("InterpretationPanel", () => {
   });
 
   it("shows a verified one under its heading, with the limits, the notice and the model", () => {
-    panel({ interpretation: VERIFIED, interpretable: true });
+    panel({ interpretation: VERIFIED, options: [{ ...OPUS, available: false }] });
     expect(
       screen.getByRole("heading", { name: "Interpretation (model-written, verified against the facts)" }),
     ).toBeTruthy();
@@ -99,7 +111,9 @@ describe("InterpretationPanel", () => {
     expect(screen.getByText("The estimate for ipw is 0.07.")).toBeTruthy();
     expect(screen.getByText(VERIFIED.limits!)).toBeTruthy();
     expect(screen.getByText(VERIFIED.notice!)).toBeTruthy();
-    expect(screen.getByText(/Written by claude-opus-5-5-20261001, prompt abc123def456\./)).toBeTruthy();
+    expect(
+      screen.getByText("Written by claude-opus-5-5-20261001, medium effort, prompt abc123def456."),
+    ).toBeTruthy();
     expect(screen.queryByRole("button")).toBeNull();
   });
 
@@ -113,7 +127,7 @@ describe("InterpretationPanel", () => {
         attempts: 2,
         reason: "The last attempt was refused because it wrote a number in its own words instead of citing it.",
       },
-      interpretable: true,
+      options: [{ ...OPUS, available: false }],
     });
     expect(screen.getByText(/could not be verified against this analysis's facts, so it is not shown/)).toBeTruthy();
     expect(screen.getByText("Attempts: 2. The last attempt was refused because it wrote a number in its own words instead of citing it.")).toBeTruthy();
@@ -121,7 +135,7 @@ describe("InterpretationPanel", () => {
   });
 
   it("shows a failed one's error and lets it be tried again", () => {
-    panel({ interpretation: { ...BASE, status: "failed", error: "the model API call failed" }, interpretable: true });
+    panel({ interpretation: { ...BASE, status: "failed", error: "the model API call failed" }, options: [OPUS] });
     expect(screen.getByRole("alert").textContent).toBe("the model API call failed");
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
   });
@@ -138,7 +152,11 @@ const REFUSED_SENTENCE =
 
 type Recorded = Pick<
   AnalysisDetail,
-  "interpretation" | "earlier_interpretations" | "interpretable" | "interpretable_reason"
+  | "interpretation"
+  | "earlier_interpretations"
+  | "interpretation_options"
+  | "interpretable"
+  | "interpretable_reason"
 >;
 
 /** The panel as the page draws it for one of the recorded cases. */
@@ -147,7 +165,7 @@ function recorded(name: keyof typeof interpretations) {
   return panel({
     interpretation: analysis.interpretation,
     earlierInterpretations: analysis.earlier_interpretations,
-    interpretable: analysis.interpretable,
+    options: analysis.interpretation_options,
     interpretableReason: analysis.interpretable_reason,
   });
 }
@@ -228,7 +246,7 @@ describe("InterpretationPanel, when the prompt and rules have changed", () => {
       panel({
         interpretation: { ...analysis.interpretation!, out_of_date: true },
         earlierInterpretations: analysis.earlier_interpretations,
-        interpretable: analysis.interpretable,
+        options: analysis.interpretation_options,
         interpretableReason: analysis.interpretable_reason,
       });
       expect(screen.queryByText(OUT_OF_DATE)).toBeNull();
@@ -283,7 +301,9 @@ describe("InterpretationPanel's earlier interpretations", () => {
     expect(entry.queryByRole("heading", { name: "Summary" })).toBeNull();
     expect(entry.getByText(earlier.limits!)).toBeTruthy();
     expect(entry.getByText(earlier.notice!)).toBeTruthy();
-    expect(entry.getByText(/Written by claude-opus-5-5-20261001, prompt a28f0812170d\./)).toBeTruthy();
+    expect(
+      entry.getByText("Written by claude-opus-5-5-20261001, medium effort, prompt a28f0812170d."),
+    ).toBeTruthy();
   });
 
   it.each([
@@ -342,7 +362,7 @@ describe("InterpretationPanel's earlier interpretations", () => {
     const twins = [first, { ...second, created_at: first.created_at }];
     const props = {
       interpretation: analysis.interpretation,
-      interpretable: false,
+      options: [],
       interpretableReason: null,
     };
     const { rerender } = panel({ ...props, earlierInterpretations: twins });
@@ -370,23 +390,211 @@ describe("InterpretationPanel's earlier interpretations", () => {
   });
 });
 
+const SONNET_LOW: InterpretationOption = {
+  model: "claude-sonnet-5-5",
+  effort: "low",
+  default: false,
+  available: true,
+  reason: null,
+};
+
+function choice(): HTMLSelectElement {
+  return screen.getByRole<HTMLSelectElement>("combobox", { name: "Model and effort" });
+}
+
+function offered(): string[] {
+  return Array.from(choice().options).map((option) => option.textContent ?? "");
+}
+
+function selected(): string {
+  return choice().selectedOptions[0].textContent ?? "";
+}
+
+describe("InterpretationPanel's choice of model and effort", () => {
+  it("offers only the available entries, each as 'model, effort', in the server's order", () => {
+    recorded("choices_after_refused");
+    expect(offered()).toEqual(["claude-sonnet-5-5, low", "claude-sonnet-5-5, high"]);
+    expect(screen.queryByText("claude-opus-5-5, medium")).toBeNull();
+  });
+
+  it("keeps the choice in the same form as the button", () => {
+    recorded("choices_after_refused");
+    const button = screen.getByRole<HTMLButtonElement>("button", { name: "Write a new interpretation" });
+    expect(choice().form).not.toBeNull();
+    expect(choice().form).toBe(button.form);
+  });
+
+  it("selects the default when it is available", () => {
+    recorded("choices_none_yet");
+    expect(offered()).toEqual(["claude-opus-5-5, medium", "claude-sonnet-5-5, low"]);
+    expect(selected()).toBe("claude-opus-5-5, medium");
+    expect(screen.getByRole("button", { name: "Write an interpretation" })).toBeTruthy();
+  });
+
+  it("selects the default wherever it stands in the list", () => {
+    // The API lists the default first, but the panel holds the rule itself.
+    panel({ options: [SONNET_LOW, OPUS] });
+    expect(selected()).toBe("claude-opus-5-5, medium");
+  });
+
+  it("selects the first available entry when the default is not available", () => {
+    recorded("choices_after_refused");
+    expect(selected()).toBe("claude-sonnet-5-5, low");
+  });
+
+  it("asks for the entry chosen", async () => {
+    ask.mockResolvedValue({ ok: true });
+    recorded("choices_after_refused");
+    fireEvent.change(choice(), { target: { value: choice().options[1].value } });
+    expect(selected()).toBe("claude-sonnet-5-5, high");
+    fireEvent.click(screen.getByRole("button", { name: "Write a new interpretation" }));
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+    expect(ask).toHaveBeenCalledTimes(1);
+    expect(ask).toHaveBeenCalledWith("a1", { model: "claude-sonnet-5-5", effort: "high" });
+  });
+
+  it("asks for the entry selected at first when none is chosen", async () => {
+    ask.mockResolvedValue({ ok: true });
+    recorded("choices_after_refused");
+    fireEvent.click(screen.getByRole("button", { name: "Write a new interpretation" }));
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+    expect(ask).toHaveBeenCalledWith("a1", { model: "claude-sonnet-5-5", effort: "low" });
+  });
+
+  it("offers a new one under a current refused one when another entry is available", () => {
+    recorded("choices_after_refused");
+    expect(screen.getByText(REFUSED_SENTENCE)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Write a new interpretation" })).toBeTruthy();
+    expect(screen.queryByText(OUT_OF_DATE)).toBeNull();
+  });
+
+  it("offers a new one under a current verified one, naming the one entry beside the button", async () => {
+    ask.mockResolvedValue({ ok: true });
+    recorded("another_after_verified");
+    expect(screen.getByRole("heading", { name: "Estimates" })).toBeTruthy();
+    expect(screen.queryByRole("combobox")).toBeNull();
+    const button = screen.getByRole("button", { name: "Write a new interpretation" });
+    const label = screen.getByText("claude-sonnet-5-5, low");
+    expect(label.closest("form")).toBe(button.closest("form"));
+    expect(screen.queryByText("claude-opus-5-5, medium")).toBeNull();
+    expect(screen.queryByText(OUT_OF_DATE)).toBeNull();
+    fireEvent.click(button);
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+    expect(ask).toHaveBeenCalledWith("a1", { model: "claude-sonnet-5-5", effort: "low" });
+  });
+
+  it("names the one entry beside the button for a first interpretation and a retry", () => {
+    panel({ options: [OPUS] });
+    expect(screen.queryByRole("combobox")).toBeNull();
+    expect(screen.getByText("claude-opus-5-5, medium")).toBeTruthy();
+    cleanup();
+    recorded("failed");
+    expect(screen.queryByRole("combobox")).toBeNull();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+    expect(screen.getByText("claude-opus-5-5, medium")).toBeTruthy();
+  });
+
+  it("offers the choice for trying a failed one again", () => {
+    panel({
+      interpretation: { ...BASE, status: "failed", error: "the model API call failed" },
+      options: [OPUS, SONNET_LOW],
+    });
+    expect(offered()).toEqual(["claude-opus-5-5, medium", "claude-sonnet-5-5, low"]);
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+  });
+
+  it("still marks an out-of-date one, with the choice beneath the line", () => {
+    const analysis = interpretations.verified_out_of_date as Recorded;
+    panel({
+      interpretation: analysis.interpretation,
+      options: [OPUS, SONNET_LOW],
+    });
+    expect(screen.getByText(OUT_OF_DATE)).toBeTruthy();
+    expect(offered()).toEqual(["claude-opus-5-5, medium", "claude-sonnet-5-5, low"]);
+    expect(screen.getByRole("button", { name: "Write a new interpretation" })).toBeTruthy();
+  });
+
+  it.each(["verified_current", "refused_current", "pending", "with_earlier"] as const)(
+    "offers no choice and no button when no entry is available (%s)",
+    (name) => {
+      recorded(name);
+      expect(screen.queryByRole("combobox")).toBeNull();
+      expect(screen.queryByRole("button")).toBeNull();
+      expect(screen.queryByText("claude-opus-5-5, medium")).toBeNull();
+    },
+  );
+
+  it("offers nothing that is not available, even with none written", () => {
+    panel({
+      options: [{ ...OPUS, available: false, reason: "Only an analysis that has succeeded can be interpreted." }],
+      interpretableReason: "Only an analysis that has succeeded can be interpreted.",
+    });
+    expect(screen.getByText("Only an analysis that has succeeded can be interpreted.")).toBeTruthy();
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.queryByText("claude-opus-5-5, medium")).toBeNull();
+  });
+});
+
+describe("InterpretationPanel's written-by line", () => {
+  it("names the model, the effort and the prompt of a newest refused one, and of an earlier failed one", () => {
+    recorded("choices_after_refused");
+    expect(
+      screen.getByText("Written by claude-opus-5-5-20261001, medium effort, prompt 5b08e57994d4."),
+    ).toBeTruthy();
+    const [failedEntry] = earlierEntries();
+    // A failed one has no returned model and no prompt version: the requested model stands in.
+    expect(within(failedEntry).getByText("Written by claude-sonnet-5-5, high effort.")).toBeTruthy();
+  });
+
+  it("names them for a newest failed one", () => {
+    recorded("failed");
+    expect(screen.getByText("Written by claude-opus-5-5, medium effort.")).toBeTruthy();
+  });
+
+  it("names them for every earlier one", () => {
+    recorded("with_earlier");
+    const [refusedEntry, failedEntry, verifiedEntry] = earlierEntries();
+    expect(
+      within(refusedEntry).getByText(
+        "Written by claude-sonnet-5-5-20260915, high effort, prompt 5b08e57994d4.",
+      ),
+    ).toBeTruthy();
+    expect(within(failedEntry).getByText("Written by claude-opus-5-5, medium effort.")).toBeTruthy();
+    expect(
+      within(verifiedEntry).getByText(
+        "Written by claude-opus-5-5-20261001, medium effort, prompt a28f0812170d.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("names an unmeasured entry, and shows the API's notice about it", () => {
+    recorded("verified_unmeasured");
+    expect(
+      screen.getByText("Written by claude-sonnet-5-5-20260915, low effort, prompt 5b08e57994d4."),
+    ).toBeTruthy();
+    expect(screen.getByText(interpretations.verified_unmeasured.interpretation.notice)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Write a new interpretation" })).toBeTruthy();
+    expect(screen.getByText("claude-opus-5-5, medium")).toBeTruthy();
+  });
+});
+
 describe("InterpretButton", () => {
   it("shows the API's sentence when the request is refused, and does not refresh", async () => {
     ask.mockResolvedValue({ error: "Too many interpretations today for this account. Try again in 3 hours." });
-    panel({ interpretable: true });
+    panel({ options: [OPUS] });
     fireEvent.click(screen.getByRole("button", { name: "Write an interpretation" }));
     await waitFor(() =>
       expect(screen.getByRole("alert").textContent).toBe(
         "Too many interpretations today for this account. Try again in 3 hours.",
       ),
     );
-    expect(ask).toHaveBeenCalledWith("a1");
+    expect(ask).toHaveBeenCalledWith("a1", { model: "claude-opus-5-5", effort: "medium" });
     expect(refresh).not.toHaveBeenCalled();
   });
 
   it("refreshes the page when the request is accepted", async () => {
     ask.mockResolvedValue({ ok: true });
-    panel({ interpretable: true });
+    panel({ options: [OPUS] });
     fireEvent.click(screen.getByRole("button", { name: "Write an interpretation" }));
     await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
   });

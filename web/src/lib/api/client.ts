@@ -15,6 +15,7 @@ import type {
   DatasetDetail,
   DatasetPage,
   EstimatorEntry,
+  InterpretationChoice,
   InterpretationDetail,
   Me,
   Summary,
@@ -200,10 +201,21 @@ export function getAnalysis(id: string): Promise<AnalysisDetail> {
   return json<AnalysisDetail>(`/v1/analyses/${encodeURIComponent(id)}`);
 }
 
-/** Ask for the analysis's interpretation; the API answers with it, queued. */
-export function requestInterpretation(id: string): Promise<InterpretationDetail> {
-  return json<InterpretationDetail>(`/v1/analyses/${encodeURIComponent(id)}/interpretation`, {
+/**
+ * Ask for the analysis's interpretation; the API answers with it, queued.
+ * With a choice, from that entry of the server's list; without one, from the
+ * list's first entry, the default.
+ */
+export function requestInterpretation(
+  id: string,
+  choice?: InterpretationChoice,
+): Promise<InterpretationDetail> {
+  const path = `/v1/analyses/${encodeURIComponent(id)}/interpretation`;
+  if (!choice) return json<InterpretationDetail>(path, { method: "POST" });
+  return json<InterpretationDetail>(path, {
     method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ model: choice.model, effort: choice.effort }),
   });
 }
 

@@ -4,6 +4,7 @@
       "id": "e6a9ecce-bf3f-51b8-8669-afdc286d7f7f",
       "status": "verified",
       "model": "claude-opus-5-5",
+      "effort": "medium",
       "returned_model": "claude-opus-5-5-20261001",
       "prompt_version": "a28f0812170d",
       "interpreter_version": null,
@@ -39,6 +40,15 @@
       "error": null
     },
     "earlier_interpretations": [],
+    "interpretation_options": [
+      {
+        "model": "claude-opus-5-5",
+        "effort": "medium",
+        "default": true,
+        "available": true,
+        "reason": null
+      }
+    ],
     "interpretable": true,
     "interpretable_reason": null
   },
@@ -47,6 +57,7 @@
       "id": "73ef756a-9575-5e0a-9f10-9b79216bee83",
       "status": "verified",
       "model": "claude-opus-5-5",
+      "effort": "medium",
       "returned_model": "claude-opus-5-5-20261001",
       "prompt_version": "5b08e57994d4",
       "interpreter_version": "35d8275efecb",
@@ -75,14 +86,24 @@
       "error": null
     },
     "earlier_interpretations": [],
+    "interpretation_options": [
+      {
+        "model": "claude-opus-5-5",
+        "effort": "medium",
+        "default": true,
+        "available": false,
+        "reason": "This analysis already has an interpretation from this model and effort, written under the current prompt and rules."
+      }
+    ],
     "interpretable": false,
-    "interpretable_reason": "This analysis already has an interpretation written under the current prompt and rules."
+    "interpretable_reason": "This analysis already has an interpretation from this model and effort, written under the current prompt and rules."
   },
   "refused_out_of_date": {
     "interpretation": {
       "id": "c65bef20-de5f-5c3c-822f-f7b453a753b3",
       "status": "refused",
       "model": "claude-opus-5-5",
+      "effort": "medium",
       "returned_model": "claude-opus-5-5-20261001",
       "prompt_version": "a28f0812170d",
       "interpreter_version": null,
@@ -98,6 +119,15 @@
       "error": null
     },
     "earlier_interpretations": [],
+    "interpretation_options": [
+      {
+        "model": "claude-opus-5-5",
+        "effort": "medium",
+        "default": true,
+        "available": true,
+        "reason": null
+      }
+    ],
     "interpretable": true,
     "interpretable_reason": null
   },
@@ -106,6 +136,7 @@
       "id": "a90ef499-da80-5b51-865b-c7caf38492c3",
       "status": "refused",
       "model": "claude-opus-5-5",
+      "effort": "medium",
       "returned_model": "claude-opus-5-5-20261001",
       "prompt_version": "5b08e57994d4",
       "interpreter_version": "35d8275efecb",
@@ -121,14 +152,24 @@
       "error": null
     },
     "earlier_interpretations": [],
+    "interpretation_options": [
+      {
+        "model": "claude-opus-5-5",
+        "effort": "medium",
+        "default": true,
+        "available": false,
+        "reason": "This analysis's interpretation from this model and effort could not be verified under the current prompt and rules, and asking again would not change them."
+      }
+    ],
     "interpretable": false,
-    "interpretable_reason": "This analysis's interpretation could not be verified under the current prompt and rules, and asking again would not change them."
+    "interpretable_reason": "This analysis's interpretation from this model and effort could not be verified under the current prompt and rules, and asking again would not change them."
   },
   "failed": {
     "interpretation": {
       "id": "16b07f38-4d7a-518f-a528-9c1a40d58848",
       "status": "failed",
       "model": "claude-opus-5-5",
+      "effort": "medium",
       "returned_model": null,
       "prompt_version": null,
       "interpreter_version": null,
@@ -144,6 +185,15 @@
       "error": "the model API call failed"
     },
     "earlier_interpretations": [],
+    "interpretation_options": [
+      {
+        "model": "claude-opus-5-5",
+        "effort": "medium",
+        "default": true,
+        "available": true,
+        "reason": null
+      }
+    ],
     "interpretable": true,
     "interpretable_reason": null
   },
@@ -152,6 +202,7 @@
       "id": "edf82a9c-b8ad-5137-804c-78ff544be0fa",
       "status": "failed",
       "model": "claude-opus-5-5",
+      "effort": "medium",
       "returned_model": null,
       "prompt_version": null,
       "interpreter_version": "35d8275efecb",
@@ -171,6 +222,7 @@
         "id": "26e02dd4-511c-5626-b0b9-83160f94ca52",
         "status": "verified",
         "model": "claude-opus-5-5",
+        "effort": "medium",
         "returned_model": "claude-opus-5-5-20261001",
         "prompt_version": "a28f0812170d",
         "interpreter_version": null,
@@ -199,6 +251,15 @@
         "error": null
       }
     ],
+    "interpretation_options": [
+      {
+        "model": "claude-opus-5-5",
+        "effort": "medium",
+        "default": true,
+        "available": true,
+        "reason": null
+      }
+    ],
     "interpretable": true,
     "interpretable_reason": null
   },
@@ -207,6 +268,7 @@
       "id": "e06d58da-b03f-5600-ba41-713ef7b57f2b",
       "status": "running",
       "model": "claude-opus-5-5",
+      "effort": "medium",
       "returned_model": null,
       "prompt_version": null,
       "interpreter_version": null,
@@ -226,6 +288,7 @@
         "id": "5db9d11e-d542-54f1-98fa-89a3c851a3ed",
         "status": "verified",
         "model": "claude-opus-5-5",
+        "effort": "medium",
         "returned_model": "claude-opus-5-5-20261001",
         "prompt_version": "a28f0812170d",
         "interpreter_version": null,
@@ -254,6 +317,15 @@
         "error": null
       }
     ],
+    "interpretation_options": [
+      {
+        "model": "claude-opus-5-5",
+        "effort": "medium",
+        "default": true,
+        "available": false,
+        "reason": "An interpretation of this analysis is already being written."
+      }
+    ],
     "interpretable": false,
     "interpretable_reason": "An interpretation of this analysis is already being written."
   },
@@ -262,6 +334,7 @@
       "id": "7a3c719e-40df-5054-929f-c2ceaa17197b",
       "status": "verified",
       "model": "claude-opus-5-5",
+      "effort": "medium",
       "returned_model": "claude-opus-5-5-20261001",
       "prompt_version": "5b08e57994d4",
       "interpreter_version": "35d8275efecb",
@@ -293,8 +366,9 @@
       {
         "id": "1ab2d911-85d7-554d-bd72-006c98853719",
         "status": "refused",
-        "model": "claude-opus-5-5",
-        "returned_model": "claude-opus-5-5-20261001",
+        "model": "claude-sonnet-5-5",
+        "effort": "high",
+        "returned_model": "claude-sonnet-5-5-20260915",
         "prompt_version": "5b08e57994d4",
         "interpreter_version": "c41f7a09e2b6",
         "out_of_date": true,
@@ -312,6 +386,7 @@
         "id": "3e908525-e8fd-5747-9324-35f003b444a1",
         "status": "failed",
         "model": "claude-opus-5-5",
+        "effort": "medium",
         "returned_model": null,
         "prompt_version": null,
         "interpreter_version": null,
@@ -330,6 +405,7 @@
         "id": "bedee078-ebd9-5af1-8d30-a37654ab3565",
         "status": "verified",
         "model": "claude-opus-5-5",
+        "effort": "medium",
         "returned_model": "claude-opus-5-5-20261001",
         "prompt_version": "a28f0812170d",
         "interpreter_version": null,
@@ -358,7 +434,211 @@
         "error": null
       }
     ],
+    "interpretation_options": [
+      {
+        "model": "claude-opus-5-5",
+        "effort": "medium",
+        "default": true,
+        "available": false,
+        "reason": "This analysis already has an interpretation from this model and effort, written under the current prompt and rules."
+      }
+    ],
     "interpretable": false,
-    "interpretable_reason": "This analysis already has an interpretation written under the current prompt and rules."
+    "interpretable_reason": "This analysis already has an interpretation from this model and effort, written under the current prompt and rules."
+  },
+  "another_after_verified": {
+    "interpretation": {
+      "id": "5e1b9a73-c8d2-5f04-9a6e-3b7d21c0f8e4",
+      "status": "verified",
+      "model": "claude-opus-5-5",
+      "effort": "medium",
+      "returned_model": "claude-opus-5-5-20261001",
+      "prompt_version": "5b08e57994d4",
+      "interpreter_version": "35d8275efecb",
+      "out_of_date": false,
+      "created_at": "2026-10-15T08:30:11.504881+00:00",
+      "started_at": "2026-10-15T08:30:11.790642+00:00",
+      "finished_at": "2026-10-15T08:30:38.017455+00:00",
+      "sections": [
+        {
+          "name": "summary",
+          "heading": "Summary",
+          "statements": []
+        },
+        {
+          "name": "estimates",
+          "heading": "Estimates",
+          "statements": [
+            "The estimate for ipw is 1794 [-63.52, 3652]."
+          ]
+        }
+      ],
+      "limits": "The validity band reflects the checks the system could run on this analysis.",
+      "notice": "A verified interpretation means: every value shown is the system's own, every controlled word is backed by a fact, nothing required was omitted, and the prose passes the language lint. It does not mean the narrative is a correct reading of the analysis.",
+      "attempts": null,
+      "reason": null,
+      "error": null
+    },
+    "earlier_interpretations": [],
+    "interpretation_options": [
+      {
+        "model": "claude-opus-5-5",
+        "effort": "medium",
+        "default": true,
+        "available": false,
+        "reason": "This analysis already has an interpretation from this model and effort, written under the current prompt and rules."
+      },
+      {
+        "model": "claude-sonnet-5-5",
+        "effort": "low",
+        "default": false,
+        "available": true,
+        "reason": null
+      }
+    ],
+    "interpretable": true,
+    "interpretable_reason": null
+  },
+  "choices_after_refused": {
+    "interpretation": {
+      "id": "b84f0c2e-71a9-5d36-8e5b-0c9a3f6d2e71",
+      "status": "refused",
+      "model": "claude-opus-5-5",
+      "effort": "medium",
+      "returned_model": "claude-opus-5-5-20261001",
+      "prompt_version": "5b08e57994d4",
+      "interpreter_version": "35d8275efecb",
+      "out_of_date": false,
+      "created_at": "2026-10-15T08:30:11.504881+00:00",
+      "started_at": "2026-10-15T08:30:11.790642+00:00",
+      "finished_at": "2026-10-15T08:31:02.448190+00:00",
+      "sections": null,
+      "limits": null,
+      "notice": null,
+      "attempts": 2,
+      "reason": "The last attempt was refused because it gave an estimate without its interval.",
+      "error": null
+    },
+    "earlier_interpretations": [
+      {
+        "id": "9c4e2b17-6a0d-5f3e-8b21-4d7c90e1a65f",
+        "status": "failed",
+        "model": "claude-sonnet-5-5",
+        "effort": "high",
+        "returned_model": null,
+        "prompt_version": null,
+        "interpreter_version": null,
+        "out_of_date": false,
+        "created_at": "2026-10-14T16:20:03.118442+00:00",
+        "started_at": "2026-10-14T16:20:03.402981+00:00",
+        "finished_at": "2026-10-14T16:20:04.771205+00:00",
+        "sections": null,
+        "limits": null,
+        "notice": null,
+        "attempts": null,
+        "reason": null,
+        "error": "the model API call failed"
+      }
+    ],
+    "interpretation_options": [
+      {
+        "model": "claude-opus-5-5",
+        "effort": "medium",
+        "default": true,
+        "available": false,
+        "reason": "This analysis's interpretation from this model and effort could not be verified under the current prompt and rules, and asking again would not change them."
+      },
+      {
+        "model": "claude-sonnet-5-5",
+        "effort": "low",
+        "default": false,
+        "available": true,
+        "reason": null
+      },
+      {
+        "model": "claude-sonnet-5-5",
+        "effort": "high",
+        "default": false,
+        "available": true,
+        "reason": null
+      }
+    ],
+    "interpretable": true,
+    "interpretable_reason": null
+  },
+  "choices_none_yet": {
+    "interpretation": null,
+    "earlier_interpretations": [],
+    "interpretation_options": [
+      {
+        "model": "claude-opus-5-5",
+        "effort": "medium",
+        "default": true,
+        "available": true,
+        "reason": null
+      },
+      {
+        "model": "claude-sonnet-5-5",
+        "effort": "low",
+        "default": false,
+        "available": true,
+        "reason": null
+      }
+    ],
+    "interpretable": true,
+    "interpretable_reason": null
+  },
+  "verified_unmeasured": {
+    "interpretation": {
+      "id": "2f8d6c1a-9b3e-5a47-a0c2-61e5d8f4b937",
+      "status": "verified",
+      "model": "claude-sonnet-5-5",
+      "effort": "low",
+      "returned_model": "claude-sonnet-5-5-20260915",
+      "prompt_version": "5b08e57994d4",
+      "interpreter_version": "35d8275efecb",
+      "out_of_date": false,
+      "created_at": "2026-10-15T08:30:11.504881+00:00",
+      "started_at": "2026-10-15T08:30:11.790642+00:00",
+      "finished_at": "2026-10-15T08:30:38.017455+00:00",
+      "sections": [
+        {
+          "name": "summary",
+          "heading": "Summary",
+          "statements": []
+        },
+        {
+          "name": "estimates",
+          "heading": "Estimates",
+          "statements": [
+            "The estimate for ipw is 1794 [-63.52, 3652]."
+          ]
+        }
+      ],
+      "limits": "The validity band reflects the checks the system could run on this analysis.",
+      "notice": "A verified interpretation means: every value shown is the system's own, every controlled word is backed by a fact, nothing required was omitted, and the prose passes the language lint. It does not mean the narrative is a correct reading of the analysis. The misreading study measured claude-opus-5-5 at medium effort only; this interpretation was written by another model or effort.",
+      "attempts": null,
+      "reason": null,
+      "error": null
+    },
+    "earlier_interpretations": [],
+    "interpretation_options": [
+      {
+        "model": "claude-opus-5-5",
+        "effort": "medium",
+        "default": true,
+        "available": true,
+        "reason": null
+      },
+      {
+        "model": "claude-sonnet-5-5",
+        "effort": "low",
+        "default": false,
+        "available": false,
+        "reason": "This analysis already has an interpretation from this model and effort, written under the current prompt and rules."
+      }
+    ],
+    "interpretable": true,
+    "interpretable_reason": null
   }
 }
