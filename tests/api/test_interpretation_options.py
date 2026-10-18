@@ -3,7 +3,12 @@
 from typing import get_args
 
 import pytest
-from cp_api.settings import EFFORTS, InterpretationOption, interpretation_options
+from cp_api.settings import (
+    EFFORTS,
+    MODEL_ID_LIMIT,
+    InterpretationOption,
+    interpretation_options,
+)
 from cp_llm.model import Effort
 
 SETTING = "CP_INTERPRETATION_OPTIONS"
@@ -78,6 +83,50 @@ def test_a_malformed_value_names_the_setting_and_the_entry(value, entry, wrong):
     assert wrong in message
     if entry:
         assert f"'{entry}'" in message
+
+
+@pytest.mark.parametrize(
+    ("entry", "escaped"),
+    [
+        ("a\nb:low", "a\\nb:low"),
+        ("a\rb:low", "a\\rb:low"),
+        ("a\x0bb:low", "a\\x0bb:low"),
+        ("a\x85b:low", "a\\x85b:low"),
+        ("a\u2028b:low", "a\\u2028b:low"),
+        ("a\u2029b:low", "a\\u2029b:low"),
+    ],
+)
+def test_an_entry_with_a_line_break_is_shown_escaped_on_one_line(entry, escaped):
+    with pytest.raises(ValueError) as caught:
+        _read(f"ok:low,{entry}")
+    message = str(caught.value)
+    assert len(message.splitlines()) == 1
+    assert f"'{escaped}'" in message
+
+
+def test_a_printable_look_alike_is_shown_as_written():
+    with pytest.raises(ValueError) as caught:
+        _read("\u0430:low")  # Cyrillic a
+    assert "'\u0430:low'" in str(caught.value)
+
+
+def test_a_huge_entry_is_cut_in_the_message():
+    entry = "x" * 100_000
+    with pytest.raises(ValueError) as caught:
+        _read(entry)
+    message = str(caught.value)
+    assert len(message) < 300
+    assert "'" + "x" * 80 + "...'" in message
+
+
+def test_a_model_id_is_at_most_as_long_as_its_column():
+    longest = "m" * MODEL_ID_LIMIT
+    assert _read(f"{longest}:low") == (InterpretationOption(longest, "low"),)
+    with pytest.raises(ValueError) as caught:
+        _read(f"{longest}m:low")
+    message = str(caught.value)
+    assert "model id longer than 64 characters" in message
+    assert SETTING in message
 
 
 def test_a_repeated_entry_is_refused_naming_the_second_one():

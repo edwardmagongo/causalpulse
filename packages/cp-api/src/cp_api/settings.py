@@ -60,8 +60,21 @@ class InterpretationOption:
         return f"{self.model}, {self.effort}"
 
 
+# The width of the `model` column an interpretation is stored in.
+MODEL_ID_LIMIT = 64
+_SHOWN_LIMIT = 80
+
+
+def _shown(entry: str) -> str:
+    """The entry as one line: cut when long, a non-printable character written as an escape."""
+    cut = entry if len(entry) <= _SHOWN_LIMIT else entry[:_SHOWN_LIMIT] + "..."
+    return "".join(
+        c if c.isprintable() else c.encode("unicode_escape").decode("ascii") for c in cut
+    )
+
+
 def _refused_option(entry: str, why: str) -> ValueError:
-    return ValueError(f"CP_INTERPRETATION_OPTIONS has a wrong entry '{entry}': {why}.")
+    return ValueError(f"CP_INTERPRETATION_OPTIONS has a wrong entry '{_shown(entry)}': {why}.")
 
 
 def interpretation_options(
@@ -73,7 +86,7 @@ def interpretation_options(
     the first is the default. Absent or empty, it is `claude-opus-5-5:medium`.
     Whitespace around an entry, a model or an effort is ignored. A model is
     lower-case letters, digits, dots and hyphens, starting with a letter or a
-    digit; an effort is one of `EFFORTS`; no entry appears twice.
+    digit, at most `MODEL_ID_LIMIT` long; an effort is one of `EFFORTS`; no entry appears twice.
 
     Raises `ValueError` with one line naming the setting and the first wrong
     entry, so the API and the worker can refuse to start on it.
@@ -82,6 +95,7 @@ def interpretation_options(
     if not value.strip():
         value = _DEFAULT_OPTIONS
     options: list[InterpretationOption] = []
+    seen: set[InterpretationOption] = set()
     for raw in value.split(","):
         entry = raw.strip()
         if not entry:
@@ -96,11 +110,14 @@ def interpretation_options(
                 "the model must be lower-case letters, digits, dots and hyphens, "
                 "starting with a letter or a digit",
             )
+        if len(model) > MODEL_ID_LIMIT:
+            raise _refused_option(entry, f"model id longer than {MODEL_ID_LIMIT} characters")
         if effort not in EFFORTS:
             raise _refused_option(entry, f"unknown effort, one of {', '.join(EFFORTS)}")
         option = InterpretationOption(model, effort)
-        if option in options:
+        if option in seen:
             raise _refused_option(entry, "repeated")
+        seen.add(option)
         options.append(option)
     return tuple(options)
 
