@@ -21,9 +21,9 @@ function keyOf(option: InterpretationOption): string {
  * request would be accepted for, of which there is at least one. With more
  * than one, a choice comes before the button, set at first to the default,
  * or to the first entry when the default is not among them; with one, its
- * label stands beside the button. A refusal shows the API's own sentence; an
- * acceptance refreshes the page, which then polls until the interpretation is
- * written.
+ * label stands beside the button and describes it. A refusal shows the API's
+ * own sentence until the choice changes; an acceptance refreshes the page,
+ * which then polls until the interpretation is written.
  */
 export function InterpretButton({
   analysisId,
@@ -42,6 +42,7 @@ export function InterpretButton({
   // A refreshed page can take the picked entry off the list; the preselected one stands in.
   const chosen = options.find((option) => keyOf(option) === picked) ?? preselected;
   const fieldId = useId();
+  const entryId = useId();
 
   function ask(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -70,7 +71,11 @@ export function InterpretButton({
             <select
               id={fieldId}
               value={keyOf(chosen)}
-              onChange={(event) => setPicked(event.target.value)}
+              onChange={(event) => {
+                setPicked(event.target.value);
+                // A refusal was for the entry chosen before.
+                setError(null);
+              }}
               disabled={pending}
               className="field"
             >
@@ -82,11 +87,18 @@ export function InterpretButton({
             </select>
           </div>
         ) : null}
-        <button type="submit" disabled={pending} className="button">
+        <button
+          type="submit"
+          disabled={pending}
+          aria-describedby={options.length === 1 ? entryId : undefined}
+          className="button"
+        >
           {label}
         </button>
         {options.length === 1 ? (
-          <span className="value self-center text-ink-soft">{optionLabel(options[0])}</span>
+          <span id={entryId} className="value self-center text-ink-soft">
+            {optionLabel(options[0])}
+          </span>
         ) : null}
       </form>
       {error ? (

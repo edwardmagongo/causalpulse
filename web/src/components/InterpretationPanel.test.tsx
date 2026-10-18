@@ -324,7 +324,7 @@ describe("InterpretationPanel's earlier interpretations", () => {
     expect(headings.map((h) => `${h.tagName} ${h.textContent}`)).toEqual(outline);
   });
 
-  it("shows a refused one's refusal sentence only, and a failed one's error", () => {
+  it("shows a refused one's refusal sentence without its attempts, and a failed one's error", () => {
     recorded("with_earlier");
     const [refusedEntry, failedEntry] = earlierEntries();
     expect(within(refusedEntry).getByText(REFUSED_SENTENCE)).toBeTruthy();
@@ -509,9 +509,41 @@ describe("InterpretationPanel's choice of model and effort", () => {
       interpretation: analysis.interpretation,
       options: [OPUS, SONNET_LOW],
     });
-    expect(screen.getByText(OUT_OF_DATE)).toBeTruthy();
+    const line = screen.getByText(OUT_OF_DATE);
     expect(offered()).toEqual(["claude-opus-5-5, medium", "claude-sonnet-5-5, low"]);
     expect(screen.getByRole("button", { name: "Write a new interpretation" })).toBeTruthy();
+    expect(line.compareDocumentPosition(choice()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("offers no button while the newest is being written, even with an entry marked available", () => {
+    // The API makes no entry available while one is pending, but the panel holds the rule itself.
+    panel({ interpretation: { ...BASE, status: "running" }, options: [OPUS, SONNET_LOW] });
+    expect(screen.getByText("Writing the interpretation…")).toBeTruthy();
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.queryByRole("combobox")).toBeNull();
+    cleanup();
+    panel({ interpretation: BASE, options: [OPUS] });
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.queryByText("claude-opus-5-5, medium")).toBeNull();
+  });
+
+  it("describes the button by the one entry it asks with", () => {
+    recorded("another_after_verified");
+    const button = screen.getByRole("button", { name: "Write a new interpretation" });
+    const label = screen.getByText("claude-sonnet-5-5, low");
+    expect(label.id).not.toBe("");
+    expect(button.getAttribute("aria-describedby")).toBe(label.id);
+  });
+
+  it("clears a refusal when another entry is chosen", async () => {
+    const sentence = "That model and effort are not offered on this server.";
+    ask.mockResolvedValue({ error: sentence });
+    recorded("choices_after_refused");
+    fireEvent.click(screen.getByRole("button", { name: "Write a new interpretation" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe(sentence));
+    fireEvent.change(choice(), { target: { value: choice().options[1].value } });
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText(sentence)).toBeNull();
   });
 
   it.each(["verified_current", "refused_current", "pending", "with_earlier"] as const)(
@@ -535,21 +567,51 @@ describe("InterpretationPanel's choice of model and effort", () => {
   });
 });
 
-describe("InterpretationPanel's written-by line", () => {
-  it("names the model, the effort and the prompt of a newest refused one, and of an earlier failed one", () => {
+const EARLIER_ID = "4c2e8f1a-6b3d-5e7f-9a0c-1d2b3e4f5a6b";
+
+describe("InterpretationPanel's line on what wrote each interpretation", () => {
+  it("names the model, the effort and the prompt of a newest refused one", () => {
     recorded("choices_after_refused");
     expect(
       screen.getByText("Written by claude-opus-5-5-20261001, medium effort, prompt 5b08e57994d4."),
     ).toBeTruthy();
-    const [failedEntry] = earlierEntries();
-    // A failed one has no returned model and no prompt version: the requested model stands in.
-    expect(within(failedEntry).getByText("Written by claude-sonnet-5-5, high effort.")).toBeTruthy();
   });
 
-  it("names them for a newest failed one", () => {
+  it("says what a newest failed one was asked of, and what an earlier failed one was", () => {
     recorded("failed");
-    expect(screen.getByText("Written by claude-opus-5-5, medium effort.")).toBeTruthy();
+    expect(screen.getByText("Asked of claude-opus-5-5, medium effort.")).toBeTruthy();
+    expect(screen.queryByText(/Written by/)).toBeNull();
+    cleanup();
+    recorded("choices_after_refused");
+    const [failedEntry] = earlierEntries();
+    expect(within(failedEntry).getByText("Asked of claude-sonnet-5-5, high effort.")).toBeTruthy();
+    expect(within(failedEntry).queryByText(/Written by/)).toBeNull();
   });
+
+  it.each(["queued", "running"] as const)(
+    "says what a newest %s one is being written by, and not that it was written",
+    (status) => {
+      panel({ interpretation: { ...BASE, status } });
+      expect(screen.getByText("Being written by claude-opus-5-5, medium effort.")).toBeTruthy();
+      expect(screen.queryByText(/Written by/)).toBeNull();
+    },
+  );
+
+  it.each(["queued", "running"] as const)(
+    "says what an earlier %s one is being written by, and not that it was written",
+    (status) => {
+      // The API has at most one pending, the newest, but the panel holds the rule itself.
+      panel({
+        interpretation: VERIFIED,
+        earlierInterpretations: [
+          { ...BASE, id: EARLIER_ID, status, model: "claude-sonnet-5-5", effort: "xhigh" },
+        ],
+      });
+      const [entry] = earlierEntries();
+      expect(within(entry).getByText("Being written by claude-sonnet-5-5, xhigh effort.")).toBeTruthy();
+      expect(within(entry).queryByText(/Written by/)).toBeNull();
+    },
+  );
 
   it("names them for every earlier one", () => {
     recorded("with_earlier");
@@ -559,7 +621,7 @@ describe("InterpretationPanel's written-by line", () => {
         "Written by claude-sonnet-5-5-20260915, high effort, prompt 5b08e57994d4.",
       ),
     ).toBeTruthy();
-    expect(within(failedEntry).getByText("Written by claude-opus-5-5, medium effort.")).toBeTruthy();
+    expect(within(failedEntry).getByText("Asked of claude-opus-5-5, medium effort.")).toBeTruthy();
     expect(
       within(verifiedEntry).getByText(
         "Written by claude-opus-5-5-20261001, medium effort, prompt a28f0812170d.",

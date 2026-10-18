@@ -21,7 +21,8 @@ const OUT_OF_DATE = "Written under an earlier version of the prompt and rules.";
  *
  * `options` is the server's list of models and efforts for this analysis.
  * Only the entries a request would be accepted for are offered, and there is
- * a button exactly when there is one.
+ * a button when there is one, unless the newest interpretation is still
+ * being written.
  */
 export function InterpretationPanel({
   analysisId,
@@ -81,7 +82,7 @@ function Body({
       return (
         <div className="flex flex-col gap-3">
           <p className="text-note text-ink-soft">Writing the interpretation…</p>
-          {ask("Write a new interpretation")}
+          <MadeBy interpretation={interpretation} />
         </div>
       );
     case "verified":
@@ -99,7 +100,7 @@ function Body({
             <p className="text-note text-ink-soft">
               Attempts: {interpretation.attempts}.{interpretation.reason ? ` ${interpretation.reason}` : ""}
             </p>
-            <WrittenBy interpretation={interpretation} />
+            <MadeBy interpretation={interpretation} />
           </div>
           <NewOne interpretation={interpretation}>{ask("Write a new interpretation")}</NewOne>
         </div>
@@ -110,7 +111,7 @@ function Body({
           <p role="alert" className="text-note">
             {interpretation.error}
           </p>
-          <WrittenBy interpretation={interpretation} />
+          <MadeBy interpretation={interpretation} />
           {ask("Try again")}
         </div>
       );
@@ -140,17 +141,31 @@ function NewOne({
 }
 
 /**
- * Which model, at which effort, wrote the interpretation, and under which
- * prompt. The model the API answered from when it is on record, the one asked
- * for otherwise; the prompt only when it is on record.
+ * Which model, at which effort, the interpretation was asked of, said as far
+ * as it got. A verified or refused one was written: the model the API
+ * answered from when it is on record, the one asked for otherwise, and the
+ * prompt when it is on record. One queued or running is still being written;
+ * a failed one was only asked of the model.
  */
-function WrittenBy({ interpretation }: { interpretation: InterpretationDetail }) {
-  return (
-    <p className="value text-label text-ink-soft">
-      Written by {interpretation.returned_model ?? interpretation.model}, {interpretation.effort} effort
-      {interpretation.prompt_version ? `, prompt ${interpretation.prompt_version}` : ""}.
-    </p>
-  );
+function MadeBy({ interpretation }: { interpretation: InterpretationDetail }) {
+  const { model, effort } = interpretation;
+  let line: string;
+  switch (interpretation.status) {
+    case "verified":
+    case "refused":
+      line = `Written by ${interpretation.returned_model ?? model}, ${effort} effort${
+        interpretation.prompt_version ? `, prompt ${interpretation.prompt_version}` : ""
+      }.`;
+      break;
+    case "queued":
+    case "running":
+      line = `Being written by ${model}, ${effort} effort.`;
+      break;
+    case "failed":
+      line = `Asked of ${model}, ${effort} effort.`;
+      break;
+  }
+  return <p className="value text-label text-ink-soft">{line}</p>;
 }
 
 /**
@@ -182,7 +197,7 @@ function Verified({
       ))}
       {interpretation.limits ? <p className="text-note">{interpretation.limits}</p> : null}
       {interpretation.notice ? <p className="text-note">{interpretation.notice}</p> : null}
-      <WrittenBy interpretation={interpretation} />
+      <MadeBy interpretation={interpretation} />
     </div>
   );
 }
@@ -235,18 +250,18 @@ function EarlierBody({ interpretation }: { interpretation: InterpretationDetail 
       return (
         <div className="flex flex-col gap-2">
           <p>{REFUSED}</p>
-          <WrittenBy interpretation={interpretation} />
+          <MadeBy interpretation={interpretation} />
         </div>
       );
     case "failed":
       return (
         <div className="flex flex-col gap-2">
           <p className="text-note">{interpretation.error}</p>
-          <WrittenBy interpretation={interpretation} />
+          <MadeBy interpretation={interpretation} />
         </div>
       );
     case "queued":
     case "running":
-      return null;
+      return <MadeBy interpretation={interpretation} />;
   }
 }
