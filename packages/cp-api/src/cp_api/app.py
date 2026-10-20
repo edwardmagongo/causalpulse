@@ -82,9 +82,11 @@ _LOST = {JobStatus.FAILED, JobStatus.STOPPED, JobStatus.CANCELED}
 # it (`create_analysis`), and an interpretation before any lost-job check will
 # (`_fail_lost_interpretations`). Either has a row before it has a job: the
 # row is committed and then the job is enqueued, and in between it looks
-# exactly like one whose job is lost. `created_at` is PostgreSQL's `now()`, which is when
-# the submitting request's transaction began, so the span to cover is longer
-# than commit to enqueue. It runs from just after that request's key was
+# exactly like one whose job is lost. An analysis's `created_at` is PostgreSQL's
+# `now()`, which is when the submitting request's transaction began, so the span
+# to cover is longer than commit to enqueue; an interpretation's is
+# `clock_timestamp()` at its insert, so its span is shorter, and the same grace
+# covers it. It runs from just after that request's key was
 # checked: reading the dataset (up to 50 MB), checking the request, the day's
 # count (the limiter gives up on a Redis that hangs after about a second), the
 # insert, the commit and the enqueue. None of these waits on a person, and

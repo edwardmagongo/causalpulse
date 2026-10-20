@@ -204,8 +204,9 @@ a body naming neither, the request is for the default. Otherwise it is answered 
 - naming the model or the effort without the other: "Name both the model and the effort, or
   neither."
 - naming an entry that is not on the list: "That model and effort are not offered on this server."
-- with a key besides `model` and `effort`, or not JSON of that shape: FastAPI's own 422, whose
-  `detail` is a list, so a misnamed key is refused rather than read as naming neither.
+- with a key besides `model` and `effort`, or a body that is not a JSON object: FastAPI's own
+  422, whose `detail` is a list, so a misnamed key is refused rather than read as naming neither.
+  A body of JSON `null` is read as no body.
 
 FastAPI refuses a body of the wrong shape before the route runs, so before the 404 for an analysis
 that is not the caller's. Of the route's own answers, a server with interpretations off answers 403
@@ -283,8 +284,8 @@ verdict is final under the current version on its own. It answers 409:
   interpretation of this analysis is already being written." One is written at a time per
   analysis. (Each of them asked for at least 30 seconds earlier whose job is gone from the queue or
   ended without recording a result is marked failed first, by the request or by a read of the
-  analysis, and the request goes ahead when none is left. One the worker finishes meanwhile
-  keeps what the worker wrote.)
+  analysis, and when none is left the request is judged by the rules below. One the worker
+  finishes meanwhile keeps what the worker wrote.)
 - when the newest from this entry is verified under the current version: "This analysis already
   has an interpretation from this model and effort, written under the current prompt and rules."
 - when the newest from this entry is refused under the current version: "This analysis's
@@ -312,9 +313,10 @@ shown on the same condition. Below the newest, under the heading "Earlier interp
 closed disclosure ("Show the 3 earlier interpretations") lists the others, newest first. Each
 gives its status, the model and effort it was asked of, labelled as the choice labels them (for
 example "refused, claude-sonnet-5-5, high, …"), when it was asked for and the version it was
-written under (a dash when none was recorded). Opened, a verified one shows its sections with their limits and the note on what
-"verified" establishes; a refused one says it is not shown; a failed one shows its error. Each,
-opened, ends with the line saying which model and effort it was asked of.
+written under (a dash when none was recorded). Opened, a verified one shows its sections with
+their limits and the note on what "verified" establishes; a refused one says it is not shown; a
+failed one shows its error. Each, opened, ends with the line saying which model and effort it was
+asked of.
 
 **For operators.** The API may not import the interpreter, so it holds its own copy of the current
 version, `CURRENT_INTERPRETER_VERSION` in `cp_api.app`; `tests/api/test_interpreter_version.py`
