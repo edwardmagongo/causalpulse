@@ -286,8 +286,10 @@ def _entry_refusal(
     or None.
 
     `interpretations` are all the analysis's, newest first. The request route
-    and the analysis's `interpretation_options` both ask this, so they agree;
-    neither the server's setting nor the daily limit is judged here.
+    and the analysis's `interpretation_options` both ask this, so they agree.
+    Whether the entry is on the app's list is not judged here (the request
+    route's `_chosen_entry` judges that, and the detail asks only of entries
+    on it), nor is the daily limit.
     """
     if analysis.status != "succeeded":
         return NOT_SUCCEEDED

@@ -140,7 +140,7 @@ def test_the_analysis_declares_its_interpretation_options_as_a_list_never_null()
     }
 
 
-def test_the_interpretation_request_names_both_or_neither_and_may_be_absent():
+def test_the_interpretation_request_defaults_to_neither_and_may_be_absent():
     from cp_api.models import InterpretationRequest
 
     assert InterpretationRequest().model_dump() == {"model": None, "effort": None}

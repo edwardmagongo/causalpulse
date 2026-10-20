@@ -73,7 +73,8 @@ WORKER_INTERPRETATIONS_OFF = (
     "interpretations are turned off on this server's worker, so this one was not written"
 )
 # Stored on an interpretation whose model and effort are not in this worker's
-# `CP_INTERPRETATION_OPTIONS`: the operator withdrew them after the row was queued.
+# `CP_INTERPRETATION_OPTIONS`: the operator withdrew them after the row was
+# queued, or this worker's setting never had them (set apart from the API's).
 WORKER_CHOICE_WITHDRAWN = "This model and effort are no longer offered on this server."
 
 
@@ -410,7 +411,8 @@ def run_interpretation_job(job_argument: str) -> None:
     and the job ends normally, as `run_analysis_job` does. An exception before
     then (finding or locking the row) is logged and raised again, so RQ records
     the job failed and the API's lost-job check fails the row the job was for
-    at its next read. An argument that is not an id, and a failure write that
+    at the first read or request once the row is older than the API's grace
+    period. An argument that is not an id, and a failure write that
     itself fails, raise too.
     """
     key = uuid.UUID(job_argument)

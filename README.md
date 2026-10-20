@@ -239,8 +239,9 @@ the dashboard's benchmark explorer serves the same evidence. Runs can be logged 
 never writes a number: it writes placeholders that name facts in a table built from the analysis,
 and a verifier refuses any narrative it cannot trace back to that table, any qualitative word
 outside a controlled list, and any statement that quotes an `INSUFFICIENT` estimate without its
-band. One interpretation costs about $0.07 to $0.20. On the server, each interpretation records
-the prompt and verifier rules it was written under; when those change, an analysis can be
+band. One interpretation costs about $0.07 to $0.20 at the default, `claude-opus-5-5` at medium
+effort. On the server, each interpretation records the prompt and verifier rules it was written
+under; when those change, an analysis can be
 [interpreted again](docs/interpretation.md#interpreting-again-and-the-earlier-interpretations),
 and its earlier interpretations are kept and listed below the new one. Whoever asks chooses the
 model and effort from a list the operator sets

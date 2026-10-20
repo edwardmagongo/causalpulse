@@ -58,10 +58,12 @@ def interpreting(monkeypatch):
 @pytest.fixture
 def make_client(sessions, redis_conn, worker_env, api_key_for, monkeypatch):
     def make(name="alice", interpretation=True, limits=None, options=None):
-        # Without `options`, the app reads the setting, which no test sets: one
-        # entry, `claude-opus-5-5:medium`. With them, the setting is set to the
-        # same list, so the worker these tests drain offers what the app offers
-        # (it fails a row whose entry its own list lacks).
+        # With `options`, the setting is set to the same list for the rest of
+        # the test, so the worker these tests drain offers what the app offers
+        # (it fails a row whose entry its own list lacks), and so does any app
+        # made later in the test without them. Without `options`, the app reads
+        # the setting: unset until some `make(options=...)` sets it, one entry,
+        # `claude-opus-5-5:medium`.
         if options:
             monkeypatch.setenv(
                 "CP_INTERPRETATION_OPTIONS", ",".join(f"{o.model}:{o.effort}" for o in options)
@@ -191,7 +193,9 @@ def _offers_what_it_answers(client, sessions, redis_conn, analysis_id, options):
     agree with what a request for each entry is answered; the analysis as read.
 
     Every entry is asked for in the state the analysis described: an accepted
-    request is undone before the next is made, so the asking changes nothing.
+    request's row and job are deleted before the next request is made. Each
+    accepted request still counts against the day's limit, and the analysis's
+    rows are left as they were.
     """
     detail = client.get(f"/v1/analyses/{analysis_id}").json()
     offered = detail["interpretation_options"]
