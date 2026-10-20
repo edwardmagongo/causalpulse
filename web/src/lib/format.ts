@@ -1,5 +1,7 @@
 /** One place numbers and timestamps become text. */
 
+import type { InterpretationOption } from "@/lib/api/types";
+
 export const DASH = "—";
 
 /** Four significant figures; `null` is a dash, never a zero. */
@@ -61,4 +63,13 @@ export function formatBytes(bytes: number): string {
   const kilobytes = bytes / 1024;
   if (Number(kilobytes.toPrecision(3)) < 1000) return `${Number(kilobytes.toPrecision(3))} KB`;
   return `${Number((bytes / (1024 * 1024)).toPrecision(3))} MB`;
+}
+
+/**
+ * How an entry of the server's interpretation list is named: "model, effort".
+ * Here, not beside the button that offers the entries, because a server
+ * component cannot call a function exported from a client module.
+ */
+export function optionLabel(option: Pick<InterpretationOption, "model" | "effort">): string {
+  return `${option.model}, ${option.effort}`;
 }

@@ -5,11 +5,7 @@ import { type FormEvent, useId, useState, useTransition } from "react";
 
 import { askForInterpretation } from "@/app/(app)/analyses/[id]/actions";
 import type { InterpretationOption } from "@/lib/api/types";
-
-/** How an entry of the server's list is named: "model, effort". */
-export function optionLabel(option: Pick<InterpretationOption, "model" | "effort">): string {
-  return `${option.model}, ${option.effort}`;
-}
+import { optionLabel } from "@/lib/format";
 
 // A select's value for an entry; JSON, so no model id can run into its effort.
 function keyOf(option: InterpretationOption): string {

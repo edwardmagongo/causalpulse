@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
 
 import type { InterpretationDetail, InterpretationOption } from "@/lib/api/types";
-import { DASH, formatTime } from "@/lib/format";
+import { DASH, formatTime, optionLabel } from "@/lib/format";
 
-import { InterpretButton, optionLabel } from "./InterpretButton";
+import { InterpretButton } from "./InterpretButton";
 
 const VERIFIED_HEADING = "Interpretation (model-written, verified against the facts)";
 const REFUSED =
