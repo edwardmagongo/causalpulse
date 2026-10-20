@@ -382,6 +382,22 @@ def test_a_worker_with_interpretations_off_fails_the_interpretation_without_a_ca
     assert row.interpreter_version == interpreter_version()
 
 
+def test_with_interpretations_off_a_withdrawn_choice_is_failed_as_off(
+    sessions, worker_env, monkeypatch
+):
+    # Both would refuse the row; the off check comes first, so its sentence is the one stored.
+    key = _analysed(sessions)
+    row_id = _queued(sessions, key, choice=("claude-sonnet-5-5", "medium"))
+    model = _script(monkeypatch)
+    monkeypatch.delenv("CP_INTERPRETATION")
+
+    run_interpretation_job(str(row_id))
+
+    row = _row(sessions, row_id)
+    assert (row.status, row.error) == ("failed", jobs.WORKER_INTERPRETATIONS_OFF)
+    assert (model.built, model.calls) == ([], 0)
+
+
 def test_a_job_given_an_analysis_id_runs_its_newest_row_when_that_is_queued(
     sessions, worker_env, monkeypatch
 ):

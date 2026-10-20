@@ -3,12 +3,15 @@
 from typing import get_args
 
 import pytest
+from cp_api.db import Interpretation
 from cp_api.settings import (
+    _DEFAULT_OPTIONS,
     EFFORTS,
     MODEL_ID_LIMIT,
     InterpretationOption,
     interpretation_options,
 )
+from cp_llm.interpret import MEASURED_CHOICE
 from cp_llm.model import Effort
 
 SETTING = "CP_INTERPRETATION_OPTIONS"
@@ -147,3 +150,14 @@ def test_the_first_wrong_entry_is_the_one_named():
 
 def test_the_efforts_are_the_ones_the_llm_layer_knows():
     assert get_args(Effort) == EFFORTS
+
+
+def test_the_model_id_limit_is_the_model_columns_width():
+    assert Interpretation.__table__.c.model.type.length == MODEL_ID_LIMIT
+
+
+def test_the_default_entry_is_the_one_the_misreading_study_measured():
+    # A server without the setting writes without the unmeasured note.
+    (parsed,) = _read(_DEFAULT_OPTIONS)
+    assert interpretation_options({}) == (parsed,)
+    assert (parsed.model, parsed.effort) == MEASURED_CHOICE

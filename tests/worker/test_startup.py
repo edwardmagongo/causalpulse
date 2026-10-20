@@ -91,13 +91,26 @@ def test_a_malformed_options_setting_refuses_before_redis(monkeypatch, interpret
     "options", [None, "claude-sonnet-5-5:low, claude-opus-5-5:medium"], ids=["unset", "a-list"]
 )
 def test_a_well_formed_options_setting_starts(monkeypatch, options):
-    from cp_worker.jobs import require_interpretation_settings
+    # The whole start, up to the worker's loop, which is replaced.
+    started = []
 
+    class _Worker:
+        def work(self):
+            started.append(True)
+
+    monkeypatch.setattr(entry, "make_worker", lambda connection: _Worker())
+    # The start configures the root logger; the test leaves it as pytest set it.
+    monkeypatch.setattr(entry.logging, "basicConfig", lambda **kwargs: None)
+    monkeypatch.delenv("CP_ENV", raising=False)
     monkeypatch.setenv("CP_INTERPRETATION", "on")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "a-key")
+    # Never contacted: the client connects on its first command, and the loop is replaced.
+    monkeypatch.setenv("REDIS_URL", "redis://127.0.0.1:1/0")
     if options is None:
         monkeypatch.delenv("CP_INTERPRETATION_OPTIONS", raising=False)
     else:
         monkeypatch.setenv("CP_INTERPRETATION_OPTIONS", options)
 
-    require_interpretation_settings()
+    entry.main()
+
+    assert started == [True]

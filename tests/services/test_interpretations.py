@@ -666,6 +666,31 @@ def test_the_daily_limit_refuses_with_its_sentence(make_client, redis_conn, sess
         assert _rows(session, second_id) == []
 
 
+def test_the_daily_limit_counts_every_entry_and_comes_after_the_pending_refusal(
+    make_client, redis_conn, sessions
+):
+    limits = Limits(interpretations_per_day=Limit("interpretations_per_day", 1, 86_400))
+    client = make_client(options=TWO, limits=limits)
+    analysis_id = _analysed(client, redis_conn)
+    assert _ask(client, analysis_id, A).status_code == 202
+
+    # While A's is pending, a request for B is refused for that, not for the limit.
+    while_pending = _ask(client, analysis_id, B)
+    with sessions() as session:
+        newest = _newest(session, analysis_id)
+        newest.status = "failed"
+        newest.error = "planted"
+        session.commit()
+    after = _ask(client, analysis_id, B)
+
+    assert (while_pending.status_code, while_pending.json()["detail"]) == (409, BEING_WRITTEN)
+    assert after.status_code == 429
+    assert after.json()["detail"].startswith(
+        "Too many interpretations today for this account. Try again in "
+    )
+    assert _entries(sessions, analysis_id) == [("failed", A.model, A.effort)]
+
+
 def test_every_accepted_request_counts_against_the_daily_limit(
     make_client, redis_conn, sessions
 ):
@@ -1136,6 +1161,40 @@ def test_a_body_with_keys_besides_the_two_is_fastapis_422(make_client, redis_con
         assert isinstance(answer.json()["detail"], list)
         assert answer.json()["detail"][0]["type"] == "extra_forbidden"
     assert _entries(sessions, analysis_id) == []
+
+
+def test_an_entry_the_apis_list_has_and_the_workers_lacks_fails_without_a_model(
+    make_client, redis_conn, sessions, monkeypatch
+):
+    # The API offers both entries; the worker's own setting is unset, so it
+    # offers the default only.
+    client = make_client()
+    analysis_id = _analysed(client, redis_conn)
+    api_with_two = TestClient(
+        create_app(
+            sessions=sessions, redis=redis_conn, interpretation=True, interpretation_options=TWO,
+        ),
+        headers=client.headers,
+    )
+    model = ScriptedReplies([narrative_for(_facts(sessions, analysis_id))])
+    built = []
+
+    def build(model_name, effort):
+        built.append((model_name, effort))
+        return model
+
+    monkeypatch.setattr(jobs, "build_model", build)
+
+    asked = _ask(api_with_two, analysis_id, B)
+    _drain(redis_conn)
+
+    assert asked.status_code == 202
+    got = api_with_two.get(f"/v1/analyses/{analysis_id}").json()["interpretation"]
+    assert (got["status"], got["error"], got["model"], got["effort"]) == (
+        "failed", "This model and effort are no longer offered on this server.",
+        B.model, B.effort,
+    )
+    assert built == []
 
 
 def test_a_body_that_is_not_json_is_fastapis_422(make_client, redis_conn, sessions):
