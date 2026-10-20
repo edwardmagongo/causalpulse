@@ -265,7 +265,7 @@ describe("InterpretationPanel, when the prompt and rules have changed", () => {
 });
 
 describe("InterpretationPanel's earlier interpretations", () => {
-  it("lists them, closed, newest first, each with its status, date and interpreter version", () => {
+  it("lists them, closed, newest first, each with its status, entry, date and interpreter version", () => {
     recorded("with_earlier");
     const list = earlierList();
     expect(list.open).toBe(false);
@@ -275,9 +275,15 @@ describe("InterpretationPanel's earlier interpretations", () => {
     entries.forEach((entry, index) => {
       expect(entry.querySelector("details")!.open).toBe(false);
       expect(entry.querySelector("summary")!.textContent).toBe(
-        `${earlier[index].status}, ${formatTime(earlier[index].created_at)}, version ${earlier[index].interpreter_version ?? DASH}`,
+        `${earlier[index].status}, ${earlier[index].model}, ${earlier[index].effort}, ${formatTime(earlier[index].created_at)}, version ${earlier[index].interpreter_version ?? DASH}`,
       );
     });
+    // Each names its own entry, "model, effort", as the choice does.
+    expect(entries.map((entry) => entry.querySelector("summary .status + .value")!.textContent)).toEqual([
+      "claude-sonnet-5-5, high",
+      "claude-opus-5-5, medium",
+      "claude-opus-5-5, medium",
+    ]);
     expect(entries.map((entry) => entry.querySelector("summary .status")!.textContent)).toEqual([
       "refused",
       "failed",
@@ -552,7 +558,9 @@ describe("InterpretationPanel's choice of model and effort", () => {
       recorded(name);
       expect(screen.queryByRole("combobox")).toBeNull();
       expect(screen.queryByRole("button")).toBeNull();
-      expect(screen.queryByText("claude-opus-5-5, medium")).toBeNull();
+      // An earlier interpretation's summary names its entry; nothing else may.
+      const named = screen.queryAllByText("claude-opus-5-5, medium");
+      expect(named.filter((element) => element.closest("summary") === null)).toEqual([]);
     },
   );
 

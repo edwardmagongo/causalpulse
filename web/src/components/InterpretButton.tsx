@@ -7,7 +7,7 @@ import { askForInterpretation } from "@/app/(app)/analyses/[id]/actions";
 import type { InterpretationOption } from "@/lib/api/types";
 
 /** How an entry of the server's list is named: "model, effort". */
-function optionLabel(option: InterpretationOption): string {
+export function optionLabel(option: Pick<InterpretationOption, "model" | "effort">): string {
   return `${option.model}, ${option.effort}`;
 }
 

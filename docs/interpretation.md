@@ -310,8 +310,9 @@ out of date or not, a **Write a new interpretation** button is shown when a requ
 would be accepted, with the entries that would be. A failed one keeps its **Try again** button,
 shown on the same condition. Below the newest, under the heading "Earlier interpretations", a
 closed disclosure ("Show the 3 earlier interpretations") lists the others, newest first. Each
-gives its status, when it was asked for and the version it was written under (a dash when none was
-recorded). Opened, a verified one shows its sections with their limits and the note on what
+gives its status, the model and effort it was asked of, labelled as the choice labels them (for
+example "refused, claude-sonnet-5-5, high, …"), when it was asked for and the version it was
+written under (a dash when none was recorded). Opened, a verified one shows its sections with their limits and the note on what
 "verified" establishes; a refused one says it is not shown; a failed one shows its error. Each,
 opened, ends with the line saying which model and effort it was asked of.
 

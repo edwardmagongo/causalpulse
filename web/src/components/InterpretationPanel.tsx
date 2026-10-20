@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import type { InterpretationDetail, InterpretationOption } from "@/lib/api/types";
 import { DASH, formatTime } from "@/lib/format";
 
-import { InterpretButton } from "./InterpretButton";
+import { InterpretButton, optionLabel } from "./InterpretButton";
 
 const VERIFIED_HEADING = "Interpretation (model-written, verified against the facts)";
 const REFUSED =
@@ -205,8 +205,9 @@ function Verified({
 /**
  * The analysis's earlier interpretations, newest first, closed until opened,
  * under their own heading so their sections' headings sit below it. Each shows
- * its status, when it was asked for and the interpreter version it was written
- * under; opened, what it holds.
+ * its status, the model and effort it was asked of (labelled as the choice
+ * labels them), when it was asked for and the interpreter version it was
+ * written under; opened, what it holds.
  */
 function Earlier({ interpretations }: { interpretations: InterpretationDetail[] }) {
   const count = interpretations.length;
@@ -228,6 +229,7 @@ function Earlier({ interpretations }: { interpretations: InterpretationDetail[] 
                 <summary>
                   <span>
                     <span className="status">{interpretation.status}</span>,{" "}
+                    <span className="value">{optionLabel(interpretation)}</span>,{" "}
                     <span className="value">{formatTime(interpretation.created_at)}</span>, version{" "}
                     <span className="value">{interpretation.interpreter_version ?? DASH}</span>
                   </span>
