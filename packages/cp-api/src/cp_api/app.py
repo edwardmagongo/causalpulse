@@ -86,8 +86,8 @@ _LOST = {JobStatus.FAILED, JobStatus.STOPPED, JobStatus.CANCELED}
 # `now()`, which is when the submitting request's transaction began, so the span
 # to cover is longer than commit to enqueue; an interpretation's is
 # `clock_timestamp()` at its insert, so its span is shorter, and the same grace
-# covers it. It runs from just after that request's key was
-# checked: reading the dataset (up to 50 MB), checking the request, the day's
+# covers it. The analysis's span runs from just after the submitting request's
+# key was checked: reading the dataset (up to 50 MB), checking the request, the day's
 # count (the limiter gives up on a Redis that hangs after about a second), the
 # insert, the commit and the enqueue. None of these waits on a person, and
 # half a minute allows for a loaded machine and for any difference between
