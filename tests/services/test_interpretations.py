@@ -1019,8 +1019,8 @@ def test_a_request_naming_an_entry_is_written_by_it(make_client, redis_conn, ses
         assert list(Job.fetch(row.job_id, connection=redis_conn).args) == [str(row.id)]
 
 
-def test_a_body_with_keys_besides_the_two_is_read_for_the_two(make_client, redis_conn, sessions):
-    # As for an analysis's request: a key the body does not declare is ignored.
+def test_a_body_with_keys_besides_the_two_is_fastapis_422(make_client, redis_conn, sessions):
+    # A misnamed key must not be dropped and the request written by the default.
     client = make_client(options=TWO)
     analysis_id = _analysed(client, redis_conn)
 
@@ -1028,9 +1028,16 @@ def test_a_body_with_keys_besides_the_two_is_read_for_the_two(make_client, redis
         f"/v1/analyses/{analysis_id}/interpretation",
         json={"model": B.model, "effort": B.effort, "colour": "red"},
     )
+    misnamed = client.post(
+        f"/v1/analyses/{analysis_id}/interpretation",
+        json={"model_id": B.model, "effort_level": B.effort},
+    )
 
-    assert asked.status_code == 202
-    assert _entries(sessions, analysis_id) == [("queued", B.model, B.effort)]
+    for answer in (asked, misnamed):
+        assert answer.status_code == 422
+        assert isinstance(answer.json()["detail"], list)
+        assert answer.json()["detail"][0]["type"] == "extra_forbidden"
+    assert _entries(sessions, analysis_id) == []
 
 
 def test_a_body_that_is_not_json_is_fastapis_422(make_client, redis_conn, sessions):

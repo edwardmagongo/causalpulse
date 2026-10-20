@@ -204,11 +204,14 @@ a body naming neither, the request is for the default. Otherwise it is answered 
 - naming the model or the effort without the other: "Name both the model and the effort, or
   neither."
 - naming an entry that is not on the list: "That model and effort are not offered on this server."
+- with a key besides `model` and `effort`, or not JSON of that shape: FastAPI's own 422, whose
+  `detail` is a list, so a misnamed key is refused rather than read as naming neither.
 
-A server with interpretations off answers 403 before it judges the choice. The interpretation
-records the entry it was asked for in its `model` and `effort`, and the API's detail lists the
-entries with whether each would be accepted for that analysis (`interpretation_options`, in
-[Backend](backend.md#routes)).
+FastAPI refuses a body of the wrong shape before the route runs, so before the 404 for an analysis
+that is not the caller's. Of the route's own answers, a server with interpretations off answers 403
+before it judges the choice. The interpretation records the entry it was asked for in its `model`
+and `effort`, and the API's detail lists the entries with whether each would be accepted for that
+analysis (`interpretation_options`, in [Backend](backend.md#routes)).
 
 In the dashboard, the entries a request would be accepted for are offered beside the button,
 each labelled "model, effort" (for example "claude-sonnet-5-5, low"). With more than one, a

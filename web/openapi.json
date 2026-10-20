@@ -1026,7 +1026,8 @@
         "type": "object"
       },
       "InterpretationRequest": {
-        "description": "The body of `POST /v1/analyses/{id}/interpretation`, which may be absent.\n\nIt names an entry of the server's list by both its model and its effort,\nor names neither, for the list's first entry, the default. Either alone,\nor an entry not on the list, is refused with a 422.",
+        "additionalProperties": false,
+        "description": "The body of `POST /v1/analyses/{id}/interpretation`, which may be absent.\n\nIt names an entry of the server's list by both its model and its effort,\nor names neither, for the list's first entry, the default. Either alone,\nor an entry not on the list, is refused with a 422. So is a key besides\nthe two (FastAPI's own 422): a misnamed key would otherwise be dropped,\nand the request written by the default.",
         "properties": {
           "effort": {
             "anyOf": [

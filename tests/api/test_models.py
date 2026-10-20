@@ -147,3 +147,19 @@ def test_the_interpretation_request_names_both_or_neither_and_may_be_absent():
     paths = create_app(sessions=object(), redis=object()).openapi()["paths"]
     body = paths["/v1/analyses/{analysis_id}/interpretation"]["post"]["requestBody"]
     assert body.get("required", False) is False
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"model": "claude-opus-5-5", "effort": "medium", "colour": "red"},
+        # Misnamed: without the refusal, this would be written by the default.
+        {"model_id": "claude-sonnet-5-5", "effort_level": "low"},
+    ],
+)
+def test_the_interpretation_request_refuses_a_key_besides_the_two(body):
+    from cp_api.models import InterpretationRequest
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="extra_forbidden"):
+        InterpretationRequest.model_validate(body)

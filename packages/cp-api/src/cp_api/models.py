@@ -16,7 +16,7 @@ from __future__ import annotations
 from typing import Literal
 
 from cp_core.catalogue import Family
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 Status = Literal["queued", "running", "succeeded", "failed"]
 
@@ -114,8 +114,12 @@ class InterpretationRequest(BaseModel):
 
     It names an entry of the server's list by both its model and its effort,
     or names neither, for the list's first entry, the default. Either alone,
-    or an entry not on the list, is refused with a 422.
+    or an entry not on the list, is refused with a 422. So is a key besides
+    the two (FastAPI's own 422): a misnamed key would otherwise be dropped,
+    and the request written by the default.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     model: str | None = None
     effort: str | None = None
