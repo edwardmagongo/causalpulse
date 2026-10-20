@@ -281,8 +281,10 @@ verdict is final under the current version on its own. It answers 409:
 
 - when any interpretation of the analysis is queued or running, whatever its entry: "An
   interpretation of this analysis is already being written." One is written at a time per
-  analysis. (If it was asked for at least 30 seconds earlier and its job is gone from the queue or
-  ended without recording a result, it is marked failed first, and the request goes ahead.)
+  analysis. (Each of them asked for at least 30 seconds earlier whose job is gone from the queue or
+  ended without recording a result is marked failed first, by the request or by a read of the
+  analysis, and the request goes ahead when none is left. One the worker finishes meanwhile
+  keeps what the worker wrote.)
 - when the newest from this entry is verified under the current version: "This analysis already
   has an interpretation from this model and effort, written under the current prompt and rules."
 - when the newest from this entry is refused under the current version: "This analysis's

@@ -26,7 +26,7 @@ from redis.exceptions import RedisError
 from rq import Queue
 from rq.exceptions import NoSuchJobError
 from rq.job import Job, JobStatus
-from sqlalchemy import Select, func, select, text, tuple_
+from sqlalchemy import Select, func, select, text, tuple_, update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.datastructures import FormData
@@ -79,9 +79,10 @@ QUEUE_DOWN = (
 )
 _LOST = {JobStatus.FAILED, JobStatus.STOPPED, JobStatus.CANCELED}
 # How old an analysis must be before a submission's lost-job check will judge
-# it (`create_analysis`). An analysis has a row before it has a job: the row is
-# committed and then the job is enqueued, and in between it looks exactly like
-# one whose job is lost. `created_at` is PostgreSQL's `now()`, which is when
+# it (`create_analysis`), and an interpretation before any lost-job check will
+# (`_fail_lost_interpretations`). Either has a row before it has a job: the
+# row is committed and then the job is enqueued, and in between it looks
+# exactly like one whose job is lost. `created_at` is PostgreSQL's `now()`, which is when
 # the submitting request's transaction began, so the span to cover is longer
 # than commit to enqueue. It runs from just after that request's key was
 # checked: reading the dataset (up to 50 MB), checking the request, the day's
@@ -583,13 +584,43 @@ def create_app(
             analysis.finished_at = utcnow()
             session.commit()
 
-    def _fail_interpretation_if_lost(session: Session, row: Interpretation) -> None:
-        """Mark a pending interpretation `failed` when its job is gone, as for an analysis."""
-        if row.status in INTERPRETATION_PENDING and _job_id_lost(queue_redis, row.job_id):
-            row.status = "failed"
-            row.error = WORKER_LOST
-            row.finished_at = utcnow()
-            session.commit()
+    def _fail_lost_interpretations(
+        session: Session, interpretations: Iterable[Interpretation]
+    ) -> bool:
+        """Mark `failed` each of the interpretations still queued or running whose job is gone;
+        whether any job was found gone.
+
+        Every pending one is checked, not only the newest, since any of them
+        holds every entry. One newer than `SUBMISSION_GRACE` stands, lost or
+        not: its row is committed before its job is enqueued, and in between
+        it looks exactly like one whose job is lost. The write re-checks the
+        status in the same statement, so a row the worker finished after it
+        was read keeps what the worker wrote. When a job was found gone, this
+        commits, which releases any lock the session holds, and the rows as
+        read may no longer be what the database holds: the caller reads them
+        again.
+        """
+        settled = utcnow() - SUBMISSION_GRACE
+        lost = [
+            row.id
+            for row in interpretations
+            if row.status in INTERPRETATION_PENDING
+            and row.created_at <= settled
+            and _job_id_lost(queue_redis, row.job_id)
+        ]
+        if not lost:
+            return False
+        session.execute(
+            update(Interpretation)
+            .where(
+                Interpretation.id.in_(lost),
+                Interpretation.status.in_(INTERPRETATION_PENDING),
+            )
+            .values(status="failed", error=WORKER_LOST, finished_at=utcnow())
+            .execution_options(synchronize_session=False)
+        )
+        session.commit()
+        return True
 
     def _lock_analysis(session: Session, analysis_id: uuid.UUID) -> None:
         """Hold the analysis row's lock until the session's next commit or rollback."""
@@ -853,11 +884,8 @@ def create_app(
             .order_by(EstimateRow.id)
         ).all()
         interpretations = _interpretations(session, analysis_id)
-        pending = _newest_pending(interpretations)
-        if pending is not None:
-            # Only one can be pending in practice: a request is refused while
-            # any is. The check changes the row in place, so the list stands.
-            _fail_interpretation_if_lost(session, pending)
+        if _fail_lost_interpretations(session, interpretations):
+            interpretations = _interpretations(session, analysis_id)
         interpretation = interpretations[0] if interpretations else None
         # Each entry of the server's list, with what a request for it would be
         # answered; none when the server writes no interpretations.
@@ -923,14 +951,12 @@ def create_app(
         entry = _chosen_entry(body, options)
         interpretations = _interpretations(session, analysis_id)
         reason = _entry_refusal(session, analysis, entry, interpretations)
-        pending = _newest_pending(interpretations)
-        if reason == BEING_WRITTEN and pending is not None:
+        if reason == BEING_WRITTEN:
             # A job that died with its worker would otherwise hold the analysis
-            # for good. A row too new to judge stands: its job may not be
-            # enqueued yet (see `SUBMISSION_GRACE`).
+            # for good. If Redis cannot say whether the jobs are lost, the rows
+            # stand.
             with contextlib.suppress(RedisError):
-                if pending.created_at <= utcnow() - SUBMISSION_GRACE:
-                    _fail_interpretation_if_lost(session, pending)
+                if _fail_lost_interpretations(session, interpretations):
                     # That commit released the lock; take it again and read
                     # what a request that slipped in meanwhile left, which may
                     # be a newer row.

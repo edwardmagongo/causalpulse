@@ -499,13 +499,13 @@ def test_an_analysis_with_no_interpretation_has_no_earlier_ones(make_client, red
     ]
 
 
-def test_the_lost_job_check_on_a_read_looks_at_the_newest_pending_one_only(
+def test_the_lost_job_check_on_a_read_looks_at_every_pending_one(
     make_client, redis_conn, sessions
 ):
     # Only one can be pending in practice: a request is refused while any is.
     # Planted: two pending rows whose jobs never existed, under a newer failed
-    # one. Any pending row holds every entry, so a read checks the newest
-    # pending one, newest or not, and only that one: one queue read per read.
+    # one. Any pending row holds every entry, so a read checks each of them,
+    # and the older one, left pending, would hold the analysis.
     client = make_client(options=TWO)
     analysis_id = _analysed(client, redis_conn)
     _write(sessions, analysis_id, "queued", None, minutes_ago=30)
@@ -516,11 +516,85 @@ def test_the_lost_job_check_on_a_read_looks_at_the_newest_pending_one_only(
 
     earlier = detail["earlier_interpretations"]
     assert [(e["status"], e["error"]) for e in earlier] == [
-        ("failed", WORKER_LOST), ("queued", None),
+        ("failed", WORKER_LOST), ("failed", WORKER_LOST),
     ]
+    assert _answers(detail) == [(True, None), (True, None)]
     with sessions() as session:
         assert [row.status for row in _rows(session, analysis_id)] == [
-            "failed", "failed", "queued",
+            "failed", "failed", "failed",
+        ]
+
+
+def test_an_older_pending_one_whose_job_is_gone_does_not_hold_the_analysis(
+    make_client, redis_conn, sessions
+):
+    # The older pending row is not the newest pending one: a check of the
+    # newest pending one only would fail the newer row and leave the older
+    # one holding every entry.
+    client = make_client(options=TWO)
+    analysis_id = _analysed(client, redis_conn)
+    _write(sessions, analysis_id, "queued", None, minutes_ago=30, entry=B)
+    _write(sessions, analysis_id, "queued", None, minutes_ago=20)
+
+    asked = _ask(client, analysis_id, B)
+
+    assert asked.status_code == 202, asked.json()
+    assert _entries(sessions, analysis_id) == [
+        ("queued", B.model, B.effort), ("failed", A.model, A.effort), ("failed", B.model, B.effort),
+    ]
+
+
+def _finished_meanwhile(monkeypatch, sessions, interpretation_id):
+    """Make the lost-job check find the job gone, but only after the worker has finished the
+    row as verified under the current version: the order a check can meet when the worker
+    commits between the API's read of the row and its write."""
+    from cp_api import app as app_module
+
+    def lost_after_the_worker_finished(redis, job_id):
+        with sessions() as session:
+            row = session.get(Interpretation, interpretation_id)
+            row.status = "verified"
+            row.interpreter_version = CURRENT_INTERPRETER_VERSION
+            row.finished_at = utcnow()
+            for name, value in _FINISHED["verified"].items():
+                setattr(row, name, value)
+            session.commit()
+        return True
+
+    monkeypatch.setattr(app_module, "_job_id_lost", lost_after_the_worker_finished)
+
+
+def test_a_read_never_fails_a_row_the_worker_finished_after_it_was_read(
+    make_client, redis_conn, sessions, monkeypatch
+):
+    client = make_client()
+    analysis_id = _analysed(client, redis_conn)
+    row_id = _write(sessions, analysis_id, "queued", None, minutes_ago=10)
+    _finished_meanwhile(monkeypatch, sessions, row_id)
+
+    got = client.get(f"/v1/analyses/{analysis_id}").json()["interpretation"]
+
+    assert (got["status"], got["error"]) == ("verified", None)
+    with sessions() as session:
+        assert [(row.status, row.error) for row in _rows(session, analysis_id)] == [
+            ("verified", None),
+        ]
+
+
+def test_a_request_never_fails_a_row_the_worker_finished_after_it_was_read(
+    make_client, redis_conn, sessions, monkeypatch
+):
+    client = make_client()
+    analysis_id = _analysed(client, redis_conn)
+    row_id = _write(sessions, analysis_id, "queued", None, minutes_ago=10)
+    _finished_meanwhile(monkeypatch, sessions, row_id)
+
+    asked = _ask(client, analysis_id)
+
+    assert (asked.status_code, asked.json()["detail"]) == (409, ALREADY_VERIFIED)
+    with sessions() as session:
+        assert [(row.status, row.error) for row in _rows(session, analysis_id)] == [
+            ("verified", None),
         ]
 
 
@@ -629,10 +703,34 @@ def test_a_pending_interpretation_whose_job_is_gone_fails_on_the_next_read(
     analysis_id = _analysed(client, redis_conn)
     _ask(client, analysis_id)
     redis_conn.flushdb()
+    with sessions() as session:
+        row = _newest(session, analysis_id)
+        row.created_at = utcnow() - SUBMISSION_GRACE - timedelta(seconds=1)
+        session.commit()
 
     got = client.get(f"/v1/analyses/{analysis_id}").json()["interpretation"]
 
     assert (got["status"], got["error"]) == ("failed", WORKER_LOST)
+
+
+def test_a_read_leaves_a_lost_one_inside_the_grace_period_pending(
+    make_client, redis_conn, sessions
+):
+    # As a request does: between a request's commit and its enqueue, its row
+    # looks exactly like one whose job is lost.
+    client = make_client()
+    analysis_id = _analysed(client, redis_conn)
+    _ask(client, analysis_id)
+    redis_conn.flushdb()
+
+    detail = client.get(f"/v1/analyses/{analysis_id}").json()
+
+    assert (detail["interpretation"]["status"], detail["interpretation"]["error"]) == (
+        "queued", None,
+    )
+    assert _answers(detail) == [(False, BEING_WRITTEN)]
+    with sessions() as session:
+        assert _newest(session, analysis_id).status == "queued"
 
 
 def test_asking_again_frees_a_lost_one_older_than_the_grace_period(
