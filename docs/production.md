@@ -78,8 +78,7 @@ model that is not lower-case letters, digits, dots and hyphens starting with a l
 is longer than 64 characters, an effort that is not one of `low`, `medium`, `high`, `xhigh` and
 `max`, an entry given twice, or an empty entry (a stray comma). The line names the setting and
 quotes the first wrong entry, unlike the lines above, because an entry is no secret:
-`CP_INTERPRETATION_OPTIONS has a wrong entry '<entry>': <why>.` The worker prints it and exits;
-the API's start fails on a `ValueError` carrying it.
+`CP_INTERPRETATION_OPTIONS has a wrong entry '<entry>': <why>.` Each prints it and exits.
 
 The API also stops at start-up, in any environment, on a rate limit whose setting is not a whole
 number greater than zero.

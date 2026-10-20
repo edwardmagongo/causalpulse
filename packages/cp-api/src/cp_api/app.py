@@ -506,12 +506,19 @@ def create_app(
     # Whether this server writes interpretations (`CP_INTERPRETATION=on`).
     interpreting = interpretation_enabled() if interpretation is None else interpretation
     # The models and efforts it offers (`CP_INTERPRETATION_OPTIONS`), the first the
-    # default. A malformed setting raises `ValueError` here, so the app does not start.
-    options = (
-        read_interpretation_options()
-        if interpretation_options is None
-        else tuple(interpretation_options)
-    )
+    # default. A malformed setting stops the start with the parser's one line, as a
+    # malformed limit does (`cp_api.limits`) and as the worker does.
+    if interpretation_options is None:
+        try:
+            options = read_interpretation_options()
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from None
+    else:
+        options = tuple(interpretation_options)
+        if not options:
+            # The setting never parses to an empty list; a caller passing one
+            # has made a mistake, and every read would fail on it.
+            raise ValueError("interpretation_options must name at least one entry")
 
     @app.exception_handler(RequestError)
     async def _refused(request: Request, exc: RequestError) -> JSONResponse:

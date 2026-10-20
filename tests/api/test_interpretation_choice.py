@@ -199,12 +199,23 @@ def test_verified_from_one_then_the_other_refuses_both():
 
 
 def test_the_app_refuses_to_start_on_a_malformed_setting(monkeypatch):
-    monkeypatch.setenv("CP_INTERPRETATION_OPTIONS", "claude-opus-5-5:turbo")
+    # As the worker does: one line naming the setting and the entry, and no traceback.
+    monkeypatch.setenv("CP_INTERPRETATION_OPTIONS", "claude-sonnet-5-5:low, claude-opus-5-5:turbo")
 
-    with pytest.raises(ValueError, match="CP_INTERPRETATION_OPTIONS") as refused:
+    with pytest.raises(SystemExit) as refused:
         create_app(sessions=object(), redis=object())
 
-    assert "'claude-opus-5-5:turbo'" in str(refused.value)
+    message = str(refused.value)
+    assert "CP_INTERPRETATION_OPTIONS" in message
+    assert "'claude-opus-5-5:turbo'" in message
+    assert "\n" not in message
+    assert refused.value.__cause__ is None
+    assert refused.value.__suppress_context__
+
+
+def test_an_app_given_an_empty_list_is_a_mistake():
+    with pytest.raises(ValueError, match="at least one entry"):
+        create_app(sessions=object(), redis=object(), interpretation_options=())
 
 
 def test_an_app_given_its_list_does_not_read_the_setting(monkeypatch):

@@ -187,10 +187,9 @@ characters long, the width of the column it is stored in; an effort is one of `l
 effort is ignored. Absent or empty, the list is the one entry `claude-opus-5-5:medium`.
 
 The API reads the setting when it starts, and the worker checks it when it starts; both do so
-whether interpretations are on or off. On a malformed value neither starts: the worker exits with
-one line, and the API's start fails on a `ValueError` carrying the same line. It names the setting
-and the first wrong entry, in the form `CP_INTERPRETATION_OPTIONS has a wrong entry '<entry>':
-<why>.`
+whether interpretations are on or off. On a malformed value neither starts: each prints one line
+and exits. The line names the setting and the first wrong entry, in the form
+`CP_INTERPRETATION_OPTIONS has a wrong entry '<entry>': <why>.`
 
 The setting checks the form of a model id, not that the model exists or what it accepts. Every
 interpretation is asked for at its entry's effort, and a model that rejects the effort parameter,
