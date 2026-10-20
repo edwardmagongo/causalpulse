@@ -29,6 +29,11 @@ x-app-environment: &app-environment
   # Model-written interpretations of analyses: `on` to offer them. The API
   # offers them and the worker writes them, so both read the same value.
   CP_INTERPRETATION: ${CP_INTERPRETATION:-off}
+  # The models and efforts an interpretation may be asked of, `model:effort`
+  # separated by commas, the first the default; empty means
+  # `claude-opus-5-5:medium`. The API offers them and the worker checks each
+  # job against them, so both read the same value.
+  CP_INTERPRETATION_OPTIONS: ${CP_INTERPRETATION_OPTIONS:-}
 
 # Every service's log is kept to three files of 10 MB, so that a small disk
 # is not filled by logs.
