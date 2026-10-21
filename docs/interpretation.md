@@ -285,7 +285,9 @@ verdict is final under the current version on its own. It answers 409:
   analysis. (Each of them asked for at least 30 seconds earlier whose job is gone from the queue or
   ended without recording a result is marked failed first, by the request or by a read of the
   analysis, and when none is left the request is judged by the rules below. One the worker
-  finishes meanwhile keeps what the worker wrote.)
+  finishes meanwhile keeps what the worker wrote; one marked failed while its model call is still
+  under way stays failed, and the worker drops the outcome it then gets, though the call was paid
+  for, and logs that it did.)
 - when the newest from this entry is verified under the current version: "This analysis already
   has an interpretation from this model and effort, written under the current prompt and rules."
 - when the newest from this entry is refused under the current version: "This analysis's

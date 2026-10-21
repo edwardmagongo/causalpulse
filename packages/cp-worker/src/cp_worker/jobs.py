@@ -290,9 +290,25 @@ class _Progress:
 def _finish_interpretation(
     sessions: sessionmaker[Session], row_id: uuid.UUID, version: str, **fields: Any
 ) -> None:
+    """Store the outcome on the row, if it is still the `running` row this job set.
+
+    The API's lost-job check can mark the row failed while the model call is
+    under way. The outcome is then dropped, though the call was paid for: the
+    row stays as the API wrote it, so an interpretation shown as failed does not
+    change afterwards, and a request accepted after that failure is the one
+    that can make this entry's final interpretation. The row is locked, so the
+    API's write, which re-checks the status, comes wholly before or after this.
+    """
     with sessions() as session:
-        row = session.get(Interpretation, row_id)
+        row = session.get(Interpretation, row_id, with_for_update=True)
         assert row is not None
+        if row.status != "running":
+            logger.warning(
+                "interpretation %s: its %s outcome was not stored, because the row was "
+                "marked %s (%s) while the model was called",
+                row_id, fields["status"], row.status, row.error,
+            )
+            return
         for name, value in fields.items():
             setattr(row, name, value)
         row.interpreter_version = version
