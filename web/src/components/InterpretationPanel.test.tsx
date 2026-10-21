@@ -669,3 +669,99 @@ describe("InterpretButton", () => {
     await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
   });
 });
+
+const VERIFIED_HEADING = "Interpretation (model-written, verified against the facts)";
+
+function newer(): HTMLElement {
+  const heading = screen.getByRole("heading", { name: "Newer interpretation" });
+  return heading.closest("section")!;
+}
+
+describe("InterpretationPanel, when the newest is not verified but a current one is", () => {
+  it("leads with the current verified one, and shows the newer failed one beneath it", () => {
+    recorded("failed_after_current_verified");
+
+    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe(VERIFIED_HEADING);
+    const lead = screen.getByText("The estimate for ipw is 1794 [-63.52, 3652].");
+    expect(lead.closest("details")).toBeNull();
+    const section = newer();
+    expect(within(section).getByRole("alert").textContent).toBe(
+      "the model API call failed: APIConnectionError",
+    );
+    expect(within(section).getByText("Asked of claude-sonnet-5-5, low effort.")).toBeTruthy();
+    expect(within(section).getByRole("button", { name: "Try again" })).toBeTruthy();
+    expect(screen.getAllByRole("button")).toHaveLength(1);
+  });
+
+  it("lists neither the leading one nor the newer one among the earlier ones", () => {
+    recorded("failed_after_current_verified");
+
+    const entries = earlierEntries();
+    expect(entries).toHaveLength(1);
+    expect(entries[0].querySelector("summary")!.textContent).toContain("failed, claude-opus-5-5, medium");
+  });
+
+  it("shows a newer refused one beneath it, with a new one offered", () => {
+    const analysis = interpretations.failed_after_current_verified as Recorded;
+    panel({
+      interpretation: {
+        ...analysis.interpretation!,
+        status: "refused",
+        error: null,
+        attempts: 2,
+        returned_model: "claude-sonnet-5-5-20261001",
+        prompt_version: "5b08e57994d4",
+      },
+      earlierInterpretations: analysis.earlier_interpretations,
+      options: analysis.interpretation_options,
+    });
+
+    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe(VERIFIED_HEADING);
+    const section = newer();
+    expect(within(section).getByText(REFUSED_SENTENCE)).toBeTruthy();
+    expect(within(section).getByRole("button", { name: "Write a new interpretation" })).toBeTruthy();
+  });
+
+  it("shows a newer one still being written beneath it, with no button", () => {
+    const analysis = interpretations.failed_after_current_verified as Recorded;
+    panel({
+      interpretation: { ...analysis.interpretation!, status: "running", error: null },
+      earlierInterpretations: analysis.earlier_interpretations,
+      options: analysis.interpretation_options,
+    });
+
+    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe(VERIFIED_HEADING);
+    expect(within(newer()).getByText("Writing the interpretation…")).toBeTruthy();
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("leads with the newest of two current verified ones, and lists the other", () => {
+    const analysis = interpretations.failed_after_current_verified as Recorded;
+    const [latest, olderFailed] = analysis.earlier_interpretations;
+    const older = {
+      ...latest,
+      id: "0d9c8b7a-6e5f-5a4b-9c3d-2e1f0a9b8c7d",
+      model: "claude-fable-5-1",
+      created_at: "2026-10-18T08:00:00+00:00",
+      sections: [{ name: "summary", heading: "Summary", statements: ["The older narrative."] }],
+    };
+    panel({
+      interpretation: analysis.interpretation,
+      earlierInterpretations: [latest, olderFailed, older],
+      options: analysis.interpretation_options,
+    });
+
+    expect(screen.getByText("The estimate for ipw is 1794 [-63.52, 3652].").closest("details")).toBeNull();
+    const entries = earlierEntries();
+    expect(entries).toHaveLength(2);
+    expect(entries[1].querySelector("summary")!.textContent).toContain("verified, claude-fable-5-1");
+  });
+
+  it("does not lead with a verified one written under an earlier version", () => {
+    recorded("failed_current");
+
+    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("Interpretation");
+    expect(screen.queryByRole("heading", { name: "Newer interpretation" })).toBeNull();
+    expect(earlierEntries()).toHaveLength(1);
+  });
+});

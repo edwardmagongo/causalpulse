@@ -320,6 +320,14 @@ their limits and the note on what "verified" establishes; a refused one says it 
 failed one shows its error. Each, opened, ends with the line saying which model and effort it was
 asked of.
 
+The newest interpretation leads the section, with one exception. When it is not verified (it is
+being written, failed or was refused) and an earlier one is verified under the current prompt and
+rules, the newest such verified one leads instead, under the verified heading, and the newest
+follows it under "Newer interpretation", with its error or refusal and its button. Neither is then
+listed among the earlier ones. So asking another model and effort, and having it fail, does not
+put a current verified interpretation behind the disclosure. The API is unchanged: its
+`interpretation` is still the newest.
+
 **For operators.** The API may not import the interpreter, so it holds its own copy of the current
 version, `CURRENT_INTERPRETER_VERSION` in `cp_api.app`; `tests/api/test_interpreter_version.py`
 fails when it differs from the one `cp_llm` computes. The API and the worker run from the same
