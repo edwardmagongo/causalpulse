@@ -615,3 +615,57 @@ def test_an_unmeasured_choice_that_is_not_verified_stores_no_notice(
     row = _row(sessions, row_id)
     assert row.status == outcome
     assert row.notice is None
+
+
+@pytest.mark.parametrize("outcome", ["verified", "refused", "failed", "unexpected"])
+def test_a_row_the_api_marked_lost_during_the_call_keeps_what_the_api_wrote(
+    sessions, worker_env, monkeypatch, caplog, outcome
+):
+    # The API's lost-job check can mark a running row failed while its model
+    # call is still under way (RQ reports the job gone). The worker's outcome
+    # must then not overwrite it: a request accepted after the failure would
+    # otherwise leave two final interpretations from one entry, and a row the
+    # user was shown as failed would change under them.
+    from cp_api.app import WORKER_LOST
+    from sqlalchemy import update
+
+    key = _analysed(sessions)
+    _, facts = _facts(sessions, key)
+    row_id = _queued(sessions, key)
+    bad = narrative_for(facts).model_copy(update={"summary": ["It rose by 2 points."]})
+    replies = {
+        "verified": [narrative_for(facts)],
+        "refused": [bad, bad],
+        "failed": [ModelCallError("the model API call failed: APIConnectionError")],
+        "unexpected": [RuntimeError("boom")],
+    }[outcome]
+    model = _script(monkeypatch, *replies)
+    build = jobs.build_model
+    marked = []
+
+    def build_then_mark_lost(model_name, effort):
+        # Built after the worker committed `running`, before the call: the
+        # API's write, as `_fail_lost_interpretations` makes it, lands here.
+        with sessions() as session:
+            session.execute(
+                update(Interpretation)
+                .where(
+                    Interpretation.id == row_id,
+                    Interpretation.status.in_(["queued", "running"]),
+                )
+                .values(status="failed", error=WORKER_LOST, finished_at=datetime.now(UTC))
+            )
+            session.commit()
+        marked.append(_snapshot(sessions, key))
+        return build(model_name, effort)
+
+    monkeypatch.setattr(jobs, "build_model", build_then_mark_lost)
+    caplog.set_level(logging.WARNING, logger=jobs.__name__)
+
+    run_interpretation_job(str(row_id))
+
+    assert model.calls == len(replies)
+    assert _row(sessions, row_id).status == "failed"
+    assert _snapshot(sessions, key) == marked[0]
+    if outcome != "unexpected":
+        assert any(str(row_id) in record.getMessage() for record in _job_log(caplog))

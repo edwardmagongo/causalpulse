@@ -165,20 +165,23 @@ make smoke-web   # whole stack + browser; project causalpulse-web-smoke, ports 5
 
 `make check-web` and `make smoke-web` both run `pnpm` on the host, so both need Node.js 24 and
 `pnpm`. `make smoke-web` builds both images, issues two keys of one user inside the container,
-installs Playwright's Chromium, and runs thirteen browser tests: sign-in and a signed-in page each
+installs Playwright's Chromium, and runs fourteen browser tests: sign-in and a signed-in page each
 served under the policy, with different nonces; a path that is no page, which redirects to sign-in
-without a session, while `/study` alone opens for a visitor, under the policy, with a "Sign in"
-link and no "Sign out", and a sub-path of it redirects, and which is a 404 under the policy with a
-session; a wrong key and then the issued one;
-LaLonde from upload through two estimators to an opened evidence report; Proposition 99 with
-`synthetic_control` through to the end of its analysis; a 12 MB upload; an upload one byte over the
-API's 50 MB limit and one of exactly that size; an upload posted from another origin, which is
-refused with a 403; the header at 320, 360 and 390 px wide, on one line with every control inside
-it and no sideways scroll; the benchmark study opened from the header, with a figure from the
-published report found at its estimator and scenario at both levels; the header's "Sign out"
-button; and a revoked key. After every test the suite asserts that the browser's console logged no
-violation of the policy. It tears the stack down afterwards.
+without a session, while `/study` alone opens for a visitor, under the policy, with a "Sign in" link
+and no "Sign out", and a sub-path of it redirects, and which is a 404 under the policy with a
+session; a wrong key and then the issued one; LaLonde from upload through two estimators to an
+opened evidence report; Proposition 99 with `synthetic_control` through to the end of its analysis;
+that analysis's page again, after three interpretations are planted on it in the database by
+`web/e2e/plant-interpretations.py` (the stack writes none, and no test calls a model), answered 200
+and leading with the current verified one, the newer failed one beneath it and the oldest under
+"Earlier interpretations"; a 12 MB upload; an upload one byte over the API's 50 MB limit and one of
+exactly that size; an upload posted from another origin, which is refused with a 403; the header at
+320, 360 and 390 px wide, on one line with every control inside it and no sideways scroll; the
+benchmark study opened from the header, with a figure from the published report found at its
+estimator and scenario at both levels; the header's "Sign out" button; and a revoked key. After
+every test the suite asserts that the browser's console logged no violation of the policy. It tears
+the stack down afterwards.
 
-`make smoke-prod` runs the same thirteen tests through the production stack's proxy over HTTPS,
+`make smoke-prod` runs the same fourteen tests through the production stack's proxy over HTTPS,
 and then eleven more in `web/e2e/production.spec.ts` that only that stack can pass ("Production
 stack" below). `make smoke-web` leaves that file out.

@@ -220,7 +220,7 @@ with `down -v` whatever happened; a step that fails stops the gate there:
    - `deploy/only-the-proxy-publishes.sh` reads the containers as Docker created them and fails
      unless `proxy` is the only service with a port on the host and none is on the host's
      network;
-   - the thirteen tests of `workflow.spec.ts` run through the proxy over HTTPS, with Node
+   - the fourteen tests of `workflow.spec.ts` run through the proxy over HTTPS, with Node
      trusting the root certificate copied out of the proxy and the browser told to accept it;
    - the eleven tests of `production.spec.ts` run, whether or not the first run passed: the
      redirect from HTTP, to the same path and query; the two headers and

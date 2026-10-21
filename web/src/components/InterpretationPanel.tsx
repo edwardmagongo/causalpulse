@@ -19,6 +19,13 @@ const OUT_OF_DATE = "Written under an earlier version of the prompt and rules.";
  * interpretations off on the server, and none on record, there is no section.
  * Earlier interpretations, newest first, follow under a closed disclosure.
  *
+ * The newest interpretation leads, unless it is not verified (being written,
+ * failed or refused) and an earlier one is verified under the current prompt
+ * and rules (the API's rules make it one from another model or effort, though
+ * this does not check that): then the newest such verified one
+ * leads, the newest follows it under "Newer interpretation", and neither is
+ * among the earlier ones.
+ *
  * `options` is the server's list of models and efforts for this analysis.
  * Only the entries a request would be accepted for are offered, and there is
  * a button when there is one, unless the newest interpretation is still
@@ -39,19 +46,41 @@ export function InterpretationPanel({
 }) {
   const available = options.filter((option) => option.available);
   if (interpretation === null && available.length === 0 && interpretableReason === null) return null;
-  const verified = interpretation?.status === "verified";
+  // The earlier ones are newest first, so this is the newest current verified one.
+  const lead =
+    interpretation !== null && interpretation.status !== "verified"
+      ? (earlierInterpretations.find((earlier) => earlier.status === "verified" && !earlier.out_of_date) ??
+        null)
+      : null;
+  const earlier = earlierInterpretations.filter((one) => one !== lead);
+  const body = (
+    <Body
+      analysisId={analysisId}
+      interpretation={interpretation}
+      available={available}
+      interpretableReason={interpretableReason}
+    />
+  );
+  const verified = lead !== null || interpretation?.status === "verified";
   return (
     <section aria-labelledby="interpretation-heading" className="flex max-w-measure flex-col gap-4">
       <h2 id="interpretation-heading" className="title-section">
         {verified ? VERIFIED_HEADING : "Interpretation"}
       </h2>
-      <Body
-        analysisId={analysisId}
-        interpretation={interpretation}
-        available={available}
-        interpretableReason={interpretableReason}
-      />
-      {earlierInterpretations.length > 0 ? <Earlier interpretations={earlierInterpretations} /> : null}
+      {lead === null ? (
+        body
+      ) : (
+        <>
+          <Verified interpretation={lead} level="h3" />
+          <section aria-labelledby="newer-interpretation-heading" className="flex flex-col gap-2">
+            <h3 id="newer-interpretation-heading" className="title-group">
+              Newer interpretation
+            </h3>
+            {body}
+          </section>
+        </>
+      )}
+      {earlier.length > 0 ? <Earlier interpretations={earlier} /> : null}
     </section>
   );
 }

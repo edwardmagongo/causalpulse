@@ -50,7 +50,7 @@ never claims more certainty than the diagnostics support.
   A 200-interpretation study with 150 hand-labelled statements found the commonest remaining
   misreading, turned it into a verifier rule, and reports its own judge's 5.1% sensitivity as the
   weakness it is. See [Interpretation](#interpretation).
-- **3,938 Python tests, 451 dashboard unit tests and 24 browser tests**, plus gates that bring
+- **3,938 Python tests, 512 dashboard unit tests and 25 browser tests**, plus gates that bring
   up the demo stack, the production stack behind TLS, and the real deploy script against a local
   registry. See [Tests](#tests).
 
@@ -286,10 +286,10 @@ Routes, keys, limits and the dashboard's session and failure handling:
 | `make test-fast` | The 3,858 tests outside the slow tier |
 | `make test-slow` | The slow recovery harnesses, which score estimators over many seeds |
 | `make check-services` | The API and worker tests, against a real Postgres and Redis |
-| `make check-web` | The dashboard's lint, type checks and 451 unit tests |
+| `make check-web` | The dashboard's lint, type checks and 512 unit tests |
 | `make smoke` | The API and worker built as images and driven over HTTP |
-| `make smoke-web` | 13 Playwright tests of the dashboard against that stack |
-| `make smoke-prod` | The production stack behind TLS: 13 browser tests through the proxy, 11 more on its headers, limits and refusals, and a check that only the proxy has a port on the host |
+| `make smoke-web` | 14 Playwright tests of the dashboard against that stack |
+| `make smoke-prod` | The production stack behind TLS: 14 browser tests through the proxy, 11 more on its headers, limits and refusals, and a check that only the proxy has a port on the host |
 | `make check-infra` | Terraform formatting, validation and mocked tests, an inventory of every resource, and the deploy scripts against stand-ins |
 | `make smoke-deploy` | The real deploy script against a local registry: first deploy, upgrade, rollback, a broken image and a failed migration |
 | `make check-llm` | One real interpretation; billed, so run by hand |

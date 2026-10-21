@@ -285,7 +285,9 @@ verdict is final under the current version on its own. It answers 409:
   analysis. (Each of them asked for at least 30 seconds earlier whose job is gone from the queue or
   ended without recording a result is marked failed first, by the request or by a read of the
   analysis, and when none is left the request is judged by the rules below. One the worker
-  finishes meanwhile keeps what the worker wrote.)
+  finishes meanwhile keeps what the worker wrote; one marked failed while its model call is still
+  under way stays failed, and the worker drops the outcome it then gets, though the call was paid
+  for, and logs that it did.)
 - when the newest from this entry is verified under the current version: "This analysis already
   has an interpretation from this model and effort, written under the current prompt and rules."
 - when the newest from this entry is refused under the current version: "This analysis's
@@ -317,6 +319,15 @@ written under (a dash when none was recorded). Opened, a verified one shows its 
 their limits and the note on what "verified" establishes; a refused one says it is not shown; a
 failed one shows its error. Each, opened, ends with the line saying which model and effort it was
 asked of.
+
+The newest interpretation leads the section, with one exception. When it is not verified (it is
+being written, failed or was refused) and an earlier one is verified under the current prompt and
+rules, the newest such verified one leads instead, under the verified heading, and the newest
+follows it under "Newer interpretation", with what it says on its own (being written, its error,
+or its refusal) and its button when there is one. Neither is then
+listed among the earlier ones. So asking another model and effort, and having it fail, does not
+put a current verified interpretation behind the disclosure. The API is unchanged: its
+`interpretation` is still the newest.
 
 **For operators.** The API may not import the interpreter, so it holds its own copy of the current
 version, `CURRENT_INTERPRETER_VERSION` in `cp_api.app`; `tests/api/test_interpreter_version.py`
