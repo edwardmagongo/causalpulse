@@ -21,7 +21,8 @@ const OUT_OF_DATE = "Written under an earlier version of the prompt and rules.";
  *
  * The newest interpretation leads, unless it is not verified (being written,
  * failed or refused) and an earlier one is verified under the current prompt
- * and rules, from another model or effort: then the newest such verified one
+ * and rules (the API's rules make it one from another model or effort, though
+ * this does not check that): then the newest such verified one
  * leads, the newest follows it under "Newer interpretation", and neither is
  * among the earlier ones.
  *

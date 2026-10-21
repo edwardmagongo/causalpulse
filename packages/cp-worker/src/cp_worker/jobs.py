@@ -461,9 +461,13 @@ def run_interpretation_job(job_argument: str) -> None:
 def _fail_interpretation(
     sessions: sessionmaker[Session], row_id: uuid.UUID, error: str, version: str | None
 ) -> None:
-    """Record a failure, unless the row is gone or a result was already stored."""
+    """Record a failure, unless the row is gone or a result was already stored.
+
+    Locked, as `_finish_interpretation` locks it, so a row the API marks failed
+    meanwhile keeps the API's error.
+    """
     with sessions() as session:
-        row = session.get(Interpretation, row_id)
+        row = session.get(Interpretation, row_id, with_for_update=True)
         if row is None or row.status in ("verified", "refused", "failed"):
             return
         row.status = "failed"

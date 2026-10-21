@@ -323,7 +323,8 @@ asked of.
 The newest interpretation leads the section, with one exception. When it is not verified (it is
 being written, failed or was refused) and an earlier one is verified under the current prompt and
 rules, the newest such verified one leads instead, under the verified heading, and the newest
-follows it under "Newer interpretation", with its error or refusal and its button. Neither is then
+follows it under "Newer interpretation", with what it says on its own (being written, its error,
+or its refusal) and its button when there is one. Neither is then
 listed among the earlier ones. So asking another model and effort, and having it fail, does not
 put a current verified interpretation behind the disclosure. The API is unchanged: its
 `interpretation` is still the newest.

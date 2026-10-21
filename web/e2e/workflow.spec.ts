@@ -262,7 +262,8 @@ test("Proposition 99: panel fields, no covariates, synthetic control", async ({ 
 });
 
 test("planted interpretations: a current verified one leads, the newer failed one follows, the rest are earlier", async ({ page }) => {
-  expect(prop99).not.toBe("");
+  // The id goes into a shell command, so it must be exactly an id.
+  expect(prop99).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
   // From the repository root, where the compose file is.
   execSync(`${PLANT} ${prop99}`, {
     input: readFileSync(resolve("e2e/plant-interpretations.py")),
