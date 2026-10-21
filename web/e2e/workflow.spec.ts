@@ -1,15 +1,17 @@
 import { execSync } from "node:child_process";
-import { closeSync, mkdtempSync, openSync, rmSync, writeSync } from "node:fs";
+import { closeSync, mkdtempSync, openSync, readFileSync, rmSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { expect, test, type Page } from "@playwright/test";
 
-// Set by `make smoke-web`: two keys of one user, the fixtures' directory, and
-// the command that revokes a key inside the api container.
+// Set by `make smoke-web`: two keys of one user, the fixtures' directory, the
+// command that revokes a key inside the api container, and the one that runs
+// a Python script, given on standard input, there.
 const KEY = process.env.CP_E2E_KEY ?? "";
 const REVOCABLE_KEY = process.env.CP_E2E_REVOCABLE_KEY ?? "";
 const REVOKE = process.env.CP_E2E_REVOKE ?? "";
+const PLANT = process.env.CP_E2E_PLANT ?? "";
 const DATA = resolve(process.env.CP_E2E_DATA ?? "../tests/fixtures/real_data");
 
 const MB = 1024 * 1024;
@@ -22,7 +24,12 @@ test.describe.configure({ mode: "serial" });
 let scratch = "";
 
 test.beforeAll(() => {
-  for (const [name, value] of Object.entries({ CP_E2E_KEY: KEY, CP_E2E_REVOCABLE_KEY: REVOCABLE_KEY, CP_E2E_REVOKE: REVOKE })) {
+  for (const [name, value] of Object.entries({
+    CP_E2E_KEY: KEY,
+    CP_E2E_REVOCABLE_KEY: REVOCABLE_KEY,
+    CP_E2E_REVOKE: REVOKE,
+    CP_E2E_PLANT: PLANT,
+  })) {
     if (!value) throw new Error(`${name} is not set; run this through \`make smoke-web\``);
   }
   scratch = mkdtempSync(join(tmpdir(), "cp-e2e-"));
@@ -222,6 +229,9 @@ test("LaLonde: upload, schema, two estimators, results and the evidence report",
   await expect(page.frameLocator("iframe").getByRole("heading", { level: 1 })).toHaveText("Causal Pulse Report");
 });
 
+// The Proposition 99 analysis's id, for the interpretations planted on it below.
+let prop99 = "";
+
 test("Proposition 99: panel fields, no covariates, synthetic control", async ({ page }) => {
   await signIn(page, KEY);
   await page.goto("/analyses/new");
@@ -248,6 +258,35 @@ test("Proposition 99: panel fields, no covariates, synthetic control", async ({ 
   // The stack the browser tests run against writes no interpretations, so a
   // finished analysis has no interpretation section at all.
   await expect(page.getByRole("region", { name: /Interpretation/ })).toHaveCount(0);
+  prop99 = new URL(page.url()).pathname.split("/").pop() ?? "";
+});
+
+test("planted interpretations: a current verified one leads, the newer failed one follows, the rest are earlier", async ({ page }) => {
+  expect(prop99).not.toBe("");
+  // From the repository root, where the compose file is.
+  execSync(`${PLANT} ${prop99}`, {
+    input: readFileSync(resolve("e2e/plant-interpretations.py")),
+    stdio: ["pipe", "pipe", "pipe"],
+    cwd: resolve(".."),
+  });
+  await signIn(page, KEY);
+
+  // Rendered on the server: a helper a server component cannot call fails here, not in vitest.
+  const response = await page.goto(`/analyses/${prop99}`);
+  expect(response?.status()).toBe(200);
+  const section = page.getByRole("region", {
+    name: "Interpretation (model-written, verified against the facts)",
+  });
+  await expect(section.getByText("A planted narrative, written by no model.")).toBeVisible();
+  const newer = section.getByRole("region", { name: "Newer interpretation" });
+  await expect(newer.getByRole("alert")).toHaveText("planted: the newer interpretation failed");
+  await expect(newer.getByText("Asked of claude-sonnet-5-5, low effort.")).toBeVisible();
+  // This stack writes no interpretations, so nothing is offered.
+  await expect(section.getByRole("button")).toHaveCount(0);
+
+  await section.getByText("Show the earlier interpretation", { exact: true }).click();
+  const earlier = section.getByRole("region", { name: "Earlier interpretations" });
+  await expect(earlier.getByText(/^failed, claude-opus-5-5, medium, /)).toBeVisible();
 });
 
 test("a 12 MB upload arrives whole", async ({ page }) => {

@@ -104,7 +104,7 @@ WEB_SMOKE_STACK = CP_POSTGRES_PORT=5436 CP_REDIS_PORT=6383 CP_API_PORT=8002 CP_W
 
 smoke-web:
 	$(WEB_SMOKE_STACK) up -d --build || { $(WEB_SMOKE_STACK) down -v; exit 1; }
-	$(WEB_SMOKE_STACK) exec -T api cp-api-admin create-user smoke && KEY=$$($(WEB_SMOKE_STACK) exec -T api cp-api-admin issue-key smoke) && REVOCABLE=$$($(WEB_SMOKE_STACK) exec -T api cp-api-admin issue-key smoke) && (cd web && pnpm install --frozen-lockfile && pnpm exec playwright install $(PLAYWRIGHT_INSTALL) chromium && CP_WEB_URL=http://localhost:3001 CP_E2E_API_HEALTH=http://localhost:8002/v1/healthz CP_E2E_KEY=$$KEY CP_E2E_REVOCABLE_KEY=$$REVOCABLE CP_E2E_REVOKE='$(WEB_SMOKE_STACK) exec -T api cp-api-admin revoke-key' pnpm run e2e); status=$$?; $(WEB_SMOKE_STACK) down -v; exit $$status
+	$(WEB_SMOKE_STACK) exec -T api cp-api-admin create-user smoke && KEY=$$($(WEB_SMOKE_STACK) exec -T api cp-api-admin issue-key smoke) && REVOCABLE=$$($(WEB_SMOKE_STACK) exec -T api cp-api-admin issue-key smoke) && (cd web && pnpm install --frozen-lockfile && pnpm exec playwright install $(PLAYWRIGHT_INSTALL) chromium && CP_WEB_URL=http://localhost:3001 CP_E2E_API_HEALTH=http://localhost:8002/v1/healthz CP_E2E_KEY=$$KEY CP_E2E_REVOCABLE_KEY=$$REVOCABLE CP_E2E_REVOKE='$(WEB_SMOKE_STACK) exec -T api cp-api-admin revoke-key' CP_E2E_PLANT='$(WEB_SMOKE_STACK) exec -T api python -' pnpm run e2e); status=$$?; $(WEB_SMOKE_STACK) down -v; exit $$status
 
 # The production stack (`docker-compose.prod.yml`) end to end, in a browser,
 # over HTTPS through its proxy. Its own compose project, and 8091 and 8444 on
@@ -191,7 +191,7 @@ smoke-prod:
 	&& cd web && pnpm install --frozen-lockfile && pnpm exec playwright install $(PLAYWRIGHT_INSTALL) chromium \
 	&& export CP_WEB_URL=https://localhost:$(PROD_HTTPS_PORT) CP_E2E_HTTP_URL=http://localhost:$(PROD_HTTP_PORT) CP_E2E_IGNORE_HTTPS_ERRORS=true NODE_EXTRA_CA_CERTS="$$ca/root.crt" \
 		CP_E2E_KEY=$$KEY CP_E2E_REVOCABLE_KEY=$$REVOCABLE CP_E2E_LIMITS_KEY=$$LIMITS_KEY CP_E2E_LIMITS_REVOCABLE_KEY=$$LIMITS_REVOCABLE \
-		CP_E2E_REVOKE='$(PROD_SMOKE_STACK) exec -T api cp-api-admin revoke-key' \
+		CP_E2E_REVOKE='$(PROD_SMOKE_STACK) exec -T api cp-api-admin revoke-key' CP_E2E_PLANT='$(PROD_SMOKE_STACK) exec -T api python -' \
 	&& { pnpm exec playwright test --output test-results/workflow; workflow=$$?; CP_E2E_PRODUCTION=true pnpm exec playwright test --output test-results/production production.spec.ts; production=$$?; [ $$workflow -eq 0 ] && [ $$production -eq 0 ]; } ); status=$$?; \
 	[ $$status -eq 0 ] || $(PROD_SMOKE_STACK) logs --no-color --tail 60; \
 	$(PROD_SMOKE_STACK) down -v; rm -rf "$$ca"; exit $$status

@@ -288,8 +288,8 @@ Routes, keys, limits and the dashboard's session and failure handling:
 | `make check-services` | The API and worker tests, against a real Postgres and Redis |
 | `make check-web` | The dashboard's lint, type checks and 451 unit tests |
 | `make smoke` | The API and worker built as images and driven over HTTP |
-| `make smoke-web` | 13 Playwright tests of the dashboard against that stack |
-| `make smoke-prod` | The production stack behind TLS: 13 browser tests through the proxy, 11 more on its headers, limits and refusals, and a check that only the proxy has a port on the host |
+| `make smoke-web` | 14 Playwright tests of the dashboard against that stack |
+| `make smoke-prod` | The production stack behind TLS: 14 browser tests through the proxy, 11 more on its headers, limits and refusals, and a check that only the proxy has a port on the host |
 | `make check-infra` | Terraform formatting, validation and mocked tests, an inventory of every resource, and the deploy scripts against stand-ins |
 | `make smoke-deploy` | The real deploy script against a local registry: first deploy, upgrade, rollback, a broken image and a failed migration |
 | `make check-llm` | One real interpretation; billed, so run by hand |
