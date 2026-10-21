@@ -40,7 +40,7 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
         analysisId={analysis.id}
         interpretation={analysis.interpretation}
         earlierInterpretations={analysis.earlier_interpretations}
-        interpretable={analysis.interpretable}
+        options={analysis.interpretation_options}
         interpretableReason={analysis.interpretable_reason}
       />
       <RoutingTable routing={analysis.routing} />

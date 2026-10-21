@@ -45,6 +45,7 @@ secrets; `.env` itself is ignored by git.
 | `CP_LIMIT_SIGNIN_FAILURES`, `CP_LIMIT_UPLOADS_PER_DAY`, `CP_LIMIT_ANALYSES_PER_DAY`, `CP_LIMIT_ANALYSES_ACTIVE`, `CP_LIMIT_INTERPRETATIONS_PER_DAY` | The rate limits, below. Optional. `CP_LIMIT_INTERPRETATIONS_PER_DAY` is per user and defaults to 5 in the production file. |
 | `CP_INTERPRETATION` | `on`, exactly, turns model-written interpretations on; anything else, or nothing, leaves them off. The API and the worker both read it; a worker with it off fails an interpretation it is handed without calling the model. The production compose file feeds both from this one setting. Optional. |
 | `ANTHROPIC_API_KEY` | The model's key. Read by the worker only, never by the API. Required when `CP_INTERPRETATION=on`. |
+| `CP_INTERPRETATION_OPTIONS` | The models and efforts a user may ask an interpretation of: `model:effort` entries separated by commas, such as `claude-opus-5-5:medium,claude-sonnet-5-5:low`, the first the default. Empty, it is `claude-opus-5-5:medium`. The API offers the entries and the worker checks each job's against its own copy, so the production compose file feeds both from this one setting; after changing it, recreate both, which `docker compose up -d` does (`docker compose restart` keeps each container's old environment). An entry naming a model that rejects the effort parameter, such as `claude-haiku-4-5`, fails each interpretation asked of it. Optional. See [Choosing the model and effort](interpretation.md#choosing-the-model-and-effort). |
 | `CP_HTTP_PORT`, `CP_HTTPS_PORT` | The host ports the proxy listens on. Empty on a server (80 and 443); `make smoke-prod` sets them. |
 
 `DATABASE_URL` and `REDIS_URL` are assembled in the compose file. Redis has no password: it is on
@@ -70,6 +71,14 @@ beside the code that reads each setting, and two tests (`tests/api/test_settings
 Without `CP_ENV=production` none of this runs.
 
 One refusal applies in every environment: the worker exits at start-up if `CP_INTERPRETATION=on` and `ANTHROPIC_API_KEY` is not set.
+
+The API and the worker also stop at start-up, in any environment and whether interpretations are on
+or off, on a `CP_INTERPRETATION_OPTIONS` that is malformed: an entry that is not `model:effort`, a
+model that is not lower-case letters, digits, dots and hyphens starting with a letter or a digit or
+is longer than 64 characters, an effort that is not one of `low`, `medium`, `high`, `xhigh` and
+`max`, an entry given twice, or an empty entry (a stray comma). The line names the setting and
+quotes the first wrong entry, unlike the lines above, because an entry is no secret:
+`CP_INTERPRETATION_OPTIONS has a wrong entry '<entry>': <why>.` Each prints it and exits.
 
 The API also stops at start-up, in any environment, on a rate limit whose setting is not a whole
 number greater than zero.

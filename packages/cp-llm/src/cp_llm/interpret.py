@@ -28,6 +28,14 @@ VERIFIED_MEANS = (
     "the analysis."
 )
 
+# The model and effort the misreading study measured, and what a reader is told
+# when an interpretation was written by any other.
+MEASURED_CHOICE = ("claude-opus-5-5", "medium")
+UNMEASURED_NOTE = (
+    "The misreading study measured claude-opus-5-5 at medium effort only; "
+    "this interpretation was written by another model or effort."
+)
+
 # The heading each section is shown under, in the markdown and on the dashboard.
 SECTION_HEADINGS = {
     "summary": "Summary",

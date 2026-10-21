@@ -264,6 +264,8 @@ export interface components {
             /** Interpretable Reason */
             interpretable_reason: string | null;
             interpretation: components["schemas"]["InterpretationDetail"] | null;
+            /** Interpretation Options */
+            interpretation_options: components["schemas"]["InterpretationOptionOut"][];
             /** Partial */
             partial: boolean;
             /** Routing */
@@ -494,6 +496,8 @@ export interface components {
             attempts: number | null;
             /** Created At */
             created_at: string | null;
+            /** Effort */
+            effort: string;
             /** Error */
             error: string | null;
             /** Finished At */
@@ -525,6 +529,42 @@ export interface components {
              * @enum {string}
              */
             status: "queued" | "running" | "verified" | "refused" | "failed";
+        };
+        /**
+         * InterpretationOptionOut
+         * @description One entry of the server's list of models and efforts, for one analysis.
+         *
+         *     `default` is true for the list's first entry. `available` says whether a
+         *     request for this entry would be accepted, the day's limit aside; `reason`
+         *     is the sentence it would be refused with, or null when it is available.
+         */
+        InterpretationOptionOut: {
+            /** Available */
+            available: boolean;
+            /** Default */
+            default: boolean;
+            /** Effort */
+            effort: string;
+            /** Model */
+            model: string;
+            /** Reason */
+            reason: string | null;
+        };
+        /**
+         * InterpretationRequest
+         * @description The body of `POST /v1/analyses/{id}/interpretation`, which may be absent.
+         *
+         *     It names an entry of the server's list by both its model and its effort,
+         *     or names neither, for the list's first entry, the default. Either alone,
+         *     or an entry not on the list, is refused with a 422. So is a key besides
+         *     the two (FastAPI's own 422): a misnamed key would otherwise be dropped,
+         *     and the request written by the default.
+         */
+        InterpretationRequest: {
+            /** Effort */
+            effort?: string | null;
+            /** Model */
+            model?: string | null;
         };
         /** InterpretationSection */
         InterpretationSection: {
@@ -792,7 +832,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["InterpretationRequest"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             202: {

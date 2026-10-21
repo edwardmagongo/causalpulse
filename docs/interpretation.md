@@ -155,21 +155,96 @@ the key.
   answers 202 and queues a separate job, so an analysis never waits on the model.
   `CP_LIMIT_INTERPRETATIONS_PER_DAY` caps the requests per user, counted when accepted. The
   production stack defaults to 5.
-- **A result is final under the prompt and rules it was written under.** A verified or refused
-  interpretation cannot be asked for again while the server's prompt and verifier rules are the
-  ones it was written under: re-asking until something passes would cost money and lower the bar.
-  A failed one can be retried, such as a model that could not be reached, a job that ran out of
-  time, or a worker that was lost. Once the prompt or the set of rule names changes, a verified or
-  refused one can be replaced as well (see
+- **The model and effort are chosen from the operator's list.** Whoever asks for an
+  interpretation picks one entry of `CP_INTERPRETATION_OPTIONS`, a model at an effort, or takes
+  the first, the default (see [Choosing the model and effort](#choosing-the-model-and-effort)).
+- **A result is final for its model and effort under the prompt and rules it was written under.**
+  A verified or refused interpretation cannot be asked for again from the same model and effort
+  while the server's prompt and verifier rules are the ones it was written under: re-asking until
+  something passes would cost money and lower the bar. Another entry of the list can still be
+  asked for. A failed one can be retried, such as a model that could not be reached, a job that ran
+  out of time, or a worker that was lost. Once the prompt or the set of rule names changes, a
+  verified or refused one can be replaced as well (see
   [Interpreting again](#interpreting-again-and-the-earlier-interpretations)).
 - **What the reader sees.** On the analysis page, a verified interpretation is shown under
   "Interpretation (model-written, verified against the facts)". Beside it are the system's limits
-  text, a fixed note on what "verified" establishes and what it does not, and the model and prompt
-  version. A refused one is not shown; the page says so and gives the number of attempts.
+  text, a fixed note on what "verified" establishes and what it does not, and a line naming the
+  model, the effort and the prompt version. A refused one is not shown; the page says so and gives
+  the number of attempts.
 - **A verified interpretation can still misread its analysis.** Phase 2's study, below, measured
   it: in a hand-labelled sample, the commonest misreading quoted an estimate whose band is
   `INSUFFICIENT` without saying so. The verifier now refuses that (rule 6, below); misreadings
   outside its rules can still pass.
+
+### Choosing the model and effort
+
+**The setting.** `CP_INTERPRETATION_OPTIONS` lists the models and efforts an interpretation may be
+asked of: entries of the form `model:effort`, separated by commas, such as
+`claude-opus-5-5:medium,claude-sonnet-5-5:low`. The first entry is the default. A model is
+lower-case letters, digits, dots and hyphens, starting with a letter or a digit, and at most 64
+characters long, the width of the column it is stored in; an effort is one of `low`, `medium`,
+`high`, `xhigh` and `max`; no entry may appear twice. Whitespace around an entry, a model or an
+effort is ignored. Absent or empty, the list is the one entry `claude-opus-5-5:medium`.
+
+The API reads the setting when it starts, and the worker checks it when it starts; both do so
+whether interpretations are on or off. On a malformed value neither starts: each prints one line
+and exits. The line names the setting and the first wrong entry, in the form
+`CP_INTERPRETATION_OPTIONS has a wrong entry '<entry>': <why>.`
+
+The setting checks the form of a model id, not that the model exists or what it accepts. Every
+interpretation is asked for at its entry's effort, and a model that rejects the effort parameter,
+for example `claude-haiku-4-5`, fails each interpretation asked of it as a call error ("the model
+API call failed: …"), as does a model id the model API does not know. `claude-opus-5-5`,
+`claude-sonnet-5-5`, `claude-fable-5-1` and `claude-haiku-5-5` accept every effort level.
+
+**Asking for one.** `POST /v1/analyses/{id}/interpretation` takes an optional JSON body,
+`{"model": "claude-sonnet-5-5", "effort": "low"}`, naming one entry of the list. With no body, or
+a body naming neither, the request is for the default. Otherwise it is answered 422:
+
+- naming the model or the effort without the other: "Name both the model and the effort, or
+  neither."
+- naming an entry that is not on the list: "That model and effort are not offered on this server."
+- with a key besides `model` and `effort`, or a body that is not a JSON object: FastAPI's own
+  422, whose `detail` is a list, so a misnamed key is refused rather than read as naming neither.
+  A body of JSON `null` is read as no body.
+
+FastAPI refuses a body of the wrong shape before the route runs, so before the 404 for an analysis
+that is not the caller's. Of the route's own answers, a server with interpretations off answers 403
+before it judges the choice. The interpretation records the entry it was asked for in its `model`
+and `effort`, and the API's detail lists the entries with whether each would be accepted for that
+analysis (`interpretation_options`, in [Backend](backend.md#routes)).
+
+In the dashboard, the entries a request would be accepted for are offered beside the button,
+each labelled "model, effort" (for example "claude-sonnet-5-5, low"). With more than one, a
+"Model and effort" choice comes before the button, set at first to the default, or to the first
+of them when the default is not among them; with one, its label stands beside the button. A
+refusal shows the API's sentence until the choice changes. Each interpretation carries a line
+saying which model and effort it was asked of, as far as it got:
+
+- verified or refused: "Written by claude-opus-5-5, medium effort, prompt …", with the model the
+  model API answered from when that is recorded, and the prompt version when that is;
+- queued or running: "Being written by claude-sonnet-5-5, low effort.";
+- failed: "Asked of claude-sonnet-5-5, low effort."
+
+**Only one choice was measured.** The misreading study below measured interpretations written
+by `claude-opus-5-5` at `medium` effort only. The verifier applies the same rules to every model
+and effort, but how often a verified interpretation misreads its analysis is not known for any
+other. A verified interpretation from any other entry therefore carries, after the note on what
+"verified" establishes, the sentence "The misreading study measured claude-opus-5-5 at medium
+effort only; this interpretation was written by another model or effort."
+
+**An entry withdrawn after the request.** The worker checks each interpretation's entry against
+its own copy of the setting before it builds a model. One that is not on it fails without a model
+call, with "This model and effort are no longer offered on this server." The request was accepted,
+so it has used one of the day's `CP_LIMIT_INTERPRETATIONS_PER_DAY`, like any accepted request.
+(A worker with interpretations off fails it first, with its own reason.) As after any failure,
+another interpretation can then be asked for.
+
+**Restart the API and the worker together.** Each holds its own copy of the setting, from the
+environment it was started with. An API given an entry its worker lacks accepts requests for that
+entry, and the worker fails every one of them with the sentence above, which is then untrue, and
+each has used one of the day's allowance. In the production stack both take the value from one
+line of the environment file; see [Production stack](production.md#settings) for how to change it.
 
 ### Interpreting again, and the earlier interpretations
 
@@ -196,36 +271,52 @@ it, so it does not make an interpretation out of date.
 renamed fails that test and has to be accepted on purpose; it cannot notice a rule whose behaviour
 changed under the same name.
 
-**When a new interpretation can be asked for.** For an analysis that has succeeded and has a fact
-table, `POST /v1/analyses/{id}/interpretation` accepts a request when the analysis has no
-interpretation yet, when its newest one failed, under any version, or when its newest one is
-verified or refused and out of date. It answers 409 when the newest one is:
+**When a new interpretation can be asked for.** Requests are judged per entry of
+`CP_INTERPRETATION_OPTIONS`. An interpretation is from an entry when its model and its effort are
+both the entry's. For an analysis that has succeeded and has a fact table,
+`POST /v1/analyses/{id}/interpretation` accepts a request for an entry when none of the analysis's
+interpretations is queued or running, and the newest from that entry is absent, failed, under any
+version, or verified or refused and out of date. So an analysis with a verified interpretation from
+`claude-opus-5-5, medium` can still be given one from `claude-sonnet-5-5, low`, and each entry's
+verdict is final under the current version on its own. It answers 409:
 
-- queued or running: "An interpretation of this analysis is already being written." (If it was
-  asked for at least 30 seconds earlier and its job is gone from the queue or ended without
-  recording a result, it is marked failed first, and the request goes ahead.)
-- verified under the current version: "This analysis already has an interpretation written under
-  the current prompt and rules."
-- refused under the current version: "This analysis's interpretation could not be verified under
-  the current prompt and rules, and asking again would not change them."
+- when any interpretation of the analysis is queued or running, whatever its entry: "An
+  interpretation of this analysis is already being written." One is written at a time per
+  analysis. (Each of them asked for at least 30 seconds earlier whose job is gone from the queue or
+  ended without recording a result is marked failed first, by the request or by a read of the
+  analysis, and when none is left the request is judged by the rules below. One the worker
+  finishes meanwhile keeps what the worker wrote.)
+- when the newest from this entry is verified under the current version: "This analysis already
+  has an interpretation from this model and effort, written under the current prompt and rules."
+- when the newest from this entry is refused under the current version: "This analysis's
+  interpretation from this model and effort could not be verified under the current prompt and
+  rules, and asking again would not change them."
 
 Every accepted request writes a new row and counts against `CP_LIMIT_INTERPRETATIONS_PER_DAY`,
-whether it is the first, a retry of a failed one, or a replacement for one that is out of date.
-No row is reset or overwritten: the earlier ones are kept as they were. The newest, by when it was
-asked for, is the analysis's interpretation. `GET /v1/analyses/{id}` returns it as
-`interpretation` and the others, newest first, as `earlier_interpretations`; each carries its own
-`id`, its `interpreter_version` and `out_of_date` (true only for a verified or refused one that is out of
-date), and `interpretable` says whether a request would be accepted, the day's limit aside.
+whether it is the first, a retry of a failed one, a replacement for one that is out of date, or
+one from another entry. No row is reset or overwritten: the earlier ones are kept as they were.
+The newest, by when it was asked for and whatever its entry, is the analysis's interpretation.
+`GET /v1/analyses/{id}` returns it as `interpretation` and the others, newest first, as
+`earlier_interpretations`; each carries its own `id`, its `model` and `effort`, its
+`interpreter_version` and `out_of_date` (true only for a verified or refused one that is out of
+date). `interpretation_options` lists the server's entries in its order, each with `default`,
+`available` (whether a request for it would be accepted, the day's limit aside) and `reason` (the
+409 sentence it would get, or null); it is empty when the server has interpretations off.
+`interpretable` is true when some entry is available, and `interpretable_reason`, when none is,
+is the default entry's reason.
 
 **What the dashboard shows.** A verified or refused interpretation that is out of date carries the
-line "Written under an earlier version of the prompt and rules." and, when a request would be
-accepted, a **Write a new interpretation** button. A failed one keeps its **Try again** button,
+line "Written under an earlier version of the prompt and rules." Under a verified or refused one,
+out of date or not, a **Write a new interpretation** button is shown when a request for some entry
+would be accepted, with the entries that would be. A failed one keeps its **Try again** button,
 shown on the same condition. Below the newest, under the heading "Earlier interpretations", a
 closed disclosure ("Show the 3 earlier interpretations") lists the others, newest first. Each
-entry gives its status, when it was asked
-for and the version it was written under (a dash when none was recorded). Opened, a verified one
-shows its sections with their limits, the note on what "verified" establishes, and the model and
-prompt version; a refused one says it is not shown; a failed one shows its error.
+gives its status, the model and effort it was asked of, labelled as the choice labels them (for
+example "refused, claude-sonnet-5-5, high, …"), when it was asked for and the version it was
+written under (a dash when none was recorded). Opened, a verified one shows its sections with
+their limits and the note on what "verified" establishes; a refused one says it is not shown; a
+failed one shows its error. Each, opened, ends with the line saying which model and effort it was
+asked of.
 
 **For operators.** The API may not import the interpreter, so it holds its own copy of the current
 version, `CURRENT_INTERPRETER_VERSION` in `cp_api.app`; `tests/api/test_interpreter_version.py`
@@ -243,6 +334,12 @@ two cases this allows is permanent:
   its own version, so it takes an interpretation the new worker has just written as out of date
   and accepts another request for it. Each analysis asked for in that window can cost one extra
   paid model call.
+
+The release that added the choice of model and effort allows one more, for as long as a worker
+from before it runs beside a new API: that worker writes with the model and effort the request
+named, as the new one does, but it does not check the entry against its own setting, and a
+verified interpretation it writes from an entry other than `claude-opus-5-5, medium` lacks the
+sentence on the unmeasured choice.
 
 A downgrade below migration `0004` removes the `interpreter_version` column, and with it every
 recorded version (it refuses while any analysis has more than one interpretation). After the next

@@ -88,8 +88,8 @@ def _row(status, version):
     return Interpretation(
         status=status,
         job_id="interpretation-x",
-        model="claude-opus-5-5",
-        effort="medium",
+        model="claude-sonnet-5-5",
+        effort="low",
         interpreter_version=version,
         rendered={
             "sections": [{"name": "summary", "heading": "Summary", "statements": ["A."]}],
@@ -111,6 +111,8 @@ def test_an_interpretation_passes_through_its_model_unchanged(status):
 
         assert set(served) == set(InterpretationDetail.model_fields)
         assert InterpretationDetail.model_validate(served).model_dump() == served
+        # The model and the effort it was asked of, whatever its status.
+        assert (served["model"], served["effort"]) == ("claude-sonnet-5-5", "low")
         # Out of date only for a verdict, verified or refused, written under
         # other than the current version; never for a pending or failed row.
         assert (served["interpreter_version"], served["out_of_date"]) == (
@@ -125,3 +127,39 @@ def test_the_analysis_declares_its_earlier_interpretations_as_a_list_never_null(
     field = AnalysisDetail.model_fields["earlier_interpretations"]
     assert field.annotation == list[InterpretationDetail]
     assert field.is_required()
+
+
+def test_the_analysis_declares_its_interpretation_options_as_a_list_never_null():
+    from cp_api.models import AnalysisDetail, InterpretationOptionOut
+
+    field = AnalysisDetail.model_fields["interpretation_options"]
+    assert field.annotation == list[InterpretationOptionOut]
+    assert field.is_required()
+    assert set(InterpretationOptionOut.model_fields) == {
+        "model", "effort", "default", "available", "reason",
+    }
+
+
+def test_the_interpretation_request_defaults_to_neither_and_may_be_absent():
+    from cp_api.models import InterpretationRequest
+
+    assert InterpretationRequest().model_dump() == {"model": None, "effort": None}
+    paths = create_app(sessions=object(), redis=object()).openapi()["paths"]
+    body = paths["/v1/analyses/{analysis_id}/interpretation"]["post"]["requestBody"]
+    assert body.get("required", False) is False
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"model": "claude-opus-5-5", "effort": "medium", "colour": "red"},
+        # Misnamed: without the refusal, this would be written by the default.
+        {"model_id": "claude-sonnet-5-5", "effort_level": "low"},
+    ],
+)
+def test_the_interpretation_request_refuses_a_key_besides_the_two(body):
+    from cp_api.models import InterpretationRequest
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="extra_forbidden"):
+        InterpretationRequest.model_validate(body)

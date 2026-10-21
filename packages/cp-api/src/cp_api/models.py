@@ -1,8 +1,8 @@
-"""The shapes the JSON routes answer with.
+"""The shapes the JSON routes answer with, and the interpretation request's body.
 
 They exist for the OpenAPI document, which the dashboard's TypeScript types
-are generated from (`cp_api.openapi`). Each model describes a payload the
-route already built as a plain dict, so declaring it changes no response.
+are generated from (`cp_api.openapi`). Each response model describes a payload
+the route already built as a plain dict, so declaring it changes no response.
 
 Stored values are typed only as far as this package controls them: `status`
 is written by the API and the worker, and the catalogue's `family` comes from
@@ -16,7 +16,7 @@ from __future__ import annotations
 from typing import Literal
 
 from cp_core.catalogue import Family
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 Status = Literal["queued", "running", "succeeded", "failed"]
 
@@ -109,6 +109,37 @@ class InterpretationSection(BaseModel):
     statements: list[str]
 
 
+class InterpretationRequest(BaseModel):
+    """The body of `POST /v1/analyses/{id}/interpretation`, which may be absent.
+
+    It names an entry of the server's list by both its model and its effort,
+    or names neither, for the list's first entry, the default. Either alone,
+    or an entry not on the list, is refused with a 422. So is a key besides
+    the two (FastAPI's own 422): a misnamed key would otherwise be dropped,
+    and the request written by the default.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    model: str | None = None
+    effort: str | None = None
+
+
+class InterpretationOptionOut(BaseModel):
+    """One entry of the server's list of models and efforts, for one analysis.
+
+    `default` is true for the list's first entry. `available` says whether a
+    request for this entry would be accepted, the day's limit aside; `reason`
+    is the sentence it would be refused with, or null when it is available.
+    """
+
+    model: str
+    effort: str
+    default: bool
+    available: bool
+    reason: str | None
+
+
 class InterpretationDetail(BaseModel):
     """An analysis's interpretation. Which fields are filled depends on `status`.
 
@@ -124,6 +155,7 @@ class InterpretationDetail(BaseModel):
     id: str
     status: InterpretationStatus
     model: str
+    effort: str
     returned_model: str | None
     prompt_version: str | None
     interpreter_version: str | None
@@ -154,12 +186,17 @@ class AnalysisDetail(BaseModel):
     # The newest interpretation, and the others, newest first.
     interpretation: InterpretationDetail | None
     earlier_interpretations: list[InterpretationDetail]
-    # Whether a request for a new interpretation would be accepted, the day's
-    # limit aside: the server writes them, the analysis succeeded, its fact
-    # table is stored, and its newest interpretation is absent, failed, or
-    # finished under an earlier version of the prompt and rules.
+    # Each entry of the server's list, in its order, with whether a request for
+    # it would be accepted; empty when the server writes no interpretations.
+    interpretation_options: list[InterpretationOptionOut]
+    # Whether a request for some entry would be accepted, the day's limit
+    # aside: the server writes interpretations, the analysis succeeded, its
+    # fact table is stored, none of its interpretations is queued or running,
+    # and that entry's newest interpretation is absent, failed, or finished
+    # under an earlier version of the prompt and rules.
     interpretable: bool
-    # Why not, when the server writes interpretations and a request would be refused.
+    # When no entry would be accepted, why the default entry would be refused;
+    # null when some entry would be, or when the server writes no interpretations.
     interpretable_reason: str | None
 
 

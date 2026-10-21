@@ -1,5 +1,7 @@
-import type { InterpretationDetail } from "@/lib/api/types";
-import { DASH, formatTime } from "@/lib/format";
+import type { ReactNode } from "react";
+
+import type { InterpretationDetail, InterpretationOption } from "@/lib/api/types";
+import { DASH, formatTime, optionLabel } from "@/lib/format";
 
 import { InterpretButton } from "./InterpretButton";
 
@@ -16,21 +18,27 @@ const OUT_OF_DATE = "Written under an earlier version of the prompt and rules.";
  * the worker. What this writes is the interface around them. With
  * interpretations off on the server, and none on record, there is no section.
  * Earlier interpretations, newest first, follow under a closed disclosure.
+ *
+ * `options` is the server's list of models and efforts for this analysis.
+ * Only the entries a request would be accepted for are offered, and there is
+ * a button when there is one, unless the newest interpretation is still
+ * being written.
  */
 export function InterpretationPanel({
   analysisId,
   interpretation,
   earlierInterpretations,
-  interpretable,
+  options,
   interpretableReason,
 }: {
   analysisId: string;
   interpretation: InterpretationDetail | null;
   earlierInterpretations: InterpretationDetail[];
-  interpretable: boolean;
+  options: InterpretationOption[];
   interpretableReason: string | null;
 }) {
-  if (interpretation === null && !interpretable && interpretableReason === null) return null;
+  const available = options.filter((option) => option.available);
+  if (interpretation === null && available.length === 0 && interpretableReason === null) return null;
   const verified = interpretation?.status === "verified";
   return (
     <section aria-labelledby="interpretation-heading" className="flex max-w-measure flex-col gap-4">
@@ -40,7 +48,7 @@ export function InterpretationPanel({
       <Body
         analysisId={analysisId}
         interpretation={interpretation}
-        interpretable={interpretable}
+        available={available}
         interpretableReason={interpretableReason}
       />
       {earlierInterpretations.length > 0 ? <Earlier interpretations={earlierInterpretations} /> : null}
@@ -51,27 +59,37 @@ export function InterpretationPanel({
 function Body({
   analysisId,
   interpretation,
-  interpretable,
+  available,
   interpretableReason,
 }: {
   analysisId: string;
   interpretation: InterpretationDetail | null;
-  interpretable: boolean;
+  available: InterpretationOption[];
   interpretableReason: string | null;
 }) {
+  // The button's label follows the newest interpretation.
+  const ask = (label: string) =>
+    available.length > 0 ? (
+      <InterpretButton analysisId={analysisId} label={label} options={available} />
+    ) : null;
   if (interpretation === null) {
-    if (!interpretable) return <p className="text-note">{interpretableReason}</p>;
-    return <InterpretButton analysisId={analysisId} label="Write an interpretation" />;
+    if (available.length === 0) return <p className="text-note">{interpretableReason}</p>;
+    return ask("Write an interpretation");
   }
   switch (interpretation.status) {
     case "queued":
     case "running":
-      return <p className="text-note text-ink-soft">Writing the interpretation…</p>;
+      return (
+        <div className="flex flex-col gap-3">
+          <p className="text-note text-ink-soft">Writing the interpretation…</p>
+          <MadeBy interpretation={interpretation} />
+        </div>
+      );
     case "verified":
       return (
         <div className="flex flex-col gap-4">
           <Verified interpretation={interpretation} level="h3" />
-          <NewOne analysisId={analysisId} interpretation={interpretation} interpretable={interpretable} />
+          <NewOne interpretation={interpretation}>{ask("Write a new interpretation")}</NewOne>
         </div>
       );
     case "refused":
@@ -82,8 +100,9 @@ function Body({
             <p className="text-note text-ink-soft">
               Attempts: {interpretation.attempts}.{interpretation.reason ? ` ${interpretation.reason}` : ""}
             </p>
+            <MadeBy interpretation={interpretation} />
           </div>
-          <NewOne analysisId={analysisId} interpretation={interpretation} interpretable={interpretable} />
+          <NewOne interpretation={interpretation}>{ask("Write a new interpretation")}</NewOne>
         </div>
       );
     case "failed":
@@ -92,39 +111,67 @@ function Body({
           <p role="alert" className="text-note">
             {interpretation.error}
           </p>
-          {interpretable ? <InterpretButton analysisId={analysisId} label="Try again" /> : null}
+          <MadeBy interpretation={interpretation} />
+          {ask("Try again")}
         </div>
       );
   }
 }
 
 /**
- * For a finished interpretation written under an earlier version of the prompt
- * and rules, say so and offer a new one. One still being written has no
- * version yet, and a failed one keeps its own retry.
+ * Under a finished interpretation, the line saying it was written under an
+ * earlier version of the prompt and rules, when it was, then `children`, the
+ * button for a new one when there is an entry to ask with. One still being
+ * written has no version yet, and a failed one keeps its own retry.
  */
 function NewOne({
-  analysisId,
   interpretation,
-  interpretable,
+  children,
 }: {
-  analysisId: string;
   interpretation: InterpretationDetail;
-  interpretable: boolean;
+  children: ReactNode;
 }) {
-  if (!interpretation.out_of_date) return null;
+  if (!interpretation.out_of_date && !children) return null;
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-note text-ink-soft">{OUT_OF_DATE}</p>
-      {interpretable ? <InterpretButton analysisId={analysisId} label="Write a new interpretation" /> : null}
+      {interpretation.out_of_date ? <p className="text-note text-ink-soft">{OUT_OF_DATE}</p> : null}
+      {children}
     </div>
   );
 }
 
 /**
+ * Which model, at which effort, the interpretation was asked of, said as far
+ * as it got. A verified or refused one was written: the model the API
+ * answered from when it is on record, the one asked for otherwise, and the
+ * prompt when it is on record. One queued or running is still being written;
+ * a failed one was only asked of the model.
+ */
+function MadeBy({ interpretation }: { interpretation: InterpretationDetail }) {
+  const { model, effort } = interpretation;
+  let line: string;
+  switch (interpretation.status) {
+    case "verified":
+    case "refused":
+      line = `Written by ${interpretation.returned_model ?? model}, ${effort} effort${
+        interpretation.prompt_version ? `, prompt ${interpretation.prompt_version}` : ""
+      }.`;
+      break;
+    case "queued":
+    case "running":
+      line = `Being written by ${model}, ${effort} effort.`;
+      break;
+    case "failed":
+      line = `Asked of ${model}, ${effort} effort.`;
+      break;
+  }
+  return <p className="value text-label text-ink-soft">{line}</p>;
+}
+
+/**
  * A verified interpretation: each section that has statements, under its
  * heading at `level`, then its limits, the notice on what "verified" means, and
- * the model and prompt that wrote it. Its statements are never shown without
+ * the model, effort and prompt that wrote it. Its statements are never shown without
  * the limits and the notice.
  */
 function Verified({
@@ -150,10 +197,7 @@ function Verified({
       ))}
       {interpretation.limits ? <p className="text-note">{interpretation.limits}</p> : null}
       {interpretation.notice ? <p className="text-note">{interpretation.notice}</p> : null}
-      <p className="value text-label text-ink-soft">
-        Written by {interpretation.returned_model ?? interpretation.model}
-        {interpretation.prompt_version ? `, prompt ${interpretation.prompt_version}` : ""}.
-      </p>
+      <MadeBy interpretation={interpretation} />
     </div>
   );
 }
@@ -161,8 +205,9 @@ function Verified({
 /**
  * The analysis's earlier interpretations, newest first, closed until opened,
  * under their own heading so their sections' headings sit below it. Each shows
- * its status, when it was asked for and the interpreter version it was written
- * under; opened, what it holds.
+ * its status, the model and effort it was asked of (labelled as the choice
+ * labels them), when it was asked for and the interpreter version it was
+ * written under; opened, what it holds.
  */
 function Earlier({ interpretations }: { interpretations: InterpretationDetail[] }) {
   const count = interpretations.length;
@@ -184,6 +229,7 @@ function Earlier({ interpretations }: { interpretations: InterpretationDetail[] 
                 <summary>
                   <span>
                     <span className="status">{interpretation.status}</span>,{" "}
+                    <span className="value">{optionLabel(interpretation)}</span>,{" "}
                     <span className="value">{formatTime(interpretation.created_at)}</span>, version{" "}
                     <span className="value">{interpretation.interpreter_version ?? DASH}</span>
                   </span>
@@ -203,11 +249,21 @@ function EarlierBody({ interpretation }: { interpretation: InterpretationDetail 
     case "verified":
       return <Verified interpretation={interpretation} level="h4" />;
     case "refused":
-      return <p>{REFUSED}</p>;
+      return (
+        <div className="flex flex-col gap-2">
+          <p>{REFUSED}</p>
+          <MadeBy interpretation={interpretation} />
+        </div>
+      );
     case "failed":
-      return <p className="text-note">{interpretation.error}</p>;
+      return (
+        <div className="flex flex-col gap-2">
+          <p className="text-note">{interpretation.error}</p>
+          <MadeBy interpretation={interpretation} />
+        </div>
+      );
     case "queued":
     case "running":
-      return null;
+      return <MadeBy interpretation={interpretation} />;
   }
 }

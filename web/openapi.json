@@ -111,6 +111,13 @@
               }
             ]
           },
+          "interpretation_options": {
+            "items": {
+              "$ref": "#/components/schemas/InterpretationOptionOut"
+            },
+            "title": "Interpretation Options",
+            "type": "array"
+          },
           "partial": {
             "title": "Partial",
             "type": "boolean"
@@ -158,6 +165,7 @@
           "estimates",
           "interpretation",
           "earlier_interpretations",
+          "interpretation_options",
           "interpretable",
           "interpretable_reason"
         ],
@@ -813,6 +821,10 @@
             ],
             "title": "Created At"
           },
+          "effort": {
+            "title": "Effort",
+            "type": "string"
+          },
           "error": {
             "anyOf": [
               {
@@ -954,6 +966,7 @@
           "id",
           "status",
           "model",
+          "effort",
           "returned_model",
           "prompt_version",
           "interpreter_version",
@@ -969,6 +982,77 @@
           "error"
         ],
         "title": "InterpretationDetail",
+        "type": "object"
+      },
+      "InterpretationOptionOut": {
+        "description": "One entry of the server's list of models and efforts, for one analysis.\n\n`default` is true for the list's first entry. `available` says whether a\nrequest for this entry would be accepted, the day's limit aside; `reason`\nis the sentence it would be refused with, or null when it is available.",
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "default": {
+            "title": "Default",
+            "type": "boolean"
+          },
+          "effort": {
+            "title": "Effort",
+            "type": "string"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "model",
+          "effort",
+          "default",
+          "available",
+          "reason"
+        ],
+        "title": "InterpretationOptionOut",
+        "type": "object"
+      },
+      "InterpretationRequest": {
+        "additionalProperties": false,
+        "description": "The body of `POST /v1/analyses/{id}/interpretation`, which may be absent.\n\nIt names an entry of the server's list by both its model and its effort,\nor names neither, for the list's first entry, the default. Either alone,\nor an entry not on the list, is refused with a 422. So is a key besides\nthe two (FastAPI's own 422): a misnamed key would otherwise be dropped,\nand the request written by the default.",
+        "properties": {
+          "effort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effort"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          }
+        },
+        "title": "InterpretationRequest",
         "type": "object"
       },
       "InterpretationSection": {
@@ -1513,6 +1597,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/InterpretationRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
         "responses": {
           "202": {
             "content": {
