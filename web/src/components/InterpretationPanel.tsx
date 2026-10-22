@@ -24,9 +24,8 @@ const OUT_OF_DATE = "Written under an earlier version of the prompt and rules.";
  * refused, or is verified under an earlier version) and an earlier one is
  * verified under the current prompt and rules (the API's rules make it one
  * from another model or effort, though this does not check that): then the
- * newest such verified one
- * leads, the newest follows it under "Newer interpretation", and neither is
- * among the earlier ones.
+ * newest such verified one leads, the newest follows it under "Newer
+ * interpretation", and neither is among the earlier ones.
  *
  * `options` is the server's list of models and efforts for this analysis.
  * Only the entries a request would be accepted for are offered, and there is
