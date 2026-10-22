@@ -303,10 +303,18 @@ def _finish_interpretation(
         row = session.get(Interpretation, row_id, with_for_update=True)
         assert row is not None
         if row.status != "running":
+            # The row keeps the API's write, so what the call cost is recorded
+            # only here: each reply's tokens, from the attempts the outcome held.
+            attempts = fields.get("attempts") or []
+            usage = [attempt["usage"] for attempt in attempts]
             logger.warning(
                 "interpretation %s: its %s outcome was not stored, because the row was "
-                "marked %s (%s) while the model was called",
+                "marked %s (%s) while the model was called; dropped: %d %s, %d input and "
+                "%d output tokens, from %s at %s effort",
                 row_id, fields["status"], row.status, row.error,
+                len(attempts), "reply" if len(attempts) == 1 else "replies",
+                sum(u["input_tokens"] for u in usage), sum(u["output_tokens"] for u in usage),
+                row.model, row.effort,
             )
             return
         for name, value in fields.items():

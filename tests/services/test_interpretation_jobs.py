@@ -668,4 +668,13 @@ def test_a_row_the_api_marked_lost_during_the_call_keeps_what_the_api_wrote(
     assert _row(sessions, row_id).status == "failed"
     assert _snapshot(sessions, key) == marked[0]
     if outcome != "unexpected":
-        assert any(str(row_id) in record.getMessage() for record in _job_log(caplog))
+        # What was paid for and dropped is recorded nowhere else: the row keeps the API's write.
+        spent = {
+            "verified": "1 reply, 100 input and 40 output tokens",
+            "refused": "2 replies, 200 input and 80 output tokens",
+            "failed": "0 replies, 0 input and 0 output tokens",
+        }[outcome]
+        dropped = [r.getMessage() for r in _job_log(caplog) if str(row_id) in r.getMessage()]
+        assert len(dropped) == 1
+        assert spent in dropped[0]
+        assert "claude-opus-5-5 at medium effort" in dropped[0]
