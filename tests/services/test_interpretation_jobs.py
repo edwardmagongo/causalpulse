@@ -617,7 +617,10 @@ def test_an_unmeasured_choice_that_is_not_verified_stores_no_notice(
     assert row.notice is None
 
 
-@pytest.mark.parametrize("outcome", ["verified", "refused", "failed", "unexpected"])
+@pytest.mark.parametrize(
+    "outcome",
+    ["verified", "refused", "failed", "no_answer", "failed_on_retry", "unexpected"],
+)
 def test_a_row_the_api_marked_lost_during_the_call_keeps_what_the_api_wrote(
     sessions, worker_env, monkeypatch, caplog, outcome
 ):
@@ -637,6 +640,10 @@ def test_a_row_the_api_marked_lost_during_the_call_keeps_what_the_api_wrote(
         "verified": [narrative_for(facts)],
         "refused": [bad, bad],
         "failed": [ModelCallError("the model API call failed: APIConnectionError")],
+        # A rejected reply, then one cut off with no narrative: both paid for.
+        "no_answer": [bad, "max_tokens"],
+        # A rejected reply, then a retry whose call fails: the first was paid for.
+        "failed_on_retry": [bad, ModelCallError("the model API call failed: APIConnectionError")],
         "unexpected": [RuntimeError("boom")],
     }[outcome]
     model = _script(monkeypatch, *replies)
@@ -668,4 +675,15 @@ def test_a_row_the_api_marked_lost_during_the_call_keeps_what_the_api_wrote(
     assert _row(sessions, row_id).status == "failed"
     assert _snapshot(sessions, key) == marked[0]
     if outcome != "unexpected":
-        assert any(str(row_id) in record.getMessage() for record in _job_log(caplog))
+        # What was paid for and dropped is recorded nowhere else: the row keeps the API's write.
+        spent = {
+            "verified": "1 reply, 100 input and 40 output tokens",
+            "refused": "2 replies, 200 input and 80 output tokens",
+            "failed": "0 replies, 0 input and 0 output tokens",
+            "no_answer": "2 replies, 110 input and 40 output tokens",
+            "failed_on_retry": "1 reply, 100 input and 40 output tokens",
+        }[outcome]
+        dropped = [r.getMessage() for r in _job_log(caplog) if str(row_id) in r.getMessage()]
+        assert len(dropped) == 1
+        assert spent in dropped[0]
+        assert "claude-opus-5-5 at medium effort" in dropped[0]

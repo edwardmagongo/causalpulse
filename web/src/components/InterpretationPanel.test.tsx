@@ -757,6 +757,39 @@ describe("InterpretationPanel, when the newest is not verified but a current one
     expect(entries[1].querySelector("summary")!.textContent).toContain("verified, claude-fable-5-1");
   });
 
+  it("leads with it over a newer verified one written under an earlier version", () => {
+    const analysis = interpretations.failed_after_current_verified as Recorded;
+    const [current, olderFailed] = analysis.earlier_interpretations;
+    panel({
+      interpretation: {
+        ...analysis.interpretation!,
+        status: "verified",
+        error: null,
+        out_of_date: true,
+        interpreter_version: "0123456789ab",
+        returned_model: "claude-sonnet-5-5-20261001",
+        prompt_version: "a28f0812170d",
+        sections: [{ name: "summary", heading: "Summary", statements: ["The out-of-date narrative."] }],
+        limits: "Older limits.",
+        notice: "Older notice.",
+      },
+      earlierInterpretations: [current, olderFailed],
+      options: analysis.interpretation_options,
+    });
+
+    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe(VERIFIED_HEADING);
+    const lead = screen.getByText("The estimate for ipw is 1794 [-63.52, 3652].");
+    const section = newer();
+    expect(section.contains(lead)).toBe(false);
+    expect(lead.closest("details")).toBeNull();
+    expect(within(section).getByText("The out-of-date narrative.")).toBeTruthy();
+    expect(within(section).getByText(OUT_OF_DATE)).toBeTruthy();
+    // Under the h3 "Newer interpretation", its own section headings are h4.
+    expect(within(section).getByRole("heading", { name: "Summary" }).tagName).toBe("H4");
+    expect(within(section).getByRole("button", { name: "Write a new interpretation" })).toBeTruthy();
+    expect(earlierEntries()).toHaveLength(1);
+  });
+
   it("does not lead with a verified one written under an earlier version", () => {
     recorded("failed_current");
 

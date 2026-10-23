@@ -27,6 +27,7 @@ import json
 import logging
 import os
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -55,7 +56,7 @@ from cp_llm.interpret import (
     RenderedNarrative,
     interpret,
 )
-from cp_llm.model import Effort, ModelCallError, NarrativeModel
+from cp_llm.model import Effort, ModelCallError, ModelReply, NarrativeModel, Turn
 from cp_llm.prompt import prompt_version
 from cp_llm.version import interpreter_version
 from cp_report.pipeline import AnalysisOutcome
@@ -277,6 +278,27 @@ def _resolve(session: Session, key: uuid.UUID) -> Interpretation | None:
     return newest
 
 
+class _Metered:
+    """Passes calls through to `inner`, adding up each reply and the tokens it cost.
+
+    Every reply counts, one with no narrative too, and one before a later call
+    that failed: each was paid for, though not every one reaches an attempt.
+    """
+
+    def __init__(self, inner: NarrativeModel) -> None:
+        self._inner = inner
+        self.replies = 0
+        self.input_tokens = 0
+        self.output_tokens = 0
+
+    def complete(self, system: str, turns: Sequence[Turn]) -> ModelReply:
+        reply = self._inner.complete(system, turns)
+        self.replies += 1
+        self.input_tokens += reply.usage.input_tokens
+        self.output_tokens += reply.usage.output_tokens
+        return reply
+
+
 @dataclass
 class _Progress:
     """What a job has established so far, for its failure path to record."""
@@ -288,7 +310,12 @@ class _Progress:
 
 
 def _finish_interpretation(
-    sessions: sessionmaker[Session], row_id: uuid.UUID, version: str, **fields: Any
+    sessions: sessionmaker[Session],
+    row_id: uuid.UUID,
+    version: str,
+    *,
+    spent: _Metered,
+    **fields: Any,
 ) -> None:
     """Store the outcome on the row, if it is still the `running` row this job set.
 
@@ -298,15 +325,21 @@ def _finish_interpretation(
     change afterwards, and a request accepted after that failure is the one
     that can make this entry's final interpretation. The row is locked, so the
     API's write, which re-checks the status, comes wholly before or after this.
+    `spent` is what the model's replies cost, logged when the outcome is dropped.
     """
     with sessions() as session:
         row = session.get(Interpretation, row_id, with_for_update=True)
         assert row is not None
         if row.status != "running":
+            # The row keeps the API's write, so what the calls cost is recorded
+            # only here.
             logger.warning(
                 "interpretation %s: its %s outcome was not stored, because the row was "
-                "marked %s (%s) while the model was called",
+                "marked %s (%s) while the model was called; dropped: %d %s, %d input and "
+                "%d output tokens, from %s at %s effort",
                 row_id, fields["status"], row.status, row.error,
+                spent.replies, "reply" if spent.replies == 1 else "replies",
+                spent.input_tokens, spent.output_tokens, row.model, row.effort,
             )
             return
         for name, value in fields.items():
@@ -393,24 +426,28 @@ def _interpret(sessions: sessionmaker[Session], key: uuid.UUID, progress: _Progr
 
     facts = FactTable.from_json(json.dumps(stored))
     prompt = prompt_version()
+    spent = _Metered(build_model(model_name, effort))
     try:
-        result = interpret(facts, build_model(model_name, effort))
+        result = interpret(facts, spent)
     except InterpretationRefusedError as exc:
         _finish_interpretation(
-            sessions, row_id, version, status="refused", prompt_version=prompt,
+            sessions, row_id, version, spent=spent, status="refused", prompt_version=prompt,
             attempts=[a.to_dict() for a in exc.attempts],
         )
     except ModelDidNotAnswerError as exc:
         _finish_interpretation(
-            sessions, row_id, version, status="failed", prompt_version=prompt,
+            sessions, row_id, version, spent=spent, status="failed", prompt_version=prompt,
             attempts=[a.to_dict() for a in exc.attempts],
             error=f"the model gave no narrative (stop reason: {exc.stop_reason})",
         )
     except ModelCallError as exc:
-        _finish_interpretation(sessions, row_id, version, status="failed", error=str(exc))
+        _finish_interpretation(
+            sessions, row_id, version, spent=spent, status="failed", error=str(exc)
+        )
     else:
         _finish_interpretation(
-            sessions, row_id, version, status="verified", prompt_version=result.prompt_version,
+            sessions, row_id, version, spent=spent, status="verified",
+            prompt_version=result.prompt_version,
             returned_model=result.model, rendered=rendered_record(result.rendered),
             notice=verified_notice(model_name, effort),
             attempts=[a.to_dict() for a in result.attempts],

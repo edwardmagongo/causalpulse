@@ -19,12 +19,13 @@ const OUT_OF_DATE = "Written under an earlier version of the prompt and rules.";
  * interpretations off on the server, and none on record, there is no section.
  * Earlier interpretations, newest first, follow under a closed disclosure.
  *
- * The newest interpretation leads, unless it is not verified (being written,
- * failed or refused) and an earlier one is verified under the current prompt
- * and rules (the API's rules make it one from another model or effort, though
- * this does not check that): then the newest such verified one
- * leads, the newest follows it under "Newer interpretation", and neither is
- * among the earlier ones.
+ * The newest interpretation leads, unless it is not a verified one written
+ * under the current prompt and rules (it is being written, failed, was
+ * refused, or is verified under an earlier version) and an earlier one is
+ * verified under the current prompt and rules (the API's rules make it one
+ * from another model or effort, though this does not check that): then the
+ * newest such verified one leads, the newest follows it under "Newer
+ * interpretation", and neither is among the earlier ones.
  *
  * `options` is the server's list of models and efforts for this analysis.
  * Only the entries a request would be accepted for are offered, and there is
@@ -47,18 +48,20 @@ export function InterpretationPanel({
   const available = options.filter((option) => option.available);
   if (interpretation === null && available.length === 0 && interpretableReason === null) return null;
   // The earlier ones are newest first, so this is the newest current verified one.
+  const current = (one: InterpretationDetail) => one.status === "verified" && !one.out_of_date;
   const lead =
-    interpretation !== null && interpretation.status !== "verified"
-      ? (earlierInterpretations.find((earlier) => earlier.status === "verified" && !earlier.out_of_date) ??
-        null)
+    interpretation !== null && !current(interpretation)
+      ? (earlierInterpretations.find(current) ?? null)
       : null;
   const earlier = earlierInterpretations.filter((one) => one !== lead);
+  // Under "Newer interpretation", an h3, a verified one's section headings are h4.
   const body = (
     <Body
       analysisId={analysisId}
       interpretation={interpretation}
       available={available}
       interpretableReason={interpretableReason}
+      level={lead === null ? "h3" : "h4"}
     />
   );
   const verified = lead !== null || interpretation?.status === "verified";
@@ -90,11 +93,13 @@ function Body({
   interpretation,
   available,
   interpretableReason,
+  level,
 }: {
   analysisId: string;
   interpretation: InterpretationDetail | null;
   available: InterpretationOption[];
   interpretableReason: string | null;
+  level: "h3" | "h4";
 }) {
   // The button's label follows the newest interpretation.
   const ask = (label: string) =>
@@ -117,7 +122,7 @@ function Body({
     case "verified":
       return (
         <div className="flex flex-col gap-4">
-          <Verified interpretation={interpretation} level="h3" />
+          <Verified interpretation={interpretation} level={level} />
           <NewOne interpretation={interpretation}>{ask("Write a new interpretation")}</NewOne>
         </div>
       );
