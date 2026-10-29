@@ -27,8 +27,8 @@ test:
 	$(ONE_THREAD) uv run pytest -v -n auto
 
 # WORKERS is the number of pytest-xdist workers. `auto` locally; CI passes
-# the number of CPUs its runner has (`nproc` there), which is two on the
-# runners a private repository is given.
+# the number of CPUs its runner has (`nproc` there), which was four when the
+# runners were last measured, on 2026-10-29.
 WORKERS ?= auto
 
 # With SHARD=I/N it runs only shard I of N, split by test file as for
@@ -38,8 +38,8 @@ test-fast:
 	$(ONE_THREAD) uv run pytest -v -m "not slow" -n $(WORKERS) --durations=25 $(if $(SHARD),--shard $(SHARD))
 
 # The slow tier that needs no services and no model API, as CI runs it: one
-# shard of the slow test files per job (`make test-slow SHARD=3/8`), each
-# writing its own JUnit report, `slow-3-of-8.xml`. With SHARD unset it runs
+# shard of the slow test files per job (`make test-slow SHARD=3/3`), each
+# writing its own JUnit report, `slow-3-of-3.xml`. With SHARD unset it runs
 # every slow test and writes `slow-all.xml`.
 #
 # SLOW_WORKERS is the number of pytest-xdist workers: four locally, the

@@ -1,10 +1,15 @@
 name: Slow tier
 
 # The slow tests that need no services and no model API. Too long for every
-# push, so they run monthly and by hand, split by test file into eight shards
-# that each fit well inside a job's time limit. One run costs about 170
-# runner-minutes of the private repository's monthly allowance, nearly all of
-# it in the shard that holds the hierarchical recovery tests.
+# push, so they run monthly and by hand, split by test file into three shards
+# that each fit well inside a job's time limit. One run costs about 180
+# runner-minutes of the repository's allowance, nearly all of it in the shard
+# that holds the hierarchical recovery tests: measured on 2026-10-29 that file
+# alone took 1h58m, of which 7,035s was one test's setup, building the five
+# module-scoped MCMC fixtures it compares. No split can finish sooner than
+# that file, so the shards exist to keep the rest of the tier beside it rather
+# than to divide it. Eight shards cost 215 runner-minutes for the same wall
+# clock, five of them doing under seven minutes of work each.
 on:
   schedule:
     # The first of each month at 03:00 UTC.
@@ -16,14 +21,14 @@ permissions:
 
 jobs:
   slow:
-    name: Slow tier (shard ${{ matrix.shard }} of 8)
+    name: Slow tier (shard ${{ matrix.shard }} of 3)
     runs-on: ubuntu-latest
     timeout-minutes: 300
     strategy:
       # One shard's failure must not hide what the others would have found.
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
@@ -31,16 +36,16 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
       - run: uv sync --frozen
-      # One test worker for each CPU the runner has: two, on the runners a
-      # private repository is given. The Makefile's own default is four.
-      - run: make test-slow SHARD=${{ matrix.shard }}/8 SLOW_WORKERS="$(nproc)"
+      # One test worker for each CPU the runner has: four, as the runners
+      # reported on 2026-10-29. The Makefile's own default is four too.
+      - run: make test-slow SHARD=${{ matrix.shard }}/3 SLOW_WORKERS="$(nproc)"
       # Kept whether the shard passed or failed: its per-test durations are how
       # the slow tier's cost is known.
       - if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: slow-junit-${{ matrix.shard }}-of-8
-          path: slow-${{ matrix.shard }}-of-8.xml
+          name: slow-junit-${{ matrix.shard }}-of-3
+          path: slow-${{ matrix.shard }}-of-3.xml
           retention-days: 30
           if-no-files-found: warn
 
