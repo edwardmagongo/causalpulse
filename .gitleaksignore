@@ -1,0 +1,26 @@
+# Findings gitleaks reports that are not secrets.
+#
+# `tests/test_deploy_command.py` renders the deploy script against a stand-in
+# server, so it needs an `.env` to read. Its values are written to be plainly
+# false: hex counting up (`0123456789abcdef`), the same doubled, and hex
+# counting down with a space in it, which is there to exercise the quoted
+# form. `generic-api-key` matches them on the shape and entropy of a 32-digit
+# hex string alone, which is exactly what a fixture of this kind looks like.
+#
+# A fingerprint is `commit:path:rule:line` for a history scan (`gitleaks git`)
+# and `path:rule:line` for a scan of the tree as it stands (`gitleaks dir`);
+# both are listed because the two modes number the lines differently. They are
+# pinned to a line, so moving these fixtures within the file means replacing
+# the entries below with whatever the next scan reports.
+
+# The commit that introduced the fixtures, as a history scan sees them.
+9c7a8bff24a3df4309bcaff0ca35626922dd0e54:tests/test_deploy_command.py:generic-api-key:112
+9c7a8bff24a3df4309bcaff0ca35626922dd0e54:tests/test_deploy_command.py:generic-api-key:407
+9c7a8bff24a3df4309bcaff0ca35626922dd0e54:tests/test_deploy_command.py:generic-api-key:414
+9c7a8bff24a3df4309bcaff0ca35626922dd0e54:tests/test_deploy_command.py:generic-api-key:415
+
+# The same four, as a scan of the working tree sees them.
+tests/test_deploy_command.py:generic-api-key:124
+tests/test_deploy_command.py:generic-api-key:455
+tests/test_deploy_command.py:generic-api-key:462
+tests/test_deploy_command.py:generic-api-key:463
