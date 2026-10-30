@@ -15,7 +15,7 @@ at all ([Deployment](deployment.md)).
 | Every push to `main`, and no pull request | Production | `make smoke-prod` |
 | A pull request that changes what it tests, and every push to `main` | Fast suite | `make test-fast SHARD=I/4 WORKERS="$(nproc)"`, four shards in parallel |
 | A pull request or a push to `main` that changes what it checks | Infrastructure | `make check-infra` |
-| Monthly (the 1st, 03:00 UTC), and by hand | Slow tier | `make test-slow SHARD=I/8 SLOW_WORKERS="$(nproc)"`, eight shards in parallel |
+| Monthly (the 1st, 03:00 UTC), and by hand | Slow tier | `make test-slow SHARD=I/3 SLOW_WORKERS="$(nproc)"`, three shards in parallel |
 | By hand only | Live model call | `make check-llm` |
 | By hand only, from `main` | Deploy | no `make` target: it puts one commit of `main` on the server ([Deployment](deployment.md)) |
 
@@ -49,7 +49,7 @@ document, the study bundle, the published reports, the import contracts, the `Do
 compose files at the root and the Makefile
 (`.github/workflows/fast.yml` lists the paths); a pull request that touches only the dashboard or
 the documentation does not pay for it. Every push to `main` runs it regardless. The 45 minutes
-were measured with four test workers on two CPUs, in one job. The workflows now ask for one worker
+were measured with four test workers on two CPUs, in one job, before the runners reported four. The workflows now ask for one worker
 for each CPU the runner reports (`nproc`), for each fast and slow shard. Locally the defaults are unchanged: `auto` for the fast suite and four
 for the slow tier.
 
@@ -60,10 +60,14 @@ the platform applies: a direct push is accepted. A branch has no run until it ha
 The slow tier is the tests marked `slow` that need no services and no model API. It is split by
 test file (`pytest --shard I/N`, a hook in `tests/conftest.py`), each shard keeps its JUnit report
 as an artifact, and a scheduled run in which any shard does not succeed opens an issue naming it.
-Start it by hand with `gh workflow run slow.yml`. On four-core runners one run took about two
-hours and about 170 runner-minutes, with four workers a shard (it has not been run on the smaller
-runners of a private repository, or with a worker for each CPU, where it will differ), set by one file, `tests/causal/test_hierarchical_did_recovery.py`; the other seven
-shards finish in under 20 minutes. GitHub stops scheduled workflows in a repository with no
+Start it by hand with `gh workflow run slow.yml`. Measured on 2026-10-29, as eight shards with
+four workers each (`nproc` reported four): 1h58m of wall clock and 215 runner-minutes, all of the
+wall clock set by one file, `tests/causal/test_hierarchical_did_recovery.py`, and within it by one
+test, which asks for five module-scoped MCMC fixtures and spent 7,035s building them. Five of the
+other seven shards did under seven minutes of work each, so the tier now runs as three shards:
+the same wall clock, since no split can finish before that one file, at an expected 180
+runner-minutes rather than 215. Cutting the two hours means changing what that file fits -- fewer
+seeds, shared fits, or parallelism inside them -- not how the files are dealt into shards. GitHub stops scheduled workflows in a repository with no
 activity for 60 days.
 
 The live model call is billed, so it never runs on a schedule or for a pull request. It needs the

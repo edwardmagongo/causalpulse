@@ -77,6 +77,6 @@ jobs:
       # Which machine this is, so that a slow run can be told from a slow suite.
       - run: lscpu | grep -E 'Model name|^CPU\(s\)|Thread' ; nproc
       - run: uv sync --frozen
-      # One test worker for each CPU the runner has: two, on the runners a
-      # private repository is given. More workers than CPUs only contend.
+      # One test worker for each CPU the runner has: four, as the runners
+      # reported on 2026-10-29. More workers than CPUs only contend.
       - run: make test-fast SHARD=${{ matrix.shard }}/4 WORKERS="$(nproc)"
