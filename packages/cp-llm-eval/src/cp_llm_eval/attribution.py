@@ -9,9 +9,10 @@ So each numeric span is matched against the table and the statement is
 rewritten with the placeholder it would have carried, which lets D1-D5 run on
 this arm unchanged. A span that matches nothing is the arm's own finding.
 
-Four outcomes, because they are four different things:
+Five outcomes, because they are five different things:
 
-- **exact** -- the span is a fact's rendered form. Nothing to report.
+- **exact** -- the span is one fact's rendered form. Nothing to report, and
+  this is the only outcome rewritten as a citation.
 - **rounded** -- the span is a correct rounding of exactly one fact, at the
   model's own precision rather than the renderer's. The quantity is right and
   the digits shown are the model's choice. Reported as `D0_ROUNDED`, and
@@ -21,8 +22,21 @@ Four outcomes, because they are four different things:
 - **ambiguous** -- two or more facts carry the span's value, so which one it
   cites cannot be recovered. Not a misreading; counted so a reader knows how
   far D1-D5 can be read on this arm.
-- **unsupported** -- no fact supports the value at any rounding. This is
-  `D0`, the primary endpoint of the control arm.
+- **quoted** -- no fact's own value is the span, but the span appears inside
+  a fact's prose, as `0.01` does in "a propensity score within 0.01 of 0 or
+  1". The table holds the number, so it is not invented and not `D0`; but it
+  is not a citable value either, and a placeholder for the fact that quotes
+  it would render the whole sentence. So it carries no flag and no citation.
+- **unsupported** -- no fact supports the value at any rounding, and no
+  fact's prose holds it. This is `D0`, the primary endpoint of the control
+  arm.
+
+Where two facts carry the same value -- `est.ipw.point` and the comparison
+table's `point_low`, which restates it -- the span is resolved to the one
+whose subject the statement names, as a reader would resolve it, and only
+stays ambiguous when that leaves more than one. Without that nearly every
+value in an estimates statement is ambiguous, and an ambiguous span is not
+reconstructed, so D1-D5 would be left with almost nothing to read.
 
 Comparison is against the **rendered** form, because that is what a reader of
 a grounded narrative sees and so what the system promises. Thousands
@@ -41,9 +55,10 @@ from dataclasses import dataclass
 from typing import Literal
 
 from cp_llm.facts import Fact, FactTable
+from cp_llm.narrative import Narrative
 from cp_llm.render import PLACEHOLDER, format_fact
 
-from cp_llm_eval.deterministic import Flag
+from cp_llm_eval.deterministic import Flag, StatementGrade, grade_statement
 
 # A value no fact supports: the control arm's primary endpoint.
 D0 = "D0"
@@ -51,7 +66,10 @@ D0 = "D0"
 D0_AMBIGUOUS = "D0-ambiguous"
 D0_ROUNDED = "D0-rounded"
 
-Outcome = Literal["exact", "rounded", "ambiguous", "unsupported"]
+Outcome = Literal["exact", "rounded", "ambiguous", "quoted", "unsupported"]
+# The outcomes that say nothing against the model: the span carries a value
+# the table holds.
+_SUPPORTED = frozenset({"exact", "quoted"})
 
 # The kinds whose value is a float, and so can be matched at a coarser rounding.
 _FLOAT_KINDS = frozenset({"number", "level", "p_value"})
@@ -96,7 +114,8 @@ class Span:
     text: str
     outcome: Outcome
     # The facts the span matched: one when exact or rounded, several when
-    # ambiguous, none when unsupported.
+    # ambiguous, the facts whose prose holds it when quoted, none when
+    # unsupported.
     fact_ids: tuple[str, ...]
 
     @property
@@ -114,7 +133,7 @@ class Attribution:
 
     @property
     def flags(self) -> tuple[Flag, ...]:
-        return tuple(_flag(span) for span in self.spans if span.outcome != "exact")
+        return tuple(_flag(span) for span in self.spans if span.outcome not in _SUPPORTED)
 
 
 def _flag(span: Span) -> Flag:
@@ -123,6 +142,7 @@ def _flag(span: Span) -> Flag:
     if span.outcome == "ambiguous":
         cited = ", ".join(span.fact_ids)
         return Flag(D0_AMBIGUOUS, f"{span.value!r} is the value of several facts: {cited}")
+    assert span.outcome == "rounded", f"{span.outcome} is not a flag"
     return Flag(D0_ROUNDED, f"{span.value!r} is {span.fact_ids[0]} at a coarser rounding")
 
 
@@ -130,25 +150,40 @@ def _numeric_spans_in(text: str) -> Iterator[re.Match[str]]:
     return NUMERIC.finditer(text)
 
 
-def _rendered_values(facts: FactTable) -> Mapping[str, tuple[str, ...]]:
-    """Normalised rendered value -> the ids of every fact that shows it.
+Index = Mapping[str, tuple[str, ...]]
 
-    A `label`, `name` or `text` fact holds prose, which may itself contain a
-    number ("the threshold was 0.05"). Those numbers are values the table
-    supports, so each one is indexed to that fact as well; otherwise a model
-    repeating a sentence out of the table would be charged with inventing the
-    number inside it.
-    """
+
+def _index(pairs: Iterator[tuple[str, str]]) -> Index:
     found: dict[str, list[str]] = {}
-    for fact in facts:
-        keys = [_normalised(format_fact(fact))]
-        if fact.kind not in _FLOAT_KINDS and fact.kind != "count":
-            keys += [_normalised(m.group(0)) for m in _numeric_spans_in(str(fact.value))]
-        for key in keys:
-            ids = found.setdefault(key, [])
-            if fact.id not in ids:
-                ids.append(fact.id)
+    for key, fact_id in pairs:
+        ids = found.setdefault(key, [])
+        if fact_id not in ids:
+            ids.append(fact_id)
     return {key: tuple(ids) for key, ids in found.items()}
+
+
+def _values(facts: FactTable) -> tuple[Index, Index]:
+    """Two indexes from a normalised value to the facts behind it.
+
+    The first holds each fact's own rendered value: a span matching there
+    cites that fact, and can be rewritten as its placeholder.
+
+    The second holds the numbers that appear *inside* a `label`, `name` or
+    `text` fact's prose ("a propensity score within 0.01 of 0 or 1"). Those
+    are numbers the table holds, so a model repeating such a sentence has not
+    invented the number in it -- but the fact they belong to is the sentence,
+    not the number, so they are kept apart. Mixing the two would make one
+    prose fact a match for every number it mentions and leave almost every
+    value in the narrative ambiguous.
+    """
+    citable = _index((_normalised(format_fact(fact)), fact.id) for fact in facts)
+    quoted = _index(
+        (_normalised(match.group(0)), fact.id)
+        for fact in facts
+        if fact.kind not in _FLOAT_KINDS and fact.kind != "count"
+        for match in _numeric_spans_in(str(fact.value))
+    )
+    return citable, quoted
 
 
 def _parsed(match: re.Match[str]) -> tuple[float, bool, bool, int] | None:
@@ -196,39 +231,72 @@ def _rounds_to(fact: Fact, value: float, is_percent: bool, digits: int) -> bool:
     return False
 
 
+def _names_subject(statement: str, fact_id: str, facts: FactTable) -> bool:
+    """Whether `statement` names the method the fact is about."""
+    fact = facts.get(fact_id)
+    if fact is None or fact.subject is None:
+        return False
+    subject = facts.get(fact.subject)
+    if subject is None:
+        return False
+    return re.search(rf"\b{re.escape(str(subject.value))}\b", statement) is not None
+
+
+def _narrowed(candidates: tuple[str, ...], statement: str, facts: FactTable) -> tuple[str, ...]:
+    """`candidates` cut to the one whose subject the statement names, if there is one.
+
+    Two facts can carry the same value: `est.ipw.point` and the comparison
+    table's `point_low`, which is that same estimate restated as the range's
+    lower end. A reader tells them apart by what the sentence is about, and
+    so does this. The subject must pick out exactly one; otherwise the span
+    stays as ambiguous as it was, because a guess here would put a citation
+    the model never made in front of D1-D5.
+    """
+    named = tuple(i for i in candidates if _names_subject(statement, i, facts))
+    return named if len(named) == 1 else candidates
+
+
 def _classify(
-    match: re.Match[str], facts: FactTable, rendered: Mapping[str, tuple[str, ...]]
+    match: re.Match[str], statement: str, facts: FactTable, citable: Index, quoted: Index
 ) -> Span:
+    def span(outcome: Outcome, fact_ids: tuple[str, ...]) -> Span:
+        return Span(match.start(), match.end(), match.group(0), outcome, fact_ids)
+
     key = _normalised(match.group(0))
-    exact = rendered.get(key, ())
-    if len(exact) == 1:
-        return Span(match.start(), match.end(), match.group(0), "exact", exact)
-    if len(exact) > 1:
-        return Span(match.start(), match.end(), match.group(0), "ambiguous", exact)
+    exact = _narrowed(citable.get(key, ()), statement, facts)
+    if exact:
+        return span("exact" if len(exact) == 1 else "ambiguous", exact)
+    # Before any rounding: a number the table writes out in its own prose was
+    # read, not rounded. Flagging `D0-rounded` for a value shown verbatim
+    # somewhere in the table would be an accusation the table itself answers.
+    in_prose = quoted.get(key, ())
+    if in_prose:
+        return span("quoted", in_prose)
     parsed = _parsed(match)
-    if parsed is None:
-        return Span(match.start(), match.end(), match.group(0), "unsupported", ())
-    value, is_percent, is_bounded, digits = parsed
-    if is_bounded:
-        # `< 0.001` is the renderer's floor form; it matches that form or nothing.
-        return Span(match.start(), match.end(), match.group(0), "unsupported", ())
-    rounded = tuple(
-        fact.id for fact in facts if _rounds_to(fact, value, is_percent, digits)
-    )
-    if len(rounded) == 1:
-        return Span(match.start(), match.end(), match.group(0), "rounded", rounded)
-    if len(rounded) > 1:
-        return Span(match.start(), match.end(), match.group(0), "ambiguous", rounded)
-    return Span(match.start(), match.end(), match.group(0), "unsupported", ())
+    if parsed is not None:
+        value, is_percent, is_bounded, digits = parsed
+        # `< 0.001` is the renderer's floor form for a p-value under its
+        # floor: it matches that form exactly or nothing at all, so there is
+        # no coarser rounding of it to look for.
+        if not is_bounded:
+            rounded = _narrowed(
+                tuple(fact.id for fact in facts if _rounds_to(fact, value, is_percent, digits)),
+                statement,
+                facts,
+            )
+            if rounded:
+                return span("rounded" if len(rounded) == 1 else "ambiguous", rounded)
+    return span("unsupported", ())
 
 
 def _reconstructed(statement: str, spans: Sequence[Span]) -> str:
     """`statement` with every exact span rewritten as the placeholder it cites.
 
     Only an exact, unambiguous span is rewritten. An ambiguous one cannot be
-    attributed to one fact, and a rounded or unsupported one does not carry
-    the table's value, so each is left as the model wrote it -- which is what
-    D1-D5 then see: a number with no citation.
+    attributed to one fact; a rounded or unsupported one does not carry the
+    table's value; a quoted one belongs to a sentence, not to a number. Each
+    is left as the model wrote it -- which is what D1-D5 then see: a number
+    with no citation.
     """
     out = []
     cursor = 0
@@ -244,9 +312,10 @@ def _reconstructed(statement: str, spans: Sequence[Span]) -> str:
 
 def attribute(statement: str, facts: FactTable) -> Attribution:
     """Every numeric span of `statement`, classified against `facts`."""
-    rendered = _rendered_values(facts)
+    citable, quoted = _values(facts)
     spans = tuple(
-        _classify(match, facts, rendered) for match in _numeric_spans_in(_masked(statement))
+        _classify(match, statement, facts, citable, quoted)
+        for match in _numeric_spans_in(_masked(statement))
     )
     return Attribution(statement, _reconstructed(statement, spans), spans)
 
@@ -254,3 +323,31 @@ def attribute(statement: str, facts: FactTable) -> Attribution:
 def flags(statement: str, facts: FactTable) -> tuple[Flag, ...]:
     """The attribution flags of one statement, as a grader returns them."""
     return attribute(statement, facts).flags
+
+
+def grade_reconstructed(narrative: Narrative, facts: FactTable) -> tuple[StatementGrade, ...]:
+    """Grade a narrative the model wrote values into, as `grade_narrative` does.
+
+    Each statement is matched against the table first, then D1-D5 run on the
+    reconstructed form, where an attributed value carries the placeholder it
+    would have had. So the graders see what they were written to read, and
+    their rates on this arm mean the same thing as on a grounded one, with
+    the caveat that here the citations are inferred rather than declared.
+
+    The grade keeps the statement **as the model wrote it**: that is what a
+    labeller is shown and what the report quotes. The reconstruction is an
+    intermediate, and a flag naming `{est.ipw.point}` names the fact the
+    matcher attributed, not a citation the model made.
+    """
+    grades = []
+    for position, (section, statement) in enumerate(narrative.statements()):
+        attribution = attribute(statement, facts)
+        grades.append(
+            StatementGrade(
+                section,
+                position,
+                statement,
+                attribution.flags + grade_statement(attribution.reconstructed, facts),
+            )
+        )
+    return tuple(grades)
