@@ -1,11 +1,14 @@
 """Running interpretations over the corpus, within a budget, resumably.
 
-Each (case, variant, replicate) is one call to phase 1's `interpret`. Its
-result is stored under a key of everything that produced it, and a rerun
-skips every stored key. A transport failure stores nothing, so a rerun
-retries it. Every model call counts against the budget, a failed one too, and
-an interpretation is started only when the budget can absorb its largest
-possible number of calls.
+Each (case, arm, replicate) is one interpretation: on a grounded arm a call
+to phase 1's `interpret`, which may send a rejected reply back once; on the
+ungrounded arm one call to `ungrounded.write_unverified`, which has no
+verifier to send anything back to. Its result is stored under a key of
+everything that produced it, and a rerun skips every stored key. A transport
+failure stores nothing, so a rerun retries it. Every model call counts
+against the budget, a failed one too, and an interpretation is started only
+when the budget can absorb its largest possible number of calls -- which is
+the arm's, not the module's.
 """
 
 from __future__ import annotations
@@ -21,11 +24,15 @@ from cp_llm.interpret import InterpretationRefusedError, ModelDidNotAnswerError,
 from cp_llm.model import ModelCallError, ModelReply, NarrativeModel, Turn
 from cp_llm.prompt import prompt_version
 
+from cp_llm_eval.arms import Arm
 from cp_llm_eval.corpus import CorpusEntry
 from cp_llm_eval.store import Store, digest
-from cp_llm_eval.variants import Variant
+from cp_llm_eval.ungrounded import CALLS as UNGROUNDED_CALLS
+from cp_llm_eval.ungrounded import UNVERIFIED, write_unverified
 
 INTERPRETATIONS = "interpretations"
+# The most attempts a grounded interpretation gets: the first reply, and one
+# more after the verifier's complaints are put to the model.
 MAX_ATTEMPTS = 2
 # claude-opus-5-5's price per token, as phase 1 measured cost.
 INPUT_PRICE = 4e-6
@@ -113,10 +120,22 @@ class RecordingModel:
         return reply
 
 
+def max_calls(arm: Arm) -> int:
+    """The most model calls one of this arm's narratives can cost.
+
+    A grounded arm may put the verifier's complaints to the model once. The
+    ungrounded arm has no verifier, so there is nothing to retry against and
+    one call is all it can spend.
+    """
+    return MAX_ATTEMPTS if arm.grounded else UNGROUNDED_CALLS
+
+
 @dataclass(frozen=True)
 class Job:
     entry: CorpusEntry
-    variant: Variant
+    # Named for the key field it writes, which the 199 stored records of the
+    # phase 2 study hash under that name.
+    variant: Arm
     replicate: int
     model: str
     effort: str
@@ -150,31 +169,56 @@ class Outcome:
     calls: tuple[Call, ...]
 
 
-def interpretation_record(
-    job: Job, facts: FactTable, model: NarrativeModel, budget: CallBudget
-) -> Outcome:
-    """Interpret one job, charging every model call to `budget`."""
-    recording = RecordingModel(model, budget)
-    record: dict[str, object] = {"key": job.key_fields()}
+def _verified(job: Job, facts: FactTable, model: NarrativeModel) -> dict[str, object]:
+    """A grounded arm's outcome: verified, refused, or no answer at all."""
     try:
-        result = interpret(facts, recording, MAX_ATTEMPTS, system=job.variant.system())
-    except ModelCallError:
-        return Outcome(None, recording.made, tuple(recording.calls))
+        result = interpret(facts, model, MAX_ATTEMPTS, system=job.variant.system())
     except InterpretationRefusedError as exc:
-        record |= {"outcome": "refused", "attempts": [a.to_dict() for a in exc.attempts]}
+        return {"outcome": "refused", "attempts": [a.to_dict() for a in exc.attempts]}
     except ModelDidNotAnswerError as exc:
-        record |= {
+        return {
             "outcome": "no_answer",
             "stop_reason": exc.stop_reason,
             "attempts": [a.to_dict() for a in exc.attempts],
         }
-    else:
-        interpretation = result.to_dict()
-        record |= {
-            "outcome": "verified",
-            "interpretation": interpretation,
-            "attempts": interpretation["attempts"],
-        }
+    interpretation = result.to_dict()
+    return {
+        "outcome": "verified",
+        "interpretation": interpretation,
+        "attempts": interpretation["attempts"],
+    }
+
+
+def _unverified(job: Job, facts: FactTable, model: NarrativeModel) -> dict[str, object]:
+    """The ungrounded arm's outcome: the one reply, or no answer at all.
+
+    There is no refusal here and there cannot be: nothing is verified, so
+    nothing can fail verification. A no-answer is stored exactly as a
+    grounded arm's is, so the two arms' denominators are built the same way.
+    """
+    try:
+        result = write_unverified(facts, model, system=job.variant.system())
+    except ModelDidNotAnswerError as exc:
+        return {"outcome": "no_answer", "stop_reason": exc.stop_reason, "attempts": []}
+    unverified = result.to_dict()
+    return {
+        "outcome": UNVERIFIED,
+        "interpretation": unverified,
+        "attempts": unverified["attempts"],
+    }
+
+
+def interpretation_record(
+    job: Job, facts: FactTable, model: NarrativeModel, budget: CallBudget
+) -> Outcome:
+    """Interpret one job by its arm's run path, charging every call to `budget`."""
+    recording = RecordingModel(model, budget)
+    record: dict[str, object] = {"key": job.key_fields()}
+    write = _verified if job.variant.grounded else _unverified
+    try:
+        record |= write(job, facts, recording)
+    except ModelCallError:
+        return Outcome(None, recording.made, tuple(recording.calls))
     record["calls"] = [asdict(call) for call in recording.calls]
     return Outcome(record, recording.made, tuple(recording.calls))
 
@@ -192,23 +236,23 @@ class RunSummary:
 
 def plan_jobs(
     entries: Sequence[CorpusEntry],
-    variants: Sequence[Variant],
+    arms: Sequence[Arm],
     replicates: int,
     model: str,
     effort: str,
 ) -> list[Job]:
-    """Every job, in report order: variant, then case, then replicate.
+    """Every job, in report order: arm, then case, then replicate.
 
-    A job listed twice (a variant or case given twice) is kept once, at its
+    A job listed twice (an arm or case given twice) is kept once, at its
     first place, so it is never run twice.
     """
     if replicates < 1:
         raise ValueError(f"replicates must be at least 1, got {replicates}")
     jobs: dict[str, Job] = {}
-    for variant in variants:
+    for arm in arms:
         for entry in entries:
             for replicate in range(1, replicates + 1):
-                job = Job(entry, variant, replicate, model, effort)
+                job = Job(entry, arm, replicate, model, effort)
                 jobs.setdefault(job.key(), job)
     return list(jobs.values())
 
@@ -267,12 +311,13 @@ def run(
             stop.note(exc)
 
     def attempt(job: Job) -> None:
-        if not budget.reserve(MAX_ATTEMPTS):
+        calls = max_calls(job.variant)
+        if not budget.reserve(calls):
             with lock:
                 summary.not_started += 1
             return
         outcome = interpretation_record(job, job.entry.facts, model, budget)
-        budget.release(MAX_ATTEMPTS - outcome.made)
+        budget.release(calls - outcome.made)
         with lock:
             summary.calls += outcome.made
             summary.cost += cost(outcome.calls)

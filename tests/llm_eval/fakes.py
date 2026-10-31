@@ -7,6 +7,8 @@ from collections.abc import Sequence
 
 from cp_llm.model import ModelCallError, ModelReply, Turn, Usage
 from cp_llm.narrative import Narrative
+from cp_llm.render import format_fact
+from cp_llm_eval.ungrounded import UNVERIFIED
 
 # An uncited status summary (D4) that phase 1's verifier accepts: true of the
 # `entry` fit, whose difference_in_means checks are all NOT_TESTABLE.
@@ -61,3 +63,68 @@ class ReplyJudge:
         reply = self._reply_for(n_statements)
         stop_reason = "end_turn" if reply else "refusal"
         return JudgeCall(reply, stop_reason, "scripted-judge", Usage(2000, 200))
+
+
+# A value no fact of the `entry` fit holds at any rounding, and no prose fact
+# of it mentions. `test_a_fabricated_value...` fails loudly if that changes.
+FABRICATED = "7.7321"
+
+
+def _value(facts, fact_id):
+    """The fact's value as the renderer writes it, so the prose below is attributable."""
+    fact = facts.get(fact_id)
+    assert fact is not None, fact_id
+    return format_fact(fact)
+
+
+def ungrounded_narrative(facts):
+    """Prose with the table's own values in it, and two planted defects.
+
+    The comparative is false of the values: ipw's point estimate is the lower
+    of the two, so "higher than" contradicts the table. D1 can only see that
+    once both numbers have been matched back to the facts they came from. The
+    estimates statement carries a value no fact supports at any rounding.
+    """
+    ipw, dim = facts.get("est.ipw.point"), facts.get("est.difference_in_means.point")
+    assert ipw is not None and dim is not None
+    assert ipw.value < dim.value, "the planted comparative is only false while ipw is lower"
+    return Narrative(
+        summary=[
+            f"ipw estimates the effect at {_value(facts, 'est.ipw.point')}, which is higher "
+            f"than difference_in_means at {_value(facts, 'est.difference_in_means.point')}."
+        ],
+        estimates=[f"A further check put the effect at {FABRICATED} on the same scale."],
+        validity=["The design is a cross-section and the usual caveats apply."],
+        agreement=[],
+        caveats=[],
+    )
+
+
+def ungrounded_record(entry, narrative, replicate=1):
+    """What the ungrounded run path stores: one reply, unverified, values and all.
+
+    Written by hand, so that `tests/llm_eval/test_ungrounded.py` can hold the
+    real run path to this shape rather than to itself. The arm has no
+    verifier, so there is no `rendered` section: the statement the model wrote
+    is already the statement a reader is shown.
+    """
+    body = narrative.model_dump()
+    return {
+        "key": {
+            "case_id": entry.case_id,
+            "facts_sha256": entry.facts_sha256,
+            "variant": "ungrounded",
+            "prompt_version": "ungrounded-prompt",
+            "model": "claude-opus-5-5",
+            "effort": "medium",
+            "replicate": replicate,
+        },
+        "outcome": UNVERIFIED,
+        "interpretation": {
+            "model": "scripted-model",
+            "prompt_version": "ungrounded-prompt",
+            "narrative": body,
+        },
+        "attempts": [{"narrative": body}],
+        "calls": [],
+    }

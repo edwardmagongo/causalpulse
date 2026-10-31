@@ -21,6 +21,11 @@ some fact at a coarser rounding. Only `D0` is the primary endpoint's event:
 it. This module reads flag categories off each statement, so it does not
 require any of them to have been added to
 `deterministic.DETERMINISTIC_CATEGORIES`.
+
+`graded.grade_records` is what puts those flags there, and it runs the
+matcher on every arm: over the model's own text on the ungrounded arm, and
+over the rendered text on a grounded one -- which is the text P0 is a claim
+about, since that is where every value is some fact's rendered form exactly.
 """
 
 from __future__ import annotations
