@@ -5,6 +5,19 @@ corrected grader must reach every stored narrative. The judge's verdicts are
 read from the store, matched to their interpretation by key and to the
 current judge prompt by version, so a verdict from an older judge prompt is
 never mixed in.
+
+A narrative from the ungrounded arm holds values rather than placeholders, so
+it is matched against the fact table first and D1-D5 read the reconstructed
+form (`attribution.grade_reconstructed`). Without that the graders would find
+nothing to read in it and the arm would score a perfect zero on every
+category -- not "no misreadings" but "no input".
+
+The matcher runs on every arm, so that its flags mean the same thing
+everywhere: on an unverified narrative over the text the model wrote, and on
+a verified one over the rendered text a reader is shown. On a verified
+narrative it must find nothing, because every value there came from
+`render.substitute` and so is some fact's rendered form exactly -- which is
+what the control arm's P0 gate checks before a call of it is billed.
 """
 
 from __future__ import annotations
@@ -15,11 +28,16 @@ from dataclasses import dataclass
 from cp_llm.facts import FactTable
 from cp_llm.narrative import Narrative
 
+from cp_llm_eval.attribution import flags as attribution_flags
+from cp_llm_eval.attribution import grade_reconstructed
 from cp_llm_eval.corpus import CorpusEntry, Design, check_facts_match
-from cp_llm_eval.deterministic import Flag, grade_narrative
+from cp_llm_eval.deterministic import Flag, StatementGrade, grade_narrative
 from cp_llm_eval.judge import Finding, judge_prompt_version, rendered_statements
 from cp_llm_eval.runner import interpretation_key
 from cp_llm_eval.store import digest
+from cp_llm_eval.ungrounded import UNVERIFIED
+
+__all__ = ["UNVERIFIED", "GradedNarrative", "GradedStatement", "grade_records"]
 
 
 @dataclass(frozen=True)
@@ -31,6 +49,7 @@ class GradedStatement:
     position: int
     raw: str
     rendered: str
+    # D1-D5, and the matcher's own flags for the values in this statement.
     deterministic: tuple[Flag, ...]
     # None when the narrative was not judged, or the judge's reply was unusable.
     judge: tuple[Finding, ...] | None
@@ -45,16 +64,48 @@ class GradedNarrative:
     replicate: int
     outcome: str
     attempts: int
-    # The final, verified narrative's statements; empty unless `outcome` is verified.
+    # The narrative the arm ended on: the verified one, or the ungrounded
+    # arm's single unverified reply. Empty when the model refused or did not
+    # answer, since there is then no narrative to grade.
     statements: tuple[GradedStatement, ...]
     # The deterministic flags of the first attempt's statements, or None if
-    # the model gave no narrative at all.
+    # the model gave no narrative at all. D1-D5 only on a grounded arm: an
+    # attempt that was never verified was never rendered, so there is no
+    # rendered text for the matcher to read.
     first_attempt: tuple[tuple[Flag, ...], ...] | None
     judge_error: bool
 
     @property
     def judged(self) -> bool:
         return bool(self.statements) and all(s.judge is not None for s in self.statements)
+
+
+def _grades(
+    narrative: Narrative, facts: FactTable, outcome: str
+) -> tuple[StatementGrade, ...]:
+    """Grade `narrative` the way this arm's narratives are written.
+
+    An unverified narrative holds the model's own values, so it is matched
+    against the table and graded on the reconstructed form; a verified one
+    already cites its facts and is graded as it stands.
+    """
+    if outcome == UNVERIFIED:
+        return grade_reconstructed(narrative, facts)
+    return grade_narrative(narrative, facts)
+
+
+def _flags(
+    grade: StatementGrade, rendered: str, facts: FactTable, outcome: str
+) -> tuple[Flag, ...]:
+    """One statement's flags: D1-D5, and the matcher's on the text a reader sees.
+
+    On an unverified narrative the matcher has already run, over the text the
+    model wrote, and its flags are in `grade.flags`. On a verified one the
+    values are behind placeholders, so it runs here over the rendered form.
+    """
+    if outcome == UNVERIFIED:
+        return grade.flags
+    return grade.flags + attribution_flags(rendered, facts)
 
 
 def _first_attempt(
@@ -65,7 +116,8 @@ def _first_attempt(
     if not attempts:
         return None
     narrative = Narrative.model_validate(attempts[0]["narrative"])
-    return tuple(grade.flags for grade in grade_narrative(narrative, facts))
+    grades = _grades(narrative, facts, str(record["outcome"]))
+    return tuple(grade.flags for grade in grades)
 
 
 def grade_records(
@@ -96,12 +148,20 @@ def grade_records(
         verdict = by_interpretation.get(key)
         judged = verdict is not None and verdict["outcome"] == "judged"
         statements: tuple[GradedStatement, ...] = ()
-        if record["outcome"] == "verified":
+        outcome = str(record["outcome"])
+        if outcome in ("verified", UNVERIFIED):
             interpretation = record["interpretation"]
             assert isinstance(interpretation, dict)
             narrative = Narrative.model_validate(interpretation["narrative"])
-            grades = grade_narrative(narrative, entry.facts)
-            rendered = rendered_statements(dict(record))
+            grades = _grades(narrative, entry.facts, outcome)
+            # An unverified narrative was never substituted into, because its
+            # values were never placeholders: it is already its own rendered
+            # form, and that is what a reader of this arm sees.
+            rendered = (
+                narrative.statements()
+                if outcome == UNVERIFIED
+                else rendered_statements(dict(record))
+            )
             findings: list[list[dict[str, object]]] | None = None
             if judged and verdict is not None:
                 stored = verdict["statements"]
@@ -116,7 +176,9 @@ def grade_records(
                     position=grade.position,
                     raw=grade.statement,
                     rendered=rendered[grade.position][1],
-                    deterministic=grade.flags,
+                    deterministic=_flags(
+                        grade, rendered[grade.position][1], entry.facts, outcome
+                    ),
                     judge=(
                         tuple(Finding.model_validate(f) for f in findings[grade.position])
                         if findings is not None
@@ -135,7 +197,7 @@ def grade_records(
                 design=entry.design,
                 variant=str(key_fields["variant"]),
                 replicate=replicate,
-                outcome=str(record["outcome"]),
+                outcome=outcome,
                 attempts=len(attempts),
                 statements=statements,
                 first_attempt=_first_attempt(record, entry.facts),

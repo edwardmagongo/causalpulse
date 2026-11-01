@@ -195,13 +195,72 @@ def test_a_rounding_two_facts_share_is_ambiguous_not_rounded():
 # ------------------------------------------------- text facts and placeholders
 
 
-def test_a_number_inside_a_text_fact_is_a_value_the_table_supports():
-    note = Fact("check.aipw.positivity.detail", "text", "trimmed at 0.05 on both tails", NAME.id)
-    table = _table(NAME, note)
+NOTE = Fact("check.aipw.positivity.detail", "text", "trimmed at 0.05 on both tails", NAME.id)
+
+
+def test_a_number_inside_a_text_fact_is_quoted_not_invented():
+    table = _table(NAME, NOTE)
 
     assert _outcomes("The fit was trimmed at 0.05 on both tails.", table) == [
-        ("0.05", "exact", ("check.aipw.positivity.detail",))
+        ("0.05", "quoted", ("check.aipw.positivity.detail",))
     ]
+    # The table holds the number, so it is not D0; but the fact is the
+    # sentence, not the number, so there is nothing to flag and nothing to
+    # cite -- a placeholder for it would render the whole sentence back.
+    assert flags("trimmed at 0.05", table) == ()
+    assert attribute("trimmed at 0.05", table).reconstructed == "trimmed at 0.05"
+
+
+def test_a_prose_fact_does_not_make_the_numbers_it_mentions_ambiguous():
+    # The defect this separation exists to prevent: one sentence fact
+    # mentioning several values used to match every one of them, so each
+    # collided with the fact that actually holds it and the whole statement
+    # came back ambiguous -- and an ambiguous span is never reconstructed.
+    verdict = Fact("cmp.ate.raw.verdict", "text", "estimates range from 0.1349 to 0.25", None)
+    other = Fact("est.ipw.point", "number", 0.25, _name("est.ipw.method", "ipw").id)
+    table = _table(NAME, POINT, _name("est.ipw.method", "ipw"), other, verdict)
+
+    assert _outcomes("aipw estimates 0.1349 and ipw 0.25.", table) == [
+        ("0.1349", "exact", ("est.aipw.point",)),
+        ("0.25", "exact", ("est.ipw.point",)),
+    ]
+
+
+# ------------------------------------------------- the subject resolves a tie
+
+
+def test_a_shared_value_is_resolved_to_the_fact_whose_subject_is_named():
+    # The comparison table restates each point estimate as an end of its
+    # range, so the value belongs to two fact ids. The sentence is about ipw,
+    # so that is the one it cites -- and now D1-D5 see a citation here.
+    restated = Fact("cmp.ate.raw.point_low", "number", 0.1349, None)
+    table = _table(NAME, POINT, restated)
+
+    result = attribute("aipw estimates 0.1349 on the outcome.", table)
+
+    assert result.spans[0].outcome == "exact"
+    assert result.spans[0].fact_ids == ("est.aipw.point",)
+    assert result.reconstructed == "aipw estimates {est.aipw.point} on the outcome."
+
+
+def test_a_shared_value_stays_ambiguous_when_the_statement_names_neither_subject():
+    restated = Fact("cmp.ate.raw.point_low", "number", 0.1349, None)
+    table = _table(NAME, POINT, restated)
+
+    result = attribute("the range starts at 0.1349.", table)
+
+    assert result.spans[0].outcome == "ambiguous"
+    assert [f.category for f in result.flags] == [D0_AMBIGUOUS]
+
+
+def test_naming_both_subjects_resolves_nothing():
+    # A guess here would hand D1-D5 a citation the model never made.
+    twin = Fact("est.ipw.point", "number", 0.1349, _name("est.ipw.method", "ipw").id)
+    table = _table(NAME, POINT, _name("est.ipw.method", "ipw"), twin)
+
+    result = attribute("aipw and ipw both estimate 0.1349.", table)
+
+    assert result.spans[0].outcome == "ambiguous"
 
 
 def test_a_placeholder_s_own_id_is_not_scanned_for_numbers():
@@ -257,3 +316,16 @@ def test_the_flags_name_the_value_and_the_facts_behind_each_outcome():
 def test_a_quantity_spelled_in_words_is_not_a_numeric_span(statement):
     # The same gap phase 1's verifier has, recorded rather than papered over.
     assert attribute(statement, TABLE).spans == ()
+
+
+def test_a_number_the_table_writes_out_in_prose_is_not_called_a_rounding():
+    # 0.05 is also 0.0499 at one significant figure, but the table shows
+    # "0.05" verbatim, so charging the model with coarsening a value it could
+    # have read is an accusation the table itself answers.
+    near = Fact("est.aipw.p_value", "p_value", 0.0499, NAME.id)
+    table = _table(NAME, near, NOTE)
+
+    assert _outcomes("trimmed at 0.05 on both tails", table) == [
+        ("0.05", "quoted", ("check.aipw.positivity.detail",))
+    ]
+    assert flags("trimmed at 0.05 on both tails", table) == ()

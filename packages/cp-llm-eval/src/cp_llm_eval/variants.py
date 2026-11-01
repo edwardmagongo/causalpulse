@@ -24,6 +24,17 @@ class Variant:
     def system(self) -> str:
         return self._build()
 
+    @property
+    def grounded(self) -> bool:
+        """Always true, which is what makes a variant a variant.
+
+        A variant is phase 1's prompt with one change, so it keeps the
+        placeholder schema and every rule the verifier enforces: its replies
+        are verified before anything is rendered. An arm that states its own
+        values is not a variant; `cp_llm_eval.arms` says why.
+        """
+        return True
+
 
 def _with_sentence_after(anchor: str, sentence: str) -> Callable[[], str]:
     def build() -> str:
