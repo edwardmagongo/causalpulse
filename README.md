@@ -227,6 +227,20 @@ the binary panel `hierarchical_did` alone collapsed (0.01 coverage, against 0.89
 peers on the same data), because its likelihood was Gaussian whatever the outcome. It is now
 restricted to continuous outcomes.
 
+![Coverage of every estimator's primary interval across every scenario, as a grid of method rows against scenario columns: lighter cells are higher coverage, dark cells are intervals that miss the truth, grey cells are methods that were not fitted there](docs/reports/2026-09-26-benchmark-study/coverage-by-method-and-scenario.png)
+
+*Where each estimator holds, and where it does not. The dark P5 column is the designed failure:
+parallel trends are violated there, and `twfe`, `callaway_santanna`, `event_study` and
+`hierarchical_did` each covered the true effect in none of their 100 fits. `twfe` goes dark on
+P4 as well, where effects grow with exposure and `callaway_santanna` does not;
+`difference_in_means` on the confounded D and G; `hierarchical_did` on S2, a single-treated-unit
+scenario it was never built for and is fitted on only because its eligibility rule admits it.*
+
+![Bias against confounding strength on scenario D: difference_in_means climbs from 0.07 to 0.20 while every estimator that adjusts for the confounder stays flat near zero](docs/reports/2026-09-26-benchmark-study/bias-vs-confounding-strength-scenario-d.png)
+
+*The same run read along one axis. Only the estimator that adjusts for nothing tracks the
+confounding, and it does so almost linearly.*
+
 Further arms score the donor-pool estimators, the causal forest's per-unit effects and a
 many-cohort panel. The published report is in
 [`docs/reports/2026-09-26-benchmark-study/`](docs/reports/2026-09-26-benchmark-study/), and
