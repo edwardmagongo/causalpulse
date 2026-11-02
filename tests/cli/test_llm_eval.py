@@ -6,13 +6,16 @@ scripted model and judge. Everything else is the real command.
 
 import csv
 import json
+from pathlib import Path
 
 import pytest
 from cp_cli import __main__ as cli
 from cp_cli.commands import llm_eval
 from cp_llm.narrative import Narrative
+from cp_llm_eval import judge as judge_module
 from cp_llm_eval.judge import JudgeReply, StatementVerdict
-from cp_llm_eval.store import read_export
+from cp_llm_eval.runner import INTERPRETATIONS
+from cp_llm_eval.store import Store, read_export
 from llm.builders import _band, _estimate
 from llm_eval.fakes import ReplyJudge, ReplyModel
 
@@ -166,3 +169,89 @@ def test_an_import_with_no_export_is_refused(tmp_path, monkeypatch, capsys):
 
     assert cli.main(["llm-eval", "label", "import", *common, "--csv", str(csv_path)]) == 1
     assert "label export" in capsys.readouterr().err
+
+
+# the ungrounded arm, and the cost of a revised judge ----------------------
+
+
+def _built(tmp_path, monkeypatch):
+    monkeypatch.chdir(cli.__file__.rsplit("/packages/", 1)[0])
+    corpus, store = tmp_path / "corpus", tmp_path / "store"
+    assert cli.main(["llm-eval", "build", "--out", str(corpus), "--case", "awkward-single"]) == 0
+    return ["--corpus", str(corpus), "--store", str(store)]
+
+
+def test_the_ungrounded_arm_runs_and_is_counted_as_its_own_outcome(
+    tmp_path, scripted, monkeypatch
+):
+    """It has no verifier, so it is neither verified nor refused, and is judged all the same."""
+    common = _built(tmp_path, monkeypatch)
+    out = tmp_path / "report"
+
+    # 3, not 2: a grounded job reserves both of its attempts up front, while
+    # the ungrounded arm reserves the one call it can make.
+    assert cli.main([*(["llm-eval", "run"] + common), "--max-calls", "3", "--replicates", "1",
+                     "--arm", "ungrounded", "--arm", "baseline"]) == 0
+    assert cli.main([*(["llm-eval", "grade"] + common), "--max-calls", "2"]) == 0
+    assert cli.main([*(["llm-eval", "report"] + common), "--out", str(out)]) == 0
+
+    report = json.loads((out / "report.json").read_text())
+    arm = report["run"]["variants"]["ungrounded"]
+    assert (arm["interpretations"], arm["unverified"], arm["verified"]) == (1, 1, 0)
+    assert report["denominators"]["ungrounded"]["can_refuse"] is False
+    # Judged under the same prompt as the grounded arm, which is what makes
+    # the J-rates differ by arm rather than by instrument.
+    _model, judge = scripted
+    assert judge.calls == 2
+
+
+def test_the_older_variant_flag_still_names_an_arm(tmp_path, scripted, monkeypatch):
+    common = _built(tmp_path, monkeypatch)
+
+    assert cli.main([*(["llm-eval", "run"] + common), "--max-calls", "2", "--replicates", "1",
+                     "--variant", "baseline"]) == 0
+
+    store = Store(Path(common[3]))
+    (record,) = store.records(INTERPRETATIONS)
+    assert record["key"]["variant"] == "baseline"
+
+
+def test_grade_refuses_to_bill_a_rejudge_until_it_is_asked_for(
+    tmp_path, scripted, monkeypatch, capsys
+):
+    """A revised judge prompt invalidates every stored verdict by key.
+
+    Without the guard, the next `grade` would quietly pay for all of them
+    again -- 199 calls on the real study.
+    """
+    common = _built(tmp_path, monkeypatch)
+    assert cli.main([*(["llm-eval", "run"] + common), "--max-calls", "2", "--replicates", "1"]) == 0
+    assert cli.main([*(["llm-eval", "grade"] + common), "--max-calls", "1"]) == 0
+    _model, judge = scripted
+    assert judge.calls == 1
+
+    monkeypatch.setattr(judge_module, "judge_prompt_version", lambda: "a-revised-judge")
+    monkeypatch.setattr(llm_eval, "judge_prompt_version", lambda: "a-revised-judge")
+
+    assert cli.main([*(["llm-eval", "grade"] + common), "--max-calls", "1"]) == 1
+    message = capsys.readouterr().err
+    assert "a-revised-judge" in message and "--rejudge" in message
+    assert judge.calls == 1
+
+    assert cli.main([*(["llm-eval", "grade"] + common), "--max-calls", "1", "--rejudge"]) == 0
+    assert judge.calls == 2
+
+
+def test_report_writes_the_pre_registered_endpoints_beside_it(tmp_path, scripted, monkeypatch):
+    common = _built(tmp_path, monkeypatch)
+    out = tmp_path / "report"
+
+    assert cli.main([*(["llm-eval", "run"] + common), "--max-calls", "3", "--replicates", "1",
+                     "--arm", "ungrounded", "--arm", "baseline"]) == 0
+    assert cli.main([*(["llm-eval", "grade"] + common), "--max-calls", "2"]) == 0
+    assert cli.main([*(["llm-eval", "report"] + common), "--out", str(out)]) == 0
+
+    prereg = (out / "prereg.md").read_text()
+    assert prereg.startswith("# Pre-registered endpoints")
+    assert "P0 passed" in prereg
+    assert "P1 " in prereg

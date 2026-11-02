@@ -32,7 +32,7 @@ from cp_llm_eval.attribution import flags as attribution_flags
 from cp_llm_eval.attribution import grade_reconstructed
 from cp_llm_eval.corpus import CorpusEntry, Design, check_facts_match
 from cp_llm_eval.deterministic import Flag, StatementGrade, grade_narrative
-from cp_llm_eval.judge import Finding, judge_prompt_version, rendered_statements
+from cp_llm_eval.judge import Finding, judge_prompt_version, statements_to_judge
 from cp_llm_eval.runner import interpretation_key
 from cp_llm_eval.store import digest
 from cp_llm_eval.ungrounded import UNVERIFIED
@@ -125,14 +125,21 @@ def grade_records(
     interpretations: Sequence[Mapping[str, object]],
     verdicts: Sequence[Mapping[str, object]],
     judge_model: str,
+    judge_version: str | None = None,
 ) -> tuple[GradedNarrative, ...]:
     """Join each interpretation record to its case, its grades and its verdict.
+
+    `judge_version` defaults to the judge prompt this code holds, so a verdict
+    from an older prompt is never mixed in. Pass an older version to read that
+    judge's verdicts instead -- which is how the report shows one arm's rates
+    under two judges, the published one and the revised one, without pretending
+    they are the same measurement.
 
     Raises `ValueError` if a record was made from a fact table other than the
     corpus entry's for its case.
     """
     by_case = {entry.case_id: entry for entry in entries}
-    version = judge_prompt_version()
+    version = judge_prompt_version() if judge_version is None else judge_version
     by_interpretation = {
         str(v["interpretation"]): v
         for v in verdicts
@@ -154,14 +161,9 @@ def grade_records(
             assert isinstance(interpretation, dict)
             narrative = Narrative.model_validate(interpretation["narrative"])
             grades = _grades(narrative, entry.facts, outcome)
-            # An unverified narrative was never substituted into, because its
-            # values were never placeholders: it is already its own rendered
-            # form, and that is what a reader of this arm sees.
-            rendered = (
-                narrative.statements()
-                if outcome == UNVERIFIED
-                else rendered_statements(dict(record))
-            )
+            # One place decides what a reader of each arm sees, so the judge
+            # and the graders can never read a narrative differently.
+            rendered = statements_to_judge(dict(record))
             findings: list[list[dict[str, object]]] | None = None
             if judged and verdict is not None:
                 stored = verdict["statements"]

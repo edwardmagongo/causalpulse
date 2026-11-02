@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 from cp_llm.model import ModelCallError
 from cp_llm_eval.judge import (
+    JUDGE_CATEGORIES,
     JUDGE_SYSTEM,
     VERDICTS,
     ClaudeJudge,
@@ -16,13 +17,19 @@ from cp_llm_eval.judge import (
     judge_message,
     judge_prompt_version,
     rendered_statements,
+    statements_to_judge,
 )
 from cp_llm_eval.runner import INTERPRETATIONS, CallBudget, plan_jobs, run
 from cp_llm_eval.store import Store
 from cp_llm_eval.variants import BASELINE
 from llm.builders import good_narrative
 
-from llm_eval.fakes import ReplyJudge, ReplyModel
+from llm_eval.fakes import (
+    ReplyJudge,
+    ReplyModel,
+    ungrounded_narrative,
+    ungrounded_record,
+)
 
 
 @pytest.fixture(scope="module")
@@ -251,3 +258,84 @@ def test_the_judge_prompt_does_not_mention_the_study_and_defines_every_category(
     assert "study" not in JUDGE_SYSTEM
     for number in range(1, 7):
         assert f"- J{number}:" in JUDGE_SYSTEM
+
+
+# the ungrounded arm, and the revised prompt -------------------------------
+
+
+def _rule_lines():
+    return [line for line in JUDGE_SYSTEM.splitlines() if line.startswith("- J")]
+
+
+def test_judge_jobs_takes_the_ungrounded_arm_and_reads_the_statements_the_model_wrote(
+    entry, facts
+):
+    """An unverified reply has no rendered section: it is already what a reader sees.
+
+    Before this the planner skipped any record that was not `verified`, so the
+    control arm would never have been judged at all and D3's one-judge-for-all
+    -arms would have been a fiction.
+    """
+    narrative = ungrounded_narrative(facts)
+    record = ungrounded_record(entry, narrative)
+
+    (job,) = judge_jobs([record], {entry.case_id: entry}, "claude-opus-5-5")
+
+    assert job.statements == tuple(narrative.statements())
+    assert "rendered" not in record["interpretation"]
+
+
+def test_a_refused_record_is_still_not_judged(entry):
+    refused = {
+        "key": {"case_id": entry.case_id, "facts_sha256": entry.facts_sha256,
+                "variant": "baseline", "prompt_version": "p", "model": "m",
+                "effort": "medium", "replicate": 1},
+        "outcome": "refused",
+        "attempts": [],
+        "calls": [],
+    }
+
+    assert judge_jobs([refused], {entry.case_id: entry}, "claude-opus-5-5") == []
+
+
+def test_both_arms_statements_come_from_one_place(verified, entry, facts):
+    """`statements_to_judge` decides for every arm, so the judge and the graders
+    can never disagree about what a narrative says."""
+    _key, record = verified
+
+    assert statements_to_judge(record) == rendered_statements(record)
+    unverified = ungrounded_record(entry, ungrounded_narrative(facts))
+    assert statements_to_judge(unverified) == tuple(ungrounded_narrative(facts).statements())
+
+
+def test_the_prompt_no_longer_promises_that_the_values_are_correct():
+    """It said the system filled every value in from the facts. On the control
+    arm that is false, and it told the judge to ignore the failure under test."""
+    assert "so the numbers, bands, statuses and names shown are correct" not in JUDGE_SYSTEM
+    assert "Do not assume a value in a statement is right." in JUDGE_SYSTEM
+    assert "you are not told which" in JUDGE_SYSTEM
+
+
+def test_the_prompt_has_a_category_for_a_value_no_fact_supports():
+    assert "J7" in JUDGE_CATEGORIES
+    assert any(line.startswith("- J7: a value no fact supports") for line in _rule_lines())
+
+
+def test_a_correctly_rounded_value_is_not_what_j7_asks_the_judge_to_flag():
+    """Else the judge would contradict the matcher, which reports a rounding
+    apart from D0 precisely because the quantity is right."""
+    (j7,) = [line for line in _rule_lines() if line.startswith("- J7")]
+    index = JUDGE_SYSTEM.index(j7)
+    paragraph = JUDGE_SYSTEM[index : JUDGE_SYSTEM.index("\n- J6", index)]
+
+    assert "rounded" in paragraph
+    assert "flag it only when no fact carries" in paragraph
+
+
+def test_j6_stays_the_last_category_listed_so_it_is_still_the_catch_all():
+    assert [line[2:4] for line in _rule_lines()] == ["J1", "J2", "J3", "J4", "J5", "J7", "J6"]
+
+
+def test_the_published_judge_and_the_revised_one_are_different_versions():
+    """The hash covers the prompt and the reply schema, so J7 alone changes it."""
+    assert judge_prompt_version() != "cc407ff4d564"
