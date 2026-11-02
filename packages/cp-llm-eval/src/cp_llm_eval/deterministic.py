@@ -22,7 +22,13 @@ from cp_llm.facts import Fact, FactTable
 from cp_llm.narrative import Narrative
 from cp_llm.render import PLACEHOLDER
 
-DETERMINISTIC_CATEGORIES: tuple[str, ...] = ("D1", "D2", "D3", "D4", "D5")
+# D1-D5 are this module's graders. D0 is not: it is a value the fact table
+# does not support, which only arises on an arm that writes values itself, and
+# `attribution` finds it by matching numeric spans rather than by reading a
+# placeholder. It is listed here because it is deterministic and belongs in
+# the same tables and strata; `GRADERS` stays the D1-D5 registry, and a test
+# holds `attribution.D0` to this name.
+DETERMINISTIC_CATEGORIES: tuple[str, ...] = ("D0", "D1", "D2", "D3", "D4", "D5")
 # Not a misreading: a comparison D1 could not attribute to two cited facts,
 # counted so the report can say how many it left to the judge.
 D1_UNPARSED = "D1-unparsed"

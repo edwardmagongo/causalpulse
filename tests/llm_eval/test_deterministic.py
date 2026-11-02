@@ -5,7 +5,7 @@ them fails here, loudly, instead of passing for a reason that no longer holds.
 """
 
 import pytest
-from cp_llm_eval import deterministic
+from cp_llm_eval import attribution, deterministic
 from cp_llm_eval.deterministic import (
     D1_UNPARSED,
     DETERMINISTIC_CATEGORIES,
@@ -60,12 +60,12 @@ PLANTED = {
 }
 
 
-@pytest.mark.parametrize("category", DETERMINISTIC_CATEGORIES)
+@pytest.mark.parametrize("category", sorted(deterministic.GRADERS))
 def test_each_planted_defect_is_caught_by_its_own_grader_and_no_other(category, known):
     assert _categories(PLANTED[category], known) == {category}
 
 
-@pytest.mark.parametrize("category", DETERMINISTIC_CATEGORIES)
+@pytest.mark.parametrize("category", sorted(deterministic.GRADERS))
 def test_with_its_grader_removed_each_planted_defect_goes_uncounted(category, known, monkeypatch):
     remaining = {k: v for k, v in deterministic.GRADERS.items() if k != category}
     monkeypatch.setattr(deterministic, "GRADERS", remaining)
@@ -74,7 +74,17 @@ def test_with_its_grader_removed_each_planted_defect_goes_uncounted(category, kn
 
 
 def test_the_planted_defects_cover_every_grader():
-    assert set(PLANTED) == set(deterministic.GRADERS) == set(DETERMINISTIC_CATEGORIES)
+    assert set(PLANTED) == set(deterministic.GRADERS)
+
+
+def test_the_categories_are_this_modules_graders_plus_d0_which_it_does_not_grade():
+    """D0 is deterministic but comes from `attribution`, not from a grader here.
+
+    Both halves matter: a grader added without a planted defect fails the test
+    above, and a category listed that nothing produces fails this one.
+    """
+    assert attribution.D0 not in deterministic.GRADERS
+    assert set(DETERMINISTIC_CATEGORIES) == {attribution.D0} | set(deterministic.GRADERS)
 
 
 def test_phase_ones_verified_narrative_has_no_flag(known):

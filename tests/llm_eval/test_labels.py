@@ -1,8 +1,9 @@
 import csv
 
 import pytest
-from cp_llm_eval.graded import grade_records
-from cp_llm_eval.judge import VERDICTS
+from cp_llm_eval.deterministic import Flag
+from cp_llm_eval.graded import GradedStatement, grade_records
+from cp_llm_eval.judge import VERDICTS, Finding
 from cp_llm_eval.labels import (
     COLUMNS,
     Label,
@@ -155,3 +156,71 @@ def test_saved_labels_load_back_and_none_saved_is_none(tmp_path):
 
     assert load(tmp_path / "labels.json") == labels
     assert load(tmp_path / "absent.json") == []
+
+
+# the D0 stratum -----------------------------------------------------------
+
+
+def _graded_statement(deterministic=(), judge=None):
+    return GradedStatement(
+        statement_id="s",
+        interpretation="i",
+        case_id="a",
+        section="summary",
+        position=0,
+        raw="r",
+        rendered="r",
+        deterministic=deterministic,
+        judge=judge,
+    )
+
+
+def test_a_statement_carrying_a_d0_is_labelled_as_d0_even_when_the_judge_flagged_it():
+    """D0 wins the tie, so the labeller sees the arm's primary endpoint.
+
+    The judge flags far more statements than the matcher does, so without the
+    priority a D0 statement would nearly always land in the judge's stratum
+    and the endpoint would be measured on whatever was left over.
+    """
+    both = _graded_statement(
+        deterministic=(Flag("D0", "no fact supports 7.7321"),),
+        judge=(Finding(category="J1", reason="r"),),
+    )
+
+    assert stratum(both) == 0
+
+
+def test_the_other_three_strata_keep_their_order():
+    judged = _graded_statement(judge=(Finding(category="J1", reason="r"),))
+    grader_only = _graded_statement(deterministic=(Flag("D4", "summary", "true"),))
+    unflagged = _graded_statement()
+
+    assert (stratum(judged), stratum(grader_only), stratum(unflagged)) == (1, 2, 3)
+
+
+def test_a_rounded_or_ambiguous_value_is_not_the_d0_stratum():
+    """Neither is a misreading, so neither earns the endpoint's stratum."""
+    rounded = _graded_statement(deterministic=(Flag("D0-rounded", "r"),))
+    ambiguous = _graded_statement(deterministic=(Flag("D0-ambiguous", "r"),))
+
+    assert (stratum(rounded), stratum(ambiguous)) == (3, 3)
+
+
+def test_the_sample_spans_all_four_strata_once_an_ungrounded_arm_is_in_the_store(
+    entry, stored_three_arms
+):
+    graded = grade_records(
+        [entry],
+        stored_three_arms.records(INTERPRETATIONS),
+        stored_three_arms.records(VERDICTS),
+        "claude-opus-5-5",
+    )
+
+    chosen = sample(graded, size=40, seed=0)
+
+    assert {stratum(s) for s in chosen} == {0, 1, 2, 3}
+    # The D0 statements come from the ungrounded arm alone: on a grounded arm
+    # every value was substituted from the table, so none can be unsupported.
+    d0 = {s.interpretation for s in chosen if stratum(s) == 0}
+    ungrounded = {n.interpretation for n in graded if n.variant == "ungrounded"}
+    assert d0 and d0 <= ungrounded

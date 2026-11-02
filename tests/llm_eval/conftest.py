@@ -72,3 +72,47 @@ def stored(entry: CorpusEntry, tmp_path_factory: pytest.TempPathFactory):
     jobs = judge_jobs(store.records(INTERPRETATIONS), {entry.case_id: entry}, "claude-opus-5-5")
     judge_all(jobs, lambda: ReplyJudge(reply), store, CallBudget(20), workers=1)
     return store
+
+
+@pytest.fixture(scope="session")
+def stored_three_arms(entry: CorpusEntry, stored, tmp_path_factory: pytest.TempPathFactory):
+    """`stored`'s two grounded arms, plus one judged ungrounded narrative.
+
+    The ungrounded reply carries a planted fabricated value, so this store is
+    the only fixture where a D0 exists -- which is what the D0 table, the
+    D0-flagged label stratum and the three-way comparison are read against.
+    Built by copying `stored`'s records rather than re-running it, so the two
+    fixtures cannot disagree about the grounded arms.
+    """
+    from cp_llm_eval.judge import VERDICTS as VERDICT_KIND
+    from cp_llm_eval.judge import (
+        JudgeReply,
+        StatementVerdict,
+        judge_all,
+        judge_jobs,
+        verdict_key,
+    )
+    from cp_llm_eval.runner import INTERPRETATIONS, CallBudget, interpretation_key
+    from cp_llm_eval.store import Store
+
+    from llm_eval.fakes import ReplyJudge, ungrounded_narrative, ungrounded_record
+
+    store = Store(tmp_path_factory.mktemp("three-arms"))
+    for record in stored.records(INTERPRETATIONS):
+        store.put(INTERPRETATIONS, interpretation_key(record), record)
+    for record in stored.records(VERDICT_KIND):
+        store.put(VERDICT_KIND, verdict_key(record), record)
+
+    unverified = ungrounded_record(entry, ungrounded_narrative(entry.facts))
+    store.put(INTERPRETATIONS, interpretation_key(unverified), unverified)
+
+    def clean(n: int) -> JudgeReply:
+        return JudgeReply(
+            statements=[StatementVerdict(number=i, findings=[]) for i in range(1, n + 1)]
+        )
+
+    # Only the ungrounded narrative is judged here: `judge_all` skips every
+    # verdict already stored, which the copied ones are.
+    jobs = judge_jobs(store.records(INTERPRETATIONS), {entry.case_id: entry}, "claude-opus-5-5")
+    judge_all(jobs, lambda: ReplyJudge(clean), store, CallBudget(20), workers=1)
+    return store
