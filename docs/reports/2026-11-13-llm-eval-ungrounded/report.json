@@ -626,13 +626,69 @@
      "se": null,
      "upper_bound": 0.06818181818181818
     },
-    "J1": null,
-    "J2": null,
-    "J3": null,
-    "J4": null,
-    "J5": null,
-    "J6": null,
-    "J7": null,
+    "J1": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 3,
+     "rate": 0.06818181818181818,
+     "se": 0.03520893951097651,
+     "upper_bound": null
+    },
+    "J2": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "J3": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "J4": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "J5": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "J6": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "J7": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
     "any_D": {
      "clusters": 11,
      "denominator": 44,
@@ -642,7 +698,15 @@
      "se": null,
      "upper_bound": null
     },
-    "any_J": null
+    "any_J": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 3,
+     "rate": 0.06818181818181818,
+     "se": 0.03520893951097651,
+     "upper_bound": null
+    }
    },
    "donor_pool": {
     "D0": {
@@ -699,13 +763,69 @@
      "se": null,
      "upper_bound": 0.10714285714285714
     },
-    "J1": null,
-    "J2": null,
-    "J3": null,
-    "J4": null,
-    "J5": null,
-    "J6": null,
-    "J7": null,
+    "J1": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.03571428571428571,
+     "se": 0.03571428571428572,
+     "upper_bound": null
+    },
+    "J2": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "J3": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "J4": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "J5": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "J6": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 2,
+     "rate": 0.07142857142857142,
+     "se": 0.046106944597707346,
+     "upper_bound": null
+    },
+    "J7": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
     "any_D": {
      "clusters": 7,
      "denominator": 28,
@@ -715,7 +835,15 @@
      "se": null,
      "upper_bound": null
     },
-    "any_J": null
+    "any_J": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 3,
+     "rate": 0.10714285714285714,
+     "se": 0.050507627227610534,
+     "upper_bound": null
+    }
    },
    "panel": {
     "D0": {
@@ -772,13 +900,69 @@
      "se": null,
      "upper_bound": 0.10714285714285714
     },
-    "J1": null,
-    "J2": null,
-    "J3": null,
-    "J4": null,
-    "J5": null,
-    "J6": null,
-    "J7": null,
+    "J1": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "J2": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.03571428571428571,
+     "se": 0.03571428571428572,
+     "upper_bound": null
+    },
+    "J3": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "J4": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "J5": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.03571428571428571,
+     "se": 0.03571428571428572,
+     "upper_bound": null
+    },
+    "J6": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "J7": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 2,
+     "rate": 0.07142857142857142,
+     "se": 0.07142857142857144,
+     "upper_bound": null
+    },
     "any_D": {
      "clusters": 7,
      "denominator": 28,
@@ -788,7 +972,15 @@
      "se": null,
      "upper_bound": null
     },
-    "any_J": null
+    "any_J": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 4,
+     "rate": 0.14285714285714285,
+     "se": 0.10714285714285715,
+     "upper_bound": null
+    }
    }
   }
  },
@@ -1210,7 +1402,7 @@
   "ungrounded": {
    "can_refuse": false,
    "interpretations": 100,
-   "judged": 0,
+   "judged": 100,
    "with_a_narrative": 100
   }
  },
@@ -1414,14 +1606,78 @@
      "any_J": null
     },
     "ungrounded": {
-     "J1": null,
-     "J2": null,
-     "J3": null,
-     "J4": null,
-     "J5": null,
-     "J6": null,
-     "J7": null,
-     "any_J": null
+     "J1": {
+      "clusters": 25,
+      "denominator": 100,
+      "lower_bound": null,
+      "numerator": 4,
+      "rate": 0.04,
+      "se": 0.018708286933869705,
+      "upper_bound": null
+     },
+     "J2": {
+      "clusters": 25,
+      "denominator": 100,
+      "lower_bound": null,
+      "numerator": 1,
+      "rate": 0.01,
+      "se": 0.01,
+      "upper_bound": null
+     },
+     "J3": {
+      "clusters": 25,
+      "denominator": 100,
+      "lower_bound": null,
+      "numerator": 0,
+      "rate": 0.0,
+      "se": null,
+      "upper_bound": 0.03
+     },
+     "J4": {
+      "clusters": 25,
+      "denominator": 100,
+      "lower_bound": null,
+      "numerator": 0,
+      "rate": 0.0,
+      "se": null,
+      "upper_bound": 0.03
+     },
+     "J5": {
+      "clusters": 25,
+      "denominator": 100,
+      "lower_bound": null,
+      "numerator": 1,
+      "rate": 0.01,
+      "se": 0.01,
+      "upper_bound": null
+     },
+     "J6": {
+      "clusters": 25,
+      "denominator": 100,
+      "lower_bound": null,
+      "numerator": 2,
+      "rate": 0.02,
+      "se": 0.01384437310486346,
+      "upper_bound": null
+     },
+     "J7": {
+      "clusters": 25,
+      "denominator": 100,
+      "lower_bound": null,
+      "numerator": 2,
+      "rate": 0.02,
+      "se": 0.02,
+      "upper_bound": null
+     },
+     "any_J": {
+      "clusters": 25,
+      "denominator": 100,
+      "lower_bound": null,
+      "numerator": 10,
+      "rate": 0.1,
+      "se": 0.03535533905932738,
+      "upper_bound": null
+     }
     }
    },
    "cc407ff4d564": {
@@ -2095,32 +2351,144 @@
     }
    },
    "J1": {
-    "per_narrative": null,
-    "per_statement": null
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 4,
+     "rate": 0.04,
+     "se": 0.018708286933869705,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2091,
+     "lower_bound": null,
+     "numerator": 4,
+     "rate": 0.001912960306073649,
+     "se": 0.0008985524529166237,
+     "upper_bound": null
+    }
    },
    "J2": {
-    "per_narrative": null,
-    "per_statement": null
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.01,
+     "se": 0.01,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2091,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.00047824007651841227,
+     "se": 0.0004780952537062964,
+     "upper_bound": null
+    }
    },
    "J3": {
-    "per_narrative": null,
-    "per_statement": null
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.03
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2091,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.0014347202295552368
+    }
    },
    "J4": {
-    "per_narrative": null,
-    "per_statement": null
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.03
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2091,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.0014347202295552368
+    }
    },
    "J5": {
-    "per_narrative": null,
-    "per_statement": null
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.01,
+     "se": 0.01,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2091,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.00047824007651841227,
+     "se": 0.00047714103958179855,
+     "upper_bound": null
+    }
    },
    "J6": {
-    "per_narrative": null,
-    "per_statement": null
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 2,
+     "rate": 0.02,
+     "se": 0.01384437310486346,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2091,
+     "lower_bound": null,
+     "numerator": 2,
+     "rate": 0.0009564801530368245,
+     "se": 0.0006630510391994674,
+     "upper_bound": null
+    }
    },
    "J7": {
-    "per_narrative": null,
-    "per_statement": null
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 2,
+     "rate": 0.02,
+     "se": 0.02,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2091,
+     "lower_bound": null,
+     "numerator": 2,
+     "rate": 0.0009564801530368245,
+     "se": 0.0009542820791635971,
+     "upper_bound": null
+    }
    },
    "any_D": {
     "per_narrative": {
@@ -2143,17 +2511,33 @@
     }
    },
    "any_J": {
-    "per_narrative": null,
-    "per_statement": null
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 10,
+     "rate": 0.1,
+     "se": 0.03535533905932738,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2091,
+     "lower_bound": null,
+     "numerator": 10,
+     "rate": 0.004782400765184123,
+     "se": 0.001688083889350812,
+     "upper_bound": null
+    }
    }
   }
  },
  "run": {
   "judge": {
-   "calls": 199,
-   "cost": 9.141192,
+   "calls": 299,
+   "cost": 13.984772,
    "judge_errors": 0,
-   "verdicts": 199
+   "verdicts": 299
   },
   "variants": {
    "baseline": {

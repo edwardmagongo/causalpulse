@@ -38,7 +38,7 @@ Corpus: 25 cases.
 | cite-each-status | 100 | 100 | 91 | 0 | 0 | 0 | 109 | $15.75 |
 | ungrounded | 100 | 0 | 0 | 100 | 0 | 0 | 100 | $11.24 |
 
-Judge: 199 verdicts, 0 unusable, 199 calls, $9.14.
+Judge: 299 verdicts, 0 unusable, 299 calls, $13.98.
 
 ## Pre-registered endpoints
 
@@ -109,15 +109,15 @@ D4 summaries: 0 true, 0 false, 1 undetermined. Comparisons D1 left to the judge:
 | D3 | 0% (at most 0.1%, 0/2091, 25 cases) | 0% (at most 3.0%, 0/100, 25 cases) | - | - |
 | D4 | 1.8% (37/2091, SE 0.5%, 25 cases) | 31.0% (31/100, SE 8.9%, 25 cases) | - | - |
 | D5 | 0% (at most 0.1%, 0/2091, 25 cases) | 0% (at most 3.0%, 0/100, 25 cases) | - | - |
-| J1 | - | - | - | - |
-| J2 | - | - | - | - |
-| J3 | - | - | - | - |
-| J4 | - | - | - | - |
-| J5 | - | - | - | - |
-| J6 | - | - | - | - |
-| J7 | - | - | - | - |
+| J1 | 0.2% (4/2091, SE 0.1%, 25 cases) | 4.0% (4/100, SE 1.9%, 25 cases) | - | - |
+| J2 | 0.0% (1/2091, SE 0.0%, 25 cases) | 1.0% (1/100, SE 1.0%, 25 cases) | - | - |
+| J3 | 0% (at most 0.1%, 0/2091, 25 cases) | 0% (at most 3.0%, 0/100, 25 cases) | - | - |
+| J4 | 0% (at most 0.1%, 0/2091, 25 cases) | 0% (at most 3.0%, 0/100, 25 cases) | - | - |
+| J5 | 0.0% (1/2091, SE 0.0%, 25 cases) | 1.0% (1/100, SE 1.0%, 25 cases) | - | - |
+| J6 | 0.1% (2/2091, SE 0.1%, 25 cases) | 2.0% (2/100, SE 1.4%, 25 cases) | - | - |
+| J7 | 0.1% (2/2091, SE 0.1%, 25 cases) | 2.0% (2/100, SE 2.0%, 25 cases) | - | - |
 | any_D | 44.7% (934/2091, SE 1.2%, 25 cases) | 100% (at least 97.0%, 100/100, 25 cases) | - | - |
-| any_J | - | - | - | - |
+| any_J | 0.5% (10/2091, SE 0.2%, 25 cases) | 10.0% (10/100, SE 3.5%, 25 cases) | - | - |
 
 D4 summaries: 28 true, 9 false, 0 undetermined. Comparisons D1 left to the judge: 7.
 
@@ -143,9 +143,9 @@ D4 summaries: 28 true, 9 false, 0 undetermined. Comparisons D1 left to the judge
 
 | Design | D0 | D1 | D2 | D3 | D4 | D5 | J1 | J2 | J3 | J4 | J5 | J6 | J7 | any_D | any_J |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| cross_section | 100% (at least 93.2%, 44/44, 11 cases) | 2.3% (1/44, SE 2.3%, 11 cases) | 0% (at most 6.8%, 0/44, 11 cases) | 0% (at most 6.8%, 0/44, 11 cases) | 9.1% (4/44, SE 9.1%, 11 cases) | 0% (at most 6.8%, 0/44, 11 cases) | - | - | - | - | - | - | - | 100% (at least 93.2%, 44/44, 11 cases) | - |
-| donor_pool | 100% (at least 89.3%, 28/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 53.6% (15/28, SE 16.8%, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | - | - | - | - | - | - | - | 100% (at least 89.3%, 28/28, 7 cases) | - |
-| panel | 100% (at least 89.3%, 28/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 42.9% (12/28, SE 20.2%, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | - | - | - | - | - | - | - | 100% (at least 89.3%, 28/28, 7 cases) | - |
+| cross_section | 100% (at least 93.2%, 44/44, 11 cases) | 2.3% (1/44, SE 2.3%, 11 cases) | 0% (at most 6.8%, 0/44, 11 cases) | 0% (at most 6.8%, 0/44, 11 cases) | 9.1% (4/44, SE 9.1%, 11 cases) | 0% (at most 6.8%, 0/44, 11 cases) | 6.8% (3/44, SE 3.5%, 11 cases) | 0% (at most 6.8%, 0/44, 11 cases) | 0% (at most 6.8%, 0/44, 11 cases) | 0% (at most 6.8%, 0/44, 11 cases) | 0% (at most 6.8%, 0/44, 11 cases) | 0% (at most 6.8%, 0/44, 11 cases) | 0% (at most 6.8%, 0/44, 11 cases) | 100% (at least 93.2%, 44/44, 11 cases) | 6.8% (3/44, SE 3.5%, 11 cases) |
+| donor_pool | 100% (at least 89.3%, 28/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 53.6% (15/28, SE 16.8%, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 3.6% (1/28, SE 3.6%, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 7.1% (2/28, SE 4.6%, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 100% (at least 89.3%, 28/28, 7 cases) | 10.7% (3/28, SE 5.1%, 7 cases) |
+| panel | 100% (at least 89.3%, 28/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 42.9% (12/28, SE 20.2%, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 3.6% (1/28, SE 3.6%, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 3.6% (1/28, SE 3.6%, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 7.1% (2/28, SE 7.1%, 7 cases) | 100% (at least 89.3%, 28/28, 7 cases) | 14.3% (4/28, SE 10.7%, 7 cases) |
 
 ## First attempts (per narrative)
 
@@ -181,7 +181,7 @@ One judge prompt per column block, named by its version. Rates from different ju
 |---|---|---|---|---|---|---|---|---|
 | baseline | - | - | - | - | - | - | - | - |
 | cite-each-status | - | - | - | - | - | - | - | - |
-| ungrounded | - | - | - | - | - | - | - | - |
+| ungrounded | 4.0% (4/100, SE 1.9%, 25 cases) | 1.0% (1/100, SE 1.0%, 25 cases) | 0% (at most 3.0%, 0/100, 25 cases) | 0% (at most 3.0%, 0/100, 25 cases) | 1.0% (1/100, SE 1.0%, 25 cases) | 2.0% (2/100, SE 1.4%, 25 cases) | 2.0% (2/100, SE 2.0%, 25 cases) | 10.0% (10/100, SE 3.5%, 25 cases) |
 
 ### Judge cc407ff4d564
 
