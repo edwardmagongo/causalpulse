@@ -20,6 +20,7 @@ from pathlib import Path
 from cp_llm.facts import FactTable
 from cp_llm.render import format_fact, placeholder_ids
 
+from cp_llm_eval.attribution import D0
 from cp_llm_eval.deterministic import DETERMINISTIC_CATEGORIES
 from cp_llm_eval.graded import GradedNarrative, GradedStatement
 from cp_llm_eval.judge import JUDGE_CATEGORIES
@@ -51,17 +52,29 @@ class Label:
     note: str
 
 
-def stratum(statement: GradedStatement) -> int:
-    """0 if the judge flagged it, 1 if only a grader did, 2 if nothing did.
+#: In priority order, so a statement sits in the first one that describes it.
+STRATA = ("D0-flagged", "judge-flagged", "grader-only", "unflagged")
 
-    `sample` draws about a third from each; the report weights each labelled
+
+def stratum(statement: GradedStatement) -> int:
+    """Its index in `STRATA`: D0 first, then the judge, then a grader, then none.
+
+    `sample` draws an equal share from each; the report weights each labelled
     statement back to its stratum's share of the population.
+
+    D0 comes first because it is the control arm's primary endpoint and the
+    one category no verified arm can produce: a labeller who sees only the
+    statements the judge happened to flag would measure the instrument on
+    everything except the claim the study is for. A statement carrying both a
+    D0 and a judge flag is therefore labelled as D0.
     """
-    if statement.judge:
+    if any(f.category == D0 for f in statement.deterministic):
         return 0
-    if any(f.category in DETERMINISTIC_CATEGORIES for f in statement.deterministic):
+    if statement.judge:
         return 1
-    return 2
+    if any(f.category in DETERMINISTIC_CATEGORIES for f in statement.deterministic):
+        return 2
+    return 3
 
 
 def population(narratives: Sequence[GradedNarrative]) -> list[GradedStatement]:
@@ -72,7 +85,7 @@ def population(narratives: Sequence[GradedNarrative]) -> list[GradedStatement]:
 def sample(
     narratives: Sequence[GradedNarrative], size: int = DEFAULT_SIZE, seed: int = 0
 ) -> list[GradedStatement]:
-    """About a third each from judge-flagged, grader-flagged and unflagged statements.
+    """An equal share from each of the four `STRATA`, across every arm.
 
     Drawn from judged final narratives only, since a statement the judge never
     saw cannot measure it. A stratum with too few statements gives all it has
@@ -82,10 +95,10 @@ def sample(
     rng = random.Random(seed)
     statements = population(narratives)
     chosen: list[GradedStatement] = []
-    for index in range(3):
+    for index in range(len(STRATA)):
         members = [s for s in statements if stratum(s) == index]
         rng.shuffle(members)
-        chosen.extend(members[: size // 3])
+        chosen.extend(members[: size // len(STRATA)])
     taken = {s.statement_id for s in chosen}
     left = [s for s in statements if s.statement_id not in taken]
     rng.shuffle(left)

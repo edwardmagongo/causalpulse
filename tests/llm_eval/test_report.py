@@ -44,6 +44,8 @@ def test_the_run_counts_each_outcome_and_every_call(report):
     assert variants["baseline"] | {"cost": 0} == {
         "interpretations": 2,
         "verified": 2,
+        # A grounded arm has a verifier, so none of its records is unverified.
+        "unverified": 0,
         "refused": 0,
         "no_answer": 0,
         "verified_first_attempt": 2,
@@ -251,9 +253,10 @@ def _statement(position, judge=(), d4=False):
 
 
 def test_the_judge_and_graders_are_weighted_by_stratum():
-    # Population: 2 judge-flagged (stratum 0), 4 grader-only (1), 10 unflagged (2).
-    # Labelled: both of stratum 0 (weight 2/2 = 1), two of stratum 1 (4/2 = 2),
-    # two of stratum 2 (10/2 = 5).
+    # Population: 2 judge-flagged (stratum 1), 4 grader-only (2), 10 unflagged
+    # (3); no statement here carries a D0, so stratum 0 is empty.
+    # Labelled: both judge-flagged (weight 2/2 = 1), two grader-only (4/2 = 2),
+    # two unflagged (10/2 = 5).
     j1 = (Finding(category="J1", reason="r"),)
     statements = (
         _statement(0, j1, d4=True), _statement(1, j1),
@@ -416,3 +419,118 @@ def test_a_degenerate_primary_difference_names_no_interval(entry):
     text = render_markdown(report)
     assert "-100.0 points (no spread across 2 cases; no interval)" in text
     assert "Normal 95% interval" not in text
+
+
+# the third arm ------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def three_arms(entry, stored_three_arms):
+    graded = grade_records(
+        [entry],
+        stored_three_arms.records(INTERPRETATIONS),
+        stored_three_arms.records(VERDICTS),
+        "claude-opus-5-5",
+    )
+    report = build_report(
+        [entry],
+        graded,
+        [],
+        stored_three_arms.records(INTERPRETATIONS),
+        stored_three_arms.records(VERDICTS),
+    )
+    return graded, report
+
+
+def test_the_ungrounded_arms_records_are_counted_as_unverified_not_as_nothing(three_arms):
+    """Its outcome has a column of its own, or it would vanish from the run table."""
+    _graded, report = three_arms
+    arm = report["run"]["variants"]["ungrounded"]
+
+    assert (arm["interpretations"], arm["unverified"]) == (1, 1)
+    assert (arm["verified"], arm["refused"], arm["no_answer"]) == (0, 0, 0)
+    assert sum(v["unverified"] for v in report["run"]["variants"].values()) == 1
+
+
+def test_only_the_ungrounded_arm_has_a_value_the_table_does_not_support(three_arms):
+    """On a grounded arm D0 is zero by construction: `render.substitute` put every
+    value there. A non-zero D0 on a grounded arm means the matcher is at fault."""
+    _graded, report = three_arms
+
+    ungrounded = report["rates"]["ungrounded"]["D0"]["per_narrative"]
+    assert ungrounded["numerator"] == 1
+    for arm in ("baseline", "cite-each-status"):
+        assert report["rates"][arm]["D0"]["per_narrative"]["numerator"] == 0
+
+
+def test_each_arms_denominator_says_whether_it_could_have_refused(three_arms):
+    _graded, report = three_arms
+
+    assert report["denominators"]["ungrounded"]["can_refuse"] is False
+    assert report["denominators"]["baseline"]["can_refuse"] is True
+    text = render_markdown(report)
+    assert "## Values the fact table does not support" in text
+    assert "cannot refuse" in text and "can refuse" in text
+
+
+def test_an_arm_no_longer_in_the_registry_says_so_rather_than_guessing(three_arms):
+    _graded, report = three_arms
+    from cp_llm_eval.report import _denominator_text
+
+    assert "verifier unknown" in _denominator_text(
+        {"with_a_narrative": 1, "interpretations": 1, "can_refuse": None}
+    )
+
+
+def test_a_rounded_or_ambiguous_value_is_reported_apart_from_d0(three_arms):
+    _graded, report = three_arms
+    companions = report["attribution"]["ungrounded"]
+
+    assert set(companions) == {"D0-rounded", "D0-ambiguous"}
+    assert "Rounded" in render_markdown(report)
+
+
+def test_two_judges_rates_are_shown_apart_and_never_blended(entry, stored_three_arms):
+    """A revised judge is a different instrument, so its rates sit in their own table."""
+    records = stored_three_arms.records(INTERPRETATIONS)
+    verdicts = stored_three_arms.records(VERDICTS)
+    graded = grade_records([entry], records, verdicts, "claude-opus-5-5")
+
+    report = build_report(
+        [entry], graded, [], records, verdicts, {"cc407ff4d564": graded}
+    )
+
+    text = render_markdown(report)
+    current = report["judges"]["current"]
+    assert set(report["judges"]["j_rates"]) == {current, "cc407ff4d564"}
+    assert f"### Judge {current} (current)" in text
+    assert "### Judge cc407ff4d564" in text
+    assert "not comparable" in text
+
+
+def test_one_judge_alone_gets_no_comparison_table(three_arms):
+    _graded, report = three_arms
+
+    assert len(report["judges"]["j_rates"]) == 1
+    assert "under each judge" not in render_markdown(report)
+
+
+def test_the_report_states_both_pre_registered_endpoints(three_arms):
+    """The endpoint the arm exists to measure, scored by `prereg` and on the page.
+
+    Nothing outside its own tests called `prereg` before this: the arm could
+    have been run, billed and reported with its primary endpoint computed
+    nowhere.
+    """
+    _graded, report = three_arms
+    p0, p1 = report["prereg"]["p0"], report["prereg"]["p1"]
+
+    # The matcher finds nothing unsupported in a grounded narrative, which is
+    # what makes its D0 on the ungrounded arm mean anything.
+    assert p0["passed"] is True
+    assert p0["unsupported"] == 0 and p0["statements"] > 0
+    assert p1["verdict"] in ("met", "failed", "inconclusive")
+    text = render_markdown(report)
+    assert "## Pre-registered endpoints" in text
+    assert "P0 (the matcher finds no unsupported value in a grounded narrative) passed" in text
+    assert f"is {p1['verdict']}" in text

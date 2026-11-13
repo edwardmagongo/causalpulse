@@ -9,17 +9,27 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 from typing import cast, get_args
 
 from cp_llm.model import DEFAULT_EFFORT, DEFAULT_MODEL, Effort, NarrativeModel
 from cp_llm_eval import corpus, labels
+from cp_llm_eval.arms import ARMS
 from cp_llm_eval.graded import GradedNarrative, grade_records
-from cp_llm_eval.judge import VERDICTS, JudgeModel, judge_all, judge_jobs, verdict_key
+from cp_llm_eval.judge import (
+    VERDICTS,
+    JudgeJob,
+    JudgeModel,
+    judge_all,
+    judge_jobs,
+    judge_prompt_version,
+    verdict_key,
+)
+from cp_llm_eval.prereg import prereg_markdown, score_p0, score_p1
 from cp_llm_eval.report import build_report, write_report
 from cp_llm_eval.runner import INTERPRETATIONS, CallBudget, interpretation_key, plan_jobs, run
 from cp_llm_eval.store import Store
-from cp_llm_eval.variants import VARIANTS
 
 LABELS_FILENAME = "labels.json"
 SAMPLE_FILENAME = "sample.json"
@@ -63,7 +73,15 @@ def add_run_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--store", required=True, help="Directory the records are kept in.")
     parser.add_argument("--max-calls", type=int, required=True, help="Most model calls to make.")
     parser.add_argument(
-        "--variant", action="append", choices=sorted(VARIANTS), help="Prompt (repeatable)."
+        "--arm",
+        action="append",
+        choices=sorted(ARMS),
+        help="Arm to run (repeatable). The ungrounded arm has no verifier.",
+    )
+    # The flag this was called before the ungrounded arm existed. Kept so a
+    # command in the phase 2 report still runs, and writing the same key field.
+    parser.add_argument(
+        "--variant", action="append", dest="arm", choices=sorted(ARMS), help=argparse.SUPPRESS
     )
     parser.add_argument("--replicates", type=int, default=4, help="Replies per fact table.")
     parser.add_argument("--case", action="append", help="Only this case id (repeatable).")
@@ -75,6 +93,12 @@ def add_grade_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--corpus", required=True, help="A directory written by `build`.")
     parser.add_argument("--store", required=True, help="The store `run` wrote.")
     parser.add_argument("--max-calls", type=int, required=True, help="Most judge calls to make.")
+    parser.add_argument(
+        "--rejudge",
+        action="store_true",
+        help="Judge narratives that an earlier judge prompt already judged. "
+        "Without it, `grade` refuses rather than silently billing the re-judge.",
+    )
     parser.add_argument("--workers", type=int, default=4, help="Calls in flight at once.")
     _model_arguments(parser, "Model that judges.")
 
@@ -135,8 +159,8 @@ def run_run(args: argparse.Namespace) -> int:
     if not entries:
         print("no case selected", file=sys.stderr)
         return 1
-    variants = [VARIANTS[name] for name in (args.variant or ["baseline"])]
-    jobs = plan_jobs(entries, variants, args.replicates, args.model, args.effort)
+    arms = [ARMS[name] for name in (args.arm or ["baseline"])]
+    jobs = plan_jobs(entries, arms, args.replicates, args.model, args.effort)
     summary = run(
         jobs,
         lambda: build_model(args.model, args.effort),
@@ -153,10 +177,34 @@ def run_run(args: argparse.Namespace) -> int:
     return 0 if summary.transport_failures == 0 and summary.not_started == 0 else 1
 
 
+def _judged_by_another_prompt(store: Store, jobs: Sequence[JudgeJob]) -> int:
+    """How many of `jobs` an earlier judge prompt already judged.
+
+    A verdict's store key carries the judge prompt version, so a revised
+    prompt makes every stored verdict invisible and `grade` would bill the lot
+    again without a word. Counting them lets the command say so first.
+    """
+    judged = {
+        (str(record["interpretation"]), str(record["judge_model"]))
+        for record in store.records(VERDICTS)
+        if record["judge_prompt_version"] != judge_prompt_version()
+    }
+    return sum((job.interpretation, job.model) in judged for job in jobs)
+
+
 def run_grade(args: argparse.Namespace) -> int:
     store = Store(Path(args.store))
     entries = {e.case_id: e for e in corpus.load(Path(args.corpus))}
     jobs = judge_jobs(store.records(INTERPRETATIONS), entries, args.model)
+    stale = _judged_by_another_prompt(store, jobs)
+    if stale and not args.rejudge:
+        print(
+            f"{stale} of {len(jobs)} narrative(s) were judged by an earlier judge prompt; "
+            f"the prompt is now {judge_prompt_version()}. Their stored verdicts cannot be "
+            f"reused, so judging them again costs {stale} paid call(s). Pass --rejudge.",
+            file=sys.stderr,
+        )
+        return 1
     summary = judge_all(
         jobs,
         lambda: build_judge(args.model, args.effort),
@@ -213,6 +261,23 @@ def run_label_import(args: argparse.Namespace) -> int:
     return 0
 
 
+def _under_other_judges(
+    store: Store, entries: Sequence[corpus.CorpusEntry], judge_model: str
+) -> dict[str, tuple[GradedNarrative, ...]]:
+    """The same interpretations graded under each earlier judge prompt in the store.
+
+    The report prints these beside the current judge's rates rather than
+    dropping them: a revised judge is a different instrument, and the
+    published numbers should stay visible as that rather than disappear.
+    """
+    interpretations, verdicts = store.records(INTERPRETATIONS), store.records(VERDICTS)
+    versions = {str(record["judge_prompt_version"]) for record in verdicts}
+    return {
+        version: grade_records(entries, interpretations, verdicts, judge_model, version)
+        for version in sorted(versions - {judge_prompt_version()})
+    }
+
+
 def run_report(args: argparse.Namespace) -> int:
     store = Store(Path(args.store))
     entries, graded = _graded(args)
@@ -222,9 +287,17 @@ def run_report(args: argparse.Namespace) -> int:
         labels.load(Path(args.store) / LABELS_FILENAME),
         store.records(INTERPRETATIONS),
         store.records(VERDICTS),
+        _under_other_judges(store, entries, args.judge_model),
     )
     out = Path(args.out)
     markdown, _data = write_report(report, out)
+    # The arm's pre-registered endpoints, stated in full beside the report.
+    # `report.md` prints their verdicts; this is the whole statement, so the
+    # endpoint that the arm exists to measure is on disk rather than only
+    # inside a module.
+    (out / "prereg.md").write_text(
+        prereg_markdown(score_p0(graded), score_p1(graded)), encoding="utf-8"
+    )
     store.export(INTERPRETATIONS, out / INTERPRETATIONS_BUNDLE)
     store.export(VERDICTS, out / VERDICTS_BUNDLE)
     _say(f"wrote {markdown}")

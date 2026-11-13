@@ -15,11 +15,14 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+from cp_llm_eval.arms import ARMS
+from cp_llm_eval.attribution import D0, D0_AMBIGUOUS, D0_ROUNDED
 from cp_llm_eval.corpus import CorpusEntry
 from cp_llm_eval.deterministic import D1_UNPARSED, DETERMINISTIC_CATEGORIES
-from cp_llm_eval.graded import GradedNarrative, GradedStatement
-from cp_llm_eval.judge import JUDGE_CATEGORIES
+from cp_llm_eval.graded import UNVERIFIED, GradedNarrative, GradedStatement
+from cp_llm_eval.judge import JUDGE_CATEGORIES, judge_prompt_version
 from cp_llm_eval.labels import Label, population, stratum
+from cp_llm_eval.prereg import score_p0, score_p1
 from cp_llm_eval.runner import INPUT_PRICE, OUTPUT_PRICE
 from cp_llm_eval.stats import clustered_rate, paired_difference, wilson_weighted
 
@@ -27,14 +30,20 @@ PRIMARY_ENDPOINT = "D4 per narrative, first attempts"
 BASELINE_VARIANT = "baseline"
 WEIGHTING_NOTE = (
     "The judge's sensitivity and specificity and each grader's precision are weighted "
-    "by stratum (judge-flagged, grader-only, unflagged) back to all judged statements, "
-    "with Wilson intervals at the effective sample size n_eff; they are noisy, because "
-    "each unflagged label stands for many statements."
+    "by stratum (D0-flagged, judge-flagged, grader-only, unflagged) back to all judged "
+    "statements, with Wilson intervals at the effective sample size n_eff; they are "
+    "noisy, because each unflagged label stands for many statements."
 )
+# Reported beside D0 and deliberately not in `DETERMINISTIC_CATEGORIES`: neither
+# is a misreading. A rounded value is the right quantity at the model's own
+# precision, and an ambiguous one matches several facts, so it is counted in
+# neither direction -- but a high ambiguity rate would undercut what D1-D5 read
+# on the ungrounded arm, which is why it is printed rather than dropped.
+ATTRIBUTION_CATEGORIES: tuple[str, ...] = (D0_ROUNDED, D0_AMBIGUOUS)
 
 
 def _has(statement: GradedStatement, category: str) -> bool:
-    if category in DETERMINISTIC_CATEGORIES:
+    if category in DETERMINISTIC_CATEGORIES or category in ATTRIBUTION_CATEGORIES:
         return any(f.category == category for f in statement.deterministic)
     if category in JUDGE_CATEGORIES:
         return statement.judge is not None and any(f.category == category for f in statement.judge)
@@ -246,6 +255,10 @@ def _run(
         variants[variant] = {
             "interpretations": len(group),
             "verified": sum(n.outcome == "verified" for n in group),
+            # The ungrounded arm's outcome. It has no verifier, so none of its
+            # records is verified or refused; without this column its
+            # interpretations would be counted in the total and nowhere else.
+            "unverified": sum(n.outcome == UNVERIFIED for n in group),
             "refused": sum(n.outcome == "refused" for n in group),
             "no_answer": sum(n.outcome == "no_answer" for n in group),
             "verified_first_attempt": sum(
@@ -263,6 +276,24 @@ def _run(
             "calls": judge_calls,
             "cost": judge_cost,
         },
+    }
+
+
+def _denominators(narratives: Sequence[GradedNarrative], variant: str) -> dict[str, object]:
+    """What this arm's rates are over, and whether it could have refused.
+
+    A grounded arm can refuse, and does: `baseline` refused 1 of 100. The
+    ungrounded arm structurally cannot, so its denominator is every narrative
+    it produced. Three rates printed side by side would look like three
+    measurements of the same thing, and they are not.
+    """
+    arm = ARMS.get(variant)
+    return {
+        "interpretations": len(narratives),
+        "with_a_narrative": sum(bool(n.statements) for n in narratives),
+        "judged": sum(n.judged for n in narratives),
+        # None for a variant no longer in the registry, rather than a guess.
+        "can_refuse": None if arm is None else arm.grounded,
     }
 
 
@@ -298,14 +329,36 @@ def _check_one_setting_per_variant(interpretations: Sequence[Mapping[str, Any]])
             )
 
 
+def _j_rates(narratives: Sequence[GradedNarrative]) -> dict[str, object]:
+    """Each arm's per-narrative J-rate, for one judge's verdicts."""
+    variants = sorted({n.variant for n in narratives})
+    return {
+        v: {
+            c: _final_rates([n for n in narratives if n.variant == v], c)["per_narrative"]
+            for c in (*JUDGE_CATEGORIES, "any_J")
+        }
+        for v in variants
+    }
+
+
 def build_report(
     entries: Sequence[CorpusEntry],
     narratives: Sequence[GradedNarrative],
     labels: Sequence[Label],
     interpretations: Sequence[Mapping[str, Any]],
     verdicts: Sequence[Mapping[str, Any]],
+    under_other_judges: Mapping[str, Sequence[GradedNarrative]] | None = None,
 ) -> dict[str, object]:
-    """The report as plain data. Raises `ValueError` if one variant mixes settings."""
+    """The report as plain data. Raises `ValueError` if one variant mixes settings.
+
+    `narratives` carry the verdicts of the judge prompt this code holds.
+    `under_other_judges` maps an older judge prompt version to the same
+    interpretations graded under that judge, so the report can print both sets
+    of J-rates side by side. A revised judge invalidates every stored verdict
+    by version, so without this the published rates would simply vanish from
+    the report rather than being shown as what they are: a different
+    instrument, not a different arm.
+    """
     _check_one_setting_per_variant(interpretations)
     categories = (*DETERMINISTIC_CATEGORIES, *JUDGE_CATEGORIES, "any_D", "any_J")
     variants = sorted({n.variant for n in narratives})
@@ -343,11 +396,33 @@ def build_report(
         "first_attempt_missing": {
             v: sum(n.first_attempt is None for n in by_variant[v]) for v in variants
         },
+        # D0 and its two companions, which are not misreadings; see
+        # `ATTRIBUTION_CATEGORIES`.
+        "attribution": {
+            v: {c: _final_rates(by_variant[v], c) for c in ATTRIBUTION_CATEGORIES}
+            for v in variants
+        },
+        "denominators": {v: _denominators(by_variant[v], v) for v in variants},
         "d4_truth": {v: _d4_truth(by_variant[v]) for v in variants},
         "d1_unparsed": {v: _unparsed(by_variant[v]) for v in variants},
         # The judge and its prompt are the same for every variant, so every
         # labelled statement measures it, whichever prompt produced it.
         "validation": _validation(narratives, labels),
+        # The arm's own pre-registered endpoints, scored by `prereg`. P0 gates
+        # P1: if the matcher finds an unsupported value in a grounded
+        # narrative, where `render.substitute` put every value, the instrument
+        # is wrong and P1 says nothing.
+        "prereg": {
+            "p0": asdict(score_p0(narratives)),
+            "p1": asdict(score_p1(narratives)),
+        },
+        "judges": {
+            "current": judge_prompt_version(),
+            "j_rates": {
+                judge_prompt_version(): _j_rates(narratives),
+                **{v: _j_rates(ns) for v, ns in (under_other_judges or {}).items()},
+            },
+        },
         "comparison": [
             _comparison(narratives, v) for v in variants if v != BASELINE_VARIANT
         ],
@@ -417,6 +492,15 @@ def _interval_kind(difference: Mapping[str, Any] | None) -> str:
     return " Normal 95% interval."
 
 
+def _denominator_text(denominators: Mapping[str, Any]) -> str:
+    """What the arm's rates are over, and whether a refusal could have shrunk it."""
+    over = f"{denominators['with_a_narrative']} of {denominators['interpretations']}"
+    can_refuse = denominators["can_refuse"]
+    if can_refuse is None:
+        return f"{over}, verifier unknown"
+    return f"{over}, {'can refuse' if can_refuse else 'cannot refuse'}"
+
+
 def _table(header: Sequence[str], rows: Iterable[Sequence[str]]) -> list[str]:
     lines = ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
     lines += ["| " + " | ".join(row) + " |" for row in rows]
@@ -436,12 +520,12 @@ def render_markdown(report: Mapping[str, Any]) -> str:
     run = report["run"]
     lines += ["", "## The run", ""]
     lines += _table(
-        ("Prompt", "Interpretations", "Verified", "First attempt", "Refused", "No answer",
-         "Calls", "Cost"),
+        ("Prompt", "Interpretations", "Verified", "First attempt", "Unverified", "Refused",
+         "No answer", "Calls", "Cost"),
         (
             (name, str(v["interpretations"]), str(v["verified"]),
-             str(v["verified_first_attempt"]), str(v["refused"]), str(v["no_answer"]),
-             str(v["calls"]), f"${v['cost']:.2f}")
+             str(v["verified_first_attempt"]), str(v["unverified"]), str(v["refused"]),
+             str(v["no_answer"]), str(v["calls"]), f"${v['cost']:.2f}")
             for name, v in run["variants"].items()
         ),
     )
@@ -451,6 +535,43 @@ def render_markdown(report: Mapping[str, Any]) -> str:
         f"Judge: {judge['verdicts']} verdicts, {judge['judge_errors']} unusable, "
         f"{judge['calls']} calls, ${judge['cost']:.2f}.",
     ]
+
+    prereg = report["prereg"]
+    p0, p1 = prereg["p0"], prereg["p1"]
+    lines += ["", "## Pre-registered endpoints", ""]
+    lines += [
+        f"P0 (the matcher finds no unsupported value in a grounded narrative) "
+        f"{'passed' if p0['passed'] else 'FAILED'}: {p0['unsupported']} of "
+        f"{p0['statements']} grounded statements. P1 (the ungrounded arm's "
+        f"per-narrative unsupported-value rate, against {_percent(p1['threshold'])}) "
+        f"is {p1['verdict']}: {_rate_text(p1['rate'])}. `prereg.md` holds both in full.",
+        "",
+    ]
+
+    lines += ["", "## Values the fact table does not support", ""]
+    lines += [
+        "D0 is the share of numeric spans that match no fact in the table. On a grounded "
+        "arm it is zero by construction -- every value there was substituted from the "
+        "table -- so a non-zero D0 on a grounded arm means the matcher is at fault, not "
+        "the model. The two companion figures are not misreadings: a rounded value is "
+        "the right quantity at the model's own precision, and an ambiguous one matches "
+        "several facts and is counted in neither direction.",
+        "",
+    ]
+    lines += _table(
+        ("Prompt", "D0 per statement", "D0 per narrative", "Rounded", "Ambiguous", "Over"),
+        (
+            (
+                variant,
+                _rate_text(report["rates"][variant][D0]["per_statement"]),
+                _rate_text(report["rates"][variant][D0]["per_narrative"]),
+                _rate_text(report["attribution"][variant][D0_ROUNDED]["per_statement"]),
+                _rate_text(report["attribution"][variant][D0_AMBIGUOUS]["per_statement"]),
+                _denominator_text(report["denominators"][variant]),
+            )
+            for variant in report["rates"]
+        ),
+    )
 
     validation = report["validation"]
     for variant, by_category in report["rates"].items():
@@ -505,6 +626,28 @@ def render_markdown(report: Mapping[str, Any]) -> str:
         ("Grader", "Precision"),
         ((c, _interval_text(m["precision"])) for c, m in validation["graders"].items()),
     )
+
+    judges = report["judges"]
+    if len(judges["j_rates"]) > 1:
+        lines += ["", "## The same narratives under each judge (per narrative)", ""]
+        lines += [
+            "One judge prompt per column block, named by its version. Rates from "
+            "different judge prompts are different instruments and are not comparable "
+            f"with each other; {judges['current']} is the prompt this report's other "
+            "tables use.",
+            "",
+        ]
+        for version, by_variant in judges["j_rates"].items():
+            current = " (current)" if version == judges["current"] else ""
+            lines += ["", f"### Judge {version}{current}", ""]
+            judged = (*JUDGE_CATEGORIES, "any_J")
+            lines += _table(
+                ("Prompt", *judged),
+                (
+                    (variant, *(_rate_text(rates[c]) for c in judged))
+                    for variant, rates in by_variant.items()
+                ),
+            )
 
     for comparison in report["comparison"]:
         shared, paired = comparison["shared_cases"], comparison["paired_cases"]
