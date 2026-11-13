@@ -99,6 +99,14 @@ def add_grade_arguments(parser: argparse.ArgumentParser) -> None:
         help="Judge narratives that an earlier judge prompt already judged. "
         "Without it, `grade` refuses rather than silently billing the re-judge.",
     )
+    parser.add_argument(
+        "--arm",
+        action="append",
+        choices=sorted(ARMS),
+        help="Only this arm (repeatable). Editing the judge prompt invalidates every stored "
+        "verdict at once, so without this the only choices are to judge every arm again or "
+        "none; naming one arm bills that arm alone.",
+    )
     parser.add_argument("--workers", type=int, default=4, help="Calls in flight at once.")
     _model_arguments(parser, "Model that judges.")
 
@@ -195,7 +203,14 @@ def _judged_by_another_prompt(store: Store, jobs: Sequence[JudgeJob]) -> int:
 def run_grade(args: argparse.Namespace) -> int:
     store = Store(Path(args.store))
     entries = {e.case_id: e for e in corpus.load(Path(args.corpus))}
-    jobs = judge_jobs(store.records(INTERPRETATIONS), entries, args.model)
+    records = store.records(INTERPRETATIONS)
+    if args.arm:
+        # A record's values are `object`, so the key is cast before it is read.
+        wanted = set(args.arm)
+        records = [
+            r for r in records if str(cast(dict[str, object], r["key"])["variant"]) in wanted
+        ]
+    jobs = judge_jobs(records, entries, args.model)
     stale = _judged_by_another_prompt(store, jobs)
     if stale and not args.rejudge:
         print(
