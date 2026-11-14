@@ -1,0 +1,2632 @@
+{
+ "attribution": {
+  "baseline": {
+   "D0-ambiguous": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 99,
+     "lower_bound": null,
+     "numerator": 97,
+     "rate": 0.9797979797979798,
+     "se": 0.02019454689612232,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 1997,
+     "lower_bound": null,
+     "numerator": 340,
+     "rate": 0.1702553830746119,
+     "se": 0.010585312717919834,
+     "upper_bound": null
+    }
+   },
+   "D0-rounded": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 99,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.030303030303030304
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 1997,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.0015022533800701052
+    }
+   }
+  },
+  "cite-each-status": {
+   "D0-ambiguous": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 99,
+     "rate": 0.99,
+     "se": 0.01,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2010,
+     "lower_bound": null,
+     "numerator": 355,
+     "rate": 0.17661691542288557,
+     "se": 0.012500950213023346,
+     "upper_bound": null
+    }
+   },
+   "D0-rounded": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.03
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2010,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.0014925373134328358
+    }
+   }
+  },
+  "ungrounded": {
+   "D0-ambiguous": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 99,
+     "rate": 0.99,
+     "se": 0.01,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2091,
+     "lower_bound": null,
+     "numerator": 329,
+     "rate": 0.15734098517455763,
+     "se": 0.011048107480469369,
+     "upper_bound": null
+    }
+   },
+   "D0-rounded": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 85,
+     "rate": 0.85,
+     "se": 0.038188130791298666,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2091,
+     "lower_bound": null,
+     "numerator": 385,
+     "rate": 0.1841224294595887,
+     "se": 0.0141155541522793,
+     "upper_bound": null
+    }
+   }
+  }
+ },
+ "by_design": {
+  "baseline": {
+   "cross_section": {
+    "D0": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "D1": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "D2": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 4,
+     "rate": 0.09090909090909091,
+     "se": 0.038030001206094344,
+     "upper_bound": null
+    },
+    "D3": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "D4": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 2,
+     "rate": 0.045454545454545456,
+     "se": 0.04545454545454545,
+     "upper_bound": null
+    },
+    "D5": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "J1": null,
+    "J2": null,
+    "J3": null,
+    "J4": null,
+    "J5": null,
+    "J6": null,
+    "J7": null,
+    "any_D": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 6,
+     "rate": 0.13636363636363635,
+     "se": 0.051826155686324454,
+     "upper_bound": null
+    },
+    "any_J": null
+   },
+   "donor_pool": {
+    "D0": {
+     "clusters": 7,
+     "denominator": 27,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.1111111111111111
+    },
+    "D1": {
+     "clusters": 7,
+     "denominator": 27,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.1111111111111111
+    },
+    "D2": {
+     "clusters": 7,
+     "denominator": 27,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.1111111111111111
+    },
+    "D3": {
+     "clusters": 7,
+     "denominator": 27,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.1111111111111111
+    },
+    "D4": {
+     "clusters": 7,
+     "denominator": 27,
+     "lower_bound": null,
+     "numerator": 4,
+     "rate": 0.14814814814814814,
+     "se": 0.11630723023995318,
+     "upper_bound": null
+    },
+    "D5": {
+     "clusters": 7,
+     "denominator": 27,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.1111111111111111
+    },
+    "J1": null,
+    "J2": null,
+    "J3": null,
+    "J4": null,
+    "J5": null,
+    "J6": null,
+    "J7": null,
+    "any_D": {
+     "clusters": 7,
+     "denominator": 27,
+     "lower_bound": null,
+     "numerator": 4,
+     "rate": 0.14814814814814814,
+     "se": 0.11630723023995318,
+     "upper_bound": null
+    },
+    "any_J": null
+   },
+   "panel": {
+    "D0": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "D1": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "D2": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.03571428571428571,
+     "se": 0.03571428571428572,
+     "upper_bound": null
+    },
+    "D3": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "D4": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 9,
+     "rate": 0.32142857142857145,
+     "se": 0.1610446340293891,
+     "upper_bound": null
+    },
+    "D5": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "J1": null,
+    "J2": null,
+    "J3": null,
+    "J4": null,
+    "J5": null,
+    "J6": null,
+    "J7": null,
+    "any_D": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 9,
+     "rate": 0.32142857142857145,
+     "se": 0.1610446340293891,
+     "upper_bound": null
+    },
+    "any_J": null
+   }
+  },
+  "cite-each-status": {
+   "cross_section": {
+    "D0": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "D1": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.022727272727272728,
+     "se": 0.022727272727272724,
+     "upper_bound": null
+    },
+    "D2": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "D3": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "D4": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.022727272727272728,
+     "se": 0.022727272727272724,
+     "upper_bound": null
+    },
+    "D5": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "J1": null,
+    "J2": null,
+    "J3": null,
+    "J4": null,
+    "J5": null,
+    "J6": null,
+    "J7": null,
+    "any_D": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 2,
+     "rate": 0.045454545454545456,
+     "se": 0.030491836056815314,
+     "upper_bound": null
+    },
+    "any_J": null
+   },
+   "donor_pool": {
+    "D0": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "D1": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.03571428571428571,
+     "se": 0.03571428571428572,
+     "upper_bound": null
+    },
+    "D2": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "D3": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "D4": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "D5": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "J1": null,
+    "J2": null,
+    "J3": null,
+    "J4": null,
+    "J5": null,
+    "J6": null,
+    "J7": null,
+    "any_D": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.03571428571428571,
+     "se": 0.03571428571428572,
+     "upper_bound": null
+    },
+    "any_J": null
+   },
+   "panel": {
+    "D0": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "D1": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "D2": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "D3": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "D4": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "D5": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "J1": null,
+    "J2": null,
+    "J3": null,
+    "J4": null,
+    "J5": null,
+    "J6": null,
+    "J7": null,
+    "any_D": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "any_J": null
+   }
+  },
+  "ungrounded": {
+   "cross_section": {
+    "D0": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": 0.9318181818181819,
+     "numerator": 44,
+     "rate": 1.0,
+     "se": null,
+     "upper_bound": null
+    },
+    "D1": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.022727272727272728,
+     "se": 0.022727272727272724,
+     "upper_bound": null
+    },
+    "D2": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "D3": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "D4": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 4,
+     "rate": 0.09090909090909091,
+     "se": 0.0909090909090909,
+     "upper_bound": null
+    },
+    "D5": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "J1": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 3,
+     "rate": 0.06818181818181818,
+     "se": 0.03520893951097651,
+     "upper_bound": null
+    },
+    "J2": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "J3": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "J4": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "J5": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "J6": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "J7": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.06818181818181818
+    },
+    "any_D": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": 0.9318181818181819,
+     "numerator": 44,
+     "rate": 1.0,
+     "se": null,
+     "upper_bound": null
+    },
+    "any_J": {
+     "clusters": 11,
+     "denominator": 44,
+     "lower_bound": null,
+     "numerator": 3,
+     "rate": 0.06818181818181818,
+     "se": 0.03520893951097651,
+     "upper_bound": null
+    }
+   },
+   "donor_pool": {
+    "D0": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": 0.8928571428571429,
+     "numerator": 28,
+     "rate": 1.0,
+     "se": null,
+     "upper_bound": null
+    },
+    "D1": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "D2": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "D3": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "D4": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 15,
+     "rate": 0.5357142857142857,
+     "se": 0.1675148485651225,
+     "upper_bound": null
+    },
+    "D5": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "J1": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.03571428571428571,
+     "se": 0.03571428571428572,
+     "upper_bound": null
+    },
+    "J2": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "J3": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "J4": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "J5": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "J6": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 2,
+     "rate": 0.07142857142857142,
+     "se": 0.046106944597707346,
+     "upper_bound": null
+    },
+    "J7": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "any_D": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": 0.8928571428571429,
+     "numerator": 28,
+     "rate": 1.0,
+     "se": null,
+     "upper_bound": null
+    },
+    "any_J": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 3,
+     "rate": 0.10714285714285714,
+     "se": 0.050507627227610534,
+     "upper_bound": null
+    }
+   },
+   "panel": {
+    "D0": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": 0.8928571428571429,
+     "numerator": 28,
+     "rate": 1.0,
+     "se": null,
+     "upper_bound": null
+    },
+    "D1": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "D2": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "D3": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "D4": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 12,
+     "rate": 0.42857142857142855,
+     "se": 0.20203050891044214,
+     "upper_bound": null
+    },
+    "D5": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "J1": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "J2": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.03571428571428571,
+     "se": 0.03571428571428572,
+     "upper_bound": null
+    },
+    "J3": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "J4": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "J5": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.03571428571428571,
+     "se": 0.03571428571428572,
+     "upper_bound": null
+    },
+    "J6": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.10714285714285714
+    },
+    "J7": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 2,
+     "rate": 0.07142857142857142,
+     "se": 0.07142857142857144,
+     "upper_bound": null
+    },
+    "any_D": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": 0.8928571428571429,
+     "numerator": 28,
+     "rate": 1.0,
+     "se": null,
+     "upper_bound": null
+    },
+    "any_J": {
+     "clusters": 7,
+     "denominator": 28,
+     "lower_bound": null,
+     "numerator": 4,
+     "rate": 0.14285714285714285,
+     "se": 0.10714285714285715,
+     "upper_bound": null
+    }
+   }
+  }
+ },
+ "comparison": [
+  {
+   "exploratory": {
+    "D0": {
+     "degenerate": true,
+     "lower": 0.0,
+     "mean": 0.0,
+     "pairs": 25,
+     "se": 0.0,
+     "upper": 0.0
+    },
+    "D1": {
+     "degenerate": false,
+     "lower": -0.007134472674067346,
+     "mean": 0.02,
+     "pairs": 25,
+     "se": 0.01384437310486346,
+     "upper": 0.04713447267406735
+    },
+    "D2": {
+     "degenerate": false,
+     "lower": -0.09000759730296093,
+     "mean": -0.05,
+     "pairs": 25,
+     "se": 0.020412414523193156,
+     "upper": -0.009992402697039077
+    },
+    "D3": {
+     "degenerate": true,
+     "lower": 0.0,
+     "mean": 0.0,
+     "pairs": 25,
+     "se": 0.0,
+     "upper": 0.0
+    },
+    "D4": {
+     "degenerate": false,
+     "lower": -0.2796394320434057,
+     "mean": -0.15,
+     "pairs": 25,
+     "se": 0.06614378277661477,
+     "upper": -0.0203605679565943
+    },
+    "D5": {
+     "degenerate": true,
+     "lower": 0.0,
+     "mean": 0.0,
+     "pairs": 25,
+     "se": 0.0,
+     "upper": 0.0
+    },
+    "J1": null,
+    "J2": null,
+    "J3": null,
+    "J4": null,
+    "J5": null,
+    "J6": null,
+    "J7": null,
+    "any_D": {
+     "degenerate": false,
+     "lower": -0.3018430929690324,
+     "mean": -0.17,
+     "pairs": 25,
+     "se": 0.06726812023536854,
+     "upper": -0.038156907030967635
+    },
+    "any_J": null
+   },
+   "paired_cases": {
+    "D0": 25,
+    "D1": 25,
+    "D2": 25,
+    "D3": 25,
+    "D4": 25,
+    "D5": 25,
+    "J1": 0,
+    "J2": 0,
+    "J3": 0,
+    "J4": 0,
+    "J5": 0,
+    "J6": 0,
+    "J7": 0,
+    "any_D": 25,
+    "any_J": 0,
+    "primary": 25
+   },
+   "primary": {
+    "degenerate": false,
+    "lower": -0.26028921352840084,
+    "mean": -0.14,
+    "pairs": 25,
+    "se": 0.061373175465073225,
+    "upper": -0.019710786471599212
+   },
+   "primary_endpoint": "D4 per narrative, first attempts",
+   "shared_cases": 25,
+   "variant": "cite-each-status"
+  },
+  {
+   "exploratory": {
+    "D0": {
+     "degenerate": true,
+     "lower": 1.0,
+     "mean": 1.0,
+     "pairs": 25,
+     "se": 0.0,
+     "upper": 1.0
+    },
+    "D1": {
+     "degenerate": false,
+     "lower": -0.00959963984540054,
+     "mean": 0.01,
+     "pairs": 25,
+     "se": 0.01,
+     "upper": 0.02959963984540054
+    },
+    "D2": {
+     "degenerate": false,
+     "lower": -0.09000759730296093,
+     "mean": -0.05,
+     "pairs": 25,
+     "se": 0.020412414523193156,
+     "upper": -0.009992402697039077
+    },
+    "D3": {
+     "degenerate": true,
+     "lower": 0.0,
+     "mean": 0.0,
+     "pairs": 25,
+     "se": 0.0,
+     "upper": 0.0
+    },
+    "D4": {
+     "degenerate": false,
+     "lower": 0.04414984698314697,
+     "mean": 0.15,
+     "pairs": 25,
+     "se": 0.05400617248673217,
+     "upper": 0.255850153016853
+    },
+    "D5": {
+     "degenerate": true,
+     "lower": 0.0,
+     "mean": 0.0,
+     "pairs": 25,
+     "se": 0.0,
+     "upper": 0.0
+    },
+    "J1": null,
+    "J2": null,
+    "J3": null,
+    "J4": null,
+    "J5": null,
+    "J6": null,
+    "J7": null,
+    "any_D": {
+     "degenerate": false,
+     "lower": 0.676688303480242,
+     "mean": 0.8,
+     "pairs": 25,
+     "se": 0.06291528696058958,
+     "upper": 0.9233116965197581
+    },
+    "any_J": null
+   },
+   "paired_cases": {
+    "D0": 25,
+    "D1": 25,
+    "D2": 25,
+    "D3": 25,
+    "D4": 25,
+    "D5": 25,
+    "J1": 0,
+    "J2": 0,
+    "J3": 0,
+    "J4": 0,
+    "J5": 0,
+    "J6": 0,
+    "J7": 0,
+    "any_D": 25,
+    "any_J": 0,
+    "primary": 25
+   },
+   "primary": {
+    "degenerate": false,
+    "lower": 0.03566347684340533,
+    "mean": 0.13,
+    "pairs": 25,
+    "se": 0.04813176359397884,
+    "upper": 0.2243365231565947
+   },
+   "primary_endpoint": "D4 per narrative, first attempts",
+   "shared_cases": 25,
+   "variant": "ungrounded"
+  }
+ ],
+ "corpus": [
+  {
+   "case_id": "cross-A",
+   "design": "cross_section",
+   "group": "scenario",
+   "reason": "cross-sectional scenario A",
+   "requirements": []
+  },
+  {
+   "case_id": "cross-B",
+   "design": "cross_section",
+   "group": "scenario",
+   "reason": "cross-sectional scenario B",
+   "requirements": []
+  },
+  {
+   "case_id": "cross-C",
+   "design": "cross_section",
+   "group": "scenario",
+   "reason": "cross-sectional scenario C",
+   "requirements": []
+  },
+  {
+   "case_id": "cross-D",
+   "design": "cross_section",
+   "group": "scenario",
+   "reason": "cross-sectional scenario D",
+   "requirements": []
+  },
+  {
+   "case_id": "cross-F",
+   "design": "cross_section",
+   "group": "scenario",
+   "reason": "cross-sectional scenario F",
+   "requirements": []
+  },
+  {
+   "case_id": "cross-G",
+   "design": "cross_section",
+   "group": "scenario",
+   "reason": "cross-sectional scenario G",
+   "requirements": []
+  },
+  {
+   "case_id": "cross-H-complete",
+   "design": "cross_section",
+   "group": "scenario",
+   "reason": "scenario H reduced to complete cases; as generated it is refused",
+   "requirements": []
+  },
+  {
+   "case_id": "panel-P1",
+   "design": "panel",
+   "group": "scenario",
+   "reason": "panel scenario P1",
+   "requirements": []
+  },
+  {
+   "case_id": "panel-P2",
+   "design": "panel",
+   "group": "scenario",
+   "reason": "panel scenario P2",
+   "requirements": []
+  },
+  {
+   "case_id": "panel-P3",
+   "design": "panel",
+   "group": "scenario",
+   "reason": "panel scenario P3",
+   "requirements": []
+  },
+  {
+   "case_id": "panel-P4",
+   "design": "panel",
+   "group": "scenario",
+   "reason": "panel scenario P4",
+   "requirements": []
+  },
+  {
+   "case_id": "panel-P5",
+   "design": "panel",
+   "group": "scenario",
+   "reason": "panel scenario P5",
+   "requirements": []
+  },
+  {
+   "case_id": "panel-P6",
+   "design": "panel",
+   "group": "scenario",
+   "reason": "panel scenario P6",
+   "requirements": []
+  },
+  {
+   "case_id": "panel-P7",
+   "design": "panel",
+   "group": "scenario",
+   "reason": "panel scenario P7",
+   "requirements": []
+  },
+  {
+   "case_id": "donor-S0",
+   "design": "donor_pool",
+   "group": "scenario",
+   "reason": "donor-pool scenario S0",
+   "requirements": []
+  },
+  {
+   "case_id": "donor-S1",
+   "design": "donor_pool",
+   "group": "scenario",
+   "reason": "donor-pool scenario S1",
+   "requirements": []
+  },
+  {
+   "case_id": "donor-S2",
+   "design": "donor_pool",
+   "group": "scenario",
+   "reason": "donor-pool scenario S2",
+   "requirements": []
+  },
+  {
+   "case_id": "donor-S3",
+   "design": "donor_pool",
+   "group": "scenario",
+   "reason": "donor-pool scenario S3",
+   "requirements": []
+  },
+  {
+   "case_id": "donor-S4",
+   "design": "donor_pool",
+   "group": "scenario",
+   "reason": "donor-pool scenario S4",
+   "requirements": []
+  },
+  {
+   "case_id": "donor-S5",
+   "design": "donor_pool",
+   "group": "scenario",
+   "reason": "donor-pool scenario S5",
+   "requirements": []
+  },
+  {
+   "case_id": "real-lalonde",
+   "design": "cross_section",
+   "group": "real_data",
+   "reason": "LaLonde (NSW and PSID)",
+   "requirements": []
+  },
+  {
+   "case_id": "real-prop99",
+   "design": "donor_pool",
+   "group": "real_data",
+   "reason": "California Proposition 99",
+   "requirements": []
+  },
+  {
+   "case_id": "awkward-fail-divergent",
+   "design": "cross_section",
+   "group": "awkward",
+   "reason": "strong confounding: a failed check and methods that diverge",
+   "requirements": [
+    "at least one check with status FAIL",
+    "a comparison whose verdict is divergent"
+   ]
+  },
+  {
+   "case_id": "awkward-divergent",
+   "design": "cross_section",
+   "group": "awkward",
+   "reason": "selection on untreated outcomes: methods that diverge",
+   "requirements": [
+    "a comparison whose verdict is divergent"
+   ]
+  },
+  {
+   "case_id": "awkward-single",
+   "design": "cross_section",
+   "group": "awkward",
+   "reason": "one method, so no comparison",
+   "requirements": [
+    "exactly one estimate"
+   ]
+  }
+ ],
+ "d1_unparsed": {
+  "baseline": 8,
+  "cite-each-status": 8,
+  "ungrounded": 7
+ },
+ "d4_truth": {
+  "baseline": {
+   "false": 0,
+   "true": 10,
+   "undetermined": 5
+  },
+  "cite-each-status": {
+   "false": 0,
+   "true": 0,
+   "undetermined": 1
+  },
+  "ungrounded": {
+   "false": 9,
+   "true": 28,
+   "undetermined": 0
+  }
+ },
+ "denominators": {
+  "baseline": {
+   "can_refuse": true,
+   "interpretations": 100,
+   "judged": 0,
+   "with_a_narrative": 99
+  },
+  "cite-each-status": {
+   "can_refuse": true,
+   "interpretations": 100,
+   "judged": 0,
+   "with_a_narrative": 100
+  },
+  "ungrounded": {
+   "can_refuse": false,
+   "interpretations": 100,
+   "judged": 100,
+   "with_a_narrative": 100
+  }
+ },
+ "first_attempt": {
+  "baseline": {
+   "D0": {
+    "clusters": 25,
+    "denominator": 100,
+    "lower_bound": null,
+    "numerator": 0,
+    "rate": 0.0,
+    "se": null,
+    "upper_bound": 0.03
+   },
+   "D1": {
+    "clusters": 25,
+    "denominator": 100,
+    "lower_bound": null,
+    "numerator": 0,
+    "rate": 0.0,
+    "se": null,
+    "upper_bound": 0.03
+   },
+   "D2": {
+    "clusters": 25,
+    "denominator": 100,
+    "lower_bound": null,
+    "numerator": 5,
+    "rate": 0.05,
+    "se": 0.020412414523193156,
+    "upper_bound": null
+   },
+   "D3": {
+    "clusters": 25,
+    "denominator": 100,
+    "lower_bound": null,
+    "numerator": 0,
+    "rate": 0.0,
+    "se": null,
+    "upper_bound": 0.03
+   },
+   "D4": {
+    "clusters": 25,
+    "denominator": 100,
+    "lower_bound": null,
+    "numerator": 18,
+    "rate": 0.18,
+    "se": 0.06849574196011507,
+    "upper_bound": null
+   },
+   "D5": {
+    "clusters": 25,
+    "denominator": 100,
+    "lower_bound": null,
+    "numerator": 0,
+    "rate": 0.0,
+    "se": null,
+    "upper_bound": 0.03
+   }
+  },
+  "cite-each-status": {
+   "D0": {
+    "clusters": 25,
+    "denominator": 100,
+    "lower_bound": null,
+    "numerator": 0,
+    "rate": 0.0,
+    "se": null,
+    "upper_bound": 0.03
+   },
+   "D1": {
+    "clusters": 25,
+    "denominator": 100,
+    "lower_bound": null,
+    "numerator": 2,
+    "rate": 0.02,
+    "se": 0.01384437310486346,
+    "upper_bound": null
+   },
+   "D2": {
+    "clusters": 25,
+    "denominator": 100,
+    "lower_bound": null,
+    "numerator": 0,
+    "rate": 0.0,
+    "se": null,
+    "upper_bound": 0.03
+   },
+   "D3": {
+    "clusters": 25,
+    "denominator": 100,
+    "lower_bound": null,
+    "numerator": 0,
+    "rate": 0.0,
+    "se": null,
+    "upper_bound": 0.03
+   },
+   "D4": {
+    "clusters": 25,
+    "denominator": 100,
+    "lower_bound": null,
+    "numerator": 4,
+    "rate": 0.04,
+    "se": 0.023629078131263043,
+    "upper_bound": null
+   },
+   "D5": {
+    "clusters": 25,
+    "denominator": 100,
+    "lower_bound": null,
+    "numerator": 0,
+    "rate": 0.0,
+    "se": null,
+    "upper_bound": 0.03
+   }
+  },
+  "ungrounded": {
+   "D0": {
+    "clusters": 25,
+    "denominator": 100,
+    "lower_bound": 0.97,
+    "numerator": 100,
+    "rate": 1.0,
+    "se": null,
+    "upper_bound": null
+   },
+   "D1": {
+    "clusters": 25,
+    "denominator": 100,
+    "lower_bound": null,
+    "numerator": 1,
+    "rate": 0.01,
+    "se": 0.01,
+    "upper_bound": null
+   },
+   "D2": {
+    "clusters": 25,
+    "denominator": 100,
+    "lower_bound": null,
+    "numerator": 0,
+    "rate": 0.0,
+    "se": null,
+    "upper_bound": 0.03
+   },
+   "D3": {
+    "clusters": 25,
+    "denominator": 100,
+    "lower_bound": null,
+    "numerator": 0,
+    "rate": 0.0,
+    "se": null,
+    "upper_bound": 0.03
+   },
+   "D4": {
+    "clusters": 25,
+    "denominator": 100,
+    "lower_bound": null,
+    "numerator": 31,
+    "rate": 0.31,
+    "se": 0.08930285549745876,
+    "upper_bound": null
+   },
+   "D5": {
+    "clusters": 25,
+    "denominator": 100,
+    "lower_bound": null,
+    "numerator": 0,
+    "rate": 0.0,
+    "se": null,
+    "upper_bound": 0.03
+   }
+  }
+ },
+ "first_attempt_missing": {
+  "baseline": 0,
+  "cite-each-status": 0,
+  "ungrounded": 0
+ },
+ "judges": {
+  "current": "69ec1bc9f018",
+  "j_rates": {
+   "69ec1bc9f018": {
+    "baseline": {
+     "J1": null,
+     "J2": null,
+     "J3": null,
+     "J4": null,
+     "J5": null,
+     "J6": null,
+     "J7": null,
+     "any_J": null
+    },
+    "cite-each-status": {
+     "J1": null,
+     "J2": null,
+     "J3": null,
+     "J4": null,
+     "J5": null,
+     "J6": null,
+     "J7": null,
+     "any_J": null
+    },
+    "ungrounded": {
+     "J1": {
+      "clusters": 25,
+      "denominator": 100,
+      "lower_bound": null,
+      "numerator": 4,
+      "rate": 0.04,
+      "se": 0.018708286933869705,
+      "upper_bound": null
+     },
+     "J2": {
+      "clusters": 25,
+      "denominator": 100,
+      "lower_bound": null,
+      "numerator": 1,
+      "rate": 0.01,
+      "se": 0.01,
+      "upper_bound": null
+     },
+     "J3": {
+      "clusters": 25,
+      "denominator": 100,
+      "lower_bound": null,
+      "numerator": 0,
+      "rate": 0.0,
+      "se": null,
+      "upper_bound": 0.03
+     },
+     "J4": {
+      "clusters": 25,
+      "denominator": 100,
+      "lower_bound": null,
+      "numerator": 0,
+      "rate": 0.0,
+      "se": null,
+      "upper_bound": 0.03
+     },
+     "J5": {
+      "clusters": 25,
+      "denominator": 100,
+      "lower_bound": null,
+      "numerator": 1,
+      "rate": 0.01,
+      "se": 0.01,
+      "upper_bound": null
+     },
+     "J6": {
+      "clusters": 25,
+      "denominator": 100,
+      "lower_bound": null,
+      "numerator": 2,
+      "rate": 0.02,
+      "se": 0.01384437310486346,
+      "upper_bound": null
+     },
+     "J7": {
+      "clusters": 25,
+      "denominator": 100,
+      "lower_bound": null,
+      "numerator": 2,
+      "rate": 0.02,
+      "se": 0.02,
+      "upper_bound": null
+     },
+     "any_J": {
+      "clusters": 25,
+      "denominator": 100,
+      "lower_bound": null,
+      "numerator": 10,
+      "rate": 0.1,
+      "se": 0.03535533905932738,
+      "upper_bound": null
+     }
+    }
+   },
+   "cc407ff4d564": {
+    "baseline": {
+     "J1": {
+      "clusters": 25,
+      "denominator": 99,
+      "lower_bound": null,
+      "numerator": 0,
+      "rate": 0.0,
+      "se": null,
+      "upper_bound": 0.030303030303030304
+     },
+     "J2": {
+      "clusters": 25,
+      "denominator": 99,
+      "lower_bound": null,
+      "numerator": 1,
+      "rate": 0.010101010101010102,
+      "se": 0.01009727344806116,
+      "upper_bound": null
+     },
+     "J3": {
+      "clusters": 25,
+      "denominator": 99,
+      "lower_bound": null,
+      "numerator": 1,
+      "rate": 0.010101010101010102,
+      "se": 0.01009727344806116,
+      "upper_bound": null
+     },
+     "J4": {
+      "clusters": 25,
+      "denominator": 99,
+      "lower_bound": null,
+      "numerator": 0,
+      "rate": 0.0,
+      "se": null,
+      "upper_bound": 0.030303030303030304
+     },
+     "J5": {
+      "clusters": 25,
+      "denominator": 99,
+      "lower_bound": null,
+      "numerator": 3,
+      "rate": 0.030303030303030304,
+      "se": 0.016730342140400555,
+      "upper_bound": null
+     },
+     "J6": {
+      "clusters": 25,
+      "denominator": 99,
+      "lower_bound": null,
+      "numerator": 6,
+      "rate": 0.06060606060606061,
+      "se": 0.026353191548396944,
+      "upper_bound": null
+     },
+     "J7": {
+      "clusters": 25,
+      "denominator": 99,
+      "lower_bound": null,
+      "numerator": 0,
+      "rate": 0.0,
+      "se": null,
+      "upper_bound": 0.030303030303030304
+     },
+     "any_J": {
+      "clusters": 25,
+      "denominator": 99,
+      "lower_bound": null,
+      "numerator": 11,
+      "rate": 0.1111111111111111,
+      "se": 0.03582251777442117,
+      "upper_bound": null
+     }
+    },
+    "cite-each-status": {
+     "J1": {
+      "clusters": 25,
+      "denominator": 100,
+      "lower_bound": null,
+      "numerator": 0,
+      "rate": 0.0,
+      "se": null,
+      "upper_bound": 0.03
+     },
+     "J2": {
+      "clusters": 25,
+      "denominator": 100,
+      "lower_bound": null,
+      "numerator": 0,
+      "rate": 0.0,
+      "se": null,
+      "upper_bound": 0.03
+     },
+     "J3": {
+      "clusters": 25,
+      "denominator": 100,
+      "lower_bound": null,
+      "numerator": 2,
+      "rate": 0.02,
+      "se": 0.01384437310486346,
+      "upper_bound": null
+     },
+     "J4": {
+      "clusters": 25,
+      "denominator": 100,
+      "lower_bound": null,
+      "numerator": 0,
+      "rate": 0.0,
+      "se": null,
+      "upper_bound": 0.03
+     },
+     "J5": {
+      "clusters": 25,
+      "denominator": 100,
+      "lower_bound": null,
+      "numerator": 0,
+      "rate": 0.0,
+      "se": null,
+      "upper_bound": 0.03
+     },
+     "J6": {
+      "clusters": 25,
+      "denominator": 100,
+      "lower_bound": null,
+      "numerator": 7,
+      "rate": 0.07,
+      "se": 0.0270801280154532,
+      "upper_bound": null
+     },
+     "J7": {
+      "clusters": 25,
+      "denominator": 100,
+      "lower_bound": null,
+      "numerator": 0,
+      "rate": 0.0,
+      "se": null,
+      "upper_bound": 0.03
+     },
+     "any_J": {
+      "clusters": 25,
+      "denominator": 100,
+      "lower_bound": null,
+      "numerator": 9,
+      "rate": 0.09,
+      "se": 0.035,
+      "upper_bound": null
+     }
+    },
+    "ungrounded": {
+     "J1": null,
+     "J2": null,
+     "J3": null,
+     "J4": null,
+     "J5": null,
+     "J6": null,
+     "J7": null,
+     "any_J": null
+    }
+   }
+  }
+ },
+ "prereg": {
+  "p0": {
+   "ambiguity": {
+    "clusters": 25,
+    "denominator": 4007,
+    "lower_bound": null,
+    "numerator": 695,
+    "rate": 0.17344646867981034,
+    "se": 0.011040764748005477,
+    "upper_bound": null
+   },
+   "narratives": 199,
+   "note": "ambiguity is 17.3% of grounded statements, above 10%: report it as a limit on the ungrounded arm's D1-D5 figures",
+   "passed": true,
+   "statements": 4007,
+   "unsupported": 0
+  },
+  "p1": {
+   "bound": {
+    "basis": "rule_of_three",
+    "lower": 0.97,
+    "upper": 1.0
+   },
+   "excluded_no_statements": 0,
+   "note": "",
+   "rate": {
+    "clusters": 25,
+    "denominator": 100,
+    "lower_bound": 0.97,
+    "numerator": 100,
+    "rate": 1.0,
+    "se": null,
+    "upper_bound": null
+   },
+   "threshold": 0.1,
+   "verdict": "met"
+  }
+ },
+ "rates": {
+  "baseline": {
+   "D0": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 99,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.030303030303030304
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 1997,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.0015022533800701052
+    }
+   },
+   "D1": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 99,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.030303030303030304
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 1997,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.0015022533800701052
+    }
+   },
+   "D2": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 99,
+     "lower_bound": null,
+     "numerator": 5,
+     "rate": 0.050505050505050504,
+     "se": 0.020572793644963998,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 1997,
+     "lower_bound": null,
+     "numerator": 5,
+     "rate": 0.0025037556334501754,
+     "se": 0.0009879929525028598,
+     "upper_bound": null
+    }
+   },
+   "D3": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 99,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.030303030303030304
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 1997,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.0015022533800701052
+    }
+   },
+   "D4": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 99,
+     "lower_bound": null,
+     "numerator": 15,
+     "rate": 0.15151515151515152,
+     "se": 0.06077182655729543,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 1997,
+     "lower_bound": null,
+     "numerator": 15,
+     "rate": 0.007511266900350526,
+     "se": 0.0030769144895736195,
+     "upper_bound": null
+    }
+   },
+   "D5": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 99,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.030303030303030304
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 1997,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.0015022533800701052
+    }
+   },
+   "J1": {
+    "per_narrative": null,
+    "per_statement": null
+   },
+   "J2": {
+    "per_narrative": null,
+    "per_statement": null
+   },
+   "J3": {
+    "per_narrative": null,
+    "per_statement": null
+   },
+   "J4": {
+    "per_narrative": null,
+    "per_statement": null
+   },
+   "J5": {
+    "per_narrative": null,
+    "per_statement": null
+   },
+   "J6": {
+    "per_narrative": null,
+    "per_statement": null
+   },
+   "J7": {
+    "per_narrative": null,
+    "per_statement": null
+   },
+   "any_D": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 99,
+     "lower_bound": null,
+     "numerator": 19,
+     "rate": 0.1919191919191919,
+     "se": 0.05962943978116086,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 1997,
+     "lower_bound": null,
+     "numerator": 20,
+     "rate": 0.010015022533800702,
+     "se": 0.003309903956453866,
+     "upper_bound": null
+    }
+   },
+   "any_J": {
+    "per_narrative": null,
+    "per_statement": null
+   }
+  },
+  "cite-each-status": {
+   "D0": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.03
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2010,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.0014925373134328358
+    }
+   },
+   "D1": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 2,
+     "rate": 0.02,
+     "se": 0.01384437310486346,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2010,
+     "lower_bound": null,
+     "numerator": 2,
+     "rate": 0.0009950248756218905,
+     "se": 0.0006872182773175709,
+     "upper_bound": null
+    }
+   },
+   "D2": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.03
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2010,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.0014925373134328358
+    }
+   },
+   "D3": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.03
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2010,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.0014925373134328358
+    }
+   },
+   "D4": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.01,
+     "se": 0.01,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2010,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.0004975124378109452,
+     "se": 0.0004949048371622341,
+     "upper_bound": null
+    }
+   },
+   "D5": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.03
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2010,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.0014925373134328358
+    }
+   },
+   "J1": {
+    "per_narrative": null,
+    "per_statement": null
+   },
+   "J2": {
+    "per_narrative": null,
+    "per_statement": null
+   },
+   "J3": {
+    "per_narrative": null,
+    "per_statement": null
+   },
+   "J4": {
+    "per_narrative": null,
+    "per_statement": null
+   },
+   "J5": {
+    "per_narrative": null,
+    "per_statement": null
+   },
+   "J6": {
+    "per_narrative": null,
+    "per_statement": null
+   },
+   "J7": {
+    "per_narrative": null,
+    "per_statement": null
+   },
+   "any_D": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 3,
+     "rate": 0.03,
+     "se": 0.016583123951777003,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2010,
+     "lower_bound": null,
+     "numerator": 3,
+     "rate": 0.0014925373134328358,
+     "se": 0.0008183520813237321,
+     "upper_bound": null
+    }
+   },
+   "any_J": {
+    "per_narrative": null,
+    "per_statement": null
+   }
+  },
+  "ungrounded": {
+   "D0": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": 0.97,
+     "numerator": 100,
+     "rate": 1.0,
+     "se": null,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2091,
+     "lower_bound": null,
+     "numerator": 898,
+     "rate": 0.4294595887135342,
+     "se": 0.013181749609699298,
+     "upper_bound": null
+    }
+   },
+   "D1": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.01,
+     "se": 0.01,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2091,
+     "lower_bound": null,
+     "numerator": 5,
+     "rate": 0.0023912003825920613,
+     "se": 0.00240354788029868,
+     "upper_bound": null
+    }
+   },
+   "D2": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.03
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2091,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.0014347202295552368
+    }
+   },
+   "D3": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.03
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2091,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.0014347202295552368
+    }
+   },
+   "D4": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 31,
+     "rate": 0.31,
+     "se": 0.08930285549745876,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2091,
+     "lower_bound": null,
+     "numerator": 37,
+     "rate": 0.017694882831181254,
+     "se": 0.0053750017076744615,
+     "upper_bound": null
+    }
+   },
+   "D5": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.03
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2091,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.0014347202295552368
+    }
+   },
+   "J1": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 4,
+     "rate": 0.04,
+     "se": 0.018708286933869705,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2091,
+     "lower_bound": null,
+     "numerator": 4,
+     "rate": 0.001912960306073649,
+     "se": 0.0008985524529166237,
+     "upper_bound": null
+    }
+   },
+   "J2": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.01,
+     "se": 0.01,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2091,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.00047824007651841227,
+     "se": 0.0004780952537062964,
+     "upper_bound": null
+    }
+   },
+   "J3": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.03
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2091,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.0014347202295552368
+    }
+   },
+   "J4": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.03
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2091,
+     "lower_bound": null,
+     "numerator": 0,
+     "rate": 0.0,
+     "se": null,
+     "upper_bound": 0.0014347202295552368
+    }
+   },
+   "J5": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.01,
+     "se": 0.01,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2091,
+     "lower_bound": null,
+     "numerator": 1,
+     "rate": 0.00047824007651841227,
+     "se": 0.00047714103958179855,
+     "upper_bound": null
+    }
+   },
+   "J6": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 2,
+     "rate": 0.02,
+     "se": 0.01384437310486346,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2091,
+     "lower_bound": null,
+     "numerator": 2,
+     "rate": 0.0009564801530368245,
+     "se": 0.0006630510391994674,
+     "upper_bound": null
+    }
+   },
+   "J7": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 2,
+     "rate": 0.02,
+     "se": 0.02,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2091,
+     "lower_bound": null,
+     "numerator": 2,
+     "rate": 0.0009564801530368245,
+     "se": 0.0009542820791635971,
+     "upper_bound": null
+    }
+   },
+   "any_D": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": 0.97,
+     "numerator": 100,
+     "rate": 1.0,
+     "se": null,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2091,
+     "lower_bound": null,
+     "numerator": 934,
+     "rate": 0.446676231468197,
+     "se": 0.012073493573130898,
+     "upper_bound": null
+    }
+   },
+   "any_J": {
+    "per_narrative": {
+     "clusters": 25,
+     "denominator": 100,
+     "lower_bound": null,
+     "numerator": 10,
+     "rate": 0.1,
+     "se": 0.03535533905932738,
+     "upper_bound": null
+    },
+    "per_statement": {
+     "clusters": 25,
+     "denominator": 2091,
+     "lower_bound": null,
+     "numerator": 10,
+     "rate": 0.004782400765184123,
+     "se": 0.001688083889350812,
+     "upper_bound": null
+    }
+   }
+  }
+ },
+ "run": {
+  "judge": {
+   "calls": 299,
+   "cost": 13.984772,
+   "judge_errors": 0,
+   "verdicts": 299
+  },
+  "variants": {
+   "baseline": {
+    "calls": 116,
+    "cost": 16.498404,
+    "interpretations": 100,
+    "no_answer": 0,
+    "refused": 1,
+    "unverified": 0,
+    "verified": 99,
+    "verified_first_attempt": 84
+   },
+   "cite-each-status": {
+    "calls": 109,
+    "cost": 15.754616,
+    "interpretations": 100,
+    "no_answer": 0,
+    "refused": 0,
+    "unverified": 0,
+    "verified": 100,
+    "verified_first_attempt": 91
+   },
+   "ungrounded": {
+    "calls": 100,
+    "cost": 11.24324,
+    "interpretations": 100,
+    "no_answer": 0,
+    "refused": 0,
+    "unverified": 100,
+    "verified": 0,
+    "verified_first_attempt": 0
+   }
+  }
+ },
+ "validation": {
+  "graders": {
+   "D0": {
+    "precision": null
+   },
+   "D1": {
+    "precision": null
+   },
+   "D2": {
+    "precision": null
+   },
+   "D3": {
+    "precision": null
+   },
+   "D4": {
+    "precision": null
+   },
+   "D5": {
+    "precision": null
+   }
+  },
+  "judge": {
+   "J1": {
+    "sensitivity": null,
+    "specificity": null
+   },
+   "J2": {
+    "sensitivity": null,
+    "specificity": null
+   },
+   "J3": {
+    "sensitivity": null,
+    "specificity": null
+   },
+   "J4": {
+    "sensitivity": null,
+    "specificity": null
+   },
+   "J5": {
+    "sensitivity": null,
+    "specificity": null
+   },
+   "J6": {
+    "sensitivity": null,
+    "specificity": null
+   },
+   "J7": {
+    "sensitivity": null,
+    "specificity": null
+   },
+   "any_J": {
+    "sensitivity": null,
+    "specificity": null
+   }
+  },
+  "labelled": 0
+ }
+}

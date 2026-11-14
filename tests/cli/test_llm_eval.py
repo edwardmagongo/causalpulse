@@ -13,8 +13,8 @@ from cp_cli import __main__ as cli
 from cp_cli.commands import llm_eval
 from cp_llm.narrative import Narrative
 from cp_llm_eval import judge as judge_module
-from cp_llm_eval.judge import JudgeReply, StatementVerdict
-from cp_llm_eval.runner import INTERPRETATIONS
+from cp_llm_eval.judge import VERDICTS, JudgeReply, StatementVerdict
+from cp_llm_eval.runner import INTERPRETATIONS, interpretation_key
 from cp_llm_eval.store import Store, read_export
 from llm.builders import _band, _estimate
 from llm_eval.fakes import ReplyJudge, ReplyModel
@@ -240,6 +240,48 @@ def test_grade_refuses_to_bill_a_rejudge_until_it_is_asked_for(
 
     assert cli.main([*(["llm-eval", "grade"] + common), "--max-calls", "1", "--rejudge"]) == 0
     assert judge.calls == 2
+
+
+def test_grade_can_judge_one_arm_without_rebilling_the_others(
+    tmp_path, scripted, monkeypatch, capsys
+):
+    """The case the guard alone cannot serve.
+
+    A prompt revision invalidates every stored verdict by key, so a bare
+    `grade` offers every arm again and the guard refuses the lot. Naming an
+    arm that no earlier prompt judged bills that arm alone: on the real study
+    that is 100 calls for the control arm rather than 299 for all three.
+    """
+    common = _built(tmp_path, monkeypatch)
+    assert cli.main([*(["llm-eval", "run"] + common), "--max-calls", "2", "--replicates", "1",
+                     "--arm", "baseline"]) == 0
+    assert cli.main([*(["llm-eval", "grade"] + common), "--max-calls", "1"]) == 0
+    _model, judge = scripted
+    assert judge.calls == 1
+
+    monkeypatch.setattr(judge_module, "judge_prompt_version", lambda: "a-revised-judge")
+    monkeypatch.setattr(llm_eval, "judge_prompt_version", lambda: "a-revised-judge")
+
+    assert cli.main([*(["llm-eval", "run"] + common), "--max-calls", "1", "--replicates", "1",
+                     "--arm", "ungrounded"]) == 0
+
+    # Without the filter the stale baseline verdict blocks everything.
+    assert cli.main([*(["llm-eval", "grade"] + common), "--max-calls", "2"]) == 1
+    assert "--rejudge" in capsys.readouterr().err
+    assert judge.calls == 1
+
+    # Naming the unjudged arm needs no --rejudge, and bills only that arm.
+    assert cli.main([*(["llm-eval", "grade"] + common), "--max-calls", "2",
+                     "--arm", "ungrounded"]) == 0
+    assert judge.calls == 2
+
+    store = Store(Path(common[3]))
+    judged = {r["interpretation"] for r in store.records(VERDICTS)}
+    unverified = [
+        r for r in store.records(INTERPRETATIONS) if r["key"]["variant"] == "ungrounded"
+    ]
+    assert len(unverified) == 1
+    assert interpretation_key(unverified[0]) in judged
 
 
 def test_report_writes_the_pre_registered_endpoints_beside_it(tmp_path, scripted, monkeypatch):
