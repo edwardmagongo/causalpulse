@@ -23,9 +23,9 @@ balance to be filled in before the first billed call and holds no analytic choic
 
 | Commit | SHA-256 of the pre-registration | What changed |
 |---|---|---|
-| `76cc2e1303ba5919b763a4f91ced26e61bec367a` | `18e672a94fff1dd86d651385d0323569f397ed899b6a49df129b20edfbcacd12` | the substantive freeze, §8 unfilled |
-| `0dabfb3a3843466db17c5981f537b0d0aef9dc5e` | `7c261edcb3b4a2f8e1ea69fc6f7997a8194fde296150b4ba346e28a0001bdaab` | §8 filled but for the balance |
-| `849758c0ff7e6ca882e14c9eee7825a34ad53dec` | `47b41e273d61fb569c72fd6487ec5f308b91ee9e743f70db76d0515306d4e5a1` | §8's options costed against the balance |
+| `056a996a970e989ca516572bf48f0fad54695ef1` | `18e672a94fff1dd86d651385d0323569f397ed899b6a49df129b20edfbcacd12` | the substantive freeze, §8 unfilled |
+| `5fcb35b1bb048fd6b05bcbbd7181f475a980b327` | `7c261edcb3b4a2f8e1ea69fc6f7997a8194fde296150b4ba346e28a0001bdaab` | §8 filled but for the balance |
+| `10ae24cdf242c27618f186f2ccdb4c387f547cd5` | `47b41e273d61fb569c72fd6487ec5f308b91ee9e743f70db76d0515306d4e5a1` | §8's options costed against the balance |
 
 To check a copy of either document:
 
@@ -35,6 +35,26 @@ shasum -a 256 2026-10-29-llm-eval-ungrounded-control-arm-prereg.md
 
 The commit ids are git's own, and that repository is a SHA-1 one, which is why the SHA-256 of
 each file is given as well.
+
+## The history rewrite
+
+Those three commit ids are not the ones the documents were first written under. On 2026-11-14
+the design-documents repository was pushed to a private remote, so that the freeze no longer
+lived on one disk. Before it was pushed, 172 passages of AI-attribution text were stripped from
+34 of the other documents — the same text this repository's own history was rewritten to remove
+on 2026-10-14 — and that changed every commit id:
+
+| Before the rewrite | After |
+|---|---|
+| `76cc2e1` | `056a996a970e989ca516572bf48f0fad54695ef1` |
+| `0dabfb3` | `5fcb35b1bb048fd6b05bcbbd7181f475a980b327` |
+| `849758c` | `10ae24cdf242c27618f186f2ccdb4c387f547cd5` |
+
+Neither of the two documents above was among the 34, so the rewrite left every SHA-256 in this
+file untouched and a copy of either document still verifies against it. The author dates were
+carried over unchanged. §8 of the pre-registration names `76cc2e1` as the commit holding it:
+that is the id from before the rewrite, and `056a996` is the same tree with the attribution
+removed.
 
 ## The sequence
 
