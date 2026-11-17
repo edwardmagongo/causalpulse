@@ -5,45 +5,27 @@ name: Fast suite
 # 2026-10-14, summing each test's duration, the suite is about 63 minutes of
 # test time and the largest shard about 19 of them (the panel and donor
 # recovery files, 12 and 9 minutes, fall in shards 1 and 4), so a pull request
-# waits for its slowest shard, not for the whole suite. Wall-clock time per
-# shard on a hosted runner has not been measured yet. Each shard repeats the checkout and `uv sync`, so the four
-# cost a little more runner time than one job did; the suite is still most of
-# what a pull request costs. The repository is private
-# and its Actions minutes are counted, so this runs on a pull request only
-# when something the suite tests has changed, and on every push to `main`,
-# where it is the net under whatever a path filter let through.
+# waits for its slowest shard, not for the whole suite. On a hosted runner the
+# four shards of pull request #8 took 3m0s, 7m43s, 8m56s and 15m26s on
+# 2026-11-17, the first wall-clock measurement of them. Each shard repeats the
+# checkout and `uv sync`, so the four cost a little more runner time than one
+# job did; the suite is still most of what a pull request costs.
 #
-# The paths are what the suite reads: the packages and tests, the dependency
-# and tool pins, and the committed files some tests check against (the
-# OpenAPI document, the study bundle, the published reports) or parse (the
-# import contracts, the `Dockerfile`, every compose file at the root, the
-# Makefile). GitHub looks at the first 300 changed files only; the push to
-# `main` is the net under that too.
+# It runs on every pull request and on every push to `main`. Until 2026-11-17
+# a path filter held it back on a pull request that touched nothing the suite
+# reads, to spend fewer of the Actions minutes a private repository is billed
+# for. The repository has been public since 2026-11-01 and a run of it costs
+# no minutes, while the filter had a price that outlived its saving: a
+# required check a filter skips never reports, and a pull request waiting for
+# one waits for ever, so none of the four shards could be a required check.
+# All four are required on `main` now, and nothing filters them.
 #
-# If branch protection is ever enforced again, none of the "Fast suite (shard
-# I of 4)" checks may be required as they stand: a pull request this filter
-# skips would wait for them for ever. `deploy.yml` reads this workflow's run
-# by its name, "Fast suite"; a run succeeds only when all four shards do.
+# `deploy.yml` reads this workflow's run by its name, "Fast suite"; a run
+# succeeds only when all four shards do.
 on:
   push:
     branches: [main]
   pull_request:
-    paths:
-      - "packages/**"
-      - "tests/**"
-      - "pyproject.toml"
-      - "uv.lock"
-      - ".python-version"
-      - "Makefile"
-      - "Dockerfile"
-      # Both spellings: `tests/api/test_settings.py` reads both.
-      - "docker-compose*.yml"
-      - "docker-compose*.yaml"
-      - ".importlinter"
-      - "web/openapi.json"
-      - "web/src/data/**"
-      - "docs/reports/**"
-      - ".github/workflows/fast.yml"
 
 # As in `ci.yml`. On `main` a waiting run can be replaced by a later push, so
 # the latest tree always has a result and an intermediate commit may not.

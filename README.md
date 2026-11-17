@@ -308,9 +308,9 @@ Routes, keys, limits and the dashboard's session and failure handling:
 | `make smoke-deploy` | The real deploy script against a local registry: first deploy, upgrade, rollback, a broken image and a failed migration |
 | `make check-llm` | One real interpretation; billed, so run by hand |
 
-CI runs the same `make` targets, chosen by what a change touches so a private repository's
-Actions minutes go where they matter: the quick gates on every pull request, the fast suite as
-four parallel shards, the slow tier monthly. Details: [`docs/ci.md`](docs/ci.md).
+CI runs the same `make` targets: ten required checks on every pull request -- the five quick
+gates, the fast suite as four parallel shards, and the infrastructure gate -- and the slow tier
+monthly. Details: [`docs/ci.md`](docs/ci.md).
 
 ## Design decisions and limits
 

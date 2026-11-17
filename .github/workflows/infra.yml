@@ -6,49 +6,25 @@ name: Infrastructure
 # test files that run the deploy script and the deploy command against
 # stand-ins pass. The gate runs those two files itself, as its last step.
 #
-# Only when the change touches what that gate reads. The repository is
-# private and its Actions minutes are counted, and a change to the Python or
-# the dashboard alone has nothing for this workflow to find. The paths are
-# the same for a pull request and for a push to `main`, so a commit of `main`
-# that touches none of them has no run of this workflow at all. GitHub looks
-# at the first 300 changed files only.
+# On every pull request and every push to `main`. Until 2026-11-17 a path
+# filter held it back unless the change touched what the gate reads -- the
+# Terraform and its tests, the deploy files, the workflows, the two test
+# files and the few root files those read -- to spend fewer of the Actions
+# minutes a private repository is billed for. The repository has been public
+# since 2026-11-01 and a run of it costs no minutes; measured on the two most
+# recent runs before the filter went, the whole workflow takes about 70
+# seconds. The filter also kept "Infrastructure" from being a required check,
+# since a required check a filter skips never reports and a pull request
+# waiting for one waits for ever. It is required on `main` now.
 #
-# The paths are what the gate reads: the Terraform and its tests; the deploy
-# files; every workflow, this one included (`actionlint` reads them all, and
-# one test reads them all to see that only the deploy workflow asks GitHub
-# for a token of identity); the two test files; and the four files at the
-# root that those tests read or that say how the gate is run. The fast
-# suite holds the two test files too, but its pull-request paths do not
-# include `deploy/` or `infra/`.
+# A commit of `main` therefore always has a run of this workflow, which is
+# what `deploy.yml` asks GitHub for by name.
 #
 # This workflow asks for no credentials and reaches no AWS account.
-#
-# If branch protection is ever enforced again, "Infrastructure" must not be a
-# required check as it stands: a pull request these paths skip would wait for
-# it for ever.
 on:
   push:
     branches: [main]
-    paths:
-      - "infra/**"
-      - "deploy/**"
-      - ".github/workflows/**"
-      - "tests/test_deploy_*.py"
-      - "Makefile"
-      - "Dockerfile"
-      - ".dockerignore"
-      - "docker-compose.prod.yml"
   pull_request:
-    # The same list: keep the two alike.
-    paths:
-      - "infra/**"
-      - "deploy/**"
-      - ".github/workflows/**"
-      - "tests/test_deploy_*.py"
-      - "Makefile"
-      - "Dockerfile"
-      - ".dockerignore"
-      - "docker-compose.prod.yml"
 
 # As in `ci.yml`: a newer push to the same pull request cancels the older
 # run, and on `main` a run in progress is never cancelled.

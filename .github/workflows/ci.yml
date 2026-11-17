@@ -5,12 +5,11 @@ name: CI
 # runs `make smoke-prod` on pushes to `main` only. Every job is set-up followed
 # by one `make` invocation: nothing a gate does is written again here.
 #
-# Two more gates have workflows of their own, because a workflow can be
-# limited to the paths a change touches and a job cannot. The fast Python
-# suite (`fast.yml`, four shards at once) runs on a pull request only when
-# something it tests has changed. `make check-infra` (`infra.yml`) runs only
-# when the change touches the Terraform, the deploy files, a workflow or one
-# of the few other files that gate reads.
+# Two more gates have workflows of their own, from when a workflow could be
+# limited to the paths a change touches and a job could not: the fast Python
+# suite (`fast.yml`, four shards at once) and `make check-infra`
+# (`infra.yml`). Neither is limited now -- a required check a filter skips
+# never reports -- so both run on every pull request, as these jobs do.
 #
 # Pushes run for `main` only; every other branch is covered by its pull
 # request. That is what makes a push to a branch with an open pull request run
