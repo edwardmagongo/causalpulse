@@ -38,7 +38,7 @@ Corpus: 25 cases.
 | cite-each-status | 100 | 100 | 91 | 0 | 0 | 0 | 109 | $15.75 |
 | ungrounded | 100 | 0 | 0 | 100 | 0 | 0 | 100 | $11.24 |
 
-Judge: 299 verdicts, 0 unusable, 299 calls, $13.98.
+Judge: 498 verdicts, 0 unusable, 498 calls, $23.20.
 
 ## Pre-registered endpoints
 
@@ -65,15 +65,15 @@ D0 is the share of numeric spans that match no fact in the table. On a grounded 
 | D3 | 0% (at most 0.2%, 0/1997, 25 cases) | 0% (at most 3.0%, 0/99, 25 cases) | - | - |
 | D4 | 0.8% (15/1997, SE 0.3%, 25 cases) | 15.2% (15/99, SE 6.1%, 25 cases) | - | - |
 | D5 | 0% (at most 0.2%, 0/1997, 25 cases) | 0% (at most 3.0%, 0/99, 25 cases) | - | - |
-| J1 | - | - | - | - |
-| J2 | - | - | - | - |
-| J3 | - | - | - | - |
-| J4 | - | - | - | - |
-| J5 | - | - | - | - |
-| J6 | - | - | - | - |
-| J7 | - | - | - | - |
+| J1 | 0% (at most 0.2%, 0/1997, 25 cases) | 0% (at most 3.0%, 0/99, 25 cases) | - | - |
+| J2 | 0.1% (1/1997, SE 0.1%, 25 cases) | 1.0% (1/99, SE 1.0%, 25 cases) | - | - |
+| J3 | 0% (at most 0.2%, 0/1997, 25 cases) | 0% (at most 3.0%, 0/99, 25 cases) | - | - |
+| J4 | 0% (at most 0.2%, 0/1997, 25 cases) | 0% (at most 3.0%, 0/99, 25 cases) | - | - |
+| J5 | 0.1% (2/1997, SE 0.1%, 25 cases) | 2.0% (2/99, SE 1.4%, 25 cases) | - | - |
+| J6 | 0.2% (4/1997, SE 0.1%, 25 cases) | 4.0% (4/99, SE 1.9%, 25 cases) | - | - |
+| J7 | 0% (at most 0.2%, 0/1997, 25 cases) | 0% (at most 3.0%, 0/99, 25 cases) | - | - |
 | any_D | 1.0% (20/1997, SE 0.3%, 25 cases) | 19.2% (19/99, SE 6.0%, 25 cases) | - | - |
-| any_J | - | - | - | - |
+| any_J | 0.4% (7/1997, SE 0.1%, 25 cases) | 7.1% (7/99, SE 2.3%, 25 cases) | - | - |
 
 D4 summaries: 10 true, 0 false, 5 undetermined. Comparisons D1 left to the judge: 8.
 
@@ -87,15 +87,15 @@ D4 summaries: 10 true, 0 false, 5 undetermined. Comparisons D1 left to the judge
 | D3 | 0% (at most 0.1%, 0/2010, 25 cases) | 0% (at most 3.0%, 0/100, 25 cases) | - | - |
 | D4 | 0.0% (1/2010, SE 0.0%, 25 cases) | 1.0% (1/100, SE 1.0%, 25 cases) | - | - |
 | D5 | 0% (at most 0.1%, 0/2010, 25 cases) | 0% (at most 3.0%, 0/100, 25 cases) | - | - |
-| J1 | - | - | - | - |
-| J2 | - | - | - | - |
-| J3 | - | - | - | - |
-| J4 | - | - | - | - |
-| J5 | - | - | - | - |
-| J6 | - | - | - | - |
-| J7 | - | - | - | - |
+| J1 | 0.0% (1/2010, SE 0.0%, 25 cases) | 1.0% (1/100, SE 1.0%, 25 cases) | - | - |
+| J2 | 0% (at most 0.1%, 0/2010, 25 cases) | 0% (at most 3.0%, 0/100, 25 cases) | - | - |
+| J3 | 0.0% (1/2010, SE 0.0%, 25 cases) | 1.0% (1/100, SE 1.0%, 25 cases) | - | - |
+| J4 | 0% (at most 0.1%, 0/2010, 25 cases) | 0% (at most 3.0%, 0/100, 25 cases) | - | - |
+| J5 | 0% (at most 0.1%, 0/2010, 25 cases) | 0% (at most 3.0%, 0/100, 25 cases) | - | - |
+| J6 | 0.3% (6/2010, SE 0.1%, 25 cases) | 6.0% (6/100, SE 2.6%, 25 cases) | - | - |
+| J7 | 0% (at most 0.1%, 0/2010, 25 cases) | 0% (at most 3.0%, 0/100, 25 cases) | - | - |
 | any_D | 0.1% (3/2010, SE 0.1%, 25 cases) | 3.0% (3/100, SE 1.7%, 25 cases) | - | - |
-| any_J | - | - | - | - |
+| any_J | 0.4% (8/2010, SE 0.2%, 25 cases) | 8.0% (8/100, SE 3.1%, 25 cases) | - | - |
 
 D4 summaries: 0 true, 0 false, 1 undetermined. Comparisons D1 left to the judge: 8.
 
@@ -127,17 +127,17 @@ D4 summaries: 28 true, 9 false, 0 undetermined. Comparisons D1 left to the judge
 
 | Design | D0 | D1 | D2 | D3 | D4 | D5 | J1 | J2 | J3 | J4 | J5 | J6 | J7 | any_D | any_J |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| cross_section | 0% (at most 6.8%, 0/44, 11 cases) | 0% (at most 6.8%, 0/44, 11 cases) | 9.1% (4/44, SE 3.8%, 11 cases) | 0% (at most 6.8%, 0/44, 11 cases) | 4.5% (2/44, SE 4.5%, 11 cases) | 0% (at most 6.8%, 0/44, 11 cases) | - | - | - | - | - | - | - | 13.6% (6/44, SE 5.2%, 11 cases) | - |
-| donor_pool | 0% (at most 11.1%, 0/27, 7 cases) | 0% (at most 11.1%, 0/27, 7 cases) | 0% (at most 11.1%, 0/27, 7 cases) | 0% (at most 11.1%, 0/27, 7 cases) | 14.8% (4/27, SE 11.6%, 7 cases) | 0% (at most 11.1%, 0/27, 7 cases) | - | - | - | - | - | - | - | 14.8% (4/27, SE 11.6%, 7 cases) | - |
-| panel | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 3.6% (1/28, SE 3.6%, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 32.1% (9/28, SE 16.1%, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | - | - | - | - | - | - | - | 32.1% (9/28, SE 16.1%, 7 cases) | - |
+| cross_section | 0% (at most 6.8%, 0/44, 11 cases) | 0% (at most 6.8%, 0/44, 11 cases) | 9.1% (4/44, SE 3.8%, 11 cases) | 0% (at most 6.8%, 0/44, 11 cases) | 4.5% (2/44, SE 4.5%, 11 cases) | 0% (at most 6.8%, 0/44, 11 cases) | 0% (at most 6.8%, 0/44, 11 cases) | 0% (at most 6.8%, 0/44, 11 cases) | 0% (at most 6.8%, 0/44, 11 cases) | 0% (at most 6.8%, 0/44, 11 cases) | 0% (at most 6.8%, 0/44, 11 cases) | 2.3% (1/44, SE 2.3%, 11 cases) | 0% (at most 6.8%, 0/44, 11 cases) | 13.6% (6/44, SE 5.2%, 11 cases) | 2.3% (1/44, SE 2.3%, 11 cases) |
+| donor_pool | 0% (at most 11.1%, 0/27, 7 cases) | 0% (at most 11.1%, 0/27, 7 cases) | 0% (at most 11.1%, 0/27, 7 cases) | 0% (at most 11.1%, 0/27, 7 cases) | 14.8% (4/27, SE 11.6%, 7 cases) | 0% (at most 11.1%, 0/27, 7 cases) | 0% (at most 11.1%, 0/27, 7 cases) | 0% (at most 11.1%, 0/27, 7 cases) | 0% (at most 11.1%, 0/27, 7 cases) | 0% (at most 11.1%, 0/27, 7 cases) | 0% (at most 11.1%, 0/27, 7 cases) | 11.1% (3/27, SE 5.1%, 7 cases) | 0% (at most 11.1%, 0/27, 7 cases) | 14.8% (4/27, SE 11.6%, 7 cases) | 11.1% (3/27, SE 5.1%, 7 cases) |
+| panel | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 3.6% (1/28, SE 3.6%, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 32.1% (9/28, SE 16.1%, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 3.6% (1/28, SE 3.6%, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 7.1% (2/28, SE 4.6%, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 32.1% (9/28, SE 16.1%, 7 cases) | 10.7% (3/28, SE 5.1%, 7 cases) |
 
 ### cite-each-status
 
 | Design | D0 | D1 | D2 | D3 | D4 | D5 | J1 | J2 | J3 | J4 | J5 | J6 | J7 | any_D | any_J |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| cross_section | 0% (at most 6.8%, 0/44, 11 cases) | 2.3% (1/44, SE 2.3%, 11 cases) | 0% (at most 6.8%, 0/44, 11 cases) | 0% (at most 6.8%, 0/44, 11 cases) | 2.3% (1/44, SE 2.3%, 11 cases) | 0% (at most 6.8%, 0/44, 11 cases) | - | - | - | - | - | - | - | 4.5% (2/44, SE 3.0%, 11 cases) | - |
-| donor_pool | 0% (at most 10.7%, 0/28, 7 cases) | 3.6% (1/28, SE 3.6%, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | - | - | - | - | - | - | - | 3.6% (1/28, SE 3.6%, 7 cases) | - |
-| panel | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | - | - | - | - | - | - | - | 0% (at most 10.7%, 0/28, 7 cases) | - |
+| cross_section | 0% (at most 6.8%, 0/44, 11 cases) | 2.3% (1/44, SE 2.3%, 11 cases) | 0% (at most 6.8%, 0/44, 11 cases) | 0% (at most 6.8%, 0/44, 11 cases) | 2.3% (1/44, SE 2.3%, 11 cases) | 0% (at most 6.8%, 0/44, 11 cases) | 0% (at most 6.8%, 0/44, 11 cases) | 0% (at most 6.8%, 0/44, 11 cases) | 0% (at most 6.8%, 0/44, 11 cases) | 0% (at most 6.8%, 0/44, 11 cases) | 0% (at most 6.8%, 0/44, 11 cases) | 9.1% (4/44, SE 5.1%, 11 cases) | 0% (at most 6.8%, 0/44, 11 cases) | 4.5% (2/44, SE 3.0%, 11 cases) | 9.1% (4/44, SE 5.1%, 11 cases) |
+| donor_pool | 0% (at most 10.7%, 0/28, 7 cases) | 3.6% (1/28, SE 3.6%, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 3.6% (1/28, SE 3.6%, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 3.6% (1/28, SE 3.6%, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 3.6% (1/28, SE 3.6%, 7 cases) | 7.1% (2/28, SE 4.6%, 7 cases) |
+| panel | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 3.6% (1/28, SE 3.6%, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 3.6% (1/28, SE 3.6%, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 0% (at most 10.7%, 0/28, 7 cases) | 7.1% (2/28, SE 7.1%, 7 cases) |
 
 ### ungrounded
 
@@ -179,8 +179,8 @@ One judge prompt per column block, named by its version. Rates from different ju
 
 | Prompt | J1 | J2 | J3 | J4 | J5 | J6 | J7 | any_J |
 |---|---|---|---|---|---|---|---|---|
-| baseline | - | - | - | - | - | - | - | - |
-| cite-each-status | - | - | - | - | - | - | - | - |
+| baseline | 0% (at most 3.0%, 0/99, 25 cases) | 1.0% (1/99, SE 1.0%, 25 cases) | 0% (at most 3.0%, 0/99, 25 cases) | 0% (at most 3.0%, 0/99, 25 cases) | 2.0% (2/99, SE 1.4%, 25 cases) | 4.0% (4/99, SE 1.9%, 25 cases) | 0% (at most 3.0%, 0/99, 25 cases) | 7.1% (7/99, SE 2.3%, 25 cases) |
+| cite-each-status | 1.0% (1/100, SE 1.0%, 25 cases) | 0% (at most 3.0%, 0/100, 25 cases) | 1.0% (1/100, SE 1.0%, 25 cases) | 0% (at most 3.0%, 0/100, 25 cases) | 0% (at most 3.0%, 0/100, 25 cases) | 6.0% (6/100, SE 2.6%, 25 cases) | 0% (at most 3.0%, 0/100, 25 cases) | 8.0% (8/100, SE 3.1%, 25 cases) |
 | ungrounded | 4.0% (4/100, SE 1.9%, 25 cases) | 1.0% (1/100, SE 1.0%, 25 cases) | 0% (at most 3.0%, 0/100, 25 cases) | 0% (at most 3.0%, 0/100, 25 cases) | 1.0% (1/100, SE 1.0%, 25 cases) | 2.0% (2/100, SE 1.4%, 25 cases) | 2.0% (2/100, SE 2.0%, 25 cases) | 10.0% (10/100, SE 3.5%, 25 cases) |
 
 ### Judge cc407ff4d564
@@ -205,15 +205,15 @@ Exploratory, final narratives, per narrative:
 | D3 | +0.0 points (no spread across 25 cases; no interval) | 25 of 25 shared cases |
 | D4 | -15.0 points [-28.0, -2.0], 25 cases | 25 of 25 shared cases |
 | D5 | +0.0 points (no spread across 25 cases; no interval) | 25 of 25 shared cases |
-| J1 | - | 0 of 25 shared cases |
-| J2 | - | 0 of 25 shared cases |
-| J3 | - | 0 of 25 shared cases |
-| J4 | - | 0 of 25 shared cases |
-| J5 | - | 0 of 25 shared cases |
-| J6 | - | 0 of 25 shared cases |
-| J7 | - | 0 of 25 shared cases |
+| J1 | +1.0 points [-1.0, +3.0], 25 cases | 25 of 25 shared cases |
+| J2 | -1.0 points [-3.0, +1.0], 25 cases | 25 of 25 shared cases |
+| J3 | +1.0 points [-1.0, +3.0], 25 cases | 25 of 25 shared cases |
+| J4 | +0.0 points (no spread across 25 cases; no interval) | 25 of 25 shared cases |
+| J5 | -2.0 points [-4.7, +0.7], 25 cases | 25 of 25 shared cases |
+| J6 | +2.0 points [-4.3, +8.3], 25 cases | 25 of 25 shared cases |
+| J7 | +0.0 points (no spread across 25 cases; no interval) | 25 of 25 shared cases |
 | any_D | -17.0 points [-30.2, -3.8], 25 cases | 25 of 25 shared cases |
-| any_J | - | 0 of 25 shared cases |
+| any_J | +1.0 points [-5.6, +7.6], 25 cases | 25 of 25 shared cases |
 
 ## Comparison: ungrounded minus baseline
 
@@ -229,12 +229,12 @@ Exploratory, final narratives, per narrative:
 | D3 | +0.0 points (no spread across 25 cases; no interval) | 25 of 25 shared cases |
 | D4 | +15.0 points [+4.4, +25.6], 25 cases | 25 of 25 shared cases |
 | D5 | +0.0 points (no spread across 25 cases; no interval) | 25 of 25 shared cases |
-| J1 | - | 0 of 25 shared cases |
-| J2 | - | 0 of 25 shared cases |
-| J3 | - | 0 of 25 shared cases |
-| J4 | - | 0 of 25 shared cases |
-| J5 | - | 0 of 25 shared cases |
-| J6 | - | 0 of 25 shared cases |
-| J7 | - | 0 of 25 shared cases |
+| J1 | +4.0 points [+0.3, +7.7], 25 cases | 25 of 25 shared cases |
+| J2 | +0.0 points (no spread across 25 cases; no interval) | 25 of 25 shared cases |
+| J3 | +0.0 points (no spread across 25 cases; no interval) | 25 of 25 shared cases |
+| J4 | +0.0 points (no spread across 25 cases; no interval) | 25 of 25 shared cases |
+| J5 | -1.0 points [-3.0, +1.0], 25 cases | 25 of 25 shared cases |
+| J6 | -2.0 points [-5.9, +1.9], 25 cases | 25 of 25 shared cases |
+| J7 | +2.0 points [-1.9, +5.9], 25 cases | 25 of 25 shared cases |
 | any_D | +80.0 points [+67.7, +92.3], 25 cases | 25 of 25 shared cases |
-| any_J | - | 0 of 25 shared cases |
+| any_J | +3.0 points [-4.1, +10.1], 25 cases | 25 of 25 shared cases |
